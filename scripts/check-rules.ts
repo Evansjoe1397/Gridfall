@@ -1,8 +1,332 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { applyCommand, applyPinned, cellLabel, createInitialState as createGameInitialState, distance, drawCards, effectiveMoveRange, hasLineOfSight, kykDirectionAllowed, markCharacterMoved, revealCardToOpponent, type CardTypeId } from '../shared/game.ts';
+import { arenaForPlayerCount, LORDAERON_ARENA } from '../shared/arenas.ts';
+import { ACTION_QUEST_POOL, applyCommand, applyPinned, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, distance, drawCards, effectiveMoveRange, hasLineOfSight, kykDirectionAllowed, markCharacterMoved, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 const createInitialState = () => createGameInitialState('shinobi-vs-orkk');
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.durationRounds, 5);
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.reward, 'Portal Card');
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.durationRounds, 5);
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.reward, 'Vicious Mockery Card');
+
+const highgroundQuest = createInitialState() as any;
+highgroundQuest.players.P1.position = { x: 4, y: 3 };
+highgroundQuest.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['provocateur'], currentQuest: { id: 'provocateur', announcedRound: 1, endsAfterRound: 5, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: { P1: true } };
+highgroundQuest.players.P1.hand = [];
+const highgroundEnd = applyCommand(highgroundQuest, { type: 'end-turn', playerId: 'P1' });
+assert.equal(highgroundEnd.ok, true);
+if (highgroundEnd.ok) assert.equal((highgroundEnd.state as any).questPhases.currentQuest.progress.P1, 1, 'Provocateur counts a turn only when it starts and ends on High Ground.');
+
+const mockeryCombat = createInitialState();
+mockeryCombat.players.P1.position = { x: 2, y: 3 }; mockeryCombat.players.P2.position = { x: 3, y: 3 };
+mockeryCombat.players.P1.hand = [{ instanceId: 'mockery-attack', cardId: 'attack-2' }, { instanceId: 'combat-mockery', cardId: 'vicious-mockery' }];
+mockeryCombat.players.P2.hand = [{ instanceId: 'mockery-defense', cardId: 'defend-1' }];
+const mockeryAttack = applyCommand(mockeryCombat, { type: 'attack', playerId: 'P1', cardInstanceId: 'mockery-attack', targetId: 'P2' });
+assert.equal(mockeryAttack.ok, true);
+const mockeryDefend = mockeryAttack.ok ? applyCommand(mockeryAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'mockery-defense' }) : mockeryAttack;
+assert.equal(mockeryDefend.ok, true);
+if (mockeryDefend.ok) {
+  assert.equal(mockeryDefend.state.phase, 'choosing-vicious-mockery');
+  const useMockery = applyCommand(mockeryDefend.state, { type: 'vicious-mockery-decision', playerId: 'P1', use: true });
+  assert.equal(useMockery.ok, true);
+  if (useMockery.ok) {
+    assert.equal(useMockery.state.players.P2.hp, 24, 'Vicious Mockery adds +2 ATT before combat damage is resolved.');
+    assert.equal([...useMockery.state.players.P1.hand, ...useMockery.state.players.P1.deck, ...useMockery.state.players.P1.discard].some((card) => card.cardId === 'vicious-mockery'), false, 'Used Vicious Mockery is Removed from the game.');
+  }
+}
+
+const portalReward = createInitialState();
+portalReward.players.P1.hand = [{ instanceId: 'reward-portal', cardId: 'portal' }];
+const playPortal = applyCommand(portalReward, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'reward-portal', destination: 'direct' });
+assert.equal(playPortal.ok, true);
+if (playPortal.ok) {
+  const usePortal = applyCommand(playPortal.state, { type: 'portal-teleport', playerId: 'P1', to: { x: 3, y: 3 } });
+  assert.equal(usePortal.ok, true);
+  if (usePortal.ok) {
+    assert.deepEqual(usePortal.state.players.P1.position, { x: 3, y: 3 });
+    assert.equal(usePortal.state.players.P1.discard.some((card) => card.cardId === 'portal'), true, 'Portal behaves as a normal Perk and enters Discard after use.');
+  }
+}
+
+const fireballReward = createInitialState();
+fireballReward.players.P1.hand = [{ instanceId: 'reward-fireball', cardId: 'fireball' }];
+fireballReward.players.P2.position = { x: 3, y: 3 };
+const playFireball = applyCommand(fireballReward, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'reward-fireball', destination: 'direct' });
+assert.equal(playFireball.ok, true);
+if (playFireball.ok) {
+  assert.equal(playFireball.state.phase, 'choosing-fireball-target');
+  const hit = applyCommand(playFireball.state, { type: 'fireball-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(hit.ok, true);
+  if (hit.ok) {
+    assert.equal(hit.state.players.P2.hp, 23, 'Fireball deals 3 Damage.');
+    assert.equal([...hit.state.players.P1.hand, ...hit.state.players.P1.deck, ...hit.state.players.P1.discard].some((card) => card.cardId === 'fireball'), false, 'Fireball is Removed rather than discarded after use.');
+  }
+}
+
+const tiedDamageQuest = createInitialState() as any;
+tiedDamageQuest.turn = 3; tiedDamageQuest.activePlayerId = 'P2'; tiedDamageQuest.roundFirstPlayerId = 'P1'; tiedDamageQuest.players.P2.hand = [];
+tiedDamageQuest.questPhases = { actionDamageByPlayer: { P1: 5, P2: 5 }, usedQuestIds: ['damage-contest'], currentQuest: { id: 'damage-contest', announcedRound: 1, endsAfterRound: 3, winners: [], progress: { P1: 5, P2: 5 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveTie = applyCommand(tiedDamageQuest, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveTie.ok, true);
+if (resolveTie.ok) {
+  assert.deepEqual((resolveTie.state as any).questPhases.lastQuestWinners.sort(), ['P1', 'P2']);
+  assert.equal(resolveTie.state.players.P1.hand.some((card) => card.cardId === 'fireball'), true);
+  assert.equal(resolveTie.state.players.P2.hand.some((card) => card.cardId === 'fireball'), true, 'Every tied winner receives Fireball immediately.');
+}
+
+const rabbitProgress = createInitialState() as any;
+rabbitProgress.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['rabbit-run'], currentQuest: { id: 'rabbit-run', announcedRound: 1, endsAfterRound: 10, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null };
+rabbitProgress.players.P1.movementRemaining = 2;
+const rabbitMove = applyCommand(rabbitProgress, { type: 'move', playerId: 'P1', to: { x: 2, y: 3 } });
+assert.equal(rabbitMove.ok, true);
+if (rabbitMove.ok) {
+  rabbitMove.state.phase = 'choosing-preparation-teleport';
+  rabbitMove.state.preparation = { casterId: 'P1', consume: true, undo: null };
+  const rabbitTeleport = applyCommand(rabbitMove.state, { type: 'preparation-teleport', playerId: 'P1', to: { x: 3, y: 3 } });
+  assert.equal(rabbitTeleport.ok, true);
+  if (rabbitTeleport.ok) assert.equal((rabbitTeleport.state as any).questPhases.currentQuest.progress.P1, 2, 'Rabbit Run counts normal movement by distance and any teleport as exactly 1.');
+}
+
+const phaseBoundary = createHotseatTestState(true, 'shinobi') as any;
+phaseBoundary.turn = 10;
+phaseBoundary.activePlayerId = 'P3';
+phaseBoundary.roundFirstPlayerId = 'P1';
+phaseBoundary.players.P3.hand = [];
+const phaseBoundaryResult = applyCommand(phaseBoundary, { type: 'end-turn', playerId: 'P3' });
+assert.equal(phaseBoundaryResult.ok, true);
+if (phaseBoundaryResult.ok) {
+  assert.equal(phaseBoundaryResult.state.turn, 11, 'A new Round starts when play returns to the designated first Player.');
+  assert.equal(phaseBoundaryResult.state.phase, 'choosing-phase-card', 'The Phase One reward begins after Round 10.');
+  assert.equal((phaseBoundaryResult.state as any).questPhases.phaseReward.pendingPlayerIds.length, 1, 'Test Dummies do not receive player-only Phase choices.');
+  const phaseCard = applyCommand(phaseBoundaryResult.state, { type: 'phase-card-choice', playerId: 'P1', cardId: 'not-a-shinobi' });
+  assert.equal(phaseCard.ok, true, 'An Attack-focused Shinobi may select an available Defend Card at Phase One.');
+  if (phaseCard.ok) {
+    assert.equal(phaseCard.state.phase, 'active');
+    assert.equal(phaseCard.state.players.P1.deck.some((card) => card.cardId === 'not-a-shinobi'), true, 'A non-winner Phase Card is shuffled into the Deck.');
+    const phaseTwoState = phaseCard.state as any;
+    phaseTwoState.turn = 20;
+    phaseTwoState.activePlayerId = 'P3';
+    phaseTwoState.players.P3.hand = [];
+    phaseTwoState.questPhases.lastQuestWinners = ['P1'];
+    const phaseTwoBoundary = applyCommand(phaseTwoState, { type: 'end-turn', playerId: 'P3' });
+    assert.equal(phaseTwoBoundary.ok, true);
+    if (phaseTwoBoundary.ok) {
+      const perkChoice = applyCommand(phaseTwoBoundary.state, { type: 'phase-card-choice', playerId: 'P1', cardId: 'swiftform' });
+      assert.equal(perkChoice.ok, true);
+      if (perkChoice.ok) {
+        assert.equal(perkChoice.state.phase, 'choosing-phase-destination', 'The previous Quest winner chooses where to add a Phase Card.');
+        const addToHand = applyCommand(perkChoice.state, { type: 'phase-card-destination', playerId: 'P1', destination: 'hand' });
+        assert.equal(addToHand.ok, true);
+        if (addToHand.ok) assert.equal(addToHand.state.players.P1.hand.some((card) => card.cardId === 'swiftform'), true, 'Winner may add the Phase reward directly to Hand.');
+      }
+    }
+  }
+}
+assert.equal(arenaForPlayerCount(3).id, 'lordaeron');
+assert.equal(LORDAERON_ARENA.width, 8);
+assert.equal(LORDAERON_ARENA.height, 11);
+assert.deepEqual(LORDAERON_ARENA.pillars, ['B2', 'G10']);
+assert.deepEqual(LORDAERON_ARENA.boxes, ['B3', 'D10', 'F5']);
+assert.equal(LORDAERON_ARENA.highground.length, 8);
+assert.equal(LORDAERON_ARENA.highgroundProtected.length, 16);
+assert.deepEqual(LORDAERON_ARENA.bases.P1, ['B7', 'B8']);
+assert.deepEqual(LORDAERON_ARENA.bases.P2, ['F2', 'G2']);
+assert.deepEqual(LORDAERON_ARENA.bases.P3, ['G7', 'G8']);
+const lordMultiplayer = createLordaeronMultiplayerState({ P1: 'magician', P2: 'orkk', P3: 'shinobi' }) as LordaeronGameState;
+assert.equal(lordMultiplayer.phase, 'choosing-focus');
+assert.equal(Object.keys(lordMultiplayer.players).length, 3);
+assert.deepEqual(lordMultiplayer.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)).sort(), ['B3', 'D10', 'F5'], 'Three-player multiplayer loads every Lordaeron box.');
+let lordReady = lordMultiplayer as any;
+for (const [playerId, cardId] of [['P1', 'mana-barrage'], ['P2', 'chip-cast'], ['P3', 'cut-them-legs']] as const) {
+  const focusResult = applyCommand(lordReady, { type: 'choose-focus', playerId, focus: 'attack' });
+  assert.equal(focusResult.ok, true);
+  const cardResult = focusResult.ok ? applyCommand(focusResult.state, { type: 'choose-focus-card', playerId, cardId }) : focusResult;
+  assert.equal(cardResult.ok, true);
+  if (cardResult.ok) lordReady = cardResult.state;
+}
+assert.equal(lordReady.phase, 'choosing-base-placement');
+assert.equal(lordReady.players.P1.hand.length, 3);
+assert.equal(lordReady.players.P1.deck.length, 7);
+assert.equal(lordReady.players.P1.hand.some((card: any) => card.cardId === 'preparation'), true);
+assert.equal(lordReady.players.P1.deck.at(-1)?.cardId, 'mana-barrage');
+const deploymentOrder = lordReady.lordaeronPlacement!.order;
+const firstPlacement = applyCommand(lordReady, { type: 'place-character', playerId: deploymentOrder[0], to: { x: 2, y: 6 } });
+assert.equal(firstPlacement.ok, true);
+if (firstPlacement.ok) {
+  const firstState = firstPlacement.state as LordaeronGameState;
+  assert.equal(firstState.lordaeronPlacement!.availableBaseIds.length, 2);
+  const secondPlacement = applyCommand(firstState, { type: 'place-character', playerId: deploymentOrder[1], to: { x: 6, y: 1 } });
+  assert.equal(secondPlacement.ok, true);
+  if (secondPlacement.ok) {
+    const secondState = secondPlacement.state as LordaeronGameState;
+    assert.equal(secondState.lordaeronPlacement!.availableBaseIds.length, 1);
+    const thirdPlacement = applyCommand(secondState, { type: 'place-character', playerId: deploymentOrder[2], to: { x: 7, y: 6 } });
+    assert.equal(thirdPlacement.ok, true);
+    if (thirdPlacement.ok) {
+      assert.equal(thirdPlacement.state.phase, 'active');
+      assert.equal(thirdPlacement.state.activePlayerId, deploymentOrder[0]);
+      assert.equal(Boolean((thirdPlacement.state as any).questPhases.currentQuest), true, 'The first Action Quest is announced when multiplayer deployment completes.');
+      for (const player of Object.values(thirdPlacement.state.players)) {
+        assert.equal(player.hand.length, 3, 'Every multiplayer player begins with two shuffled default Cards and their Reserve Card.');
+        assert.equal(player.deck.length, 7, 'Every multiplayer player begins with a ten-Card starting Deck split between Hand and Deck.');
+      }
+    }
+  }
+}
+const multiplayerLogan = createMultiplayerState({ P1: 'magician', P2: 'magician' });
+assert.equal(multiplayerLogan.players.P1.name, 'Long Hat Logan');
+assert.equal(multiplayerLogan.players.P2.name, 'Long Hat Logan');
+assert.equal(multiplayerLogan.phase, 'choosing-focus');
+assert.equal(multiplayerLogan.players.P1.hand.length, 0);
+const loganTestState = createHotseatTestState();
+assert.equal(loganTestState.boardSize, 11);
+assert.equal(loganTestState.objects.length, 5);
+assert.deepEqual(loganTestState.objects.map((object) => cellLabel(object.position)).sort(), ['B2', 'B3', 'D10', 'F5', 'G10']);
+assert.equal(loganTestState.players.P1.character, 'magician');
+assert.equal(loganTestState.players.P1.name, 'Long Hat Logan');
+assert.equal(loganTestState.players.P1.maxHp, 18);
+assert.equal(loganTestState.players.P1.moveRange, 2);
+assert.equal(loganTestState.players.P1.attackRange, 3);
+assert.equal(loganTestState.phase, 'choosing-focus');
+assert.equal(loganTestState.players.P1.hand.length, 0);
+assert.equal(loganTestState.players.P2.character, 'dummy');
+assert.equal(loganTestState.players.P2.hand.length, 5);
+assert.equal(loganTestState.players.P3.character, 'dummy');
+assert.equal(loganTestState.players.P3.name, 'Test Dummy 2');
+assert.equal(loganTestState.players.P3.hand.length, 5);
+assert.equal(cellLabel(loganTestState.players.P3.position), 'G7');
+assert.equal(loganTestState.players.P2.hand.every((instance) => ['attack-2', 'attack-3', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse'].includes(instance.cardId)), true);
+const chainTest = createHotseatTestState(true);
+chainTest.players.P1.position = { x: 1, y: 3 };
+chainTest.players.P2.position = { x: 4, y: 3 };
+chainTest.objects.push({ id: 'chain-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 3 } });
+const chainCard = chainTest.players.P1.hand.find((card) => card.cardId === 'chain-lightning')!;
+const startChain = applyCommand(chainTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: chainCard.instanceId, destination: 'direct' });
+assert.equal(startChain.ok, true);
+if (startChain.ok) {
+  assert.equal(startChain.state.phase, 'choosing-chain-lightning-target');
+  const resolveChain = applyCommand(startChain.state, { type: 'chain-lightning-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(resolveChain.ok, true);
+  if (resolveChain.ok) {
+    assert.equal(resolveChain.state.players.P2.hp, 19);
+    assert.equal(resolveChain.state.objects.some((object) => object.id === 'chain-box'), false);
+  }
+}
+const magicHandTest = createHotseatTestState(true);
+magicHandTest.players.P1.position = { x: 1, y: 0 };
+magicHandTest.objects.push({ id: 'magic-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 0 } });
+magicHandTest.players.P1.manaMode = 'consume';
+const magicCard = magicHandTest.players.P1.hand.find((card) => card.cardId === 'magic-hand')!;
+const startMagic = applyCommand(magicHandTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: magicCard.instanceId, destination: 'direct' });
+assert.equal(startMagic.ok, true);
+if (startMagic.ok) {
+  const targetMagic = applyCommand(startMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'magic-box' });
+  assert.equal(targetMagic.ok, true);
+  if (targetMagic.ok) {
+    const resolveMagic = applyCommand(targetMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 0 } });
+    assert.equal(resolveMagic.ok, true);
+    if (resolveMagic.ok) assert.deepEqual(resolveMagic.state.objects.find((object) => object.id === 'magic-box')?.position, { x: 8, y: 0 });
+  }
+}
+const shizzleTest = createHotseatTestState(true);
+shizzleTest.players.P1.position = { x: 1, y: 0 };
+shizzleTest.players.P2.position = { x: 3, y: 0 };
+const shizzleCard = shizzleTest.players.P1.hand.find((card) => card.cardId === 'shizzle')!;
+const startShizzle = applyCommand(shizzleTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: shizzleCard.instanceId, destination: 'direct' });
+assert.equal(startShizzle.ok, true);
+if (startShizzle.ok) {
+  const resolveShizzle = applyCommand(startShizzle.state, { type: 'shizzle-destination', playerId: 'P1', to: { x: 4, y: 0 } });
+  assert.equal(resolveShizzle.ok, true);
+  if (resolveShizzle.ok) {
+    assert.deepEqual(resolveShizzle.state.players.P1.position, { x: 4, y: 0 });
+    assert.equal(resolveShizzle.state.players.P2.hp, 20);
+  }
+}
+const loganManaState = createHotseatTestState(true);
+loganManaState.activePlayerId = 'P3';
+loganManaState.players.P1.manaPoints = 3;
+const loganManaPrompt = applyCommand(loganManaState, { type: 'end-turn', playerId: 'P3' });
+assert.equal(loganManaPrompt.ok, true);
+if (loganManaPrompt.ok) {
+  assert.equal(loganManaPrompt.state.turn, 2, 'A new Round begins when play returns to the first Player.');
+  assert.equal(loganManaPrompt.state.phase, 'choosing-mana-mode');
+  assert.equal(loganManaPrompt.state.pendingManaChoice, 'P1');
+  const consumeMana = applyCommand(loganManaPrompt.state, { type: 'mana-choice', playerId: 'P1', consume: true });
+  assert.equal(consumeMana.ok, true);
+  if (consumeMana.ok) {
+    assert.equal(consumeMana.state.players.P1.manaPoints, 0);
+    assert.equal(consumeMana.state.players.P1.manaMode, 'consume');
+    assert.equal(consumeMana.state.phase, 'active');
+  }
+}
+
+const roundCounterState = createHotseatTestState(true);
+for (const player of Object.values(roundCounterState.players)) player.hand = [];
+const afterFirstMove = applyCommand(roundCounterState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(afterFirstMove.ok, true);
+if (afterFirstMove.ok) {
+  assert.equal(afterFirstMove.state.turn, 1);
+  const afterSecondMove = applyCommand(afterFirstMove.state, { type: 'end-turn', playerId: 'P2' });
+  assert.equal(afterSecondMove.ok, true);
+  if (afterSecondMove.ok) {
+    assert.equal(afterSecondMove.state.turn, 1);
+    const afterThirdMove = applyCommand(afterSecondMove.state, { type: 'end-turn', playerId: 'P3' });
+    assert.equal(afterThirdMove.ok, true);
+    if (afterThirdMove.ok) assert.equal(afterThirdMove.state.turn, 2);
+  }
+}
+
+const blinkDeckSearch = createHotseatTestState(true);
+blinkDeckSearch.activePlayerId = 'P2';
+blinkDeckSearch.players.P1.position = { x: 1, y: 0 };
+blinkDeckSearch.players.P2.position = { x: 2, y: 0 };
+blinkDeckSearch.players.P1.manaPoints = 0;
+blinkDeckSearch.players.P1.hand = [{ instanceId: 'blink-defense', cardId: 'blink' }];
+blinkDeckSearch.players.P1.deck = [
+  { instanceId: 'blink-non-status-below', cardId: 'arcane-bolt' },
+  { instanceId: 'blink-status-on-top', cardId: 'headache' },
+];
+blinkDeckSearch.players.P1.discard = [];
+blinkDeckSearch.players.P2.hand = [{ instanceId: 'blink-test-attack', cardId: 'attack-2' }];
+const blinkAttack = applyCommand(blinkDeckSearch, { type: 'attack', playerId: 'P2', cardInstanceId: 'blink-test-attack', targetId: 'P1' });
+assert.equal(blinkAttack.ok, true);
+if (blinkAttack.ok) {
+  const blinkDefense = applyCommand(blinkAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'blink-defense' });
+  assert.equal(blinkDefense.ok, true);
+  if (blinkDefense.ok) {
+    assert.equal(blinkDefense.state.players.P1.hp, 18, 'Blink blocks combat damage.');
+    assert.deepEqual(blinkDefense.state.players.P1.deck.map((card) => card.cardId), ['headache'], 'Blink skips a Status Card on top while searching the Deck.');
+    assert.equal(blinkDefense.state.players.P1.discard.some((card) => card.cardId === 'arcane-bolt'), true, 'Blink discards the first non-Status Card found below the top Status Card.');
+  }
+}
+
+const blinkHandChoice = createHotseatTestState(true);
+blinkHandChoice.activePlayerId = 'P2';
+blinkHandChoice.players.P1.position = { x: 1, y: 0 };
+blinkHandChoice.players.P2.position = { x: 2, y: 0 };
+blinkHandChoice.players.P1.manaPoints = 0;
+blinkHandChoice.players.P1.hand = [
+  { instanceId: 'blink-choice-defense', cardId: 'blink' },
+  { instanceId: 'blink-choice-one', cardId: 'spellblock' },
+  { instanceId: 'blink-choice-two', cardId: 'counterspell' },
+];
+blinkHandChoice.players.P2.hand = [{ instanceId: 'blink-choice-attack', cardId: 'attack-2' }];
+const blinkChoiceAttack = applyCommand(blinkHandChoice, { type: 'attack', playerId: 'P2', cardInstanceId: 'blink-choice-attack', targetId: 'P1' });
+assert.equal(blinkChoiceAttack.ok, true);
+if (blinkChoiceAttack.ok) {
+  const blinkChoiceDefense = applyCommand(blinkChoiceAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'blink-choice-defense' });
+  assert.equal(blinkChoiceDefense.ok, true);
+  if (blinkChoiceDefense.ok) {
+    assert.equal(blinkChoiceDefense.state.phase, 'choosing-blink-discard');
+    assert.equal(blinkChoiceDefense.state.players.P1.hand.some((card) => card.instanceId === 'blink-choice-one'), true);
+    const chosenBlinkDiscard = applyCommand(blinkChoiceDefense.state, { type: 'blink-discard', playerId: 'P1', cardInstanceId: 'blink-choice-two' });
+    assert.equal(chosenBlinkDiscard.ok, true);
+    if (chosenBlinkDiscard.ok) {
+      assert.equal(chosenBlinkDiscard.state.players.P1.hand.some((card) => card.instanceId === 'blink-choice-one'), true);
+      assert.equal(chosenBlinkDiscard.state.players.P1.discard.some((card) => card.instanceId === 'blink-choice-two'), true);
+    }
+  }
+}
 
 const defaultLineup = createGameInitialState();
 assert.equal(defaultLineup.players.P1.name, 'Da Orkk');
@@ -676,8 +1000,10 @@ if (losingDisarm.ok) {
   assert.equal(defendedDisarm.ok, true);
 if (defendedDisarm.ok) {
     assert.equal(defendedDisarm.state.players.P2.hp, 26);
-    assert.equal(defendedDisarm.state.players.P2.pinnedStacks, 1);
+    assert.equal(defendedDisarm.state.players.P2.pinnedStacks, 0);
     assert.equal(defendedDisarm.state.players.P2.hand[0]?.revealedToOpponent, true);
+    assert.equal(defendedDisarm.state.players.P2.hand.at(-1)?.cardId, 'exhaust');
+    assert.equal(defendedDisarm.state.players.P2.hand.at(-1)?.revealedToOpponent, true);
     assert.equal(defendedDisarm.state.phase, 'active');
   }
 }
