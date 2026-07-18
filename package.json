@@ -4,14 +4,32 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "check:rules": "tsx scripts/check-rules.ts",
     "build": "vite build",
+    "start": "tsx server/index.ts",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.1",
+    "@types/three": "^0.185.1",
+    "concurrently": "^10.0.3",
+    "fast-check": "^4.9.0",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
     "vite": "^8.0.1"
   },
   "dependencies": {
-    "three": "^0.183.2"
+    "@colyseus/sdk": "^0.17.43",
+    "@colyseus/ws-transport": "^0.17.13",
+    "colyseus": "^0.17.10",
+    "express": "^5.2.1",
+    "three": "^0.183.2",
+    "xstate": "^5.32.4",
+    "zod": "^4.4.3"
   }
 }
