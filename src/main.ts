@@ -80,6 +80,7 @@ app.innerHTML = `
       </div>
       <aside class="battle-log"><span>COMBAT FEED</span><div id="log"></div></aside>
     </section>
+    <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong></div>
     <div class="choice-modal hidden" id="flurryModal"></div>
     <div class="choice-modal hidden" id="armDaWizModal"></div>
     <div class="choice-modal hidden" id="manaModal"></div>
@@ -97,7 +98,9 @@ type GameFormat = 'duel' | 'ffa';
 type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, 'shinobi' | 'orkk' | 'magician'>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
-let initialCameraKey = '';
+let hiddenQuestRewardId: string | null = null;
+let announcedTurnKey = '';
+let turnAnnouncementTimer = 0;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 selection.subscribe(() => renderUI());
@@ -202,18 +205,16 @@ function startHotseat(character: 'shinobi' | 'orkk' | 'magician', format: GameFo
   gameState = createHotseatTestState(false, character, format === 'ffa' ? 3 : 2);
   boardVisualKey = '';
   fittedArenaKey = '';
-  initialCameraKey = '';
   lobby.classList.add('hidden');
   game.classList.remove('hidden');
   byId('connection').innerHTML = '<span></span> Hotseat match';
   renderAll();
-  requestAnimationFrame(() => { resize(); initializePlayerCamera(); });
+  requestAnimationFrame(resize);
 }
 
 async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel') {
   try {
     roomIdAutoSelected = false;
-    initialCameraKey = '';
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
     const client = new Client(endpoint);
     const password = (document.querySelector<HTMLInputElement>('#password')!).value;
@@ -226,7 +227,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       room = await client.joinById(roomId, { password });
     }
     mode = 'online';
-    room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); requestAnimationFrame(initializePlayerCamera); });
+    room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
@@ -237,8 +238,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
         fittedArenaKey = '';
       }
       selection.send({ type: 'CLEAR' });
-      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
-      requestAnimationFrame(() => { resize(); initializePlayerCamera(); });
+      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll(); requestAnimationFrame(resize);
     });
     room.onMessage('error', (message: string) => notify(message));
     room.onMessage('notice', (message: string) => notify(message));
@@ -375,7 +375,11 @@ function renderUI() {
   const actor = gameState.players[gameState.activePlayerId];
   byId('turnNumber').textContent = `ROUND ${String(gameState.turn).padStart(2, '0')}`;
   byId('turnLabel').textContent = gameState.phase === 'finished' ? `${gameState.players[gameState.winner!].name} wins` : `${actor.name}'s turn`;
+  const activeColor = playerUiColor(actor.id);
+  byId('turnLabel').style.color = activeColor;
+  byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
+  showTurnAnnouncement(actor);
   byId('activeName').textContent = actor.name;
   byId('activePosition').textContent = `POSITION ${cellLabel(actor.position)} · MOVE ${actor.movementRemaining}/${effectiveMoveRange(actor)} · ACTIONS ${actor.actionsRemaining}/2`;
   byId('piles').innerHTML = `<span>DECK <b>${actor.deck.length}</b></span><span>HAND <b>${actor.hand.length}</b></span><span>DISCARD <b>${actor.discard.length}</b></span>`;
@@ -448,6 +452,26 @@ function renderFighter(id: PlayerId, elementId: string) {
   const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}<small>${player.manaMode === 'consume' ? 'CONSUME' : 'GENERATE'}</small></div>` : '';
   const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
   byId(elementId).innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i></div>${mana}${orkkIndicators}`;
+}
+
+function playerUiColor(playerId: PlayerId) {
+  return playerId === 'P1' ? '#45c8ff' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
+}
+
+function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
+  if (gameState.phase === 'finished' || ['choosing-focus', 'choosing-focus-card', 'choosing-base-placement'].includes(gameState.phase)) return;
+  const turnKey = `${gameState.turn}:${player.id}`;
+  if (announcedTurnKey === turnKey) return;
+  announcedTurnKey = turnKey;
+  const announcement = byId('turnAnnouncement');
+  const color = playerUiColor(player.id);
+  announcement.style.setProperty('--turn-color', color);
+  announcement.querySelector('strong')!.textContent = `${player.name}'s turn`;
+  announcement.classList.remove('hidden', 'visible');
+  void announcement.offsetWidth;
+  announcement.classList.add('visible');
+  window.clearTimeout(turnAnnouncementTimer);
+  turnAnnouncementTimer = window.setTimeout(() => announcement.classList.add('hidden'), 2200);
 }
 
 function renderCharacterTraits() {
@@ -643,8 +667,19 @@ function renderActionQuestPanel() {
   const definition = ACTION_QUEST_POOL.find((quest) => quest.id === current.id);
   const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : null;
   const rewardCard = rewardCardId ? cardDefinition({ instanceId: '', cardId: rewardCardId as any }) : null;
+  const rewardHidden = hiddenQuestRewardId === current.id;
   const highest = Math.max(1, ...Object.values(gameState.players).map((player) => current.progress[player.id] ?? 0));
-  panel.innerHTML = `<span>ACTION QUEST · ROUND ${current.announcedRound}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(definition?.condition ?? '')}</small>${rewardCard ? `<button class="quest-reward-card ${rewardCard.kind}" data-quest-reward-preview="${rewardCard.id}"><span>REWARD</span><strong>${escapeHtml(rewardCard.name)}</strong><small>${escapeHtml(rewardCard.effectText ?? '')}</small></button>` : `<small>Reward: ${escapeHtml(definition?.reward ?? 'None')}</small>`}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = player.id === 'P1' ? '#45c8ff' : player.id === 'P2' ? '#ff5d68' : '#a06cff'; return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  const rewardMarkup = rewardCard
+    ? rewardHidden
+      ? `<button class="quest-reward-toggle" id="questRewardToggle">SHOW REWARD</button>`
+      : `<div class="quest-reward-card ${rewardCard.kind}" data-quest-reward-preview="${rewardCard.id}" tabindex="0"><span>REWARD</span><strong>${escapeHtml(rewardCard.name)}</strong><small>${escapeHtml(rewardCard.effectText ?? '')}</small><button class="quest-reward-hide" id="questRewardHide" type="button">HIDE</button></div>`
+    : `<small>Reward: ${escapeHtml(definition?.reward ?? 'None')}</small>`;
+  panel.innerHTML = `<span>ACTION QUEST · ROUND ${current.announcedRound}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(definition?.condition ?? '')}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = player.id === 'P1' ? '#45c8ff' : player.id === 'P2' ? '#ff5d68' : '#a06cff'; return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  panel.querySelector<HTMLButtonElement>('#questRewardToggle, #questRewardHide')?.addEventListener('click', () => {
+    hiddenQuestRewardId = rewardHidden ? null : current.id;
+    hideCardPreview();
+    renderActionQuestPanel();
+  });
   panel.querySelector<HTMLElement>('[data-quest-reward-preview]')?.addEventListener('pointerenter', (event) => showCardPreview((event.currentTarget as HTMLElement).dataset.questRewardPreview!));
   panel.querySelector<HTMLElement>('[data-quest-reward-preview]')?.addEventListener('pointerleave', hideCardPreview);
 }
@@ -1083,11 +1118,19 @@ function updateCameraMovement(deltaSeconds: number) {
   if (movement.lengthSq() === 0) return;
   movement.normalize().multiplyScalar(5 * deltaSeconds);
   const nextTarget = controls.target.clone().add(movement);
-  nextTarget.x = THREE.MathUtils.clamp(nextTarget.x, -8.5, 8.5);
-  nextTarget.z = THREE.MathUtils.clamp(nextTarget.z, -8.5, 8.5);
+  const movementRadius = cameraMovementRadius();
+  nextTarget.x = THREE.MathUtils.clamp(nextTarget.x, -movementRadius, movementRadius);
+  nextTarget.z = THREE.MathUtils.clamp(nextTarget.z, -movementRadius, movementRadius);
   const appliedMovement = nextTarget.sub(controls.target);
   camera.position.add(appliedMovement);
   controls.target.add(appliedMovement);
+}
+
+function cameraMovementRadius() {
+  const halfWidth = Math.max(1, visualBoardWidth() - 1) * 0.96;
+  const halfHeight = Math.max(1, visualBoardHeight() - 1) * 0.96;
+  const boardRadius = Math.max(halfWidth, halfHeight);
+  return boardRadius + Math.max(4, boardRadius * 0.35);
 }
 
 function createCell(cell: Cell) {
@@ -1338,37 +1381,6 @@ function fitCameraToArena(width: number, height: number) {
   camera.position.copy(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
-}
-
-function initializePlayerCamera() {
-  if (game.classList.contains('hidden') || gameState.turn !== 1) return;
-  const seat = mode === 'online' ? localSeat : 'P1';
-  if (!seat) return;
-  const sessionId = mode === 'online' ? room?.roomId ?? 'online' : 'hotseat';
-  const cameraKey = `${sessionId}:${seat}:${visualBoardWidth()}x${visualBoardHeight()}`;
-  if (initialCameraKey === cameraKey) return;
-
-  const middleX = (visualBoardWidth() + 1) / 2;
-  const middleY = (visualBoardHeight() - 1) / 2;
-  const columns = [...new Set([Math.floor(middleX), Math.ceil(middleX)])];
-  const rows = [...new Set([Math.floor(middleY) - 1, Math.floor(middleY), Math.ceil(middleY), Math.ceil(middleY) + 1])]
-    .filter((row) => row >= 0 && row < visualBoardHeight());
-  const centralSquares = rows.flatMap((y) => columns.map((x) => ({ x, y })));
-  if (centralSquares.length === 0) return;
-
-  let hash = 2166136261;
-  for (const character of sessionId) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  const seatOffset = seat === 'P1' ? 0 : seat === 'P2' ? 1 : 2;
-  const selectedSquare = centralSquares[(Math.abs(hash) + seatOffset) % centralSquares.length];
-  const target = worldPosition(selectedSquare);
-  const spanX = Math.max(1, visualBoardWidth() - 1) * 1.92;
-  const spanZ = Math.max(1, visualBoardHeight() - 1) * 1.92;
-  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
-  const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
-  controls.target.copy(target);
-  camera.position.copy(target).add(viewingDirection.multiplyScalar(cameraDistance));
-  controls.update();
-  initialCameraKey = cameraKey;
 }
 
 function worldPosition(cell: Cell) {
