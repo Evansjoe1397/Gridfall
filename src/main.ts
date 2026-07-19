@@ -926,14 +926,10 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-  if (event.code === 'KeyC') {
-    const centeredTarget = worldPosition({ x: 1, y: 0 });
-    centeredTarget.y = controls.target.y;
-    const offset = centeredTarget.clone().sub(controls.target);
-    camera.position.add(offset);
-    controls.target.copy(centeredTarget);
-    controls.update();
+  if (event.code === 'Home') {
+    fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
     cameraKeys.clear();
+    notify('Camera angle and zoom reset to the arena.');
     event.preventDefault();
     return;
   }
@@ -1146,14 +1142,6 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
   const first = worldPosition({ x: 1, y: 0 });
   const last = worldPosition({ x: width, y: height - 1 });
   return first.add(last).multiplyScalar(.5).setY(.12);
-}
-
-function cameraViewportProfile(width = boardEl.clientWidth, height = boardEl.clientHeight) {
-  const aspect = width / Math.max(1, height);
-  if (height <= 660) return aspect >= 2.4 ? 'extra-short-wide' : 'extra-short';
-  if (height <= 780) return aspect >= 2.1 ? 'laptop-wide' : 'laptop';
-  if (aspect < 1.35) return 'narrow';
-  return 'desktop';
 }
 
 function createCell(cell: Cell) {
@@ -1389,9 +1377,7 @@ function rebuildBoardGeometry(width: number, height: number) {
 }
 
 function fitCameraToArena(width: number, height: number, force = false) {
-  const viewportWidth = Math.max(1, boardEl.clientWidth);
-  const viewportHeight = Math.max(1, boardEl.clientHeight);
-  const arenaKey = `${width}x${height}:${cameraViewportProfile(viewportWidth, viewportHeight)}`;
+  const arenaKey = `${width}x${height}`;
   if (!force && fittedArenaKey === arenaKey) return;
   fittedArenaKey = arenaKey;
 
@@ -1400,9 +1386,7 @@ function fitCameraToArena(width: number, height: number, force = false) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
-  const aspect = viewportWidth / viewportHeight;
-  const shortViewportAdjustment = aspect > 2.4 ? 1.16 : aspect > 1.9 ? 1.08 : 1;
-  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65 * shortViewportAdjustment);
+  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
   const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
   const center = boardCenterWorld(width, height);
   controls.target.copy(center);
