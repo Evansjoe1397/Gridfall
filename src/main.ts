@@ -1786,22 +1786,12 @@ function onCameraRotateStart(event: PointerEvent) {
 function onCameraGrabMove(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
   const dx = event.clientX - cameraGrab.lastX;
-  const dy = event.clientY - cameraGrab.lastY;
   cameraGrab.lastX = event.clientX;
   cameraGrab.lastY = event.clientY;
-  if (dx === 0 && dy === 0) return;
+  if (dx === 0) return;
 
   const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * .005);
   rotateCameraPoseAroundPivot(yaw, cameraGrab.pivot);
-
-  const offset = camera.position.clone().sub(cameraGrab.pivot);
-  const currentPolar = Math.acos(THREE.MathUtils.clamp(offset.y / Math.max(.001, offset.length()), -1, 1));
-  const desiredPolar = THREE.MathUtils.clamp(currentPolar - dy * .005, controls.minPolarAngle, controls.maxPolarAngle);
-  const pitch = desiredPolar - currentPolar;
-  if (Math.abs(pitch) > .0001) {
-    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
-    rotateCameraPoseAroundPivot(new THREE.Quaternion().setFromAxisAngle(cameraRight, pitch), cameraGrab.pivot);
-  }
   levelCameraHorizon();
   camera.updateMatrixWorld(true);
   event.preventDefault();
