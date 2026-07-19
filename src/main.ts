@@ -1135,7 +1135,7 @@ function cameraMovementRadius() {
   const halfWidth = Math.max(1, visualBoardWidth() - 1) * 0.96;
   const halfHeight = Math.max(1, visualBoardHeight() - 1) * 0.96;
   const boardRadius = Math.max(halfWidth, halfHeight);
-  return boardRadius + Math.max(4, boardRadius * 0.35);
+  return boardRadius * 4 + 8;
 }
 
 function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight()) {
@@ -1386,13 +1386,38 @@ function fitCameraToArena(width: number, height: number, force = false) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
-  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
   const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
   const center = boardCenterWorld(width, height);
+  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ);
   controls.target.copy(center);
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
+}
+
+function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vector3, spanX: number, spanZ: number) {
+  const margin = 1.25;
+  const corners = [
+    new THREE.Vector3(center.x - spanX / 2 - margin, 0, center.z - spanZ / 2 - margin),
+    new THREE.Vector3(center.x + spanX / 2 + margin, 0, center.z - spanZ / 2 - margin),
+    new THREE.Vector3(center.x - spanX / 2 - margin, 0, center.z + spanZ / 2 + margin),
+    new THREE.Vector3(center.x + spanX / 2 + margin, 0, center.z + spanZ / 2 + margin),
+  ];
+  let near = 12;
+  let far = 80;
+  for (let iteration = 0; iteration < 24; iteration++) {
+    const distance = (near + far) / 2;
+    camera.position.copy(center).addScaledVector(viewingDirection, distance);
+    camera.lookAt(center);
+    camera.updateMatrixWorld(true);
+    const fits = corners.every((corner) => {
+      const projected = corner.clone().project(camera);
+      return Math.abs(projected.x) <= .9 && Math.abs(projected.y) <= .86;
+    });
+    if (fits) far = distance;
+    else near = distance;
+  }
+  return far;
 }
 
 function worldPosition(cell: Cell) {
