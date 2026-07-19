@@ -1391,7 +1391,7 @@ function fitCameraToArena(width: number, height: number, force = false) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
-  const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
+  const viewingDirection = new THREE.Vector3(1, 1.28, 1).normalize();
   const center = boardCenterWorld(width, height);
   const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ);
   controls.target.copy(center);
@@ -1802,6 +1802,7 @@ function onCameraGrabMove(event: PointerEvent) {
     const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
     rotateCameraPoseAroundPivot(new THREE.Quaternion().setFromAxisAngle(cameraRight, pitch), cameraGrab.pivot);
   }
+  levelCameraHorizon();
   camera.updateMatrixWorld(true);
   event.preventDefault();
 }
@@ -1811,11 +1812,18 @@ function rotateCameraPoseAroundPivot(rotation: THREE.Quaternion, pivot: THREE.Ve
   camera.quaternion.premultiply(rotation).normalize();
 }
 
+function levelCameraHorizon() {
+  const forward = camera.getWorldDirection(new THREE.Vector3());
+  camera.up.set(0, 1, 0);
+  camera.lookAt(camera.position.clone().add(forward));
+}
+
 function finishCameraGrab(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
   const direction = camera.getWorldDirection(new THREE.Vector3());
   controls.target.copy(camera.position).addScaledVector(direction, cameraGrab.focusDistance);
   cameraGrab = null;
+  levelCameraHorizon();
   controls.update();
   if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grab';
