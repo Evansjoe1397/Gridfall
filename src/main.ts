@@ -97,6 +97,7 @@ type GameFormat = 'duel' | 'ffa';
 type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, 'shinobi' | 'orkk' | 'magician'>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
+let initialCameraKey = '';
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 selection.subscribe(() => renderUI());
@@ -201,16 +202,18 @@ function startHotseat(character: 'shinobi' | 'orkk' | 'magician', format: GameFo
   gameState = createHotseatTestState(false, character, format === 'ffa' ? 3 : 2);
   boardVisualKey = '';
   fittedArenaKey = '';
+  initialCameraKey = '';
   lobby.classList.add('hidden');
   game.classList.remove('hidden');
   byId('connection').innerHTML = '<span></span> Hotseat match';
   renderAll();
-  requestAnimationFrame(resize);
+  requestAnimationFrame(() => { resize(); initializePlayerCamera(); });
 }
 
 async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel') {
   try {
     roomIdAutoSelected = false;
+    initialCameraKey = '';
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
     const client = new Client(endpoint);
     const password = (document.querySelector<HTMLInputElement>('#password')!).value;
@@ -223,14 +226,19 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       room = await client.joinById(roomId, { password });
     }
     mode = 'online';
-    room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
+    room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); requestAnimationFrame(initializePlayerCamera); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
     room.onMessage('state', (state: GameState) => {
+      const enteringBattle = game.classList.contains('hidden');
+      const arenaChanged = gameState.boardSize !== state.boardSize;
       gameState = normalizeOnlineState(state);
-      boardVisualKey = '';
-      fittedArenaKey = '';
+      if (enteringBattle || arenaChanged) {
+        boardVisualKey = '';
+        fittedArenaKey = '';
+      }
       selection.send({ type: 'CLEAR' });
-      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll(); requestAnimationFrame(resize);
+      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
+      requestAnimationFrame(() => { resize(); initializePlayerCamera(); });
     });
     room.onMessage('error', (message: string) => notify(message));
     room.onMessage('notice', (message: string) => notify(message));
@@ -1331,6 +1339,37 @@ function fitCameraToArena(width: number, height: number) {
   camera.position.copy(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
+}
+
+function initializePlayerCamera() {
+  if (game.classList.contains('hidden') || gameState.turn !== 1) return;
+  const seat = mode === 'online' ? localSeat : 'P1';
+  if (!seat) return;
+  const sessionId = mode === 'online' ? room?.roomId ?? 'online' : 'hotseat';
+  const cameraKey = `${sessionId}:${seat}:${visualBoardWidth()}x${visualBoardHeight()}`;
+  if (initialCameraKey === cameraKey) return;
+
+  const middleX = (visualBoardWidth() + 1) / 2;
+  const middleY = (visualBoardHeight() - 1) / 2;
+  const columns = [...new Set([Math.floor(middleX), Math.ceil(middleX)])];
+  const rows = [...new Set([Math.floor(middleY) - 1, Math.floor(middleY), Math.ceil(middleY), Math.ceil(middleY) + 1])]
+    .filter((row) => row >= 0 && row < visualBoardHeight());
+  const centralSquares = rows.flatMap((y) => columns.map((x) => ({ x, y })));
+  if (centralSquares.length === 0) return;
+
+  let hash = 2166136261;
+  for (const character of sessionId) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  const seatOffset = seat === 'P1' ? 0 : seat === 'P2' ? 1 : 2;
+  const selectedSquare = centralSquares[(Math.abs(hash) + seatOffset) % centralSquares.length];
+  const target = worldPosition(selectedSquare);
+  const spanX = Math.max(1, visualBoardWidth() - 1) * 1.92;
+  const spanZ = Math.max(1, visualBoardHeight() - 1) * 1.92;
+  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
+  const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
+  controls.target.copy(target);
+  camera.position.copy(target).add(viewingDirection.multiplyScalar(cameraDistance));
+  controls.update();
+  initialCameraKey = cameraKey;
 }
 
 function worldPosition(cell: Cell) {
