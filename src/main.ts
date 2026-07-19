@@ -882,7 +882,7 @@ controls.minPolarAngle = 0.38;
 controls.maxPolarAngle = Math.PI / 2.15;
 controls.mouseButtons.LEFT = null;
 controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
-controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+controls.mouseButtons.RIGHT = null;
 controls.target.set(0, 0, 0);
 controls.update();
 scene.add(new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6));
@@ -908,6 +908,7 @@ const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number }>();
 let boardVisualKey = '';
 let fittedArenaKey = '';
+let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
 const visualBoardWidth = () => gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.width : gameState.boardSize;
 const visualBoardHeight = () => gameState.boardSize;
 const placementState = () => (gameState as GameState & { lordaeronPlacement?: { availableBaseIds: ('P1' | 'P2' | 'P3')[]; claims: Partial<Record<PlayerId, 'P1' | 'P2' | 'P3'>> } }).lordaeronPlacement;
@@ -917,6 +918,10 @@ dummyGroups.set('P1', createDaOrkk(0x169bd3));
 dummyGroups.set('P2', createObiWanShinobi(0xff5d68));
 scene.add(dummyGroups.get('P1')!, dummyGroups.get('P2')!);
 
+renderer.domElement.addEventListener('pointerdown', onCameraRotateStart, { capture: true });
+renderer.domElement.addEventListener('pointermove', onCameraGrabMove);
+renderer.domElement.addEventListener('pointerup', finishCameraGrab);
+renderer.domElement.addEventListener('pointercancel', finishCameraGrab);
 renderer.domElement.addEventListener('pointerdown', onBoardClick);
 renderer.domElement.addEventListener('dblclick', onBoardDoubleClick);
 renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -945,7 +950,7 @@ renderer.setAnimationLoop((time) => {
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   updateCameraMovement(deltaSeconds);
-  controls.update();
+  if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
   updateCharacterMovement(time);
   updateObjectMovement(time);
@@ -1649,10 +1654,11 @@ function updateTargetHighlights(time: number) {
       child.material.emissiveIntensity = validShield || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
-  renderer.domElement.style.cursor = canTarget || canPullTarget || canArmTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget ? 'crosshair' : 'default';
+  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget ? 'crosshair' : 'grab';
 }
 
 function onBoardClick(event: PointerEvent) {
+  if (event.button !== 0) return;
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
@@ -1749,6 +1755,70 @@ function onBoardClick(event: PointerEvent) {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     if (playerHit) dispatch({ type: 'attack', playerId: gameState.activePlayerId, cardInstanceId: selected.cardInstanceId, targetId: playerHit });
   }
+}
+
+function onCameraRotateStart(event: PointerEvent) {
+  if (event.button !== 2) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const surfaceHit = raycaster.intersectObjects(cellMeshes, false)[0];
+  const pivot = surfaceHit?.point.clone() ?? raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+  if (!pivot) return;
+
+  const center = boardCenterWorld();
+  const halfWidth = Math.max(1, visualBoardWidth() - 1) * .96 + 2;
+  const halfHeight = Math.max(1, visualBoardHeight() - 1) * .96 + 2;
+  pivot.x = THREE.MathUtils.clamp(pivot.x, center.x - halfWidth, center.x + halfWidth);
+  pivot.z = THREE.MathUtils.clamp(pivot.z, center.z - halfHeight, center.z + halfHeight);
+  cameraGrab = {
+    pointerId: event.pointerId,
+    pivot,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    focusDistance: THREE.MathUtils.clamp(camera.position.distanceTo(controls.target), controls.minDistance, controls.maxDistance),
+  };
+  renderer.domElement.setPointerCapture(event.pointerId);
+  renderer.domElement.style.cursor = 'grabbing';
+  event.preventDefault();
+}
+
+function onCameraGrabMove(event: PointerEvent) {
+  if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
+  const dx = event.clientX - cameraGrab.lastX;
+  const dy = event.clientY - cameraGrab.lastY;
+  cameraGrab.lastX = event.clientX;
+  cameraGrab.lastY = event.clientY;
+  if (dx === 0 && dy === 0) return;
+
+  const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * .005);
+  rotateCameraPoseAroundPivot(yaw, cameraGrab.pivot);
+
+  const offset = camera.position.clone().sub(cameraGrab.pivot);
+  const currentPolar = Math.acos(THREE.MathUtils.clamp(offset.y / Math.max(.001, offset.length()), -1, 1));
+  const desiredPolar = THREE.MathUtils.clamp(currentPolar - dy * .005, controls.minPolarAngle, controls.maxPolarAngle);
+  const pitch = desiredPolar - currentPolar;
+  if (Math.abs(pitch) > .0001) {
+    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+    rotateCameraPoseAroundPivot(new THREE.Quaternion().setFromAxisAngle(cameraRight, pitch), cameraGrab.pivot);
+  }
+  camera.updateMatrixWorld(true);
+  event.preventDefault();
+}
+
+function rotateCameraPoseAroundPivot(rotation: THREE.Quaternion, pivot: THREE.Vector3) {
+  camera.position.sub(pivot).applyQuaternion(rotation).add(pivot);
+  camera.quaternion.premultiply(rotation).normalize();
+}
+
+function finishCameraGrab(event: PointerEvent) {
+  if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
+  const direction = camera.getWorldDirection(new THREE.Vector3());
+  controls.target.copy(camera.position).addScaledVector(direction, cameraGrab.focusDistance);
+  cameraGrab = null;
+  controls.update();
+  if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
+  renderer.domElement.style.cursor = 'grab';
 }
 
 function onBoardDoubleClick(event: MouseEvent) {
