@@ -320,7 +320,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 }
 
 /* Fixed layouts for common desktop and laptop viewports. */
-@media (max-width: 1440px), (max-height: 900px) {
+@media (min-height: 781px) and (max-width: 1440px), (min-height: 781px) and (max-height: 900px) {
   .shell { padding: 12px 18px 10px; }
   .masthead { height: 54px; }
   h1 { font-size: 30px; }
@@ -341,40 +341,31 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .command-deck .hand .card { padding: 9px; }
 }
 
-/* Compact laptops: 1366x768, 1280x720, and similarly short browser viewports. */
-@media (max-height: 780px) and (min-width: 801px), (max-width: 1180px) and (min-width: 801px) {
-  .shell { padding: 7px 12px 6px; }
-  .masthead { height: 46px; }
-  .masthead .eyebrow { font-size: 8px; }
-  h1 { font-size: 26px; }
-  .game:not(.hidden) { height: calc(100vh - 53px); min-height: 570px; grid-template-rows: auto minmax(280px, 1fr) auto auto; }
-  .hud { gap: 5px; margin-bottom: 4px; }
-  .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); gap: 6px; }
-  .fighter { padding: 3px 7px; }
-  .fighter span { font-size: 7px; }
-  .fighter strong { font-size: 17px; }
-  .hp-copy b { font-size: 18px; }
-  .turn-core { padding: 5px 8px; }
-  .turn-core strong { font-size: 18px; }
-  .character-trait-panel,
-  .character-status-panel { padding: 5px; }
-  .character-trait-panel .trait-icon,
-  .character-status-panel .status-icon { width: 42px; height: 38px; font-size: 20px; }
-  .character-status-panel.status-p1 { left: 150px; }
-  .character-status-panel.status-p2 { right: 150px; }
-  .opponent-hand-panel { top: 82px; padding: 5px; max-width: calc(50% - 75px); }
-  .opponent-card { width: 28px; height: 40px; }
-  .spell-echo { width: 58px; }
-  .echo-slot { min-height: 42px; }
-  .action-quest-panel { width: min(205px, 24vw); }
-  .command-deck { grid-template-columns: 180px minmax(0, 1fr) 145px; gap: 6px; padding: 6px 0; }
-  .identity, .turn-actions { padding: 8px; }
-  .command-deck .hand { gap: 5px; }
-  .command-deck .hand .card { min-height: 112px; padding: 7px; }
-  .command-deck .hand .card strong { font-size: 16px; }
-  .command-deck .hand .card small { font-size: 10px; }
-  .battle-log { padding-top: 5px; }
-  .battle-log p { font-size: 8px; }
+/* Scale the complete interface as one composition on short laptops. This keeps
+   cards, HUD panels, arena overlays, and typography at the same proportions. */
+@media (max-height: 780px) and (min-width: 801px) {
+  .shell {
+    width: calc(100% / .84);
+    min-height: calc(100vh / .84);
+    zoom: .84;
+  }
+  .game:not(.hidden) {
+    height: calc(100vh / .84 - 66px);
+    min-height: 620px;
+    grid-template-rows: auto minmax(390px, 1fr) auto auto;
+  }
+}
+
+/* Extra-short 16:9 and 16:10 laptop browser windows. */
+@media (max-height: 660px) and (min-width: 801px) {
+  .shell {
+    width: calc(100% / .72);
+    min-height: calc(100vh / .72);
+    zoom: .72;
+  }
+  .game:not(.hidden) {
+    height: calc(100vh / .72 - 66px);
+  }
 }
 
 @media (max-width: 1000px) and (min-width: 801px) {
