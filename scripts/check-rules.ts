@@ -59,6 +59,8 @@ if (playFireball.ok) {
   assert.equal(hit.ok, true);
   if (hit.ok) {
     assert.equal(hit.state.players.P2.hp, 23, 'Fireball deals 3 Damage.');
+    assert.equal(hit.state.players.P1.matchStats?.perkDamage, 3, 'Direct Perk damage is tracked separately.');
+    assert.equal(hit.state.players.P1.matchStats?.totalDamage, 3, 'Total Damage includes Perk damage.');
     assert.equal([...hit.state.players.P1.hand, ...hit.state.players.P1.deck, ...hit.state.players.P1.discard].some((card) => card.cardId === 'fireball'), false, 'Fireball is Removed rather than discarded after use.');
   }
 }
@@ -201,9 +203,9 @@ assert.equal(loganTestState.objects.length, 5);
 assert.deepEqual(loganTestState.objects.map((object) => cellLabel(object.position)).sort(), ['B2', 'B3', 'D10', 'F5', 'G10']);
 assert.equal(loganTestState.players.P1.character, 'magician');
 assert.equal(loganTestState.players.P1.name, 'Long Hat Logan');
+assert.equal(loganTestState.players.P1.moveRange, 3, 'Long Hat Logan should have a base Movement Range of 3.');
+assert.equal(loganTestState.players.P1.attackRange, 3, 'Long Hat Logan should have an Attack Range of 3.');
 assert.equal(loganTestState.players.P1.maxHp, 18);
-assert.equal(loganTestState.players.P1.moveRange, 2);
-assert.equal(loganTestState.players.P1.attackRange, 3);
 assert.equal(loganTestState.phase, 'choosing-focus');
 assert.equal(loganTestState.players.P1.hand.length, 0);
 assert.equal(loganTestState.players.P2.character, 'dummy');
@@ -245,9 +247,47 @@ if (startMagic.ok) {
     if (resolveMagic.ok) assert.deepEqual(resolveMagic.state.objects.find((object) => object.id === 'magic-box')?.position, { x: 8, y: 0 });
   }
 }
+const globalMagicHandTest = createHotseatTestState(true);
+globalMagicHandTest.players.P1.position = { x: 1, y: 0 };
+globalMagicHandTest.players.P2.position = { x: 4, y: 1 };
+globalMagicHandTest.objects = [{ id: 'global-magic-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 6, y: 0 } }];
+const globalMagicCard = globalMagicHandTest.players.P1.hand.find((card) => card.cardId === 'magic-hand')!;
+const startGlobalMagic = applyCommand(globalMagicHandTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: globalMagicCard.instanceId, destination: 'direct' });
+assert.equal(startGlobalMagic.ok, true);
+if (startGlobalMagic.ok) {
+  const targetGlobalMagic = applyCommand(startGlobalMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'global-magic-box' });
+  assert.equal(targetGlobalMagic.ok, true, 'Magic Hand should target any visible Object at global Range.');
+  if (targetGlobalMagic.ok) {
+    const resolveGlobalMagic = applyCommand(targetGlobalMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 7, y: 0 } });
+    assert.equal(resolveGlobalMagic.ok, true);
+    if (resolveGlobalMagic.ok) assert.deepEqual(resolveGlobalMagic.state.objects.find((object) => object.id === 'global-magic-box')?.position, { x: 8, y: 0 }, 'Level 1 Magic Hand should push 2 Squares.');
+  }
+}
+const collisionMagicHandTest = createHotseatTestState(true);
+collisionMagicHandTest.players.P1.position = { x: 1, y: 0 };
+collisionMagicHandTest.players.P2.position = { x: 4, y: 0 };
+collisionMagicHandTest.objects = [{ id: 'collision-magic-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 0 } }];
+const collisionMagicCard = collisionMagicHandTest.players.P1.hand.find((card) => card.cardId === 'magic-hand')!;
+const startCollisionMagic = applyCommand(collisionMagicHandTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: collisionMagicCard.instanceId, destination: 'direct' });
+assert.equal(startCollisionMagic.ok, true);
+if (startCollisionMagic.ok && startCollisionMagic.state.magicHand) {
+  startCollisionMagic.state.magicHand.level = 3;
+  startCollisionMagic.state.magicHand.distance = 3;
+  const targetCollisionMagic = applyCommand(startCollisionMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'collision-magic-box' });
+  assert.equal(targetCollisionMagic.ok, true);
+  if (targetCollisionMagic.ok) {
+    const resolveCollisionMagic = applyCommand(targetCollisionMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 0 } });
+    assert.equal(resolveCollisionMagic.ok, true);
+    if (resolveCollisionMagic.ok) {
+      assert.deepEqual(resolveCollisionMagic.state.objects.find((object) => object.id === 'collision-magic-box')?.position, { x: 3, y: 0 });
+      assert.equal(resolveCollisionMagic.state.players.P2.hp, 18, 'Level 3 Magic Hand should deal 2 collision Damage to an enemy.');
+    }
+  }
+}
 const shizzleTest = createHotseatTestState(true);
 shizzleTest.players.P1.position = { x: 1, y: 0 };
 shizzleTest.players.P2.position = { x: 3, y: 0 };
+shizzleTest.objects = [{ id: 'shizzle-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 0 } }];
 const shizzleCard = shizzleTest.players.P1.hand.find((card) => card.cardId === 'shizzle')!;
 const startShizzle = applyCommand(shizzleTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: shizzleCard.instanceId, destination: 'direct' });
 assert.equal(startShizzle.ok, true);
@@ -258,6 +298,27 @@ if (startShizzle.ok) {
     assert.deepEqual(resolveShizzle.state.players.P1.position, { x: 4, y: 0 });
     assert.equal(resolveShizzle.state.players.P2.hp, 20);
   }
+}
+const shizzleWallTest = createHotseatTestState(true);
+shizzleWallTest.players.P1.position = { x: 1, y: 0 };
+shizzleWallTest.players.P2.position = { x: 5, y: 0 };
+shizzleWallTest.objects = [{ id: 'shizzle-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 2, y: 0 } }];
+const shizzleWallCard = shizzleWallTest.players.P1.hand.find((card) => card.cardId === 'shizzle')!;
+const startWallShizzle = applyCommand(shizzleWallTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: shizzleWallCard.instanceId, destination: 'direct' });
+assert.equal(startWallShizzle.ok, true);
+if (startWallShizzle.ok) assert.equal(applyCommand(startWallShizzle.state, { type: 'shizzle-destination', playerId: 'P1', to: { x: 3, y: 0 } }).ok, false, 'Shizzle must not pass through Da Orkk Shield Wall Objects.');
+const shizzleConsumeTest = createHotseatTestState(true);
+shizzleConsumeTest.players.P1.position = { x: 1, y: 0 };
+shizzleConsumeTest.players.P2.position = { x: 5, y: 0 };
+shizzleConsumeTest.players.P1.manaMode = 'consume';
+shizzleConsumeTest.objects = [{ id: 'consume-shizzle-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 0 } }];
+const shizzleConsumeCard = shizzleConsumeTest.players.P1.hand.find((card) => card.cardId === 'shizzle')!;
+const startConsumeShizzle = applyCommand(shizzleConsumeTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: shizzleConsumeCard.instanceId, destination: 'direct' });
+assert.equal(startConsumeShizzle.ok, true);
+if (startConsumeShizzle.ok) {
+  const throughBox = applyCommand(startConsumeShizzle.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 0 } });
+  assert.equal(throughBox.ok, true, 'Shizzle Consume should pass through a wooden box.');
+  if (throughBox.ok) assert.equal(applyCommand(throughBox.state, { type: 'move', playerId: 'P1', to: { x: 3, y: 0 } }).ok, true);
 }
 const loganManaState = createHotseatTestState(true);
 loganManaState.activePlayerId = 'P3';
@@ -877,6 +938,7 @@ const stationaryEnd = applyCommand(traitState, { type: 'end-turn', playerId: 'P1
 assert.equal(stationaryEnd.ok, true);
 if (stationaryEnd.ok) {
   assert.equal(stationaryEnd.state.players.P1.lightsaberBuff, true);
+  assert.equal(effectiveMoveRange(stationaryEnd.state.players.P1), 3, 'Lightsaber grants Shinobi +1 MOV while empowered.');
   stationaryEnd.state.players.P2.hand = [];
   const dummyEnd = applyCommand(stationaryEnd.state, { type: 'end-turn', playerId: 'P2' });
   assert.equal(dummyEnd.ok, true);
@@ -888,6 +950,18 @@ if (stationaryEnd.ok) {
     assert.equal(buffedAttack.ok, true);
     if (buffedAttack.ok) assert.equal(buffedAttack.state.pendingAttack?.attackValue, 3);
   }
+}
+let nonShinobiTraitState = createInitialState();
+nonShinobiTraitState.players.P1.character = 'orkk';
+nonShinobiTraitState.players.P1.name = 'Da Orkk';
+nonShinobiTraitState.players.P1.lightsaberBuff = true;
+nonShinobiTraitState.players.P1.lightsaberStacks = 2;
+assert.equal(effectiveMoveRange(nonShinobiTraitState.players.P1), 2, 'An invalid Lightsaber flag cannot grant MOV to a non-Shinobi character.');
+const nonShinobiEnd = applyCommand(nonShinobiTraitState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(nonShinobiEnd.ok, true);
+if (nonShinobiEnd.ok) {
+  assert.equal(nonShinobiEnd.state.players.P1.lightsaberBuff, false, 'Lightsaber must never persist on a non-Shinobi character.');
+  assert.equal(nonShinobiEnd.state.players.P1.lightsaberStacks, 0, 'Lightsaber duration stacks must be cleared from a non-Shinobi character.');
 }
 const movementCauseState = createInitialState();
 markCharacterMoved(movementCauseState.players.P1, 'own-card');
@@ -902,7 +976,7 @@ const pinnedTurnEnd = applyCommand(pinnedState, { type: 'end-turn', playerId: 'P
 assert.equal(pinnedTurnEnd.ok, true);
 if (pinnedTurnEnd.ok) {
   assert.equal(pinnedTurnEnd.state.players.P1.pinnedStacks, 1);
-  assert.equal(effectiveMoveRange(pinnedTurnEnd.state.players.P1), 1);
+  assert.equal(effectiveMoveRange(pinnedTurnEnd.state.players.P1), 2, 'One remaining Pinned offsets the newly gained +1 Lightsaber MOV.');
 }
 
 let lightSaberLoss = createInitialState();
@@ -921,7 +995,7 @@ if (saberAttack.ok && saberAttack.state.pendingAttack) {
   if (lostCombat.ok) {
     assert.equal(lostCombat.state.players.P2.pinnedStacks, 1);
     assert.equal(lostCombat.state.players.P2.hp, 26);
-    assert.equal(lostCombat.state.players.P1.hand.length, lightSaberLossHandSize);
+    assert.equal(lostCombat.state.players.P1.hand.length, lightSaberLossHandSize - 1);
     assert.equal(lostCombat.state.players.P1.discard.some((card) => card.cardId === 'light-the-saber'), true);
   }
 }
@@ -956,6 +1030,9 @@ if (danceAttack.ok) {
   assert.equal(danceCombat.ok, true);
   if (danceCombat.ok) {
     assert.equal(danceCombat.state.phase, 'dance-through');
+    const cancelledDance = applyCommand(structuredClone(danceCombat.state), { type: 'end-dance', playerId: 'P1' });
+    assert.equal(cancelledDance.ok, true, 'Dance Through should be cancellable before its movement is spent.');
+    if (cancelledDance.ok) assert.equal(cancelledDance.state.phase, 'active');
     const enteredEnemy = applyCommand(danceCombat.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 1 } });
     assert.equal(enteredEnemy.ok, true);
     if (enteredEnemy.ok) {
@@ -966,7 +1043,8 @@ if (danceAttack.ok) {
       const leftEnemy = applyCommand(enteredEnemy.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 2 } });
       assert.equal(leftEnemy.ok, true);
       if (leftEnemy.ok) {
-        assert.equal(leftEnemy.state.players.P2.hp, 23);
+        assert.equal(leftEnemy.state.players.P2.hp, 24);
+        assert.equal(leftEnemy.state.players.P2.pinnedStacks, 1);
         assert.equal(leftEnemy.state.players.P1.movedThisTurn, false);
         const illegalFinalOverlap = applyCommand(leftEnemy.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 1 } });
         assert.equal(illegalFinalOverlap.ok, false);
@@ -1114,7 +1192,7 @@ if (blockedAttack.ok) {
 if (blockCombat.ok) {
     assert.equal(blockCombat.state.players.P1.hp, 19);
     assert.equal(blockCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(blockCombat.state.players.P2.hp, 25);
+    assert.equal(blockCombat.state.players.P2.hp, 26);
     assert.equal(blockCombat.state.players.P2.pinnedStacks, 1);
     assert.equal(blockCombat.state.players.P2.hand.some((card) => card.instanceId === 'blocked-cut'), false);
     assert.equal(blockCombat.state.players.P2.discard.some((card) => card.instanceId === 'blocked-cut'), true);
@@ -1139,6 +1217,8 @@ if (lethalFlurryAttack.ok) {
     assert.equal(lethalFlurry.state.players.P2.hp, 0);
     assert.equal(lethalFlurry.state.players.P1.hp, 20);
     assert.equal(lethalFlurry.state.winner, 'P1');
+    assert.equal(lethalFlurry.state.players.P1.matchStats?.defensiveRetaliationDamage, 1, 'Defend-card retaliation is tracked separately.');
+    assert.equal(lethalFlurry.state.players.P1.matchStats?.totalDamage, 1, 'Defensive retaliation contributes to Total Damage.');
   }
 }
 
@@ -1147,7 +1227,7 @@ flurryChoiceState.activePlayerId = 'P2';
 flurryChoiceState.players.P1.position = { x: 2, y: 1 };
 flurryChoiceState.players.P2.position = { x: 3, y: 1 };
 const flurryDefence = ensureCardInHand(flurryChoiceState, 'P1', 'flurry-defensive-strikes');
-const flurryPayment = ensureCardInHand(flurryChoiceState, 'P1', 'double-jump');
+ensureCardInHand(flurryChoiceState, 'P1', 'double-jump');
 flurryChoiceState.players.P2.hand = [
   { instanceId: 'flurry-attack', cardId: 'attack-3' },
   { instanceId: 'enemy-choice-1', cardId: 'attack-2' },
@@ -1163,19 +1243,16 @@ if (flurryAttack.ok) {
     assert.equal(flurryCombat.state.players.P2.hp, 25);
     assert.equal(flurryCombat.state.players.P1.hp, 18);
     assert.equal(flurryCombat.state.phase, 'flurry-offer');
-    const paidFlurry = applyCommand(flurryCombat.state, { type: 'flurry-pay', playerId: 'P1', cardInstanceId: flurryPayment.instanceId });
+    const paidFlurry = applyCommand(flurryCombat.state, { type: 'flurry-pay', playerId: 'P1', cardInstanceId: '' });
     assert.equal(paidFlurry.ok, true);
     if (paidFlurry.ok) {
       assert.equal(paidFlurry.state.phase, 'choosing-flurry-enemy-discard');
+      assert.equal(paidFlurry.state.players.P1.hp, 17);
       const firstEnemyDiscard = applyCommand(paidFlurry.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-1' });
       assert.equal(firstEnemyDiscard.ok, true);
       if (firstEnemyDiscard.ok) {
-        const secondEnemyDiscard = applyCommand(firstEnemyDiscard.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-2' });
-        assert.equal(secondEnemyDiscard.ok, true);
-        if (secondEnemyDiscard.ok) {
-          assert.equal(secondEnemyDiscard.state.players.P2.hand.length, 1);
-          assert.equal(secondEnemyDiscard.state.phase, 'active');
-        }
+        assert.equal(firstEnemyDiscard.state.players.P2.hand.length, 2);
+        assert.equal(firstEnemyDiscard.state.phase, 'active');
       }
     }
   }
@@ -1200,7 +1277,7 @@ if (calmAttack.ok) {
     assert.equal(calmCombat.state.players.P1.hp, 20);
     assert.equal(calmCombat.state.players.P1.lightsaberBuff, false);
     assert.equal(calmCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(calmCombat.state.players.P2.pinnedStacks, 0);
+    assert.equal(calmCombat.state.players.P2.pinnedStacks, 2);
     calmCombat.state.players.P2.hand.push({ instanceId: 'next-combat-attack', cardId: 'light-the-saber' });
     const nextAttack = applyCommand(calmCombat.state, { type: 'attack', playerId: 'P2', cardInstanceId: 'next-combat-attack', targetId: 'P1' });
     assert.equal(nextAttack.ok, true);
@@ -1227,7 +1304,7 @@ if (unpinnedCalmAttack.ok) {
   assert.equal(unpinnedCalmCombat.ok, true);
   if (unpinnedCalmCombat.ok) {
     assert.equal(unpinnedCalmCombat.state.players.P1.hp, 17);
-    assert.equal(unpinnedCalmCombat.state.players.P2.pinnedStacks, 1);
+    assert.equal(unpinnedCalmCombat.state.players.P2.pinnedStacks, 0);
   }
 }
 
@@ -1248,7 +1325,7 @@ if (calmHelloAttack.ok) {
   if (calmHelloCombat.ok) {
     assert.equal(calmHelloCombat.state.players.P1.hp, 20);
     assert.equal(calmHelloCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(calmHelloCombat.state.players.P2.pinnedStacks, 0);
+    assert.equal(calmHelloCombat.state.players.P2.pinnedStacks, 1);
     assert.equal(calmHelloCombat.state.players.P1.hand.some((card) => card.cardId === 'headache'), false, 'Calmness must prevent Hello There from applying Headache.');
   }
 }
@@ -1269,7 +1346,7 @@ if (notShinobiAttack.ok) {
   assert.equal(notShinobiCombat.ok, true);
   if (notShinobiCombat.ok) {
     assert.equal(notShinobiCombat.state.players.P1.pinnedStacks, 0, 'The cleanse and combat immunity must leave Shinobi without debuffs.');
-    assert.equal(notShinobiCombat.state.players.P1.lightsaberBuff, true, 'The Defence card must apply Lightsaber after combat.');
+    assert.equal(notShinobiCombat.state.players.P1.lightsaberBuff, false, 'The simplified Defence card no longer applies Lightsaber.');
     notShinobiCombat.state.players.P2.hand.push({ instanceId: 'later-debuff-attack', cardId: 'light-the-saber' });
     const laterAttack = applyCommand(notShinobiCombat.state, { type: 'attack', playerId: 'P2', cardInstanceId: 'later-debuff-attack', targetId: 'P1' });
     assert.equal(laterAttack.ok, true);
@@ -1432,7 +1509,7 @@ if (forceThrowLevelThree.ok) {
     const forcePush = applyCommand(forceTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 4, y: 1 } });
     assert.equal(forcePush.ok, true);
     if (forcePush.ok) {
-      assert.equal(forcePush.state.players.P2.hp, 25);
+      assert.equal(forcePush.state.players.P2.hp, 26, 'A directly pushed enemy takes no collision damage from Force Throw.');
       assert.equal(forcePush.state.objects[0].hp, 3, 'Test Objects are indestructible.');
       assert.equal(forcePush.state.phase, 'active');
     }
@@ -1447,6 +1524,7 @@ assert.equal(directForcePlay.ok, true);
 if (directForcePlay.ok) {
   assert.equal(directForcePlay.state.players.P1.discard.some((card) => card.instanceId === directForceCard.instanceId), true);
   assert.equal(directForcePlay.state.phase, 'choosing-force-throw-target');
+  assert.equal(directForcePlay.state.forceThrow?.targetRange, 4, 'Level 1 Force Throw has Range 4.');
   const cancelledForce = applyCommand(directForcePlay.state, { type: 'cancel-targeting', playerId: 'P1' });
   assert.equal(cancelledForce.ok, true);
   if (cancelledForce.ok) {
@@ -1468,7 +1546,7 @@ if (directForcePlay.ok) {
     }
     const directPush = applyCommand(directTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 4, y: 1 } });
     assert.equal(directPush.ok, true);
-    if (directPush.ok) assert.deepEqual(directPush.state.objects[0].position, { x: 5, y: 2 });
+    if (directPush.ok) assert.deepEqual(directPush.state.objects[0].position, { x: 6, y: 3 });
   }
 }
 const forcePullState = createInitialState();
@@ -1479,6 +1557,7 @@ const forcePullPlay = applyCommand(forcePullState, { type: 'play-perk', playerId
 assert.equal(forcePullPlay.ok, true);
 if (forcePullPlay.ok) {
   assert.equal(forcePullPlay.state.phase, 'choosing-force-pull-target');
+  assert.equal(forcePullPlay.state.forcePull?.targetRange, 4, 'Level 1 Force Pull has Range 4.');
   const pulled = applyCommand(forcePullPlay.state, { type: 'force-pull-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
   assert.equal(pulled.ok, true);
   if (pulled.ok) {
@@ -1502,6 +1581,7 @@ levelThreePullState.players.P1.spellEcho[2] = levelThreePullCard;
 const levelThreePullPlay = applyCommand(levelThreePullState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(levelThreePullPlay.ok, true);
 if (levelThreePullPlay.ok) {
+  assert.equal(levelThreePullPlay.state.forcePull?.targetRange, 5, 'Higher-level Force Pull adds 1 Range to its new Range 4 base.');
   const pulled = applyCommand(levelThreePullPlay.state, { type: 'force-pull-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
   assert.equal(pulled.ok, true);
   if (pulled.ok) {
@@ -1541,7 +1621,7 @@ if (swiftformPlay.ok) {
       assert.equal(leftSameEnemyAgain.state.players.P2.hand.filter((card) => card.cardId === 'pinned').length, 1, 'Swiftform may apply Pinned only once per enemy per turn.');
       const swiftformEnd = applyCommand(leftSameEnemyAgain.state, { type: 'end-turn', playerId: 'P1' });
       assert.equal(swiftformEnd.ok, true);
-      if (swiftformEnd.ok) assert.equal(swiftformEnd.state.players.P1.lightsaberBuff, true, 'Swiftform level 2 must grant Lightsaber even after movement.');
+      if (swiftformEnd.ok) assert.equal(swiftformEnd.state.players.P1.lightsaberBuff, true, 'Swiftform level 3 must grant Lightsaber even after movement.');
     }
   }
 }
@@ -1943,5 +2023,39 @@ if (beginArmTwo.ok) {
     }
   }
 }
+
+const matchStatsMovement = createInitialState();
+matchStatsMovement.objects = [];
+matchStatsMovement.players.P1.position = { x: 1, y: 0 };
+matchStatsMovement.players.P2.position = { x: 8, y: 7 };
+matchStatsMovement.players.P1.movementRemaining = 2;
+const trackedMove = applyCommand(matchStatsMovement, { type: 'move', playerId: 'P1', to: { x: 3, y: 0 } });
+assert.equal(trackedMove.ok, true);
+if (trackedMove.ok) assert.equal(trackedMove.state.players.P1.matchStats?.squaresMoved, 2, 'Match statistics count resolved non-teleport movement distance.');
+
+const matchStatsCombat = createInitialState();
+matchStatsCombat.objects = [];
+matchStatsCombat.players.P1.position = { x: 2, y: 2 };
+matchStatsCombat.players.P2.position = { x: 3, y: 2 };
+matchStatsCombat.players.P1.hand = [{ instanceId: 'stats-attack', cardId: 'attack-3' }];
+matchStatsCombat.players.P2.hand = [{ instanceId: 'stats-defend', cardId: 'defend-1' }];
+const statsAttack = applyCommand(matchStatsCombat, { type: 'attack', playerId: 'P1', cardInstanceId: 'stats-attack', targetId: 'P2' });
+assert.equal(statsAttack.ok, true);
+if (statsAttack.ok) {
+  const statsDefend = applyCommand(statsAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'stats-defend' });
+  assert.equal(statsDefend.ok, true);
+  if (statsDefend.ok) {
+    assert.equal(statsDefend.state.players.P1.matchStats?.attackDamage, 1, 'Combat damage is attributed to Attack Cards.');
+    assert.equal(statsDefend.state.players.P1.matchStats?.totalDamage, 1, 'Total Damage includes Attack damage.');
+    assert.equal(statsDefend.state.players.P2.matchStats?.combatDamageBlocked, 2, 'Defence records combat Damage blocked, including the equipped Shield bonus.');
+  }
+}
+
+const matchStatsHealing = createInitialState();
+matchStatsHealing.players.P1.hp = 15;
+matchStatsHealing.players.P1.spellEcho[2] = { instanceId: 'stats-heal', cardId: 'echo-pulse' };
+const trackedHealing = applyCommand(matchStatsHealing, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(trackedHealing.ok, true);
+if (trackedHealing.ok) assert.equal(trackedHealing.state.players.P1.matchStats?.hitPointsHealed, 2, 'Only HP actually restored is tracked.');
 
 console.log('Rules checks passed.');
