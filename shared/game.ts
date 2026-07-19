@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LORDAERON_ARENA } from './arenas.ts';
+import { LORDAERON_ARENA, NAGRAND_ARENA } from './arenas.ts';
 
 export const PlayerIdSchema = z.enum(['P1', 'P2', 'P3']);
 export type PlayerId = z.infer<typeof PlayerIdSchema>;
@@ -181,13 +181,11 @@ function createInitialStateWithPlaceholder(lineup: 'orkk-vs-dummy' | 'shinobi-vs
   if (legacy) drawCards(p1, 3);
   else p2.hand.push(...p2.deck.splice(0));
   const lineupLog = legacy ? [`Da Orkk enters with his spiked iron shield equipped.`, `Obi Wan Shinobi drew an opening Hand of ${p1.hand.length} cards.`] : [`Nagrand Arena loaded: an 8 by 8 battlefield.`, `Da Orkk and Obi Wan Shinobi each enter with all 15 unique Cards in Hand.`];
-  const pillarCells: Cell[] = [{ x: 1, y: 0 }, { x: 1, y: 7 }, { x: 8, y: 0 }, { x: 8, y: 7 }, { x: 3, y: 2 }, { x: 3, y: 5 }, { x: 6, y: 2 }, { x: 6, y: 5 }];
   const objects: BoardObject[] = [
-    ...pillarCells.map((position, index) => ({ id: `nagrand-pillar-${index + 1}`, name: 'Wooden Pillar', kind: 'wall-pillar' as const, hp: 999, maxHp: 999, position })),
-    { id: 'nagrand-box-e1', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 5, y: 0 } },
-    { id: 'nagrand-box-d8', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 7 } },
+    ...NAGRAND_ARENA.pillars.map((label, index) => ({ id: `nagrand-pillar-${index + 1}`, name: 'Wooden Pillar', kind: 'wall-pillar' as const, hp: 999, maxHp: 999, position: cellFromLabel(label) })),
+    ...NAGRAND_ARENA.boxes.map((label, index) => ({ id: `nagrand-box-${index + 1}`, name: 'Wooden Box', kind: 'wooden-box' as const, hp: 3, maxHp: 3, position: cellFromLabel(label) })),
   ];
-  const elevations = Object.fromEntries(['D4', 'D5', 'E4', 'E5'].map((label) => [label, 1]));
+  const elevations = Object.fromEntries(NAGRAND_ARENA.highground.map((label) => [label, 1]));
   return { boardSize: BOARD_SIZE, turn: 1, activePlayerId: 'P1', phase: 'active', objects, elevations, objectPushAnimations: [], spellProjectiles: [], pendingAttack: null, combatReveal: null, dashCancellation: null, danceThrough: null, doubleJump: null, forceThrow: null, forcePull: null, arkaneArow: null, armDaWiz: null, preparation: null, arcaneMissle: null, chainLightning: null, magicHand: null, shizzle: null, mindTricks: null, forceDisarm: null, flurry: null, pendingManaChoice: null, winner: null, players: { P1: p1, P2: p2, P3: p2 }, log: [...lineupLog, 'Nagrand Arena test duel initialized. Player 1 begins.'] };
 }
 
@@ -198,15 +196,25 @@ export function createInitialState(lineup: 'orkk-vs-dummy' | 'shinobi-vs-orkk' =
   return state;
 }
 
-export function createHotseatTestState(includeAllCharacterCards = false, playerCharacter: 'shinobi' | 'orkk' | 'magician' = 'magician'): GameState {
+export function createHotseatTestState(includeAllCharacterCards = false, playerCharacter: 'shinobi' | 'orkk' | 'magician' = 'magician', playerCount: 2 | 3 = 3): GameState {
   const state = createInitialState();
+  const characterName = playerCharacter === 'orkk' ? 'Da Orkk' : playerCharacter === 'shinobi' ? 'Obi Wan Shinobi' : 'Long Hat Logan';
+  if (playerCount === 2) {
+    state.players.P1 = createPlayer('P1', characterName, playerCharacter, cellFromLabel(NAGRAND_ARENA.startingSquares.P1!));
+    state.players.P2 = createPlayer('P2', 'Test Dummy', 'dummy', cellFromLabel(NAGRAND_ARENA.startingSquares.P2!));
+    delete (state.players as Partial<Record<PlayerId, PlayerState>>).P3;
+    drawCards(state.players.P2, 5);
+    state.activePlayerId = 'P1';
+    state.log = [`${characterName} faces one Test Dummy in a 1 versus 1 hotseat match.`, 'Nagrand Arena hotseat test initialized.'];
+    if (!includeAllCharacterCards) beginOpeningSetup(state, ['P1'], 'active');
+    return state;
+  }
   state.boardSize = LORDAERON_ARENA.height;
   state.objects = [
     ...LORDAERON_ARENA.pillars.map((label, index) => ({ id: `lordaeron-pillar-${index + 1}`, name: 'Wooden Pillar', kind: 'wall-pillar' as const, hp: 999, maxHp: 999, position: cellFromLabel(label) })),
     ...LORDAERON_ARENA.boxes.map((label, index) => ({ id: `lordaeron-box-${index + 1}`, name: 'Wooden Box', kind: 'wooden-box' as const, hp: 3, maxHp: 3, position: cellFromLabel(label) })),
   ];
   state.elevations = Object.fromEntries(LORDAERON_ARENA.highground.map((label) => [label, 1]));
-  const characterName = playerCharacter === 'orkk' ? 'Da Orkk' : playerCharacter === 'shinobi' ? 'Obi Wan Shinobi' : 'Long Hat Logan';
   state.players.P1 = createPlayer('P1', characterName, playerCharacter, cellFromLabel(LORDAERON_ARENA.startingSquares.P1!));
   state.players.P2 = createPlayer('P2', 'Test Dummy', 'dummy', cellFromLabel(LORDAERON_ARENA.startingSquares.P2!));
   drawCards(state.players.P2, 5);
@@ -2638,7 +2646,7 @@ export function markCharacterMoved(player: PlayerState, cause: 'voluntary' | 'ow
   }
 }
 export function effectiveMoveRange(player: PlayerState): number {
-  return Math.max(0, player.moveRange + player.swiftformMoveBonus + player.grimoireMoveBonus - pinnedCount(player));
+  return Math.max(0, (player.moveRange ?? 0) + (player.swiftformMoveBonus ?? 0) + (player.grimoireMoveBonus ?? 0) - pinnedCount(player));
 }
 function canDiscardAtHandLimit(card: Card): boolean {
   return !card.cannotBeDiscarded && (card.kind !== 'status' || card.canDiscardForHandLimit === true);
@@ -2650,7 +2658,7 @@ export function applyPinned(player: PlayerState, stacks = 1): number {
   return pinnedCount(player);
 }
 export function pinnedCount(player: PlayerState): number {
-  return Math.max(player.pinnedStacks, player.hand.filter((card) => card.cardId === 'pinned').length);
+  return Math.max(player.pinnedStacks ?? 0, (player.hand ?? []).filter((card) => card.cardId === 'pinned').length);
 }
 function removePinnedAtTurnEnd(state: GameState, player: PlayerState) {
   const pinnedCards = player.hand.filter((card) => card.cardId === 'pinned');

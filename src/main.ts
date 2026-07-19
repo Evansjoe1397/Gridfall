@@ -93,8 +93,10 @@ let gameState = createInitialState();
 let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
-type OnlineLobbyState = { playerCount: number; characters: Partial<Record<PlayerId, 'shinobi' | 'orkk' | 'magician'>>; arena: string; mode: string; started: boolean };
+type GameFormat = 'duel' | 'ffa';
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, 'shinobi' | 'orkk' | 'magician'>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
+let roomIdAutoSelected = false;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 selection.subscribe(() => renderUI());
@@ -109,8 +111,8 @@ phaseRewardModal.id = 'phaseRewardModal'; phaseRewardModal.className = 'choice-m
 const boardEl = byId('board');
 const toast = byId('toast');
 
-document.querySelector('#hotseat')!.addEventListener('click', () => showHotseatCharacterSelect());
-document.querySelector('#createRoom')!.addEventListener('click', () => connectOnline('create'));
+document.querySelector('#hotseat')!.addEventListener('click', () => showFormatSelect('hotseat'));
+document.querySelector('#createRoom')!.addEventListener('click', () => showFormatSelect('online'));
 document.querySelector('#joinRoom')!.addEventListener('click', () => connectOnline('join'));
 document.querySelector('#freeMoveButton')!.addEventListener('click', () => dispatch({ type: 'free-move', playerId: actingPlayer() }));
 document.querySelector('#guardButton')!.addEventListener('click', () => dispatch({ type: 'guard', playerId: actingPlayer() }));
@@ -175,18 +177,30 @@ window.setInterval(() => {
   if (playerId) dispatch({ type: 'ack-combat', playerId });
 }, 250);
 
-function showHotseatCharacterSelect() {
+function showFormatSelect(flow: 'hotseat' | 'online') {
   const panel = byId('onlineWaiting');
   panel.classList.remove('hidden');
   document.querySelector('.mode-grid')?.classList.add('hidden');
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · LORDAERON ARENA</p><h2>Choose your Character</h2><div class="character-choices"><button data-hotseat-character="shinobi"><strong>Obi Wan Shinobi</strong></button><button data-hotseat-character="orkk"><strong>Da Orkk</strong></button><button data-hotseat-character="magician"><strong>Long Hat Logan</strong></button></div>`;
-  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(button.dataset.hotseatCharacter as 'shinobi' | 'orkk' | 'magician')));
+  panel.innerHTML = `<p class="eyebrow">${flow === 'hotseat' ? 'HOTSEAT TEST' : 'PRIVATE MULTIPLAYER ROOM'}</p><h2>Choose Game Format</h2><div class="character-choices"><button data-format="duel"><strong>1 versus 1</strong><small>Nagrand Arena · 2 Players</small></button><button data-format="ffa"><strong>Free For All</strong><small>Lordaeron Arena · 3 Players</small></button></div>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((button) => button.addEventListener('click', () => {
+    const format = button.dataset.format as GameFormat;
+    if (flow === 'online') void connectOnline('create', format);
+    else showHotseatCharacterSelect(format);
+  }));
 }
 
-function startHotseat(character: 'shinobi' | 'orkk' | 'magician') {
+function showHotseatCharacterSelect(format: GameFormat) {
+  const panel = byId('onlineWaiting');
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><div class="character-choices"><button data-hotseat-character="shinobi"><strong>Obi Wan Shinobi</strong></button><button data-hotseat-character="orkk"><strong>Da Orkk</strong></button><button data-hotseat-character="magician"><strong>Long Hat Logan</strong></button></div>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(button.dataset.hotseatCharacter as 'shinobi' | 'orkk' | 'magician', format)));
+}
+
+function startHotseat(character: 'shinobi' | 'orkk' | 'magician', format: GameFormat) {
   mode = 'hotseat';
   localSeat = null;
-  gameState = createHotseatTestState(false, character);
+  gameState = createHotseatTestState(false, character, format === 'ffa' ? 3 : 2);
+  boardVisualKey = '';
+  fittedArenaKey = '';
   lobby.classList.add('hidden');
   game.classList.remove('hidden');
   byId('connection').innerHTML = '<span></span> Hotseat match';
@@ -194,13 +208,14 @@ function startHotseat(character: 'shinobi' | 'orkk' | 'magician') {
   requestAnimationFrame(resize);
 }
 
-async function connectOnline(action: 'create' | 'join') {
+async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel') {
   try {
+    roomIdAutoSelected = false;
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
     const client = new Client(endpoint);
     const password = (document.querySelector<HTMLInputElement>('#password')!).value;
     if (action === 'create') {
-      room = await client.create('duel', { password });
+      room = await client.create('duel', { password, format });
       (document.querySelector<HTMLInputElement>('#roomId')!).value = room.roomId;
     } else {
       const roomId = (document.querySelector<HTMLInputElement>('#roomId')!).value.trim();
@@ -211,7 +226,10 @@ async function connectOnline(action: 'create' | 'join') {
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
     room.onMessage('state', (state: GameState) => {
-      gameState = state; selection.send({ type: 'CLEAR' });
+      gameState = normalizeOnlineState(state);
+      boardVisualKey = '';
+      fittedArenaKey = '';
+      selection.send({ type: 'CLEAR' });
       lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll(); requestAnimationFrame(resize);
     });
     room.onMessage('error', (message: string) => notify(message));
@@ -225,25 +243,67 @@ async function connectOnline(action: 'create' | 'join') {
   }
 }
 
+function normalizeOnlineState(state: GameState): GameState {
+  state.objects ??= [];
+  state.elevations ??= {};
+  state.objectPushAnimations ??= [];
+  state.spellProjectiles ??= [];
+  state.log ??= [];
+  Object.values(state.players).forEach((player) => {
+    player.moveRange ??= player.character === 'orkk' ? 3 : 2;
+    player.attackRange ??= player.character === 'orkk' ? 1 : player.character === 'magician' ? 3 : 2;
+    player.movementRemaining ??= 0;
+    player.actionsRemaining ??= 2;
+    player.swiftformMoveBonus ??= 0;
+    player.grimoireMoveBonus ??= 0;
+    player.pinnedStacks ??= 0;
+    player.hand ??= [];
+    player.deck ??= [];
+    player.discard ??= [];
+    player.spellEcho ??= [null, null, null];
+  });
+  return state;
+}
+
 function renderOnlineLobby() {
   if (!room || !localSeat) return;
+  const roomId = room.roomId;
   const panel = byId('onlineWaiting');
   panel.classList.remove('hidden');
   const state = onlineLobbyState;
-  const joined = (state?.playerCount ?? 1) >= 2;
-  const joiningPlayersChosen = Boolean(state?.characters.P2) && ((state?.playerCount ?? 0) < 3 || Boolean(state?.characters.P3));
+  const requiredPlayerCount = state?.requiredPlayerCount ?? 2;
+  const joined = (state?.playerCount ?? 1) >= requiredPlayerCount;
+  const joiningPlayersChosen = Boolean(state?.characters.P2) && (requiredPlayerCount < 3 || Boolean(state?.characters.P3));
   const mayChoose = joined && (localSeat !== 'P1' || joiningPlayersChosen) && !state?.characters[localSeat];
-  const orderMessage = !joined ? 'Share the Room ID and wait for Player 2.'
+  const missingPlayers = Math.max(0, requiredPlayerCount - (state?.playerCount ?? 1));
+  const orderMessage = !joined ? `Share the Room ID and wait for ${missingPlayers} more Player${missingPlayers === 1 ? '' : 's'}.`
     : localSeat === 'P2' && !state?.characters.P2 ? 'You joined the room. Choose your Character first.'
       : localSeat === 'P1' && !joiningPlayersChosen ? 'The joining Player(s) are choosing Characters.'
         : state?.characters[localSeat] ? 'Character locked. Waiting for the battle to start.' : 'Choose your Character.';
-  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM · ${escapeHtml(room.roomId)}</p><h2>Character Select</h2>
-    <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / 3</strong></span></div>
+  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM ID · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomId)}" readonly spellcheck="false" aria-label="Multiplayer Room ID"><button id="copyRoomId" type="button">COPY</button></div><h2>Character Select</h2>
+    <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}</p><div class="character-choices">
       <button data-character="orkk" ${mayChoose ? '' : 'disabled'}><strong>Da Orkk</strong><small>Rage · Shield · Melee</small></button>
       <button data-character="shinobi" ${mayChoose ? '' : 'disabled'}><strong>Obi Wan Shinobi</strong><small>Lightsaber · Mobility · Range 2</small></button>
       <button data-character="magician" ${mayChoose ? '' : 'disabled'}><strong>Long Hat Logan</strong><small>Classic Wizardry · Mana · Range 3</small></button>
-    </div><small>Both Players may choose the same Character.</small>`;
+    </div><small>Players may choose the same Character.</small>`;
+  const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
+  roomIdField.addEventListener('click', () => roomIdField.select());
+  roomIdField.addEventListener('focus', () => roomIdField.select());
+  panel.querySelector<HTMLButtonElement>('#copyRoomId')!.addEventListener('click', async () => {
+    roomIdField.focus();
+    roomIdField.select();
+    try {
+      await navigator.clipboard.writeText(roomId);
+      notify('Room ID copied to clipboard.');
+    } catch {
+      notify('Room ID selected. Press Ctrl+C to copy.');
+    }
+  });
+  if (localSeat === 'P1' && !roomIdAutoSelected) {
+    roomIdAutoSelected = true;
+    requestAnimationFrame(() => { roomIdField.focus(); roomIdField.select(); });
+  }
   panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => button.addEventListener('click', () => room?.send('choose-character', button.dataset.character)));
 }
 
@@ -371,6 +431,7 @@ function renderUI() {
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
   if (((actor.movementRemaining > 0 && gameState.phase === 'active') || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
   highlightCells();
+  scheduleLayoutSafetyCheck();
 }
 
 function renderFighter(id: PlayerId, elementId: string) {
@@ -796,6 +857,7 @@ const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Ve
 const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number }>();
 let boardVisualKey = '';
+let fittedArenaKey = '';
 const visualBoardWidth = () => gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.width : gameState.boardSize;
 const visualBoardHeight = () => gameState.boardSize;
 const placementState = () => (gameState as GameState & { lordaeronPlacement?: { availableBaseIds: ('P1' | 'P2' | 'P3')[]; claims: Partial<Record<PlayerId, 'P1' | 'P2' | 'P3'>> } }).lordaeronPlacement;
@@ -1250,6 +1312,25 @@ function rebuildBoardGeometry(width: number, height: number) {
   boardVisualKey = boardGeometryKey();
   for (let y = 0; y < height; y++) for (let x = 1; x <= width; x++) createCell({ x, y });
   createAxisLabels();
+  fitCameraToArena(width, height);
+}
+
+function fitCameraToArena(width: number, height: number) {
+  const arenaKey = `${width}x${height}`;
+  if (fittedArenaKey === arenaKey) return;
+  fittedArenaKey = arenaKey;
+
+  const spanX = Math.max(1, width - 1) * 1.92;
+  const spanZ = Math.max(1, height - 1) * 1.92;
+  const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
+  floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
+
+  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
+  const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
+  controls.target.set(0, 0, 0);
+  camera.position.copy(viewingDirection.multiplyScalar(cameraDistance));
+  controls.maxDistance = Math.max(42, cameraDistance * 2.1);
+  controls.update();
 }
 
 function worldPosition(cell: Cell) {
@@ -1600,4 +1681,60 @@ function resize() {
   const width = boardEl.clientWidth; const height = boardEl.clientHeight;
   if (width < 1 || height < 1) return;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
+  scheduleLayoutSafetyCheck();
+}
+
+let layoutSafetyFrame = 0;
+function scheduleLayoutSafetyCheck() {
+  cancelAnimationFrame(layoutSafetyFrame);
+  layoutSafetyFrame = requestAnimationFrame(() => {
+    const viewportRatio = innerWidth / Math.max(1, innerHeight);
+    game.classList.remove('layout-compact', 'layout-tight', 'layout-stacked');
+    if (innerWidth < 1180 || innerHeight < 820 || viewportRatio < 1.25) game.classList.add('layout-compact');
+    requestAnimationFrame(() => applyOverlapFallback('layout-tight', () => {
+      requestAnimationFrame(() => applyOverlapFallback('layout-stacked'));
+    }));
+  });
+}
+
+function applyOverlapFallback(className: 'layout-tight' | 'layout-stacked', after?: () => void) {
+  const overlapCount = countUnsafeOverlaps();
+  game.dataset.layoutOverlaps = String(overlapCount);
+  if (overlapCount > 0) game.classList.add(className);
+  after?.();
+}
+
+function countUnsafeOverlaps() {
+  const visible = (element: Element): element is HTMLElement => {
+    const node = element as HTMLElement;
+    const rect = node.getBoundingClientRect();
+    return node.offsetParent !== null && rect.width > 1 && rect.height > 1;
+  };
+  const intersects = (left: HTMLElement, right: HTMLElement) => {
+    const a = left.getBoundingClientRect();
+    const b = right.getBoundingClientRect();
+    const clearance = 3;
+    return a.left < b.right + clearance && a.right + clearance > b.left && a.top < b.bottom + clearance && a.bottom + clearance > b.top;
+  };
+  const countPairs = (elements: HTMLElement[]) => {
+    let count = 0;
+    for (let left = 0; left < elements.length; left++) for (let right = left + 1; right < elements.length; right++) {
+      if (elements[left].contains(elements[right]) || elements[right].contains(elements[left])) continue;
+      if (intersects(elements[left], elements[right])) count++;
+    }
+    return count;
+  };
+
+  const hudElements = [...game.querySelectorAll('.hud > :not(.hidden)')].filter(visible);
+  const commandElements = [...game.querySelectorAll('.command-deck > :not(.hidden)')].filter(visible);
+  const arenaElements = [...game.querySelectorAll([
+    '.character-trait-panel:not(.hidden)',
+    '.character-status-panel:not(.hidden)',
+    '.opponent-hand-panel:not(.hidden)',
+    '.spell-echo:not(.hidden)',
+    '.action-quest-panel:not(.hidden)',
+    '.prompt.visible',
+    '.direct-perk:not(.hidden)',
+  ].join(','))].filter(visible).filter((element) => element.textContent?.trim() || element.querySelector('button'));
+  return countPairs(hudElements) + countPairs(commandElements) + countPairs(arenaElements);
 }

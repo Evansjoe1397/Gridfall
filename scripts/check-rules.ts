@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { arenaForPlayerCount, LORDAERON_ARENA } from '../shared/arenas.ts';
+import { arenaForPlayerCount, LORDAERON_ARENA, NAGRAND_ARENA } from '../shared/arenas.ts';
 import { ACTION_QUEST_POOL, applyCommand, applyPinned, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, distance, drawCards, effectiveMoveRange, hasLineOfSight, kykDirectionAllowed, markCharacterMoved, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 const createInitialState = () => createGameInitialState('shinobi-vs-orkk');
@@ -178,8 +178,25 @@ assert.equal(multiplayerLogan.players.P1.name, 'Long Hat Logan');
 assert.equal(multiplayerLogan.players.P2.name, 'Long Hat Logan');
 assert.equal(multiplayerLogan.phase, 'choosing-focus');
 assert.equal(multiplayerLogan.players.P1.hand.length, 0);
+assert.equal(multiplayerLogan.boardSize, NAGRAND_ARENA.height, 'A 1v1 multiplayer duel uses the 8x8 Nagrand Arena.');
+assert.equal(Object.keys(multiplayerLogan.players).length, 2, 'A Nagrand duel contains exactly two players.');
+assert.deepEqual(
+  multiplayerLogan.objects.filter((object) => object.kind === 'wall-pillar').map((object) => cellLabel(object.position)).sort(),
+  [...NAGRAND_ARENA.pillars].sort(),
+  'Nagrand uses the shared pillar layout.'
+);
+assert.deepEqual(
+  multiplayerLogan.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)).sort(),
+  [...NAGRAND_ARENA.boxes].sort(),
+  'Nagrand uses the shared box layout.'
+);
+const duelHotseat = createHotseatTestState(false, 'magician', 2);
+assert.equal(duelHotseat.boardSize, NAGRAND_ARENA.height, 'The 1v1 Test Room uses Nagrand Arena.');
+assert.deepEqual(Object.keys(duelHotseat.players).sort(), ['P1', 'P2'], 'The 1v1 Test Room has one selected Character and one Test Dummy.');
+assert.equal(duelHotseat.players.P2.character, 'dummy');
 const loganTestState = createHotseatTestState();
 assert.equal(loganTestState.boardSize, 11);
+assert.deepEqual(Object.keys(loganTestState.players).sort(), ['P1', 'P2', 'P3'], 'The FFA Test Room has one selected Character and two Test Dummies.');
 assert.equal(loganTestState.objects.length, 5);
 assert.deepEqual(loganTestState.objects.map((object) => cellLabel(object.position)).sort(), ['B2', 'B3', 'D10', 'F5', 'G10']);
 assert.equal(loganTestState.players.P1.character, 'magician');

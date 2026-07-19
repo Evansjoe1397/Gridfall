@@ -31,6 +31,12 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .online-waiting { width: min(760px, 100%); margin: 0 auto; padding: 28px; border: 1px solid #37685c; background: rgba(7,20,17,.95); text-align: center; }
 .online-waiting h2 { margin: 10px 0 20px; font-size: 44px; }
 .online-waiting > p:not(.eyebrow), .online-waiting > small { color: #91aaa3; }
+.room-id-copy { width: min(470px, 100%); margin: 13px auto 4px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; text-align: left; }
+.room-id-copy label { grid-column: 1 / -1; color: #6fa497; font-size: 9px; font-weight: 700; letter-spacing: .16em; }
+.room-id-copy input { min-width: 0; padding: 11px 13px; border: 1px solid #4c8274; background: #05110e; color: #eafff9; font: 700 17px 'Barlow Condensed', sans-serif; letter-spacing: .12em; outline: none; user-select: text; cursor: text; }
+.room-id-copy input:focus { border-color: var(--cyan); box-shadow: 0 0 12px rgba(114,246,215,.18); }
+.room-id-copy button { padding: 0 18px; border: 1px solid #4c8274; background: #12372e; color: #eafff9; cursor: pointer; font-size: 10px; letter-spacing: .12em; }
+.room-id-copy button:hover { border-color: var(--cyan); background: #194b3e; }
 .match-rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
 .match-rules span { padding: 10px; border: 1px solid #294c43; color: #6e9b90; font-size: 9px; letter-spacing: .14em; }
 .match-rules strong { display: block; margin-top: 5px; color: white; font-size: 18px; letter-spacing: .04em; }
@@ -175,11 +181,14 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .prompt {
   top: 50%;
   bottom: auto;
-  padding: 20px 36px;
-  font-size: 20px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: clamp(10px, 1.5vw, 20px) clamp(14px, 2.5vw, 36px);
+  font-size: clamp(11px, 1.25vw, 20px);
   line-height: 1.2;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   transform: translate(-50%, -50%) scale(.96);
   z-index: 20;
 }
@@ -299,4 +308,58 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .shell { padding: 12px; }
   .game:not(.hidden) { height: auto; min-height: calc(100vh - 86px); display: block; }
   .arena-frame { height: 52vh; min-height: 370px; }
+}
+
+/* Runtime layout-safety levels are selected after measuring real rendered panels. */
+.game.layout-compact .hud { gap: 8px; }
+.game.layout-compact .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 220px minmax(0, 1fr); gap: 10px; }
+.game.layout-compact .fighter { padding-inline: 9px; gap: 3px 8px; }
+.game.layout-compact .fighter strong { font-size: 19px; }
+.game.layout-compact .turn-core { padding: 8px 12px; }
+.game.layout-compact .character-status-panel.status-p1 { left: 205px; }
+.game.layout-compact .character-status-panel.status-p2 { right: 205px; }
+.game.layout-compact .opponent-card { width: 32px; height: 46px; }
+.game.layout-compact .spell-echo { width: 68px; padding: 5px; }
+.game.layout-compact .echo-slot { min-height: 50px; }
+.game.layout-compact .action-quest-panel { width: min(230px, 25vw); padding: 9px; }
+.game.layout-compact .command-deck { grid-template-columns: 195px minmax(0, 1fr) 160px; gap: 8px; }
+
+.game.layout-tight .hud,
+.game.layout-tight .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.game.layout-tight .turn-core { grid-column: 1 / -1; grid-row: 1; width: min(320px, 100%); justify-self: center; }
+.game.layout-tight .fighter { grid-row: 2; min-width: 0; }
+.game.layout-tight .character-trait-panel,
+.game.layout-tight .character-status-panel { padding: 5px; }
+.game.layout-tight .character-trait-panel .trait-icon,
+.game.layout-tight .character-status-panel .status-icon { width: 42px; height: 38px; font-size: 20px; }
+.game.layout-tight .character-status-panel.status-p1 { left: 150px; }
+.game.layout-tight .character-status-panel.status-p2 { right: 150px; }
+.game.layout-tight .opponent-hand-panel { top: 82px; padding: 5px; max-width: calc(50% - 75px); }
+.game.layout-tight .opponent-card { width: 28px; height: 40px; }
+.game.layout-tight .spell-echo { width: 58px; }
+.game.layout-tight .echo-slot { min-height: 42px; }
+.game.layout-tight .action-quest-panel { width: min(205px, 24vw); }
+.game.layout-tight .command-deck { grid-template-columns: 180px minmax(0, 1fr) 145px; gap: 6px; }
+.game.layout-tight .command-deck .hand { gap: 5px; }
+.game.layout-tight .command-deck .hand .card { padding: 8px; }
+
+.game.layout-stacked .arena-frame > .character-trait-panel > span,
+.game.layout-stacked .arena-frame > .character-status-panel > span,
+.game.layout-stacked .opponent-hand-panel > span,
+.game.layout-stacked .spell-echo label { display: none; }
+.game.layout-stacked .character-status-panel.status-p1 { left: 112px; }
+.game.layout-stacked .character-status-panel.status-p2 { right: 112px; }
+.game.layout-stacked .opponent-hand-panel { top: 62px; max-width: calc(50% - 58px); }
+.game.layout-stacked .spell-echo { width: 50px; }
+.game.layout-stacked .echo-slot { min-height: 36px; }
+.game.layout-stacked .action-quest-panel { right: 50%; width: min(190px, 42vw); transform: translateX(50%); }
+.game.layout-stacked .prompt { max-width: min(55%, 520px); }
+
+@media (max-width: 800px) {
+  .game.layout-compact .command-deck,
+  .game.layout-tight .command-deck { display: grid; grid-template-columns: 1fr; }
+  .game.layout-tight .hud,
+  .game.layout-tight .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .game.layout-tight .fighter.violet { grid-column: 1 / -1; }
+  .game.layout-stacked .action-quest-panel { bottom: 8px; }
 }
