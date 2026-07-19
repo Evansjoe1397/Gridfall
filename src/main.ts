@@ -209,7 +209,10 @@ function startHotseat(character: 'shinobi' | 'orkk' | 'magician', format: GameFo
   game.classList.remove('hidden');
   byId('connection').innerHTML = '<span></span> Hotseat match';
   renderAll();
-  requestAnimationFrame(resize);
+  requestAnimationFrame(() => {
+    resize();
+    fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
+  });
 }
 
 async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel') {
@@ -232,13 +235,18 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const arenaChanged = gameState.boardSize !== state.boardSize;
+      const shouldFitCamera = enteringBattle || arenaChanged;
       gameState = normalizeOnlineState(state);
       if (enteringBattle || arenaChanged) {
         boardVisualKey = '';
         fittedArenaKey = '';
       }
       selection.send({ type: 'CLEAR' });
-      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll(); requestAnimationFrame(resize);
+      lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
+      requestAnimationFrame(() => {
+        resize();
+        if (shouldFitCamera) fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
+      });
     });
     room.onMessage('error', (message: string) => notify(message));
     room.onMessage('notice', (message: string) => notify(message));
@@ -1380,11 +1388,11 @@ function rebuildBoardGeometry(width: number, height: number) {
   fitCameraToArena(width, height);
 }
 
-function fitCameraToArena(width: number, height: number) {
+function fitCameraToArena(width: number, height: number, force = false) {
   const viewportWidth = Math.max(1, boardEl.clientWidth);
   const viewportHeight = Math.max(1, boardEl.clientHeight);
   const arenaKey = `${width}x${height}:${cameraViewportProfile(viewportWidth, viewportHeight)}`;
-  if (fittedArenaKey === arenaKey) return;
+  if (!force && fittedArenaKey === arenaKey) return;
   fittedArenaKey = arenaKey;
 
   const spanX = Math.max(1, width - 1) * 1.92;
@@ -1393,10 +1401,8 @@ function fitCameraToArena(width: number, height: number) {
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
   const aspect = viewportWidth / viewportHeight;
-  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
-  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * aspect);
-  const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
-  const cameraDistance = Math.max(18, arenaRadius / Math.sin(limitingHalfFov) * 1.08);
+  const shortViewportAdjustment = aspect > 2.4 ? 1.16 : aspect > 1.9 ? 1.08 : 1;
+  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65 * shortViewportAdjustment);
   const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
   const center = boardCenterWorld(width, height);
   controls.target.copy(center);
