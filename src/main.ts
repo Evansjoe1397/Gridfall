@@ -1119,8 +1119,9 @@ function updateCameraMovement(deltaSeconds: number) {
   movement.normalize().multiplyScalar(5 * deltaSeconds);
   const nextTarget = controls.target.clone().add(movement);
   const movementRadius = cameraMovementRadius();
-  nextTarget.x = THREE.MathUtils.clamp(nextTarget.x, -movementRadius, movementRadius);
-  nextTarget.z = THREE.MathUtils.clamp(nextTarget.z, -movementRadius, movementRadius);
+  const boardCenter = boardCenterWorld();
+  nextTarget.x = THREE.MathUtils.clamp(nextTarget.x, boardCenter.x - movementRadius, boardCenter.x + movementRadius);
+  nextTarget.z = THREE.MathUtils.clamp(nextTarget.z, boardCenter.z - movementRadius, boardCenter.z + movementRadius);
   const appliedMovement = nextTarget.sub(controls.target);
   camera.position.add(appliedMovement);
   controls.target.add(appliedMovement);
@@ -1131,6 +1132,20 @@ function cameraMovementRadius() {
   const halfHeight = Math.max(1, visualBoardHeight() - 1) * 0.96;
   const boardRadius = Math.max(halfWidth, halfHeight);
   return boardRadius + Math.max(4, boardRadius * 0.35);
+}
+
+function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight()) {
+  const first = worldPosition({ x: 1, y: 0 });
+  const last = worldPosition({ x: width, y: height - 1 });
+  return first.add(last).multiplyScalar(.5).setY(.12);
+}
+
+function cameraViewportProfile(width = boardEl.clientWidth, height = boardEl.clientHeight) {
+  const aspect = width / Math.max(1, height);
+  if (height <= 660) return aspect >= 2.4 ? 'extra-short-wide' : 'extra-short';
+  if (height <= 780) return aspect >= 2.1 ? 'laptop-wide' : 'laptop';
+  if (aspect < 1.35) return 'narrow';
+  return 'desktop';
 }
 
 function createCell(cell: Cell) {
@@ -1366,7 +1381,9 @@ function rebuildBoardGeometry(width: number, height: number) {
 }
 
 function fitCameraToArena(width: number, height: number) {
-  const arenaKey = `${width}x${height}`;
+  const viewportWidth = Math.max(1, boardEl.clientWidth);
+  const viewportHeight = Math.max(1, boardEl.clientHeight);
+  const arenaKey = `${width}x${height}:${cameraViewportProfile(viewportWidth, viewportHeight)}`;
   if (fittedArenaKey === arenaKey) return;
   fittedArenaKey = arenaKey;
 
@@ -1375,10 +1392,15 @@ function fitCameraToArena(width: number, height: number) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
-  const cameraDistance = Math.max(18, Math.max(spanX, spanZ) * 1.65);
+  const aspect = viewportWidth / viewportHeight;
+  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * aspect);
+  const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
+  const cameraDistance = Math.max(18, arenaRadius / Math.sin(limitingHalfFov) * 1.08);
   const viewingDirection = new THREE.Vector3(14.5, 18.5, 15.5).normalize();
-  controls.target.set(0, 0, 0);
-  camera.position.copy(viewingDirection.multiplyScalar(cameraDistance));
+  const center = boardCenterWorld(width, height);
+  controls.target.copy(center);
+  camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
 }
@@ -1731,4 +1753,5 @@ function resize() {
   const width = boardEl.clientWidth; const height = boardEl.clientHeight;
   if (width < 1 || height < 1) return;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
+  fitCameraToArena(visualBoardWidth(), visualBoardHeight());
 }
