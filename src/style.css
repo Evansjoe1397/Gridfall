@@ -310,56 +310,86 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .arena-frame { height: 52vh; min-height: 370px; }
 }
 
-/* Runtime layout-safety levels are selected after measuring real rendered panels. */
-.game.layout-compact .hud { gap: 8px; }
-.game.layout-compact .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 220px minmax(0, 1fr); gap: 10px; }
-.game.layout-compact .fighter { padding-inline: 9px; gap: 3px 8px; }
-.game.layout-compact .fighter strong { font-size: 19px; }
-.game.layout-compact .turn-core { padding: 8px 12px; }
-.game.layout-compact .character-status-panel.status-p1 { left: 205px; }
-.game.layout-compact .character-status-panel.status-p2 { right: 205px; }
-.game.layout-compact .opponent-card { width: 32px; height: 46px; }
-.game.layout-compact .spell-echo { width: 68px; padding: 5px; }
-.game.layout-compact .echo-slot { min-height: 50px; }
-.game.layout-compact .action-quest-panel { width: min(230px, 25vw); padding: 9px; }
-.game.layout-compact .command-deck { grid-template-columns: 195px minmax(0, 1fr) 160px; gap: 8px; }
+/* Fixed layouts for common desktop and laptop viewports. */
+@media (max-width: 1440px), (max-height: 900px) {
+  .shell { padding: 12px 18px 10px; }
+  .masthead { height: 54px; }
+  h1 { font-size: 30px; }
+  .game:not(.hidden) { height: calc(100vh - 66px); min-height: 620px; grid-template-rows: auto minmax(310px, 1fr) auto auto; }
+  .hud { gap: 8px; margin-bottom: 6px; }
+  .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 220px minmax(0, 1fr); gap: 10px; }
+  .fighter { padding: 5px 9px; gap: 3px 8px; }
+  .fighter strong { font-size: 19px; }
+  .turn-core { padding: 8px 12px; }
+  .character-status-panel.status-p1 { left: 205px; }
+  .character-status-panel.status-p2 { right: 205px; }
+  .opponent-card { width: 32px; height: 46px; }
+  .spell-echo { width: 68px; padding: 5px; }
+  .echo-slot { min-height: 50px; }
+  .action-quest-panel { width: min(230px, 25vw); padding: 9px; }
+  .command-deck { grid-template-columns: 195px minmax(0, 1fr) 160px; gap: 8px; padding: 8px 0; }
+  .command-deck .hand { gap: 6px; }
+  .command-deck .hand .card { padding: 9px; }
+}
 
-.game.layout-tight .hud,
-.game.layout-tight .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.game.layout-tight .turn-core { grid-column: 1 / -1; grid-row: 1; width: min(320px, 100%); justify-self: center; }
-.game.layout-tight .fighter { grid-row: 2; min-width: 0; }
-.game.layout-tight .character-trait-panel,
-.game.layout-tight .character-status-panel { padding: 5px; }
-.game.layout-tight .character-trait-panel .trait-icon,
-.game.layout-tight .character-status-panel .status-icon { width: 42px; height: 38px; font-size: 20px; }
-.game.layout-tight .character-status-panel.status-p1 { left: 150px; }
-.game.layout-tight .character-status-panel.status-p2 { right: 150px; }
-.game.layout-tight .opponent-hand-panel { top: 82px; padding: 5px; max-width: calc(50% - 75px); }
-.game.layout-tight .opponent-card { width: 28px; height: 40px; }
-.game.layout-tight .spell-echo { width: 58px; }
-.game.layout-tight .echo-slot { min-height: 42px; }
-.game.layout-tight .action-quest-panel { width: min(205px, 24vw); }
-.game.layout-tight .command-deck { grid-template-columns: 180px minmax(0, 1fr) 145px; gap: 6px; }
-.game.layout-tight .command-deck .hand { gap: 5px; }
-.game.layout-tight .command-deck .hand .card { padding: 8px; }
+/* Compact laptops: 1366x768, 1280x720, and similarly short browser viewports. */
+@media (max-height: 780px) and (min-width: 801px), (max-width: 1180px) and (min-width: 801px) {
+  .shell { padding: 7px 12px 6px; }
+  .masthead { height: 46px; }
+  .masthead .eyebrow { font-size: 8px; }
+  h1 { font-size: 26px; }
+  .game:not(.hidden) { height: calc(100vh - 53px); min-height: 570px; grid-template-rows: auto minmax(280px, 1fr) auto auto; }
+  .hud { gap: 5px; margin-bottom: 4px; }
+  .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); gap: 6px; }
+  .fighter { padding: 3px 7px; }
+  .fighter span { font-size: 7px; }
+  .fighter strong { font-size: 17px; }
+  .hp-copy b { font-size: 18px; }
+  .turn-core { padding: 5px 8px; }
+  .turn-core strong { font-size: 18px; }
+  .character-trait-panel,
+  .character-status-panel { padding: 5px; }
+  .character-trait-panel .trait-icon,
+  .character-status-panel .status-icon { width: 42px; height: 38px; font-size: 20px; }
+  .character-status-panel.status-p1 { left: 150px; }
+  .character-status-panel.status-p2 { right: 150px; }
+  .opponent-hand-panel { top: 82px; padding: 5px; max-width: calc(50% - 75px); }
+  .opponent-card { width: 28px; height: 40px; }
+  .spell-echo { width: 58px; }
+  .echo-slot { min-height: 42px; }
+  .action-quest-panel { width: min(205px, 24vw); }
+  .command-deck { grid-template-columns: 180px minmax(0, 1fr) 145px; gap: 6px; padding: 6px 0; }
+  .identity, .turn-actions { padding: 8px; }
+  .command-deck .hand { gap: 5px; }
+  .command-deck .hand .card { min-height: 112px; padding: 7px; }
+  .command-deck .hand .card strong { font-size: 16px; }
+  .command-deck .hand .card small { font-size: 10px; }
+  .battle-log { padding-top: 5px; }
+  .battle-log p { font-size: 8px; }
+}
 
-.game.layout-stacked .arena-frame > .character-trait-panel > span,
-.game.layout-stacked .arena-frame > .character-status-panel > span,
-.game.layout-stacked .opponent-hand-panel > span,
-.game.layout-stacked .spell-echo label { display: none; }
-.game.layout-stacked .character-status-panel.status-p1 { left: 112px; }
-.game.layout-stacked .character-status-panel.status-p2 { right: 112px; }
-.game.layout-stacked .opponent-hand-panel { top: 62px; max-width: calc(50% - 58px); }
-.game.layout-stacked .spell-echo { width: 50px; }
-.game.layout-stacked .echo-slot { min-height: 36px; }
-.game.layout-stacked .action-quest-panel { right: 50%; width: min(190px, 42vw); transform: translateX(50%); }
-.game.layout-stacked .prompt { max-width: min(55%, 520px); }
+@media (max-width: 1000px) and (min-width: 801px) {
+  .hud,
+  .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .turn-core { grid-column: 1 / -1; grid-row: 1; width: min(300px, 100%); justify-self: center; }
+  .fighter { grid-row: 2; min-width: 0; }
+}
 
 @media (max-width: 800px) {
-  .game.layout-compact .command-deck,
-  .game.layout-tight .command-deck { display: grid; grid-template-columns: 1fr; }
-  .game.layout-tight .hud,
-  .game.layout-tight .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .game.layout-tight .fighter.violet { grid-column: 1 / -1; }
-  .game.layout-stacked .action-quest-panel { bottom: 8px; }
+  .arena-frame > .character-trait-panel > span,
+  .arena-frame > .character-status-panel > span,
+  .opponent-hand-panel > span,
+  .spell-echo label { display: none; }
+  .character-status-panel.status-p1 { left: 112px; }
+  .character-status-panel.status-p2 { right: 112px; }
+  .opponent-hand-panel { top: 62px; max-width: calc(50% - 58px); }
+  .spell-echo { width: 50px; }
+  .echo-slot { min-height: 36px; }
+  .action-quest-panel { right: 50%; bottom: 8px; width: min(190px, 42vw); transform: translateX(50%); }
+  .prompt { max-width: min(55%, 520px); }
+  .command-deck { display: grid; grid-template-columns: 1fr; }
+  .hud,
+  .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .turn-core { grid-column: 1 / -1; grid-row: 1; }
+  .fighter.violet { grid-column: 1 / -1; }
 }

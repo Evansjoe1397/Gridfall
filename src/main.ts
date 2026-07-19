@@ -439,7 +439,6 @@ function renderUI() {
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
   if (((actor.movementRemaining > 0 && gameState.phase === 'active') || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
   highlightCells();
-  scheduleLayoutSafetyCheck();
 }
 
 function renderFighter(id: PlayerId, elementId: string) {
@@ -1720,60 +1719,4 @@ function resize() {
   const width = boardEl.clientWidth; const height = boardEl.clientHeight;
   if (width < 1 || height < 1) return;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
-  scheduleLayoutSafetyCheck();
-}
-
-let layoutSafetyFrame = 0;
-function scheduleLayoutSafetyCheck() {
-  cancelAnimationFrame(layoutSafetyFrame);
-  layoutSafetyFrame = requestAnimationFrame(() => {
-    const viewportRatio = innerWidth / Math.max(1, innerHeight);
-    game.classList.remove('layout-compact', 'layout-tight', 'layout-stacked');
-    if (innerWidth < 1180 || innerHeight < 820 || viewportRatio < 1.25) game.classList.add('layout-compact');
-    requestAnimationFrame(() => applyOverlapFallback('layout-tight', () => {
-      requestAnimationFrame(() => applyOverlapFallback('layout-stacked'));
-    }));
-  });
-}
-
-function applyOverlapFallback(className: 'layout-tight' | 'layout-stacked', after?: () => void) {
-  const overlapCount = countUnsafeOverlaps();
-  game.dataset.layoutOverlaps = String(overlapCount);
-  if (overlapCount > 0) game.classList.add(className);
-  after?.();
-}
-
-function countUnsafeOverlaps() {
-  const visible = (element: Element): element is HTMLElement => {
-    const node = element as HTMLElement;
-    const rect = node.getBoundingClientRect();
-    return node.offsetParent !== null && rect.width > 1 && rect.height > 1;
-  };
-  const intersects = (left: HTMLElement, right: HTMLElement) => {
-    const a = left.getBoundingClientRect();
-    const b = right.getBoundingClientRect();
-    const clearance = 3;
-    return a.left < b.right + clearance && a.right + clearance > b.left && a.top < b.bottom + clearance && a.bottom + clearance > b.top;
-  };
-  const countPairs = (elements: HTMLElement[]) => {
-    let count = 0;
-    for (let left = 0; left < elements.length; left++) for (let right = left + 1; right < elements.length; right++) {
-      if (elements[left].contains(elements[right]) || elements[right].contains(elements[left])) continue;
-      if (intersects(elements[left], elements[right])) count++;
-    }
-    return count;
-  };
-
-  const hudElements = [...game.querySelectorAll('.hud > :not(.hidden)')].filter(visible);
-  const commandElements = [...game.querySelectorAll('.command-deck > :not(.hidden)')].filter(visible);
-  const arenaElements = [...game.querySelectorAll([
-    '.character-trait-panel:not(.hidden)',
-    '.character-status-panel:not(.hidden)',
-    '.opponent-hand-panel:not(.hidden)',
-    '.spell-echo:not(.hidden)',
-    '.action-quest-panel:not(.hidden)',
-    '.prompt.visible',
-    '.direct-perk:not(.hidden)',
-  ].join(','))].filter(visible).filter((element) => element.textContent?.trim() || element.querySelector('button'));
-  return countPairs(hudElements) + countPairs(commandElements) + countPairs(arenaElements);
 }
