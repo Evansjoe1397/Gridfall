@@ -8,6 +8,51 @@ assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.durat
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.reward, 'Portal Card');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.durationRounds, 5);
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.reward, 'Vicious Mockery Card');
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'capture-the-flag')?.reward, 'The Banner');
+
+const captureFlagState = createGameInitialState() as any;
+captureFlagState.activePlayerId = 'P1';
+captureFlagState.players.P1.position = { x: 3, y: 3 };
+captureFlagState.players.P1.movementRemaining = 1;
+captureFlagState.objects = [];
+captureFlagState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['capture-the-flag'], currentQuest: { id: 'capture-the-flag', announcedRound: 1, endsAfterRound: 10, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {}, captureTheFlag: { anchor: { x: 4.5, y: 3.5 }, carrierIds: [] } };
+const capturedFlag = applyCommand(captureFlagState, { type: 'move', playerId: 'P1', to: { x: 4, y: 3 } });
+assert.equal(capturedFlag.ok, true);
+if (capturedFlag.ok) {
+  assert.deepEqual((capturedFlag.state as any).questPhases.captureTheFlag.carrierIds, ['P1'], 'Entering a High Ground Square adjacent to the Flag grid point captures it.');
+  capturedFlag.state.activePlayerId = 'P2';
+  capturedFlag.state.players.P2.position = { x: 6, y: 3 };
+  capturedFlag.state.players.P2.movementRemaining = 1;
+  const secondCapturedFlag = applyCommand(capturedFlag.state, { type: 'move', playerId: 'P2', to: { x: 5, y: 3 } });
+  assert.equal(secondCapturedFlag.ok, true);
+  if (!secondCapturedFlag.ok) throw new Error('Second Player could not capture the joint Flag.');
+  assert.deepEqual((secondCapturedFlag.state as any).questPhases.captureTheFlag.carrierIds.sort(), ['P1', 'P2'], 'The shared Flag remains available for every Player during the delivery race.');
+  secondCapturedFlag.state.activePlayerId = 'P1';
+  secondCapturedFlag.state.players.P1.position = { x: 1, y: 3 };
+  secondCapturedFlag.state.players.P1.hand = [];
+  const deliveredFlag = applyCommand(secondCapturedFlag.state, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(deliveredFlag.ok, true);
+  if (deliveredFlag.ok) {
+    const banner = deliveredFlag.state.players.P1.hand.find((card) => card.cardId === 'banner');
+    assert.equal(banner?.revealedToOpponent, true, 'The Banner reward is public information.');
+    assert.equal(effectiveMoveRange(deliveredFlag.state.players.P1), deliveredFlag.state.players.P1.moveRange + 1, 'The Banner grants +1 MOV while in Hand.');
+  }
+}
+
+const bannerCombatState = createGameInitialState();
+bannerCombatState.players.P1.position = { x: 2, y: 1 };
+bannerCombatState.players.P2.position = { x: 3, y: 1 };
+bannerCombatState.players.P1.hand = [
+  { instanceId: 'banner-combat-attack', cardId: 'attack-2' },
+  { instanceId: 'banner-combat-reward', cardId: 'banner', revealedToOpponent: true },
+];
+const bannerAttack = applyCommand(bannerCombatState, { type: 'attack', playerId: 'P1', cardInstanceId: 'banner-combat-attack', targetId: 'P2' });
+assert.equal(bannerAttack.ok, true);
+if (bannerAttack.ok) {
+  assert.equal(bannerAttack.state.pendingAttack?.attackValue, 3, 'The Banner applies +1 to Combat.');
+  assert.equal(bannerAttack.state.players.P1.hand.some((card) => card.cardId === 'banner'), false, 'The Banner is Removed after applying its Combat bonus.');
+  assert.equal(bannerAttack.state.players.P1.discard.some((card) => card.cardId === 'banner'), false, 'Removed Banner does not enter the Discard Deck.');
+}
 
 const highgroundQuest = createInitialState() as any;
 highgroundQuest.players.P1.position = { x: 4, y: 3 };
@@ -109,6 +154,8 @@ if (phaseBoundaryResult.ok) {
     phaseTwoState.turn = 20;
     phaseTwoState.activePlayerId = 'P3';
     phaseTwoState.players.P3.hand = [];
+    phaseTwoState.questPhases.currentQuest = null;
+    phaseTwoState.questPhases.captureTheFlag = null;
     phaseTwoState.questPhases.lastQuestWinners = ['P1'];
     const phaseTwoBoundary = applyCommand(phaseTwoState, { type: 'end-turn', playerId: 'P3' });
     assert.equal(phaseTwoBoundary.ok, true);
@@ -204,7 +251,7 @@ assert.deepEqual(loganTestState.objects.map((object) => cellLabel(object.positio
 assert.equal(loganTestState.players.P1.character, 'magician');
 assert.equal(loganTestState.players.P1.name, 'Long Hat Logan');
 assert.equal(loganTestState.players.P1.moveRange, 3, 'Long Hat Logan should have a base Movement Range of 3.');
-assert.equal(loganTestState.players.P1.attackRange, 3, 'Long Hat Logan should have an Attack Range of 3.');
+assert.equal(loganTestState.players.P1.attackRange, 2, 'Long Hat Logan should have an Attack Range of 2.');
 assert.equal(loganTestState.players.P1.maxHp, 18);
 assert.equal(loganTestState.phase, 'choosing-focus');
 assert.equal(loganTestState.players.P1.hand.length, 0);
@@ -217,8 +264,8 @@ assert.equal(cellLabel(loganTestState.players.P3.position), 'G7');
 assert.equal(loganTestState.players.P2.hand.every((instance) => ['attack-2', 'attack-3', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse'].includes(instance.cardId)), true);
 const chainTest = createHotseatTestState(true);
 chainTest.players.P1.position = { x: 1, y: 3 };
-chainTest.players.P2.position = { x: 4, y: 3 };
-chainTest.objects.push({ id: 'chain-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 3 } });
+chainTest.players.P2.position = { x: 3, y: 3 };
+chainTest.objects = [{ id: 'chain-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
 const chainCard = chainTest.players.P1.hand.find((card) => card.cardId === 'chain-lightning')!;
 const startChain = applyCommand(chainTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: chainCard.instanceId, destination: 'direct' });
 assert.equal(startChain.ok, true);
@@ -423,6 +470,38 @@ assert.equal(defaultLineup.objects.some((object) => object.kind === 'wooden-box'
 assert.deepEqual(Object.keys(defaultLineup.elevations).sort(), ['D4', 'D5', 'E4', 'E5']);
 assert.equal(hasLineOfSight(defaultLineup, { x: 1, y: 2 }, { x: 5, y: 2 }), false, 'The C3 pillar blocks direct line of sight.');
 
+const occupiedMovementState = createGameInitialState();
+occupiedMovementState.activePlayerId = 'P1';
+occupiedMovementState.players.P1.position = { x: 1, y: 1 };
+occupiedMovementState.players.P1.movementRemaining = 4;
+occupiedMovementState.players.P2.position = { x: 2, y: 1 };
+occupiedMovementState.objects = [
+  { id: 'movement-column', name: 'Wooden Pillar', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 2, y: 0 } },
+  { id: 'movement-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 2 } },
+];
+const movementAroundOccupiedSquares = applyCommand(occupiedMovementState, { type: 'move', playerId: 'P1', to: { x: 3, y: 1 } });
+assert.equal(movementAroundOccupiedSquares.ok, true, 'Normal movement can route around occupied Squares when enough movement remains.');
+if (movementAroundOccupiedSquares.ok) {
+  assert.equal(movementAroundOccupiedSquares.state.players.P1.movementRemaining, 0, 'Routing around a character, Column, and ordinary Object costs the full four-square path.');
+}
+
+const blockedMovementState = createGameInitialState();
+blockedMovementState.activePlayerId = 'P1';
+blockedMovementState.players.P1.position = { x: 1, y: 1 };
+blockedMovementState.players.P1.movementRemaining = 3;
+blockedMovementState.players.P2.position = { x: 2, y: 1 };
+blockedMovementState.objects = [
+  { id: 'blocking-column', name: 'Wooden Pillar', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 2, y: 0 } },
+  { id: 'blocking-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 2 } },
+];
+assert.equal(applyCommand(blockedMovementState, { type: 'move', playerId: 'P1', to: { x: 3, y: 1 } }).ok, false, 'Characters cannot move through Columns, Objects, or other characters without an explicit effect.');
+
+const wallLineOfSightState = createGameInitialState();
+wallLineOfSightState.objects = [{ id: 'los-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+assert.equal(hasLineOfSight(wallLineOfSightState, { x: 1, y: 2 }, { x: 5, y: 2 }), false, 'A Shield Wall Object blocks line of sight like a Column.');
+wallLineOfSightState.objects = [{ id: 'los-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 2 } }];
+assert.equal(hasLineOfSight(wallLineOfSightState, { x: 1, y: 2 }, { x: 5, y: 2 }), true, 'An ordinary Object does not block line of sight.');
+
 const homeDefenseState = createGameInitialState();
 homeDefenseState.activePlayerId = 'P2';
 homeDefenseState.players.P1.position = { x: 1, y: 3 };
@@ -525,18 +604,30 @@ const consumedOne = applyCommand(consumeOne, { type: 'play-perk', playerId: 'P1'
 assert.equal(consumedOne.ok, true);
 if (consumedOne.ok) {
   assert.equal(consumedOne.state.players.P1.hp, 25, 'Consume Rage level 1 heals 1 HP.');
-  assert.equal(consumedOne.state.players.P1.rageStacks, 0, 'Consume Rage level 1 removes 3 Rage.');
+  assert.equal(consumedOne.state.players.P1.rageStacks, 1, 'Consume Rage level 1 consumes 2 Rage.');
+}
+
+const consumeTwo = createGameInitialState();
+consumeTwo.players.P1.hp = 23;
+consumeTwo.players.P1.rageStacks = 2;
+consumeTwo.players.P1.hand = [];
+consumeTwo.players.P1.spellEcho[1] = { instanceId: 'consume-two', cardId: 'consume-rage' };
+const consumedTwo = applyCommand(consumeTwo, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(consumedTwo.ok, true);
+if (consumedTwo.ok) {
+  assert.equal(consumedTwo.state.players.P1.hp, 25, 'Consume Rage level 2 heals 2 HP total.');
+  assert.equal(consumedTwo.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes 2 Rage.');
 }
 
 const consumeInsufficient = createGameInitialState();
 consumeInsufficient.players.P1.hp = 24;
-consumeInsufficient.players.P1.rageStacks = 2;
+consumeInsufficient.players.P1.rageStacks = 1;
 const insufficientCard = consumeInsufficient.players.P1.hand.find((card) => card.cardId === 'consume-rage')!;
 const consumedInsufficient = applyCommand(consumeInsufficient, { type: 'play-perk', playerId: 'P1', cardInstanceId: insufficientCard.instanceId, destination: 'direct' });
 assert.equal(consumedInsufficient.ok, true, 'Consume Rage may still be cast without enough Rage.');
 if (consumedInsufficient.ok) {
   assert.equal(consumedInsufficient.state.players.P1.hp, 24, 'Insufficient Rage provides no healing.');
-  assert.equal(consumedInsufficient.state.players.P1.rageStacks, 2, 'Insufficient Rage is not consumed.');
+  assert.equal(consumedInsufficient.state.players.P1.rageStacks, 1, 'Insufficient Rage is not consumed.');
   assert.equal(consumedInsufficient.state.players.P1.discard.some((card) => card.cardId === 'consume-rage'), true, 'The cast Perk is still discarded normally.');
 }
 
@@ -550,7 +641,7 @@ consumeThree.players.P1.spellEcho[2] = { instanceId: 'consume-three', cardId: 'c
 const consumedThree = applyCommand(consumeThree, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(consumedThree.ok, true);
 if (consumedThree.ok) {
-  assert.equal(consumedThree.state.players.P1.hp, 25);
+  assert.equal(consumedThree.state.players.P1.hp, 26, 'Consume Rage level 3 includes the level 2 +1 HP bonus.');
   assert.equal(consumedThree.state.players.P1.rageStacks, 0);
   assert.equal(consumedThree.state.players.P2.hand.some((card) => card.cardId === 'exhaust'), true, 'Consume Rage level 3 adds Exhaust to adjacent enemies.');
 }
@@ -637,6 +728,24 @@ if (beginDirectShield.ok) {
   if (resolveDirectShield.ok) {
     assert.deepEqual(resolveDirectShield.state.objects.find((object) => object.kind === 'orkk-shield')?.position, { x: 4, y: 2 }, 'A D4-to-B4 throw collides at B4 and stops directly behind it at C4.');
     assert.equal(resolveDirectShield.state.objectPushAnimations.some((event) => event.damage?.playerId === 'P2' && event.damage.collision && event.damage.amount === 1), true, 'Shield collision emits a reusable damage-number and impact event.');
+  }
+}
+
+const shieldPassThroughPlayer = createGameInitialState();
+shieldPassThroughPlayer.players.P1.position = { x: 1, y: 3 };
+shieldPassThroughPlayer.players.P2.position = { x: 3, y: 3 };
+shieldPassThroughPlayer.objects = [];
+const passThroughShieldCard = shieldPassThroughPlayer.players.P1.hand.find((card) => card.cardId === 'arkane-arow')!;
+const beginPassThroughShield = applyCommand(shieldPassThroughPlayer, { type: 'play-perk', playerId: 'P1', cardInstanceId: passThroughShieldCard.instanceId, destination: 'direct' });
+assert.equal(beginPassThroughShield.ok, true);
+if (beginPassThroughShield.ok) {
+  const resolvePassThroughShield = applyCommand(beginPassThroughShield.state, { type: 'arkane-arow-target', playerId: 'P1', to: { x: 4, y: 3 } });
+  assert.equal(resolvePassThroughShield.ok, true);
+  if (resolvePassThroughShield.ok) {
+    assert.equal(resolvePassThroughShield.state.players.P2.hp, 19, 'A Shield crossing a Player-occupied Square collides and deals the card\'s Level 1 damage.');
+    const landedShield = resolvePassThroughShield.state.objects.find((object) => object.kind === 'orkk-shield')!;
+    assert.deepEqual(landedShield.position, { x: 2, y: 3 }, 'The Shield stops adjacent to the Player it collided with instead of continuing to the selected Square.');
+    assert.equal(distance(landedShield.position, resolvePassThroughShield.state.players.P2.position), 1);
   }
 }
 
@@ -1222,6 +1331,25 @@ if (lethalFlurryAttack.ok) {
   }
 }
 
+let rangedFlurryState = createInitialState();
+rangedFlurryState.activePlayerId = 'P2';
+rangedFlurryState.players.P1.position = { x: 2, y: 1 };
+rangedFlurryState.players.P2.position = { x: 4, y: 1 };
+rangedFlurryState.players.P2.attackRange = 2;
+rangedFlurryState.players.P2.hand = [{ instanceId: 'ranged-flurry-attack', cardId: 'attack-3' }];
+const rangedFlurryCard = ensureCardInHand(rangedFlurryState, 'P1', 'flurry-defensive-strikes');
+rangedFlurryState.players.P1.hand = [rangedFlurryCard];
+const rangedFlurryAttack = applyCommand(rangedFlurryState, { type: 'attack', playerId: 'P2', cardInstanceId: 'ranged-flurry-attack', targetId: 'P1' });
+assert.equal(rangedFlurryAttack.ok, true);
+if (rangedFlurryAttack.ok) {
+  const rangedFlurry = applyCommand(rangedFlurryAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: rangedFlurryCard.instanceId });
+  assert.equal(rangedFlurry.ok, true);
+  if (rangedFlurry.ok) {
+    assert.equal(rangedFlurry.state.players.P2.hp, 26, 'Flurry does not deal pre-combat damage to a non-adjacent Attacker.');
+    assert.equal(rangedFlurry.state.phase, 'active', 'Flurry does not offer its optional payment when the Attacker has no Card left to discard.');
+  }
+}
+
 let flurryChoiceState = createInitialState();
 flurryChoiceState.activePlayerId = 'P2';
 flurryChoiceState.players.P1.position = { x: 2, y: 1 };
@@ -1252,7 +1380,13 @@ if (flurryAttack.ok) {
       assert.equal(firstEnemyDiscard.ok, true);
       if (firstEnemyDiscard.ok) {
         assert.equal(firstEnemyDiscard.state.players.P2.hand.length, 2);
-        assert.equal(firstEnemyDiscard.state.phase, 'active');
+        assert.equal(firstEnemyDiscard.state.phase, 'choosing-flurry-enemy-discard');
+        const secondEnemyDiscard = applyCommand(firstEnemyDiscard.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-2' });
+        assert.equal(secondEnemyDiscard.ok, true);
+        if (secondEnemyDiscard.ok) {
+          assert.equal(secondEnemyDiscard.state.players.P2.hand.length, 1);
+          assert.equal(secondEnemyDiscard.state.phase, 'active');
+        }
       }
     }
   }

@@ -22,6 +22,7 @@ import {
   movementPath,
   kykDirectionAllowed,
   pinnedCount,
+  type CardTypeId,
   type Cell,
   type GameCommand,
   type GameState,
@@ -72,9 +73,9 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><div class="prompt" id="prompt"></div></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
-        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one card and move Again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">Hints</button></div>
+        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one card and move Again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">Hints</button></div>
         <div class="hand" id="hand"></div>
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
@@ -145,6 +146,7 @@ document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () 
 document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
 document.querySelector('#leaveGame')!.addEventListener('click', () => location.reload());
 window.addEventListener('keydown', (event) => {
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
   if (event.code === 'Escape' && hintsOpen) {
     event.preventDefault(); hintsOpen = false; renderHintsModal(); return;
   }
@@ -183,6 +185,13 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     dispatch({ type: 'end-turn', playerId: actingPlayer() });
   }
+  if (event.code === 'KeyF' && !game.classList.contains('hidden')) {
+    const freeMoveButton = byId('freeMoveButton') as HTMLButtonElement;
+    if (!freeMoveButton.disabled) {
+      event.preventDefault();
+      freeMoveButton.click();
+    }
+  }
 });
 
 function isWaitingForResolvedCardTarget() {
@@ -220,9 +229,20 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   }));
 }
 
+type SelectableCharacter = 'shinobi' | 'orkk' | 'magician';
+const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
+  shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 2, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
+  orkk: { name: 'Da Orkk', hp: 26, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage whenever Da Orkk takes damage during enemy turns. Attack Cards gain +1 Attack Value per Rage stack and consume all stacks. Otherwise, remove 1 Rage at the end of Da Orkk's turn." },
+  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
+};
+function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
+  const info = CHARACTER_SELECT_INFO[character];
+  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ATT RANGE</small><small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small></span></button>`;
+}
+
 function showHotseatCharacterSelect(format: GameFormat) {
   const panel = byId('onlineWaiting');
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><div class="character-choices"><button data-hotseat-character="shinobi"><strong>Obi Wan Shinobi</strong></button><button data-hotseat-character="orkk"><strong>Da Orkk</strong></button><button data-hotseat-character="magician"><strong>Long Hat Logan</strong></button></div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(button.dataset.hotseatCharacter as 'shinobi' | 'orkk' | 'magician', format)));
 }
 
@@ -294,7 +314,7 @@ function normalizeOnlineState(state: GameState): GameState {
   state.log ??= [];
   Object.values(state.players).forEach((player) => {
     player.moveRange ??= player.character === 'orkk' ? 3 : 2;
-    player.attackRange ??= player.character === 'orkk' ? 1 : player.character === 'magician' ? 3 : 2;
+    player.attackRange ??= player.character === 'orkk' ? 1 : 2;
     player.movementRemaining ??= 0;
     player.actionsRemaining ??= 2;
     player.swiftformMoveBonus ??= 0;
@@ -326,9 +346,9 @@ function renderOnlineLobby() {
   panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM ID · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomId)}" readonly spellcheck="false" aria-label="Multiplayer Room ID"><button id="copyRoomId" type="button">COPY</button></div><h2>Character Select</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}</p><div class="character-choices">
-      <button data-character="orkk" ${mayChoose ? '' : 'disabled'}><strong>Da Orkk</strong><small>Rage · Shield · Melee</small></button>
-      <button data-character="shinobi" ${mayChoose ? '' : 'disabled'}><strong>Obi Wan Shinobi</strong><small>Lightsaber · Mobility · Range 2</small></button>
-      <button data-character="magician" ${mayChoose ? '' : 'disabled'}><strong>Long Hat Logan</strong><small>Classic Wizardry · Mana · MOV 3 · Range 3</small></button>
+      ${characterSelectButton('orkk', 'data-character', !mayChoose)}
+      ${characterSelectButton('shinobi', 'data-character', !mayChoose)}
+      ${characterSelectButton('magician', 'data-character', !mayChoose)}
     </div><small>Players may choose the same Character.</small>`;
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
@@ -553,9 +573,31 @@ function hintsRulesHtml(ru: boolean) {
 function cardAdviceHtml(ru: boolean) {
   const player = gameState.players[actingPlayer()];
   const cards = player.hand.map((instance) => cardDefinition(instance));
+  const generatedStatuses = (Object.keys(STATUS_CARD_GENERATORS) as StatusCardId[])
+    .filter((statusId) => !cards.some((card) => card.id === statusId) && statusGeneratorsInHand(statusId, cards).length > 0)
+    .map((statusId) => CARDS.find((card) => card.id === statusId)!);
+  const adviceCards = [...cards, ...generatedStatuses];
   const heading = ru ? `Советы для ${escapeHtml(player.name)}` : `${escapeHtml(player.name)} · Hand Advice`;
   if (cards.length === 0) return `<h2 id="hintsTitle">${heading}</h2><p class="empty-advice">${ru ? 'В Руке нет карт. Используйте свободное движение, чтобы взять карту.' : 'Your Hand is empty. Use Free Move to draw a Card.'}</p>`;
-  return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${cards.map((card) => `<article class="advice-card ${card.kind}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}</p></article>`).join('')}</div>`;
+  return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${adviceCards.map((card) => `<article class="advice-card ${card.kind}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}${statusGeneratorAdvice(card.id, cards, ru)}</p></article>`).join('')}</div>`;
+}
+
+type StatusCardId = 'pinned' | 'headache' | 'exhaust';
+const STATUS_CARD_GENERATORS: Record<StatusCardId, readonly CardTypeId[]> = {
+  pinned: ['light-the-saber', 'dance-through', 'cut-them-legs', 'block', 'double-jump', 'force-pull', 'swiftform'],
+  headache: ['counterspell', 'hello-there', 'mind-tricks', 'chip-cast', 'knee-blast', 'countaspell'],
+  exhaust: ['grimoire-cleanse', 'force-disarm', 'consume-rage', 'teef-strike'],
+};
+function statusGeneratorsInHand(statusId: StatusCardId, cards: readonly (typeof CARDS)[number][]) {
+  const generatorIds = STATUS_CARD_GENERATORS[statusId];
+  return cards.filter((card, index) => generatorIds.includes(card.id) && cards.findIndex((candidate) => candidate.id === card.id) === index);
+}
+function statusGeneratorAdvice(cardId: CardTypeId, cards: readonly (typeof CARDS)[number][], ru: boolean): string {
+  if (!(cardId in STATUS_CARD_GENERATORS)) return '';
+  const generators = statusGeneratorsInHand(cardId as StatusCardId, cards);
+  if (generators.length === 0) return '';
+  const names = generators.map((card) => escapeHtml(card.name)).join(', ');
+  return ru ? ` Карты в вашей Руке, которые могут создать этот Статус: <b>${names}</b>.` : ` Cards in your Hand that can generate this Status: <b>${names}</b>.`;
 }
 
 function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['players'][PlayerId], ru: boolean) {
@@ -604,7 +646,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'cut-them-legs': { en: 'A strong repeatable Attack. Aim for a favourable combat so it returns to Hand, applies Pinned, and can be played again if another Action remains.', ru: 'Сильная повторяемая Атака. Добивайтесь победы в бою, чтобы карта вернулась в Руку, наложила Pinned и могла быть сыграна снова при наличии Действия.' },
   'hello-there': { en: 'Shinobi’s Pinned payoff. Stack Pinned first, then use this even against a strong Defence: its bonus damage applies after combat, and Headache further clogs the enemy Hand.', ru: 'Главная реализация Pinned у Шиноби. Сначала накопите Pinned, затем используйте даже против сильной Защиты: дополнительный урон наносится после боя, а Headache засоряет Руку врага.' },
   block: { en: 'Choose this against Attacks whose effects matter more than raw damage. It cancels the printed Attack effect before combat and Pins the attacker for later Shinobi combinations.', ru: 'Выбирайте против Атак, чьи эффекты опаснее чистого урона. Карта отменяет собственный эффект Атаки до боя и накладывает Pinned для будущих комбинаций Шиноби.' },
-  'flurry-defensive-strikes': { en: 'Use to finish an attacker at 1 HP before combat or to disrupt their Hand. Paying 1 HP for the discard is best when it removes a likely combo piece or forces overstack pressure.', ru: 'Используйте, чтобы добить атакующего с 1 HP до боя или нарушить его Руку. Потеря 1 HP ради сброса выгодна, если убирает часть комбинации или усиливает давление лимита Руки.' },
+  'flurry-defensive-strikes': { en: 'Use against an adjacent attacker to deal 1 Damage before combat. If you can spare 1 HP, lose it to strip two Cards from the attacker and disrupt their next turn.', ru: 'Используйте против атакующего на соседней клетке, чтобы нанести 1 урон до боя. Если можете пожертвовать 1 HP, потеряйте его, чтобы атакующий сбросил две карты и ослабил следующий ход.' },
   calmness: { en: 'A hard counter to a Pinned attacker: it negates all damage regardless of combat value. The cleanse removes Shinobi’s positive effects too, so spend valuable buffs first when possible.', ru: 'Жёсткий ответ на атакующего с Pinned: отменяет весь урон независимо от значений боя. Очищение снимает и положительные эффекты Шиноби, поэтому по возможности сначала используйте ценные усиления.' },
   'not-a-shinobi': { en: 'A sturdy Defence that cleanses negative effects after combat. Hold it when Status Cards are restricting movement or combat, especially before an important positioning turn.', ru: 'Надёжная Защита, снимающая негативные эффекты после боя. Сохраняйте, когда Статусные карты мешают движению или бою, особенно перед важным позиционным ходом.' },
   'double-jump': { en: 'Excellent against a heavily Pinned attacker because each stack adds DEF. The two post-combat steps can disengage or pass through enemies to add more Pinned, ending on an empty Square.', ru: 'Особенно силён против атакующего с множеством Pinned: каждый стек даёт DEF. Два шага после боя позволяют выйти из боя или пройти сквозь врагов, добавляя Pinned, с завершением на пустой клетке.' },
@@ -617,7 +659,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'arm-da-wiz': { en: 'Recover an unequipped Shield and restore Orkk’s +1 DEF bonus. Choose a recall path through enemies at Levels 2–3 for damage and displacement; create a replacement only when recall is unavailable.', ru: 'Возвращайте снятый Щит и бонус Оркка +1 DEF. На уровнях 2–3 проводите путь возврата через врагов ради урона и перемещения; создавайте замену только когда возврат недоступен.' },
   encourage: { en: 'Da Orkk’s card-advantage engine. Keep it cycling in Spell Echo: draw now, add Rage at Level 2, and recover a useful random discard at Level 3.', ru: 'Двигатель преимущества по картам Да Оркка. Прокручивайте в Spell Echo: добор сейчас, Rage на 2-м уровне и возврат случайной полезной карты из Discard на 3-м.' },
   kyk: { en: 'Turn a nearby Object into a long-range projectile. Choose a line that ends in an enemy collision; Level 3 deals heavy damage but permanently destroys the projectile, so spend disposable Objects.', ru: 'Превращайте соседний Объект в дальний снаряд. Выбирайте линию, заканчивающуюся столкновением с врагом; уровень 3 наносит большой урон, но уничтожает снаряд, поэтому используйте расходные Объекты.' },
-  'consume-rage': { en: 'Convert excess Rage into sustain instead of spending it on an Attack. Wait until the required stacks are available; Level 3 is strongest beside multiple enemies because it adds Exhaust to each.', ru: 'Превращайте лишний Rage в лечение вместо расхода на Атаку. Ждите нужного количества стеков; уровень 3 особенно силён рядом с несколькими врагами, добавляя Exhaust каждому.' },
+  'consume-rage': { en: 'Convert 2 Rage into healing instead of spending it on an Attack. Level 1 heals 1 HP, Levels 2–3 heal 2 HP, and Level 3 is strongest beside multiple enemies because it also adds Exhaust to each.', ru: 'Превращайте 2 Rage в лечение вместо расхода на Атаку. Уровень 1 лечит 1 HP, уровни 2–3 лечат 2 HP, а уровень 3 особенно силён рядом с несколькими врагами, поскольку также добавляет Exhaust каждому.' },
   fistbolt: { en: 'A dependable opener when Orkk has no Rage: it creates 1 stack before comparison and immediately converts it into +1 ATT for this Attack.', ru: 'Надёжное начало при отсутствии Rage: карта создаёт 1 стек до сравнения и сразу превращает его в +1 ATT для этой Атаки.' },
   'chain-punchin': { en: 'A utility Attack for changing Shield state. Attack while unequipped to gain an extra Action and continue a combo; while equipped, use it when you deliberately want the Shield dropped as an obstacle.', ru: 'Утилитарная Атака для смены состояния Щита. Без Щита получайте дополнительное Действие и продолжайте комбинацию; со Щитом используйте, когда хотите намеренно сбросить его как препятствие.' },
   'teef-strike': { en: 'Use early to seed Exhaust into the enemy Hand. The ongoing -1 ATT/DEF makes every later combat easier even if this low-value Attack does little direct damage.', ru: 'Используйте рано, чтобы добавить Exhaust в Руку врага. Постоянный штраф -1 ATT/DEF облегчит все будущие бои, даже если эта слабая Атака нанесёт мало прямого урона.' },
@@ -665,6 +707,11 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
 
 function renderCharacterTraits() {
   const player = gameState.players.P1;
+  const playerTwo = gameState.players.P2;
+  if (playerTwo.character === 'shinobi') byId('characterTraitPanelP2').innerHTML = `<span>PLAYER 2 · OBI WAN SHINOBI · TRAIT</span><div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
+  else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<span>PLAYER 2 · LONG HAT LOGAN · TRAIT</span><div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
+  else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<span>PLAYER 2 · DA ORKK · TRAIT</span><div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage whenever Da Orkk takes damage during enemy turns. Remove 1 Rage at the end of Da Orkk's turn.</span></div></div>`;
+  else byId('characterTraitPanelP2').innerHTML = '';
   if (player.character === 'shinobi') {
     byId('characterTraitPanel').innerHTML = `<span>OBI WAN SHINOBI · TRAIT</span><div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
     return;
@@ -700,7 +747,10 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
-    return `${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { carrierIds?: PlayerId[]; carrierId?: PlayerId | null } | null } }).questPhases?.captureTheFlag;
+    const flagCarrier = Boolean(flagState && (flagState.carrierIds?.includes(player.id) || flagState.carrierId === player.id));
+    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Captured Flag</strong>Carry the Flag to your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
+    return `${flagIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderCharacterStatuses() {
@@ -803,8 +853,7 @@ function renderFlurryModal() {
   const canChoose = gameState.phase === 'flurry-offer' && flurry && viewerId === flurry.defenderId && canLocalAct(viewerId);
   modal.classList.toggle('hidden', !canChoose);
   if (!canChoose || !flurry) { modal.innerHTML = ''; return; }
-  const defender = gameState.players[flurry.defenderId];
-  modal.innerHTML = `<div class="choice-dialog"><span>DEFENCE FOLLOW-UP</span><h2>Flurry</h2><p>Lose 1 HP to force ${escapeHtml(gameState.players[flurry.attackerId].name)} to discard one card.</p><div class="choice-cards"><button id="flurryPayHp"><strong>Lose 1 HP</strong><small>Force the Attacker to discard 1 Card</small></button></div><button class="choice-decline" id="flurryDecline">Do not activate</button></div>`;
+  modal.innerHTML = `<div class="choice-dialog"><span>DEFENCE FOLLOW-UP</span><h2>Flurry</h2><p>Lose 1 HP to force ${escapeHtml(gameState.players[flurry.attackerId].name)} to discard 2 Cards.</p><div class="choice-cards"><button id="flurryPayHp"><strong>Lose 1 HP</strong><small>Force the Attacker to discard 2 Cards</small></button></div><button class="choice-decline" id="flurryDecline">Do not activate</button></div>`;
   document.querySelector('#flurryPayHp')?.addEventListener('click', () => dispatch({ type: 'flurry-pay', playerId: viewerId, cardInstanceId: '' }));
   document.querySelector('#flurryDecline')!.addEventListener('click', () => dispatch({ type: 'flurry-decline', playerId: viewerId }));
 }
@@ -866,7 +915,7 @@ function renderActionQuestPanel() {
   const remaining = Math.max(0, current.endsAfterRound - gameState.turn + 1);
   const definition = ACTION_QUEST_POOL.find((quest) => quest.id === current.id);
   const condition = actionQuestConditionWithEndRound(current.id, definition?.condition ?? '', current.endsAfterRound);
-  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : null;
+  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : null;
   const rewardCard = rewardCardId ? cardDefinition({ instanceId: '', cardId: rewardCardId as any }) : null;
   const rewardHidden = hiddenQuestRewardId === current.id;
   const highest = Math.max(1, ...Object.values(gameState.players).map((player) => current.progress[player.id] ?? 0));
@@ -889,6 +938,7 @@ function actionQuestConditionWithEndRound(questId: string, fallback: string, end
   if (questId === 'damage-contest') return `Deal the most Damage until Round ${endRound}.`;
   if (questId === 'rabbit-run') return `Move the greatest distance until Round ${endRound}. Teleports count as 1.`;
   if (questId === 'provocateur') return `Spend the most Rounds starting and ending the same turn on High Ground until Round ${endRound}.`;
+  if (questId === 'capture-the-flag') return 'First to capture the Flag beside High Ground and end a turn carrying it on their Base.';
   const withoutRelativeDuration = fallback.replace(/(?:in|during) the next \d+ Rounds?/i, `until Round ${endRound}`);
   return withoutRelativeDuration === fallback ? `${fallback.replace(/\s*\.\s*$/, '')}. Until Round ${endRound}.` : withoutRelativeDuration;
 }
@@ -1128,6 +1178,8 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number }>();
+const questFlagModels = new Map<string, THREE.Group>();
+let questFlagVisualKey = '';
 let boardVisualKey = '';
 let fittedArenaKey = '';
 let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
@@ -1160,7 +1212,7 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     return;
   }
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) {
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(event.code)) {
     cameraKeys.add(event.code);
     event.preventDefault();
   }
@@ -1335,6 +1387,13 @@ function updateObjectMovement(time: number) {
 
 function updateCameraMovement(deltaSeconds: number) {
   if (cameraKeys.size === 0) return;
+  const rotationDirection = (cameraKeys.has('KeyQ') ? 1 : 0) - (cameraKeys.has('KeyE') ? 1 : 0);
+  if (rotationDirection !== 0) {
+    const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotationDirection * 1.65 * deltaSeconds);
+    rotateCameraPoseAroundPivot(yaw, controls.target);
+    levelCameraHorizon();
+    camera.updateMatrixWorld(true);
+  }
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0;
@@ -1685,6 +1744,7 @@ function syncBoard() {
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     group.traverse((child) => { child.userData.playerId = id; });
   });
+  syncCaptureTheFlagVisual();
   const currentObjectIds = new Set(gameState.objects.map((object) => object.id));
   const animatedRemovalIds = new Set(gameState.objectPushAnimations.filter((event) => event.removeOnComplete && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId))).map((event) => event.objectId));
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
@@ -1729,6 +1789,50 @@ function syncBoard() {
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();
+}
+
+function createQuestFlag(color: number) {
+  const root = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.035, .045, 1.65, 10), new THREE.MeshStandardMaterial({ color: 0x8b6a3f, roughness: .55, metalness: .35 }));
+  pole.position.y = .82; pole.castShadow = true; root.add(pole);
+  const cloth = new THREE.Mesh(new THREE.BoxGeometry(.72, .48, .035), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .35, roughness: .68, side: THREE.DoubleSide }));
+  cloth.position.set(.36, 1.36, 0); cloth.castShadow = true; root.add(cloth);
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(.075, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0x8a5b00, emissiveIntensity: .7 }));
+  finial.position.y = 1.68; finial.castShadow = true; root.add(finial);
+  return root;
+}
+
+function syncCaptureTheFlagVisual() {
+  const flag = (gameState as GameState & { questPhases?: { captureTheFlag?: { anchor: { x: number; y: number }; carrierIds?: PlayerId[]; carrierId?: PlayerId | null } | null } }).questPhases?.captureTheFlag;
+  const carrierIds = flag ? (flag.carrierIds ?? (flag.carrierId ? [flag.carrierId] : [])) : [];
+  const key = flag ? `${flag.anchor.x},${flag.anchor.y}:${carrierIds.join(',')}` : 'none';
+  if (key !== questFlagVisualKey) {
+    questFlagModels.forEach((model) => model.removeFromParent());
+    questFlagModels.clear();
+    if (flag) {
+      questFlagModels.set('ground', createQuestFlag(0xffd166));
+      for (const carrierId of carrierIds) {
+        const color = carrierId === 'P1' ? 0x45c8ff : carrierId === 'P2' ? 0xff5d68 : 0xa06cff;
+        questFlagModels.set(carrierId, createQuestFlag(color));
+      }
+    }
+    questFlagVisualKey = key;
+  }
+  if (!flag) return;
+  const groundFlag = questFlagModels.get('ground');
+  if (groundFlag) {
+    if (groundFlag.parent !== scene) scene.add(groundFlag);
+    groundFlag.position.set((flag.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (flag.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  }
+  for (const carrierId of carrierIds) {
+    const model = questFlagModels.get(carrierId);
+    const carrier = dummyGroups.get(carrierId);
+    if (!model || !carrier) continue;
+    if (model.parent !== carrier) carrier.add(model);
+    model.position.set(0, .72, .55);
+    model.rotation.set(0, Math.PI, 0);
+    model.scale.setScalar(.72);
+  }
 }
 
 function updateSwiftformVisual(group: THREE.Group, active: boolean, playerColor: number) {
@@ -1795,7 +1899,7 @@ function highlightCells() {
     const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && (!occupiedByEnemy || specialSteps > 1);
     const shizzleWallBlocked = objectOnCell?.kind === 'wall-pillar' || objectOnCell?.kind === 'orkk-shield';
     const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
-    const regularDistance = actor.swiftformCanPassEnemies ? movementPath(gameState, actor, cell).length : distance(actor.position, cell);
+    const regularDistance = movementPath(gameState, actor, cell).length;
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
     const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && !occupiedByObject && (!occupiedByPlayer || swiftformPassSquare) && regularDistance >= 1 && regularDistance <= actor.movementRemaining;
     const force = gameState.forceThrow;

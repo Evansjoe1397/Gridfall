@@ -46,6 +46,14 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .character-choices button:disabled { opacity: .35; cursor: not-allowed; }
 .character-choices strong, .character-choices small { display: block; }
 .character-choices strong { font-size: 25px; }.character-choices small { margin-top: 7px; color: #86a79e; }
+.character-core-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 12px 0; }
+.character-core-stats small { margin: 0; padding: 7px 5px; border: 1px solid rgba(74,123,111,.55); background: rgba(4,16,13,.45); font-size: 9px; letter-spacing: .08em; }
+.character-core-stats small > b { display: block; margin-bottom: 2px; color: #e8fff9; font-size: 16px; }
+.character-core-stats .character-trait-stat { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 7px; color: #b9ddd4; }
+.character-select-trait-icon { position: relative; display: inline-grid; place-items: center; min-width: 28px; height: 24px; color: #84cfff; font-size: 15px; outline: none; cursor: help; }
+.character-select-trait-tooltip { position: absolute; left: 50%; bottom: calc(100% + 9px); z-index: 30; width: 260px; padding: 10px 12px; border: 1px solid #4f776c; background: rgba(3,12,10,.98); color: #c9ded8; font-size: 10px; line-height: 1.45; letter-spacing: 0; text-align: left; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 5px); transition: .14s; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+.character-select-trait-tooltip > b { display: block; margin-bottom: 4px; color: white; font-size: 11px; }
+.character-select-trait-icon:hover .character-select-trait-tooltip, .character-select-trait-icon:focus .character-select-trait-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .game { padding-top: 12px; }
 .hud { display: grid; grid-template-columns: 1fr 250px 1fr 1fr; align-items: center; gap: 16px; margin-bottom: 10px; }
 .hud:has(#p3Stats.hidden) { grid-template-columns: 1fr 270px 1fr; gap: 22px; }
@@ -77,7 +85,12 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .fighter.violet .hud-status-strip { left: 8px; right: auto; }
 .movement-bonus-status { border-color: #54d6b0; background: rgba(10,55,44,.96); color: #8effdc; text-shadow: 0 0 8px #54d6b0; }
 .pass-through-status { border-color: #7bc8ff; background: rgba(11,39,60,.96); color: #a8ddff; text-shadow: 0 0 8px #55bfff; }
+.flag-carrier-status { border-color: #ffd166; background: rgba(67,49,8,.96); color: #ffe59a; text-shadow: 0 0 8px #ffd166; }
 .character-trait-panel { position: absolute; top: 12px; left: 12px; z-index: 8; padding: 7px 9px; border: 1px solid rgba(55,91,81,.65); background: rgba(4,12,10,.78); backdrop-filter: blur(5px); }.character-trait-panel > span { display: block; margin-bottom: 5px; color: #668f84; font-size: 7px; letter-spacing: .14em; }.character-trait-panel .trait-row { padding: 0; }.character-trait-panel .trait-icon { width: 56px; height: 48px; font-size: 25px; }.character-trait-panel .trait-tooltip { top: calc(100% + 8px); }
+.character-trait-panel.trait-p2 { left: auto; right: 12px; }
+.character-trait-panel.trait-p2 > span { text-align: right; }
+.character-trait-panel.trait-p2 .trait-row { justify-content: flex-end; }
+.character-trait-panel.trait-p2 .trait-tooltip { left: auto; right: 0; }
 .character-status-panel { position: absolute; top: 12px; z-index: 9; min-width: 100px; padding: 7px 9px; border: 1px solid rgba(112,69,49,.7); background: rgba(18,9,6,.82); backdrop-filter: blur(5px); }.character-status-panel.status-p1 { left: 150px; }.character-status-panel.status-p2 { right: 160px; }.character-status-panel > span { display: block; margin-bottom: 5px; color: #a47d6b; font-size: 7px; letter-spacing: .13em; }.character-status-panel.status-p2 > span { text-align: right; }.character-status-panel.status-p2 .status-row { justify-content: flex-end; }.character-status-panel.status-p2 .status-tooltip { left: auto; right: 0; }
 .turn-core { text-align: center; border: 1px solid #28483f; padding: 8px; background: #091512; }
 .turn-core span, .turn-core small { display: block; font-family: Inter; color: #6d958b; font-size: 9px; letter-spacing: .18em; }.turn-core strong { display: block; font-size: 20px; margin: 2px; }

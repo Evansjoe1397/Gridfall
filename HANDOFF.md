@@ -38,7 +38,7 @@ npm run build
   - Lightsaber is unique to Shinobi and grants +1 ATT, +1 DEF, and +1 MOV while empowered.
 - Da Orkk — Wizard of Strength, 26 HP, MOV 3, melee Range 1.
   - Uses Rage and an equipable Shield.
-- Long Hat Logan — The Magician, 18 HP, MOV 3, Range 3.
+- Long Hat Logan — The Magician, 18 HP, MOV 3, Range 2.
   - Uses Classic Wizardry and up to 3 Mana.
 - Test Dummy — training opponent.
 
@@ -77,4 +77,3 @@ npm run build
 ## Suggested Fresh-Thread Prompt
 
 > Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` first, inspect the current Git status, and preserve existing work. Do not push unless I explicitly request it. My next requested change is: [describe change].
-

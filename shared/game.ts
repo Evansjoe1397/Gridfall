@@ -8,7 +8,7 @@ export type CharacterId = z.infer<typeof CharacterIdSchema>;
 export const BOARD_SIZE = 8;
 export const CellSchema = z.object({ x: z.number().int().min(1).max(11), y: z.number().int().min(0).max(10) });
 export type Cell = z.infer<typeof CellSchema>;
-export const CardTypeIdSchema = z.enum(['attack-2', 'attack-3', 'defend-1', 'echo-pulse', 'fireball', 'portal', 'vicious-mockery', 'preparation', 'arcane-missle', 'chain-lightning', 'magic-hand', 'shizzle', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse', 'spellblock', 'mana-shield', 'arcane-barrier', 'counterspell', 'blink', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'block', 'flurry-defensive-strikes', 'calmness', 'not-a-shinobi', 'double-jump', 'higround-advantage', 'force-throw', 'force-pull', 'swiftform', 'mind-tricks', 'arkane-arow', 'arm-da-wiz', 'encourage', 'kyk', 'consume-rage', 'fistbolt', 'chain-punchin', 'teef-strike', 'chip-cast', 'knee-blast', 'da-blokk', 'double', 'arcane-shield', 'countaspell', 'mana-baryer', 'pinned', 'headache', 'exhaust']);
+export const CardTypeIdSchema = z.enum(['attack-2', 'attack-3', 'defend-1', 'echo-pulse', 'fireball', 'portal', 'vicious-mockery', 'banner', 'preparation', 'arcane-missle', 'chain-lightning', 'magic-hand', 'shizzle', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse', 'spellblock', 'mana-shield', 'arcane-barrier', 'counterspell', 'blink', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'block', 'flurry-defensive-strikes', 'calmness', 'not-a-shinobi', 'double-jump', 'higround-advantage', 'force-throw', 'force-pull', 'swiftform', 'mind-tricks', 'arkane-arow', 'arm-da-wiz', 'encourage', 'kyk', 'consume-rage', 'fistbolt', 'chain-punchin', 'teef-strike', 'chip-cast', 'knee-blast', 'da-blokk', 'double', 'arcane-shield', 'countaspell', 'mana-baryer', 'pinned', 'headache', 'exhaust']);
 export type CardTypeId = z.infer<typeof CardTypeIdSchema>;
 
 export const GameCommandSchema = z.discriminatedUnion('type', [
@@ -81,6 +81,7 @@ export const CARDS: readonly Card[] = [
   { id: 'fireball', name: 'Fireball', kind: 'perk', value: 3, effectText: 'Deal 3 Damage at Range 3. Remove this Card from the game after use.' },
   { id: 'portal', name: 'Portal', kind: 'perk', value: 1, effectText: 'Select an empty Square and Teleport to it.' },
   { id: 'vicious-mockery', name: 'Vicious Mockery', kind: 'perk', value: 2, effectText: 'Optionally apply during combat for +2 ATT or DEF. Then Remove this Card from the game.' },
+  { id: 'banner', name: 'The Banner', kind: 'status', value: 1, effectText: '+1 MOV while this Card is in Hand. Apply as +1 in Combat, then Remove this Card.', canDiscardForHandLimit: true },
   { id: 'preparation', name: 'Preparation', kind: 'perk', value: 1, levelEffects: ['Draw 1 Card', 'Gain 1 additional Mana Point', 'Draw 2 Cards, then discard 1 Card from your Hand'], effectText: 'Consume: Teleport to any Square of your choice. Then draw 1 additional Card.' },
   { id: 'arcane-missle', name: 'Arcane Missle', kind: 'perk', value: 1, levelEffects: ['Deal 1 Damage to an enemy within Range 3 and line of sight', 'Can maneuver around obstacles within Range 3', 'Global Range'], effectText: 'Consume: +2 Damage.' },
   { id: 'chain-lightning', name: 'Chain Lightning', kind: 'perk', value: 1, levelEffects: ['Deal 1 Damage to an enemy in Range, then bounce to a random adjacent enemy or Object, dealing 1 Damage or destroying the Object', 'Bounce Range is 2, with line of sight calculated from the previous target', 'Bounce 2 times'], effectText: 'Consume: Bounce 4 times.' },
@@ -102,7 +103,7 @@ export const CARDS: readonly Card[] = [
   { id: 'cut-them-legs', name: 'Cut Them Legs', kind: 'attack', value: 3, effectText: "Add 1 -MOV stack after combat. If this Card wins combat, return it to Shinobi's Hand." },
   { id: 'hello-there', name: 'Hello There', kind: 'attack', value: 1, effectText: "Deal 2 additional Damage per -MOV stack. After combat, add a Headache Status Card to the opponent's Hand." },
   { id: 'block', name: 'Block', kind: 'defend', value: 2, effectText: 'Before combat: cancel the Attack Card effect. Apply 1 -MOV stack to the attacker.' },
-  { id: 'flurry-defensive-strikes', name: 'Flurry', kind: 'defend', value: 1, effectText: 'Deal 1 Damage to the attacker before combat. You may lose 1 HP to make the attacker discard 1 Card.' },
+  { id: 'flurry-defensive-strikes', name: 'Flurry', kind: 'defend', value: 1, effectText: 'If Attacker is on adjacent Square, then deal 1 Damage to the Attacker before combat. You can Lose 1 HP to force the Attacker to Discard 2 Cards.' },
   { id: 'calmness', name: 'Calmness', kind: 'defend', value: 0, effectText: 'Negate all damage if the attacker has -MOV stacks. Then remove your positive and negative Status Cards and effects.' },
   { id: 'not-a-shinobi', name: 'Not a Shinobi You Looking For', kind: 'defend', value: 3, effectText: 'After combat, remove all negative effects from Shinobi.' },
   { id: 'double-jump', name: 'Double Jump', kind: 'defend', value: 2, effectText: 'Add 1 DEF per -MOV stack on the attacker. After combat, move Shinobi 1 Square twice. Can move through enemies and apply 1 -MOV stack to each enemy passed through.' },
@@ -115,7 +116,7 @@ export const CARDS: readonly Card[] = [
   { id: 'arm-da-wiz', name: 'Arm da Wiz', kind: 'perk', value: 1, levelEffects: ['Recall the Shield within Range 3. If it was destroyed or is out of Range, create and equip a Shield', 'Deal 1 Damage when the recalled Shield passes through an enemy', 'Pull an affected enemy 1 Square toward Da Orkk and deal 1 additional Damage to each enemy adjacent to Da Orkk'] },
   { id: 'encourage', name: 'EncouRAGE', kind: 'perk', value: 1, levelEffects: ['Draw a Card from your Deck', 'Gain 1 Rage stack', 'Also draw 1 random Card from your Discard'] },
   { id: 'kyk', name: 'Kyk', kind: 'perk', value: 1, levelEffects: ['Push an adjacent Object 3 Squares. Deal 1 Damage to an enemy it collides with', 'Increase the push distance by 1 Square', 'Deal 3 Damage on collision, but destroy the pushed Object'] },
-  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Remove 3 Rage stacks to heal 1 HP', 'Remove only 2 Rage stacks to heal 1 HP', "Add an Exhaust Card to each adjacent enemy's Hand"] },
+  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 2 Rage Stacks to heal 1 HP', '+1 HP', 'Add Exhaust Card to each adjacent enemy Hand'] },
   { id: 'fistbolt', name: 'Fistbolt', kind: 'attack', value: 2, effectText: 'Generate 1 Rage Stack before combat if Da Orkk has no Rage Stacks.' },
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped during this combat; otherwise, drop the Shield after combat. Generate 1 Rage Stack after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "Add an Exhaust Card to the enemy's Hand after combat." },
@@ -277,6 +278,7 @@ export const ACTION_QUEST_POOL: readonly ActionQuestDefinition[] = [
   { id: 'damage-contest', name: 'Damage Contest', condition: 'Who deals the most Damage in the next 3 Rounds.', reward: 'Fireball Card', durationRounds: 3, determineWinners: progressLeaders },
   { id: 'rabbit-run', name: 'Rabbit Run', condition: 'Most distance moved. Teleports count as 1.', reward: 'Portal Card', durationRounds: 5, determineWinners: progressLeaders },
   { id: 'provocateur', name: 'Provocateur', condition: 'Spend the most Rounds starting and ending the same turn on High Ground during the next 5 Rounds.', reward: 'Vicious Mockery Card', durationRounds: 5, determineWinners: progressLeaders },
+  { id: 'capture-the-flag', name: 'Capture the Flag', condition: 'First to bring a Flag from High Ground to their Base.', reward: 'The Banner', durationRounds: 10 },
 ];
 export type QuestPhaseState = {
   actionDamageByPlayer: Partial<Record<PlayerId, number>>;
@@ -286,17 +288,44 @@ export type QuestPhaseState = {
   progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend'; chosenFocusCard: CardTypeId }>>;
   phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; selectedCardId?: CardTypeId; selectedCardInstanceId?: string } | null;
   turnStartedOnHighGround: Partial<Record<PlayerId, boolean>>;
+  captureTheFlag?: { anchor: { x: number; y: number }; carrierIds: PlayerId[]; carrierId?: PlayerId | null } | null;
 };
 export type GameStateWithQuestPhases = GameStateWithOpening & { questPhases?: QuestPhaseState };
 
 function questPhases(state: GameState): QuestPhaseState {
   const extended = state as GameStateWithQuestPhases;
-  return extended.questPhases ??= { actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {} };
+  const phases = extended.questPhases ??= { actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {}, captureTheFlag: null };
+  phases.captureTheFlag ??= null;
+  return phases;
 }
 
-function recordQuestMovement(state: GameState, playerId: PlayerId, amount: number, teleport = false) {
+function flagAnchorCandidates(state: GameState): { x: number; y: number }[] {
+  const highground = new Set(Object.keys(state.elevations).filter((label) => (state.elevations[label] ?? 0) > 0));
+  const candidates: { x: number; y: number }[] = [];
+  for (let x = 1; x < boardWidth(state); x++) for (let y = 0; y < boardHeight(state) - 1; y++) {
+    if ([{ x, y }, { x: x + 1, y }, { x, y: y + 1 }, { x: x + 1, y: y + 1 }].every((cell) => highground.has(cellLabel(cell)))) candidates.push({ x: x + .5, y: y + .5 });
+  }
+  return candidates;
+}
+
+function updateCaptureTheFlag(state: GameState, playerId: PlayerId, destination: Cell) {
+  const phases = questPhases(state);
+  const flag = phases.currentQuest?.id === 'capture-the-flag' ? phases.captureTheFlag : null;
+  if (!flag) return;
+  flag.carrierIds ??= flag.carrierId ? [flag.carrierId] : [];
+  if (flag.carrierIds.includes(playerId)) return;
+  if (Math.abs(destination.x - flag.anchor.x) === .5 && Math.abs(destination.y - flag.anchor.y) === .5) {
+    flag.carrierIds.push(playerId);
+    flag.carrierId = null;
+    phases.currentQuest!.progress[playerId] = 1;
+    state.log.unshift(`${state.players[playerId].name} captured the Flag and must return it to their Base.`);
+  }
+}
+
+function recordQuestMovement(state: GameState, playerId: PlayerId, amount: number, teleport = false, destination?: Cell) {
   if (!teleport && amount > 0 && state.players[playerId]) ensureMatchStats(state.players[playerId]).squaresMoved += amount;
   const current = questPhases(state).currentQuest;
+  if (destination) updateCaptureTheFlag(state, playerId, destination);
   if (current?.id !== 'rabbit-run' || amount <= 0) return;
   current.progress[playerId] = (current.progress[playerId] ?? 0) + (teleport ? 1 : amount);
 }
@@ -332,6 +361,11 @@ function announceActionQuest(state: GameState, round: number): boolean {
   questState.usedQuestIds.push(selected.id);
   questState.currentQuest = { id: selected.id, announcedRound: round, endsAfterRound: round + selected.durationRounds - 1, winners: [], progress: {} };
   if (selected.id === 'provocateur') questState.turnStartedOnHighGround[state.activePlayerId] = isHighGround(state, state.players[state.activePlayerId].position);
+  if (selected.id === 'capture-the-flag') {
+    const candidates = flagAnchorCandidates(state);
+    const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+    questState.captureTheFlag = anchor ? { anchor, carrierIds: [] } : null;
+  } else questState.captureTheFlag = null;
   state.log.unshift(`Action Quest announced: ${selected.name}. ${selected.condition}`);
   return true;
 }
@@ -348,11 +382,13 @@ function resolveCurrentActionQuest(state: GameState): void {
       if (active.id === 'damage-contest') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'fireball' });
       if (active.id === 'rabbit-run') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'portal' });
       if (active.id === 'provocateur') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'vicious-mockery' });
+      if (active.id === 'capture-the-flag') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'banner', revealedToOpponent: true });
     }
     state.log.unshift(questState.lastQuestWinners.length > 0
       ? `${questState.lastQuestWinners.map((id) => state.players[id].name).join(' and ')} completed ${definition?.name ?? active.id} and received its Reward.`
       : `${definition?.name ?? active.id} ended without a Winner or Reward.`);
     questState.currentQuest = null;
+    questState.captureTheFlag = null;
   }
 }
 
@@ -516,12 +552,11 @@ function createPlayer(id: PlayerId, name: string, character: PlayerState['charac
   const isOrkk = character === 'orkk';
   const isMagician = character === 'magician';
   const maximumHp = isOrkk ? 26 : isMagician ? 18 : 20;
-  return { id, name, character, hp: maximumHp, maxHp: maximumHp, moveRange: isOrkk || isMagician ? 3 : 2, attackRange: isOrkk ? 1 : isMagician ? 3 : 2, position, deck, hand, discard: [], knownTopCardId: null, spellEcho: [null, null, null], actionsRemaining: 2, perkUsed: false, freeMoveUsed: false, movementRemaining: 0, movedThisTurn: false, lightsaberBuff: false, lightsaberStacks: 0, lightsaberMovementProtection: false, highgroundAdvantageBuff: false, pinnedStacks: 0, turnEndPinnedRemoved: false, swiftformMoveBonus: 0, grimoireMoveBonus: 0, swiftformCanPassEnemies: false, swiftformPinsPassedEnemies: false, swiftformLightsaberAtTurnEnd: false, swiftformEnemyUnderfoot: null, swiftformPinnedEnemyIds: [], rageStacks: 0, shieldEquipped: isOrkk, rageGainLocked: false, doubleRageUntilEnemyTurnEnd: false, manaPoints: 0, manaMode: 'generate', arcaneBoltAttackBonus: 0, damagedDuringEnemyTurn: false, matchStats: { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0 } };
+  return { id, name, character, hp: maximumHp, maxHp: maximumHp, moveRange: isOrkk || isMagician ? 3 : 2, attackRange: isOrkk ? 1 : 2, position, deck, hand, discard: [], knownTopCardId: null, spellEcho: [null, null, null], actionsRemaining: 2, perkUsed: false, freeMoveUsed: false, movementRemaining: 0, movedThisTurn: false, lightsaberBuff: false, lightsaberStacks: 0, lightsaberMovementProtection: false, highgroundAdvantageBuff: false, pinnedStacks: 0, turnEndPinnedRemoved: false, swiftformMoveBonus: 0, grimoireMoveBonus: 0, swiftformCanPassEnemies: false, swiftformPinsPassedEnemies: false, swiftformLightsaberAtTurnEnd: false, swiftformEnemyUnderfoot: null, swiftformPinnedEnemyIds: [], rageStacks: 0, shieldEquipped: isOrkk, rageGainLocked: false, doubleRageUntilEnemyTurnEnd: false, manaPoints: 0, manaMode: 'generate', arcaneBoltAttackBonus: 0, damagedDuringEnemyTurn: false, matchStats: { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0 } };
 }
 
 export function distance(a: Cell, b: Cell): number { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
 export function movementPath(state: GameState, player: PlayerState, destination: Cell): Cell[] {
-  if (!player.swiftformCanPassEnemies) return [destination];
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
   const queue: { cell: Cell; path: Cell[] }[] = [{ cell: player.position, path: [] }];
   const visited = new Set([key(player.position)]);
@@ -533,6 +568,7 @@ export function movementPath(state: GameState, player: PlayerState, destination:
       const next = { x: current.cell.x + dx, y: current.cell.y + dy };
       if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state) || visited.has(key(next))) continue;
       if (state.objects.some((object) => object.position.x === next.x && object.position.y === next.y)) continue;
+      if (!player.swiftformCanPassEnemies && Object.values(state.players).some((candidate) => candidate.id !== player.id && candidate.position.x === next.x && candidate.position.y === next.y)) continue;
       visited.add(key(next)); queue.push({ cell: next, path: [...current.path, next] });
     }
   }
@@ -563,11 +599,16 @@ function ownedDefenseBonus(player: PlayerState, state?: GameState): number {
     : player.id === 'P1' ? new Set(['A4', 'A5']) : new Set(['H4', 'H5']);
   return owned.has(cellLabel(player.position)) ? 1 : 0;
 }
+function ownedBaseSquares(state: GameState, playerId: PlayerId): ReadonlySet<string> {
+  if (!isLordaeron(state)) return playerId === 'P1' ? new Set(NAGRAND_ARENA.bases.P1) : new Set(NAGRAND_ARENA.bases.P2);
+  const claimedBase = (state as LordaeronGameState).lordaeronPlacement?.claims[playerId];
+  return new Set(claimedBase ? LORDAERON_ARENA.bases[claimedBase] : LORDAERON_ARENA.bases[playerId as 'P1' | 'P2' | 'P3'] ?? []);
+}
 export function hasLineOfSight(state: GameState, from: Cell, to: Cell): boolean {
   const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y));
   for (let step = 1; step < steps; step++) {
     const cell = { x: Math.round(from.x + (to.x - from.x) * step / steps), y: Math.round(from.y + (to.y - from.y) * step / steps) };
-    if (state.objects.some((object) => object.kind === 'wall-pillar' && object.position.x === cell.x && object.position.y === cell.y)) return false;
+    if (state.objects.some((object) => (object.kind === 'wall-pillar' || object.kind === 'orkk-shield') && object.position.x === cell.x && object.position.y === cell.y)) return false;
   }
   return true;
 }
@@ -691,13 +732,13 @@ export function applyCommand(source: GameState, rawCommand: unknown): CommandRes
     if (state.phase === 'shizzle-move') return moveShizzle(state, player, command.to);
     if (player.movementRemaining <= 0) return fail(source, 'No movement remains. Use Free Move + Draw Card first.');
     const path = movementPath(state, player, command.to);
-    const cost = player.swiftformCanPassEnemies ? path.length : distance(player.position, command.to);
+    const cost = path.length;
     if (cost < 1 || cost > player.movementRemaining) return fail(source, 'That square costs more movement than remains.');
     const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.position.x === command.to.x && candidate.position.y === command.to.y);
     if (state.objects.some((object) => object.position.x === command.to.x && object.position.y === command.to.y)) return fail(source, 'That square is occupied by an Object.');
     if (targetEnemy && (!player.swiftformCanPassEnemies || player.movementRemaining - cost <= 0)) return fail(source, 'Shinobi may pass through an enemy with Swiftform, but must retain enough movement to leave their square.');
     const previousUnderfoot = player.swiftformEnemyUnderfoot;
-    recordQuestMovement(state, player.id, cost);
+    recordQuestMovement(state, player.id, cost, false, command.to);
     player.position = command.to;
     player.movementRemaining -= cost;
     if (player.swiftformCanPassEnemies) {
@@ -747,6 +788,9 @@ export function applyCommand(source: GameState, rawCommand: unknown): CommandRes
     }
     discardFromHand(player, instance.instanceId);
     player.actionsRemaining -= 1;
+    const banner = player.hand.find((entry) => entry.cardId === 'banner');
+    const bannerBonus = banner ? 1 : 0;
+    if (banner) { removeCard(player, banner.instanceId); state.log.unshift(`${player.name} applied The Banner for +1 ATT and Removed it.`); }
     const lightsaberBonus = player.character === 'shinobi' && player.lightsaberBuff ? 1 : 0;
     const rageBonus = player.character === 'orkk' ? player.rageStacks : 0;
     const highGroundBonus = isHighGround(state, player.position) && !isHighGround(state, defender.position) ? 1 : 0;
@@ -757,9 +801,9 @@ export function applyCommand(source: GameState, rawCommand: unknown): CommandRes
     const magicianAttackBonus = player.character === 'magician' ? player.arcaneBoltAttackBonus : 0;
     const manaBlastConsumeBonus = card.id === 'mana-blast' && player.manaMode === 'consume' ? 2 : 0;
     const manaBarrageConsumeBonus = card.id === 'mana-barrage' && player.manaMode === 'consume' ? 4 : 0;
-    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + manaBlastConsumeBonus + manaBarrageConsumeBonus - exhaustPenalty, returnToHandAfterCombat, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate' };
+    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + manaBlastConsumeBonus + manaBarrageConsumeBonus + bannerBonus - exhaustPenalty, returnToHandAfterCombat, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate' };
     state.phase = 'defending';
-    state.log.unshift(`${player.name} played and discarded ${card.name} (${card.value + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + manaBlastConsumeBonus + manaBarrageConsumeBonus - exhaustPenalty}${lightsaberBonus ? ', including +1 Lightsaber' : ''}${rageBonus ? `, including +${rageBonus} Rage` : ''}${highGroundBonus ? ', including +1 High Ground' : ''}${magicianAttackBonus ? `, including +${magicianAttackBonus} Arcane Bolt` : ''}${manaBlastConsumeBonus ? ', including +2 Mana Blast Consume' : ''}${manaBarrageConsumeBonus ? ', Mana Barrage Consume sets base ATT to 6' : ''}${exhaustPenalty ? `, including -${exhaustPenalty} Exhaust` : ''}). ${defender.name} may defend.`);
+    state.log.unshift(`${player.name} played and discarded ${card.name} (${card.value + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + manaBlastConsumeBonus + manaBarrageConsumeBonus + bannerBonus - exhaustPenalty}${lightsaberBonus ? ', including +1 Lightsaber' : ''}${rageBonus ? `, including +${rageBonus} Rage` : ''}${highGroundBonus ? ', including +1 High Ground' : ''}${bannerBonus ? ', including +1 The Banner' : ''}${magicianAttackBonus ? `, including +${magicianAttackBonus} Arcane Bolt` : ''}${manaBlastConsumeBonus ? ', including +2 Mana Blast Consume' : ''}${manaBarrageConsumeBonus ? ', Mana Barrage Consume sets base ATT to 6' : ''}${exhaustPenalty ? `, including -${exhaustPenalty} Exhaust` : ''}). ${defender.name} may defend.`);
     return ok(state);
   }
   if (command.type === 'play-perk') return playPerkFromHand(state, player, command);
@@ -976,10 +1020,10 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'consume-rage') {
-    const rageCost = level >= 2 ? 2 : 3;
+    const rageCost = 2;
     if (player.rageStacks >= rageCost) {
       player.rageStacks -= rageCost;
-      const healed = healPlayer(player, 1);
+      const healed = healPlayer(player, level >= 2 ? 2 : 1);
       state.log.unshift(`Consume Rage removed ${rageCost} Rage and healed ${player.name} for ${healed} HP.`);
     } else state.log.unshift(`Consume Rage could not heal ${player.name}: ${rageCost} Rage stacks were required.`);
     if (level >= 3) {
@@ -1138,7 +1182,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
         if (!instance || cardDefinition(instance).kind !== 'defend') return fail(state, 'That Defend card is not in the hand.');
         const definition = cardDefinition(instance); previewDefenseCard = instance.cardId; previewDefenseBase = definition.value;
         previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 4 : definition.value + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state)
-          + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length;
+          + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + (defender.hand.some((card) => card.cardId === 'banner') ? 1 : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length;
       }
       state.combatReveal = { attackCardId: pending.cardId, defendCardId: previewDefenseCard, attackBase: cardDefinition({ instanceId: '', cardId: pending.cardId }).value, attackTotal: pending.attackValue, defendBase: previewDefenseBase, defendTotal: previewDefenseTotal + (defenderMockery ? 2 : 0), expiresAt: Date.now() + 86_400_000, acknowledged: [], exhaust: { defenseCommand: command, eligible, decided: [], attached: [], defenderMockery } };
       state.phase = 'choosing-exhaust';
@@ -1156,20 +1200,25 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     const defenseCard = cardDefinition(instance);
     defenseBaseValue = defenseCard.value;
     const doubleJumpBonus = defenseCard.id === 'double-jump' ? pinnedCount(state.players[pending.attackerId]) : 0;
-    defenseValue = (defenseCard.id === 'mana-baryer' && shieldEquippedAtDefenseStart ? 4 : defenseCard.value + (defenseCard.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff ? 1 : 0) + (defender.character === 'orkk' && shieldEquippedAtDefenseStart ? 1 : 0)) + ownedDefenseBonus(defender, state) + doubleJumpBonus + (defenderMockery ? 2 : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length - (defenderAttachedExhaust ? 3 : 0);
+    const defenderBanner = defender.hand.find((card) => card.cardId === 'banner');
+    const bannerDefenseBonus = defenderBanner ? 1 : 0;
+    defenseValue = (defenseCard.id === 'mana-baryer' && shieldEquippedAtDefenseStart ? 4 : defenseCard.value + (defenseCard.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff ? 1 : 0) + (defender.character === 'orkk' && shieldEquippedAtDefenseStart ? 1 : 0)) + ownedDefenseBonus(defender, state) + doubleJumpBonus + bannerDefenseBonus + (defenderMockery ? 2 : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length - (defenderAttachedExhaust ? 3 : 0);
+    if (defenderBanner) { removeCard(defender, defenderBanner.instanceId); state.log.unshift(`${defender.name} applied The Banner for +1 DEF and Removed it.`); }
     discardFromHand(defender, instance.instanceId);
     if (defenseCardId === 'flurry-defensive-strikes') {
       const attacker = state.players[pending.attackerId];
-      dealDamage(state, attacker, 1, false, defender.id, 'defense');
-      state.log.unshift(`Flurry dealt 1 pre-combat damage to ${attacker.name}.`);
-      if (attacker.hp === 0) {
-        if (pending.generatesMana) gainManaFromResolvedSpell(state, attacker);
-        state.pendingAttack = null;
-        state.phase = 'finished';
-        state.winner = defender.id;
-        state.log.unshift(`${defender.name} wins before combat begins!`);
-        return ok(state);
-      }
+      if (distance(defender.position, attacker.position) === 1) {
+        dealDamage(state, attacker, 1, false, defender.id, 'defense');
+        state.log.unshift(`Flurry dealt 1 pre-combat damage to adjacent attacker ${attacker.name}.`);
+        if (attacker.hp === 0) {
+          if (pending.generatesMana) gainManaFromResolvedSpell(state, attacker);
+          state.pendingAttack = null;
+          state.phase = 'finished';
+          state.winner = defender.id;
+          state.log.unshift(`${defender.name} wins before combat begins!`);
+          return ok(state);
+        }
+      } else state.log.unshift(`Flurry dealt no pre-combat damage because ${attacker.name} was not adjacent.`);
     }
   }
   const attackerBeforeCombatEffects = state.players[pending.attackerId];
@@ -1479,9 +1528,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift('Double Jump: Obi Wan Shinobi must move 1 square twice.');
   }
   if (defenseCardId === 'flurry-defensive-strikes' && state.phase !== 'finished') {
-    state.flurry = { defenderId: defender.id, attackerId: pending.attackerId, resumePhase: state.phase, remainingEnemyDiscards: 0 };
-    state.phase = 'flurry-offer';
-    state.log.unshift(`${defender.name} may lose 1 HP to force ${attacker.name} to discard 1 card.`);
+    const attackerCanDiscard = attacker.hand.some((card) => !cardDefinition(card).cannotBeDiscarded);
+    if (attackerCanDiscard) {
+      state.flurry = { defenderId: defender.id, attackerId: pending.attackerId, resumePhase: state.phase, remainingEnemyDiscards: 0 };
+      state.phase = 'flurry-offer';
+      state.log.unshift(`${defender.name} may lose 1 HP to force ${attacker.name} to discard up to 2 Cards.`);
+    } else state.log.unshift(`Flurry's optional effect was unavailable because ${attacker.name} had no eligible Card to discard.`);
   }
   if (defenseCardId) {
     const attackCard = cardDefinition({ instanceId: '', cardId: pending.cardId });
@@ -1526,9 +1578,9 @@ function resolveFlurryPay(state: GameState, playerId: PlayerId, cardInstanceId: 
       state.log.unshift(`${attacker.name} had no card eligible for Flurry's forced discard.`);
       return ok(state);
     }
-    flurry.remainingEnemyDiscards = 1;
+    flurry.remainingEnemyDiscards = Math.min(2, discardable.length);
     state.phase = 'choosing-flurry-enemy-discard';
-    state.log.unshift(`${attacker.name} must choose 1 card to discard.`);
+    state.log.unshift(`${attacker.name} must choose ${flurry.remainingEnemyDiscards} Card${flurry.remainingEnemyDiscards === 1 ? '' : 's'} to discard.`);
     return ok(state);
   }
   /* Legacy card-payment flow retained below only for save compatibility; new Flurry resolves above.
@@ -1631,7 +1683,7 @@ function resolvePortalTeleport(state: GameState, playerId: PlayerId, to: Cell): 
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the Gaming Board.');
   if (Object.values(state.players).some((player) => player.position.x === to.x && player.position.y === to.y) || state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Portal requires an empty Square.');
   const player = state.players[playerId]; const from = { ...player.position };
-  recordQuestMovement(state, playerId, 1, true); player.position = { ...to };
+  recordQuestMovement(state, playerId, 1, true, to); player.position = { ...to };
   extended.portal = null; state.phase = 'active';
   state.log.unshift(`${player.name} used Portal to teleport from ${cellLabel(from)} to ${cellLabel(to)}. Portal was moved to the Discard.`);
   return ok(state);
@@ -1713,7 +1765,7 @@ function resolvePreparationTeleport(state: GameState, playerId: PlayerId, to: Ce
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
   if (Object.values(state.players).some((entry) => entry.position.x === to.x && entry.position.y === to.y) || state.objects.some((entry) => entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Preparation requires an empty Square.');
   const player = state.players[playerId];
-  recordQuestMovement(state, player.id, 1, true);
+  recordQuestMovement(state, player.id, 1, true, to);
   player.position = { ...to };
   markCharacterMoved(player, 'own-card');
   const drawn = drawCards(player, 1);
@@ -1728,7 +1780,7 @@ function resolveBlinkTeleport(state: GameState, playerId: PlayerId, to: Cell): C
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
   if (Object.values(state.players).some((entry) => entry.position.x === to.x && entry.position.y === to.y) || state.objects.some((entry) => entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Blink requires an empty Square.');
   const player = state.players[playerId];
-  recordQuestMovement(state, player.id, 1, true);
+  recordQuestMovement(state, player.id, 1, true, to);
   player.position = { ...to };
   markCharacterMoved(player, 'own-card');
   state.pendingAttack = null;
@@ -1933,7 +1985,7 @@ function selectForcePullTarget(state: GameState, playerId: PlayerId, targetKind:
   let previous = target.position;
   for (const next of path.slice(0, steps)) { applyElevationDropDamage(state, target, previous, next); previous = next; }
   if (target.kind === 'player') {
-    const moved = state.players[target.id as PlayerId]; recordQuestMovement(state, moved.id, steps); moved.position = { ...destination };
+    const moved = state.players[target.id as PlayerId]; recordQuestMovement(state, moved.id, steps, false, destination); moved.position = { ...destination };
     if (steps > 0) markCharacterMoved(moved, 'enemy-ability');
   } else state.objects.find((object) => object.id === target.id)!.position = { ...destination };
   if (pull.level >= 3 && target.kind === 'player') applyPinned(state.players[target.id as PlayerId], 1);
@@ -1968,9 +2020,7 @@ export function arkaneArowPath(state: GameState, caster: PlayerState, target: Ce
   if (isStraightLine && directSteps > 0 && directSteps <= range) {
     const stepX = Math.sign(deltaX); const stepY = Math.sign(deltaY);
     const directPath = Array.from({ length: directSteps }, (_, index) => ({ x: caster.position.x + stepX * (index + 1), y: caster.position.y + stepY * (index + 1) }));
-    const clearUntilTarget = directPath.slice(0, -1).every((cell) => !Object.values(state.players).some((entry) => entry.id !== caster.id && entry.position.x === cell.x && entry.position.y === cell.y)
-      && !state.objects.some((entry) => entry.position.x === cell.x && entry.position.y === cell.y));
-    if (clearUntilTarget) return directPath;
+    return directPath;
   }
   const queue: { cell: Cell; path: Cell[] }[] = [{ cell: { ...caster.position }, path: [] }];
   const visited = new Set([key(caster.position)]);
@@ -2075,7 +2125,7 @@ function resolveArmDaWizTarget(state: GameState, playerId: PlayerId, objectId: s
         || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
         || state.objects.some((entry) => entry.id !== shield.id && entry.position.x === destination.x && entry.position.y === destination.y);
       if (!blocked) {
-        recordQuestMovement(state, enemy.id, 1); enemy.position = { ...destination }; markCharacterMoved(enemy, 'enemy-ability');
+        recordQuestMovement(state, enemy.id, 1, false, destination); enemy.position = { ...destination }; markCharacterMoved(enemy, 'enemy-ability');
         state.log.unshift(`Arm da Wiz pulled ${enemy.name} along the Shield's route to ${cellLabel(destination)}.`);
       } else state.log.unshift(`${enemy.name} could not follow the Shield's exact route into the next Square.`);
     }
@@ -2109,10 +2159,14 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
   if (!caster.shieldEquipped) return fail(state, 'Da Orkk no longer has his Shield equipped.');
   const path = arkaneArowPath(state, caster, target, throwState.range);
   if (path.length === 0) return fail(state, `That Square cannot be reached within Range ${throwState.range}.`);
-  const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === target.x && entry.position.y === target.y);
-  const obstacle = state.objects.find((entry) => entry.position.x === target.x && entry.position.y === target.y);
+  const collisionIndex = path.findIndex((cell) => Object.values(state.players).some((entry) => entry.id !== playerId && entry.position.x === cell.x && entry.position.y === cell.y)
+    || state.objects.some((entry) => entry.position.x === cell.x && entry.position.y === cell.y));
+  const collisionCell = collisionIndex >= 0 ? path[collisionIndex] : target;
+  const travelledPath = collisionIndex >= 0 ? path.slice(0, collisionIndex + 1) : path;
+  const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
+  const obstacle = state.objects.find((entry) => entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
   const collision = Boolean(enemy || obstacle);
-  const previous = path.length > 1 ? path[path.length - 2] : caster.position;
+  const previous = travelledPath.length > 1 ? travelledPath[travelledPath.length - 2] : caster.position;
   const isClear = (cell: Cell) => !Object.values(state.players).some((entry) => entry.position.x === cell.x && entry.position.y === cell.y)
     && !state.objects.some((entry) => entry.position.x === cell.x && entry.position.y === cell.y);
   let shieldLanding = { ...target };
@@ -2122,7 +2176,7 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
       const approaches: Cell[] = [];
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         if (!dx && !dy) continue;
-        const candidate = { x: target.x + dx, y: target.y + dy };
+        const candidate = { x: collisionCell.x + dx, y: collisionCell.y + dy };
         if (candidate.x < 1 || candidate.x > boardWidth(state) || candidate.y < 0 || candidate.y >= boardHeight(state) || !isClear(candidate)) continue;
         if (arkaneArowPath(state, caster, candidate, throwState.range).length > 0) approaches.push(candidate);
       }
@@ -2136,13 +2190,13 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
     dealDamage(state, enemy, 1, true, playerId, 'perk');
     state.log.unshift(`ARKANE AROW collided with ${enemy.name} and dealt 1 damage.`);
     if (throwState.level >= 3) {
-      const dx = Math.sign(target.x - previous.x); const dy = Math.sign(target.y - previous.y);
+      const dx = Math.sign(collisionCell.x - previous.x); const dy = Math.sign(collisionCell.y - previous.y);
       const destination = { x: enemy.position.x + dx, y: enemy.position.y + dy };
       const inBounds = destination.x >= 1 && destination.x <= boardWidth(state) && destination.y >= 0 && destination.y < boardHeight(state);
       const blocked = !inBounds || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
         || state.objects.some((entry) => entry.position.x === destination.x && entry.position.y === destination.y);
       if (!blocked) {
-        recordQuestMovement(state, enemy.id, 1); enemy.position = destination; markCharacterMoved(enemy, 'enemy-ability'); pushed = true;
+        recordQuestMovement(state, enemy.id, 1, false, destination); enemy.position = destination; markCharacterMoved(enemy, 'enemy-ability'); pushed = true;
         state.log.unshift(`ARKANE AROW pushed ${enemy.name} to ${cellLabel(destination)}.`);
       } else {
         dealDamage(state, enemy, 1, true, playerId, 'perk');
@@ -2153,9 +2207,10 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
   caster.shieldEquipped = false;
   const shieldId = `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`;
   state.objects.push({ id: shieldId, name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: playerId, hp: 999, maxHp: 999, position: { ...shieldLanding } });
-  state.objectPushAnimations.push({ id: `${state.turn}-arkane-arow-${state.objectPushAnimations.length}`, objectId: shieldId, from: { ...caster.position }, to: { ...shieldLanding }, dx: Math.sign(target.x - previous.x), dy: Math.sign(target.y - previous.y), collided: collision });
+  const animationPath = collision ? travelledPath.slice(0, -1) : travelledPath;
+  state.objectPushAnimations.push({ id: `${state.turn}-arkane-arow-${state.objectPushAnimations.length}`, objectId: shieldId, from: { ...caster.position }, to: { ...shieldLanding }, dx: Math.sign(collisionCell.x - previous.x), dy: Math.sign(collisionCell.y - previous.y), collided: collision, path: animationPath.map((cell) => ({ ...cell })) });
   state.arkaneArow = null; state.phase = 'active';
-  state.log.unshift(collision ? `Da Orkk's Shield Wall stopped at ${cellLabel(shieldLanding)}, adjacent to the collision at ${cellLabel(target)}${enemy && pushed ? ', after pushing the enemy away' : ''}.` : `Da Orkk's Shield Wall now stands at ${cellLabel(shieldLanding)}.`);
+  state.log.unshift(collision ? `Da Orkk's Shield Wall stopped at ${cellLabel(shieldLanding)}, adjacent to the collision at ${cellLabel(collisionCell)}${enemy && pushed ? ', after pushing the enemy away' : ''}.` : `Da Orkk's Shield Wall now stands at ${cellLabel(shieldLanding)}.`);
   return ok(state);
 }
 
@@ -2232,7 +2287,7 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   if (Object.values(state.players).some((entry) => entry.id !== playerId && entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   const passedEnemies = shizzle.level >= 2 ? Object.values(state.players).filter((entry) => entry.id !== playerId && path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
-  recordQuestMovement(state, player.id, steps);
+  recordQuestMovement(state, player.id, steps, false, to);
   player.position = { ...to }; markCharacterMoved(player, 'own-card');
   for (const enemy of passedEnemies) dealDamage(state, enemy, 1, true, playerId, 'perk');
   state.shizzle = null; state.phase = 'active';
@@ -2252,7 +2307,7 @@ function moveShizzle(state: GameState, player: PlayerState, to: Cell): CommandRe
   const targetEnemy = Object.values(state.players).find((entry) => entry.id !== player.id && entry.position.x === to.x && entry.position.y === to.y);
   if (targetEnemy && shizzle.stepsRemaining <= 1) return fail(state, 'Shizzle must finish on an empty Square.');
   const passedEnemy = shizzle.enemyUnderfoot ? state.players[shizzle.enemyUnderfoot] : null;
-  recordQuestMovement(state, player.id, 1);
+  recordQuestMovement(state, player.id, 1, false, to);
   player.position = { ...to }; markCharacterMoved(player, 'own-card');
   shizzle.started = true; shizzle.stepsRemaining -= 1; shizzle.enemyUnderfoot = targetEnemy?.id ?? null;
   if (passedEnemy && shizzle.level >= 2) dealDamage(state, passedEnemy, 1, true, player.id, 'perk');
@@ -2299,7 +2354,7 @@ function resolveMagicHandDirection(state: GameState, playerId: PlayerId, to: Cel
     collisionTarget = entityAt(state, next, current);
     if (collisionTarget) break;
     if (current.kind === 'player') {
-      recordQuestMovement(state, current.id as PlayerId, 1);
+      recordQuestMovement(state, current.id as PlayerId, 1, false, next);
       state.players[current.id as PlayerId].position = next;
       markCharacterMoved(state.players[current.id as PlayerId], 'enemy-ability');
     } else state.objects.find((object) => object.id === current.id)!.position = next;
@@ -2384,7 +2439,7 @@ function pushEntity(state: GameState, entity: PushEntity, dx: number, dy: number
       finishObjectAnimation(true);
       return true;
     }
-    if (current.kind === 'player') { recordQuestMovement(state, current.id as PlayerId, 1); state.players[current.id as PlayerId].position = next; markCharacterMoved(state.players[current.id as PlayerId], current.id === casterId ? 'own-card' : 'enemy-ability'); }
+    if (current.kind === 'player') { recordQuestMovement(state, current.id as PlayerId, 1, false, next); state.players[current.id as PlayerId].position = next; markCharacterMoved(state.players[current.id as PlayerId], current.id === casterId ? 'own-card' : 'enemy-ability'); }
     else state.objects.find((object) => object.id === current.id)!.position = next;
     applyElevationDropDamage(state, current, current.position, next, casterId, sourceKind);
     remaining -= 1;
@@ -2411,7 +2466,7 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Dance Through cannot move through an Object.');
   if (targetEnemy && dance.stepsRemaining <= 1) return fail(state, 'Not enough Dance Through movement remains to leave the occupied square.');
   const passedEnemy = dance.enemyUnderfoot ? state.players[dance.enemyUnderfoot] : null;
-  recordQuestMovement(state, player.id, 1);
+  recordQuestMovement(state, player.id, 1, false, to);
   player.position = to;
   markCharacterMoved(player, 'own-card');
   dance.stepsRemaining -= 1;
@@ -2446,7 +2501,7 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Double Jump cannot move through an Object.');
   if (targetEnemy && jump.stepsRemaining <= 1) return fail(state, 'Shinobi must end Double Jump on an empty square.');
   const passedEnemy = jump.enemyUnderfoot ? state.players[jump.enemyUnderfoot] : null;
-  recordQuestMovement(state, player.id, 1);
+  recordQuestMovement(state, player.id, 1, false, to);
   player.position = to;
   markCharacterMoved(player, 'own-card');
   jump.stepsRemaining -= 1;
@@ -2558,6 +2613,13 @@ function finalizeTurn(state: GameState): GameState {
   if (endingQuest.currentQuest?.id === 'provocateur' && endingQuest.turnStartedOnHighGround[state.activePlayerId] && isHighGround(state, state.players[state.activePlayerId].position)) {
     endingQuest.currentQuest.progress[state.activePlayerId] = (endingQuest.currentQuest.progress[state.activePlayerId] ?? 0) + 1;
     state.log.unshift(`${state.players[state.activePlayerId].name} started and ended the turn on High Ground, gaining 1 Provocateur progress.`);
+  }
+  const flagCarriers = endingQuest.captureTheFlag ? (endingQuest.captureTheFlag.carrierIds ?? (endingQuest.captureTheFlag.carrierId ? [endingQuest.captureTheFlag.carrierId] : [])) : [];
+  if (endingQuest.currentQuest?.id === 'capture-the-flag' && flagCarriers.includes(state.activePlayerId) && ownedBaseSquares(state, state.activePlayerId).has(cellLabel(state.players[state.activePlayerId].position))) {
+    endingQuest.currentQuest.winners = [state.activePlayerId];
+    endingQuest.currentQuest.progress[state.activePlayerId] = 2;
+    state.log.unshift(`${state.players[state.activePlayerId].name} returned the Flag to their Base and completed Capture the Flag.`);
+    resolveCurrentActionQuest(state);
   }
   const turnOrder = Object.keys(state.players).filter((id) => state.players[id as PlayerId].hp > 0) as PlayerId[];
   const currentIndex = turnOrder.indexOf(state.activePlayerId);
@@ -2702,7 +2764,8 @@ export function markCharacterMoved(player: PlayerState, cause: 'voluntary' | 'ow
 }
 export function effectiveMoveRange(player: PlayerState): number {
   const lightsaberMoveBonus = player.character === 'shinobi' && player.lightsaberBuff ? 1 : 0;
-  return Math.max(0, (player.moveRange ?? 0) + lightsaberMoveBonus + (player.swiftformMoveBonus ?? 0) + (player.grimoireMoveBonus ?? 0) - pinnedCount(player));
+  const bannerMoveBonus = (player.hand ?? []).filter((card) => card.cardId === 'banner').length;
+  return Math.max(0, (player.moveRange ?? 0) + lightsaberMoveBonus + bannerMoveBonus + (player.swiftformMoveBonus ?? 0) + (player.grimoireMoveBonus ?? 0) - pinnedCount(player));
 }
 function canDiscardAtHandLimit(card: Card): boolean {
   return !card.cannotBeDiscarded && (card.kind !== 'status' || card.canDiscardForHandLimit === true);
