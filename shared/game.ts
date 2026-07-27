@@ -127,7 +127,7 @@ export const CARDS: readonly Card[] = [
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped during this combat; otherwise, drop the Shield after combat. Generate 1 Rage Stack after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "Add an Exhaust Card to the enemy's Hand after combat." },
   { id: 'chip-cast', name: 'Chip-cast', kind: 'attack', value: 2, effectText: "Add 1 Headache per Rage Stack to the enemy's Discard. Then shuffle all Exhaust and Headache Cards into that enemy's Deck." },
-  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall the Shield if it is unequipped. Deal 2 Damage to and pull 1 Square toward Da Orkk each enemy character the Shield passes through.' },
+  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the Shield if it is unequipped. Deal 3 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
   { id: 'knee-blast', name: 'Knee Blast', kind: 'attack', value: 3, effectText: "After combat, push the enemy X Squares, where X is the number of Rage Stacks. Add 1 Headache Card to the enemy's Hand if they collide with anything." },
   { id: 'da-blokk', name: 'Da Blokk', kind: 'defend', value: 1, effectText: 'Cancel the Attack Card effect. Generate 2 Rage Stacks if Da Orkk receives Damage in this combat.' },
   { id: 'double', name: 'Double!', kind: 'defend', value: 1, effectText: "Double all Rage received during this combat and for the remainder of the attacking Player's turn." },
@@ -1633,8 +1633,8 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
           const enemy = Object.values(state.players).find((entry) => entry.id !== orkk.id && entry.position.x === cell.x && entry.position.y === cell.y);
           if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
           crossedEnemyIds.add(enemy.id);
-          dealDamage(state, enemy, 2, true, orkk.id, 'attack');
-          state.log.unshift(`Shield Bash's Shield passed through ${enemy.name} and dealt 2 damage.`);
+          dealDamage(state, enemy, 3, true, orkk.id, 'attack');
+          state.log.unshift(`Shield Bash's Shield passed through ${enemy.name} and dealt 3 damage.`);
         }
         pullEnemiesAlongShieldRecall(state, shield, orkk.id, path, 'Shield Bash');
         state.objectPushAnimations.push({ id: `${state.turn}-shield-bash-${state.objectPushAnimations.length}`, objectId: shield.id, from: { ...shield.position }, to: { ...orkk.position }, dx: Math.sign(orkk.position.x - shield.position.x), dy: Math.sign(orkk.position.y - shield.position.y), collided: crossedEnemyIds.size > 0, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: orkk.id });
@@ -1766,6 +1766,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (pending.generatesMana) gainManaFromResolvedSpell(state, state.players[pending.attackerId]);
   const attacker = state.players[pending.attackerId];
+  if (!attackEffectsCancelled && pending.cardId === 'shield-bash' && pending.shieldEquippedAtStart) {
+    attacker.rageStacks += 1;
+    state.log.unshift(`Shield Bash generated 1 Rage after all combat effects resolved because ${attacker.name}'s Shield was already equipped (${attacker.rageStacks} total).`);
+  }
   let postCombatChoicePending = false;
   if (attacker.hp === 0) { state.phase = 'finished'; state.winner = defender.id; state.log.unshift(`${defender.name} wins the duel!`); }
   else if (defender.hp === 0) { state.phase = 'finished'; state.winner = pending.attackerId; state.log.unshift(`${attacker.name} wins the duel!`); }
@@ -2377,32 +2381,43 @@ export function arkaneArowPath(state: GameState, caster: PlayerState, target: Ce
 
 function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
-  const deltaX = orkkCell.x - shield.position.x; const deltaY = orkkCell.y - shield.position.y;
-  const directSteps = Math.max(Math.abs(deltaX), Math.abs(deltaY));
-  const isStraightLine = deltaX === 0 || deltaY === 0 || Math.abs(deltaX) === Math.abs(deltaY);
-  if (isStraightLine && directSteps > 0 && directSteps <= range) {
-    const stepX = Math.sign(deltaX); const stepY = Math.sign(deltaY);
-    const directPath = Array.from({ length: directSteps }, (_, index) => ({ x: shield.position.x + stepX * (index + 1), y: shield.position.y + stepY * (index + 1) }));
-    // Enemy-occupied Squares never block Shield recall. Only Board Objects force
-    // the Shield to abandon its direct line and use the maneuvering pathfinder.
-    const clearOfObjects = directPath.slice(0, -1).every((cell) => !state.objects.some((entry) => entry.id !== shield.id && entry.position.x === cell.x && entry.position.y === cell.y));
-    if (clearOfObjects) return directPath;
-  }
-  const queue: { cell: Cell; path: Cell[] }[] = [{ cell: { ...shield.position }, path: [] }];
-  const visited = new Set([key(shield.position)]);
-  while (queue.length) {
-    const current = queue.shift()!;
-    if (current.cell.x === orkkCell.x && current.cell.y === orkkCell.y) return current.path;
-    if (current.path.length >= range) continue;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      if (!dx && !dy) continue;
-      const next = { x: current.cell.x + dx, y: current.cell.y + dy };
-      if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state) || visited.has(key(next))) continue;
-      const isOrkk = next.x === orkkCell.x && next.y === orkkCell.y;
-      const blockedByObject = state.objects.some((entry) => entry.id !== shield.id && entry.position.x === next.x && entry.position.y === next.y);
-      if (blockedByObject && !isOrkk) continue;
-      visited.add(key(next)); queue.push({ cell: next, path: [...current.path, next] });
+  type RecallRoute = { cell: Cell; path: Cell[]; enemiesCrossed: number };
+  const enemyAt = (cell: Cell) => Object.values(state.players).some((entry) => entry.id !== shield.ownerId && entry.position.x === cell.x && entry.position.y === cell.y);
+  let frontier: RecallRoute[] = [{ cell: { ...shield.position }, path: [], enemiesCrossed: 0 }];
+  const shortestDepth = new Map<string, number>([[key(shield.position), 0]]);
+  // Layered breadth-first search makes every cardinal and diagonal move cost
+  // exactly one. Within each layer, retain the route that crosses the most
+  // enemies, so damage is preferred only when total recall distance is equal.
+  for (let step = 1; step <= range && frontier.length > 0; step++) {
+    const nextFrontier = new Map<string, RecallRoute>();
+    for (const current of frontier) {
+      const neighbors: Cell[] = [];
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        neighbors.push({ x: current.cell.x + dx, y: current.cell.y + dy });
+      }
+      neighbors.sort((a, b) => distance(a, orkkCell) - distance(b, orkkCell) || a.x - b.x || a.y - b.y);
+      for (const next of neighbors) {
+        if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state)) continue;
+        const isOrkk = next.x === orkkCell.x && next.y === orkkCell.y;
+        const blockedByObject = state.objects.some((entry) => entry.id !== shield.id && entry.position.x === next.x && entry.position.y === next.y);
+        if (blockedByObject && !isOrkk) continue;
+        const nextKey = key(next);
+        const knownDepth = shortestDepth.get(nextKey);
+        if (knownDepth !== undefined && knownDepth < step) continue;
+        const candidate: RecallRoute = {
+          cell: next,
+          path: [...current.path, next],
+          enemiesCrossed: current.enemiesCrossed + Number(enemyAt(next)),
+        };
+        const existing = nextFrontier.get(nextKey);
+        if (!existing || candidate.enemiesCrossed > existing.enemiesCrossed) nextFrontier.set(nextKey, candidate);
+        shortestDepth.set(nextKey, step);
+      }
     }
+    const destination = nextFrontier.get(key(orkkCell));
+    if (destination) return destination.path;
+    frontier = [...nextFrontier.values()];
   }
   return [];
 }

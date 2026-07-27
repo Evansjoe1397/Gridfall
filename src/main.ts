@@ -433,6 +433,17 @@ function actingPlayer(): PlayerId {
   return gameState.activePlayerId;
 }
 
+function hudSeatPlayerIds(): PlayerId[] {
+  const playerIds = (Object.keys(gameState.players) as PlayerId[]).filter((id) => Boolean(gameState.players[id]));
+  // A local two-player test keeps physical seats stable while control passes
+  // between players: P1 remains left and P2 remains right.
+  if (mode === 'hotseat' && playerIds.length === 2) {
+    return (['P1', 'P2'] as PlayerId[]).filter((id) => Boolean(gameState.players[id]));
+  }
+  const perspectivePlayerId = actingPlayer();
+  return [perspectivePlayerId, ...playerIds.filter((id) => id !== perspectivePlayerId)];
+}
+
 function dispatch(command: GameCommand) {
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
@@ -470,8 +481,7 @@ function renderUI() {
   byId('knownDeckButton')?.addEventListener('pointerenter', (event) => showCardPreview((event.currentTarget as HTMLElement).dataset.knownTopCard!, event));
   byId('knownDeckButton')?.addEventListener('pointermove', positionCardPreview);
   byId('knownDeckButton')?.addEventListener('pointerleave', hideCardPreview);
-  const perspectivePlayerId = actingPlayer();
-  const hudPlayerIds = [perspectivePlayerId, ...(Object.keys(gameState.players) as PlayerId[]).filter((id) => id !== perspectivePlayerId && Boolean(gameState.players[id]))];
+  const hudPlayerIds = hudSeatPlayerIds();
   renderFighter(hudPlayerIds[0], 'p1Stats', 'left');
   renderFighter(hudPlayerIds[1], 'p2Stats', 'right');
   byId('p3Stats').classList.toggle('hidden', !hudPlayerIds[2]);
@@ -718,7 +728,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   fistbolt: { en: 'A dependable opener when Orkk has no Rage: it creates 1 stack before comparison and immediately converts it into +1 ATT for this Attack.', ru: 'Надёжное начало при отсутствии Rage: карта создаёт 1 стек до сравнения и сразу превращает его в +1 ATT для этой Атаки.' },
   'chain-punchin': { en: 'A utility Attack for changing Shield state. Attack while unequipped to gain an extra Action and continue a combo; while equipped, use it when you deliberately want the Shield dropped as an obstacle.', ru: 'Утилитарная Атака для смены состояния Щита. Без Щита получайте дополнительное Действие и продолжайте комбинацию; со Щитом используйте, когда хотите намеренно сбросить его как препятствие.' },
   'teef-strike': { en: 'Use early to seed Exhaust into the enemy Hand. The ongoing -1 ATT/DEF makes every later combat easier even if this low-value Attack does little direct damage.', ru: 'Используйте рано, чтобы добавить Exhaust в Руку врага. Постоянный штраф -1 ATT/DEF облегчит все будущие бои, даже если эта слабая Атака нанесёт мало прямого урона.' },
-  'shield-bash': { en: 'Best while the Shield is unequipped. Line up its recall through enemies to deal 2 Damage and pull each one 1 Square toward Orkk before the Shield returns.', ru: 'Лучше всего работает, когда Щит снят. Проведите возврат через врагов, чтобы нанести каждому 2 урона и притянуть на 1 клетку к Оркку до возвращения Щита.' },
+  'shield-bash': { en: 'If the Shield is unequipped, recall and equip it; every enemy crossed takes 3 Damage and is pulled 1 Square toward Orkk by the general Shield recall rule. If it was already equipped when combat began, gain 1 Rage after all combat effects resolve.', ru: 'Если Щит снят, верните и экипируйте его; каждый пересечённый враг получает 3 урона и притягивается на 1 клетку к Оркку по общему правилу возврата Щита. Если Щит был экипирован в начале боя, получите 1 Rage после разрешения всех эффектов боя.' },
   'knee-blast': { en: 'A strong Attack that converts Rage into displacement. Line up the target with an Object, Player, wall, or board edge so an interrupted push also adds Headache to their Hand.', ru: 'Сильная Атака, превращающая Rage в перемещение. Выстройте цель напротив Объекта, Игрока, стены или края поля, чтобы прерванный толчок также добавил Headache в её Руку.' },
   'da-blokk': { en: 'Use against an Attack with a dangerous printed effect. If damage still breaks through, the 2 Rage gained fuels a powerful counterattack on Orkk’s next turn.', ru: 'Используйте против Атаки с опасным собственным эффектом. Если урон всё же пройдёт, полученные 2 Rage подготовят мощную контратаку в следующий ход Оркка.' },
   double: { en: 'Best early in an enemy turn when several damage instances may follow. It doubles Rage gained for the rest of that turn, setting up a large Rage-powered Attack.', ru: 'Лучше использовать в начале хода врага, когда ожидается несколько случаев урона. Карта удваивает получаемый Rage до конца хода и готовит мощную Rage-Атаку.' },
@@ -813,8 +823,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
 }
 
 function renderCharacterStatuses() {
-  const perspectivePlayerId = actingPlayer();
-  const playerIds = [perspectivePlayerId, ...(Object.keys(gameState.players) as PlayerId[]).filter((id) => id !== perspectivePlayerId && Boolean(gameState.players[id]))];
+  const playerIds = hudSeatPlayerIds();
   (['P1', 'P2', 'P3'] as PlayerId[]).forEach((slotId, index) => {
     const panel = byId(`status${slotId}`);
     const player = gameState.players[playerIds[index]];

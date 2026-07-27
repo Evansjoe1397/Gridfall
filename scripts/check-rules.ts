@@ -1230,12 +1230,30 @@ if (shieldBashAttack.ok) {
   const shieldBashResult = applyCommand(shieldBashAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(shieldBashResult.ok, true);
   if (shieldBashResult.ok) {
-    assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 2, 'Shield Bash deals its combat Damage and 2 more when the recalled Shield passes through the enemy.');
+    assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 3, 'Shield Bash deals its combat Damage and 3 more when the recalled Shield passes through the enemy.');
     assert.equal(shieldBashResult.state.players.P1.shieldEquipped, true, 'Shield Bash equips the recalled Shield after combat.');
     assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-shield'), false);
     const shieldBashAnimation = shieldBashResult.state.objectPushAnimations.find((event) => event.objectId === 'shield-bash-shield');
     assert.equal(shieldBashAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Shield Bash animates through the occupied enemy Square.');
     assert.equal(shieldBashAnimation?.equipPlayerId, 'P1');
+  }
+}
+
+const equippedShieldBashState = createGameInitialState();
+equippedShieldBashState.players.P1.position = { x: 4, y: 3 };
+equippedShieldBashState.players.P2.position = { x: 3, y: 2 };
+equippedShieldBashState.players.P1.shieldEquipped = true;
+equippedShieldBashState.players.P1.rageStacks = 0;
+equippedShieldBashState.players.P2.hand = [];
+const equippedShieldBashCard = ensureCardInHand(equippedShieldBashState, 'P1', 'shield-bash');
+const equippedShieldBashAttack = applyCommand(equippedShieldBashState, { type: 'attack', playerId: 'P1', cardInstanceId: equippedShieldBashCard.instanceId, targetId: 'P2' });
+assert.equal(equippedShieldBashAttack.ok, true);
+if (equippedShieldBashAttack.ok) {
+  const equippedShieldBashResult = applyCommand(equippedShieldBashAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(equippedShieldBashResult.ok, true);
+  if (equippedShieldBashResult.ok) {
+    assert.equal(equippedShieldBashResult.state.players.P1.rageStacks, 1, 'Shield Bash generates 1 Rage after combat when the Shield was already equipped.');
+    assert.equal(equippedShieldBashResult.state.players.P1.shieldEquipped, true, 'Shield Bash leaves an already equipped Shield equipped.');
   }
 }
 
@@ -2554,6 +2572,29 @@ if (beginRecall.ok) {
       const recallAnimation = recalled.state.objectPushAnimations.find((event) => event.objectId === 'recall-shield');
       assert.equal(recallAnimation?.removeOnComplete, true);
       assert.equal(recallAnimation?.path?.length, 7, 'Level 1 recalls the Shield globally and preserves the full route for animation.');
+    }
+  }
+}
+
+const enemyPreferredRecall = createInitialState();
+enemyPreferredRecall.activePlayerId = 'P2';
+enemyPreferredRecall.players.P2.shieldEquipped = false;
+enemyPreferredRecall.players.P2.position = { x: 4, y: 3 };
+enemyPreferredRecall.players.P1.position = { x: 2, y: 1 };
+enemyPreferredRecall.objects = [{ id: 'enemy-preferred-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 1 } }];
+const enemyPreferredCard = ensureCardInHand(enemyPreferredRecall, 'P2', 'arm-da-wiz');
+const beginEnemyPreferredRecall = applyCommand(enemyPreferredRecall, { type: 'play-perk', playerId: 'P2', cardInstanceId: enemyPreferredCard.instanceId, destination: 'direct' });
+assert.equal(beginEnemyPreferredRecall.ok, true);
+if (beginEnemyPreferredRecall.ok) {
+  const chooseEnemyPreferredRecall = applyCommand(beginEnemyPreferredRecall.state, { type: 'arm-da-wiz-choice', playerId: 'P2', choice: 'recall' });
+  assert.equal(chooseEnemyPreferredRecall.ok, true);
+  if (chooseEnemyPreferredRecall.ok) {
+    const recalledThroughEnemy = applyCommand(chooseEnemyPreferredRecall.state, { type: 'arm-da-wiz-target', playerId: 'P2', objectId: 'enemy-preferred-shield' });
+    assert.equal(recalledThroughEnemy.ok, true);
+    if (recalledThroughEnemy.ok) {
+      const preferredAnimation = recalledThroughEnemy.state.objectPushAnimations.find((event) => event.objectId === 'enemy-preferred-shield');
+      assert.equal(preferredAnimation?.path?.length, 3, 'Shield recall keeps the minimum three-step Chebyshev route.');
+      assert.deepEqual(preferredAnimation?.path?.[0], { x: 2, y: 1 }, 'Among equal shortest routes, Shield recall prefers the enemy-occupied Square.');
     }
   }
 }
