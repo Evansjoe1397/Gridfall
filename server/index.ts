@@ -1,19 +1,24 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
-import { applyCommand, CharacterIdSchema, createMultiplayerState, GameCommandSchema, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, GameCommandSchema, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { arenaForPlayerCount } from '../shared/arenas.ts';
 
-type JoinOptions = { password?: string };
+type GameFormat = 'duel' | 'ffa';
+type JoinOptions = { password?: string; format?: GameFormat };
 
 class DuelRoom extends Room {
-  maxClients = 2;
+  maxClients = 3;
   private game: GameState | null = null;
   private password = '';
+  private format: GameFormat = 'duel';
   private seats = new Map<string, PlayerId>();
   private characters: Partial<Record<PlayerId, CharacterId>> = {};
 
   onCreate(options: JoinOptions) {
     this.password = String(options.password ?? '');
+    this.format = options.format === 'ffa' ? 'ffa' : 'duel';
+    this.maxClients = this.format === 'ffa' ? 3 : 2;
     this.setPrivate(true);
     this.onMessage('command', (client, raw) => this.handleCommand(client, raw));
     this.onMessage('choose-character', (client, raw) => this.chooseCharacter(client, raw));
@@ -26,7 +31,7 @@ class DuelRoom extends Room {
 
   onJoin(client: Client) {
     const occupied = new Set(this.seats.values());
-    const seat: PlayerId = occupied.has('P1') ? 'P2' : 'P1';
+    const seat: PlayerId = !occupied.has('P1') ? 'P1' : !occupied.has('P2') ? 'P2' : 'P3';
     this.seats.set(client.sessionId, seat);
     client.send('seat', seat);
     this.broadcastLobby();
@@ -65,24 +70,32 @@ class DuelRoom extends Room {
     const seat = this.seats.get(client.sessionId);
     const parsed = CharacterIdSchema.safeParse(raw);
     if (!seat || !parsed.success || this.game) return client.send('error', 'Character choice was rejected.');
-    if (this.seats.size < 2) return client.send('error', 'Wait for the other Player to join.');
-    if (seat === 'P1' && !this.characters.P2) return client.send('error', 'The joining Player chooses first.');
+    const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
+    if (this.seats.size < requiredPlayerCount) return client.send('error', `Wait for ${requiredPlayerCount - this.seats.size} more Player${requiredPlayerCount - this.seats.size === 1 ? '' : 's'} to join.`);
+    if (seat === 'P1' && (!this.characters.P2 || (this.format === 'ffa' && !this.characters.P3))) return client.send('error', 'The joining Players choose first.');
     this.characters[seat] = parsed.data;
     this.broadcastLobby();
-    if (this.characters.P1 && this.characters.P2) {
-      this.game = createMultiplayerState(this.characters as Record<PlayerId, CharacterId>);
+    const requiredSeats = [...this.seats.values()];
+    if (requiredSeats.length === requiredPlayerCount && requiredSeats.every((id) => Boolean(this.characters[id]))) {
+      this.game = this.format === 'ffa'
+        ? createLordaeronMultiplayerState(this.characters as Record<PlayerId, CharacterId>)
+        : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>);
       this.broadcastState();
     }
   }
 
   private broadcastLobby() {
-    this.broadcast('lobby-state', { playerCount: this.seats.size, characters: this.characters, arena: 'Nagrand Arena', mode: '1 versus 1', started: Boolean(this.game) });
+    const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
+    const arena = arenaForPlayerCount(requiredPlayerCount);
+    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
   }
 
   private sendSnapshot(client: Client) {
     const seat = this.seats.get(client.sessionId);
     if (seat) client.send('seat', seat);
-    client.send('lobby-state', { playerCount: this.seats.size, characters: this.characters, arena: 'Nagrand Arena', mode: '1 versus 1', started: Boolean(this.game) });
+    const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
+    const arena = arenaForPlayerCount(requiredPlayerCount);
+    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
     if (this.game) client.send('state', this.game);
   }
 }
