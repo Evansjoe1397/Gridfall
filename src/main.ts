@@ -104,6 +104,7 @@ type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; chara
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
 let hiddenQuestRewardId: string | null = null;
+let actionQuestCollapsed = false;
 let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
@@ -992,9 +993,23 @@ function renderActionQuestPanel() {
   const questState = state.questPhases;
   const current = questState?.currentQuest;
   const panel = byId('actionQuestPanel');
+  panel.classList.toggle('collapsed', actionQuestCollapsed);
+  if (actionQuestCollapsed) {
+    panel.innerHTML = `<button class="action-quest-collapse" id="actionQuestCollapse" type="button" aria-label="Show Action Quest" title="Show Action Quest">QUEST +</button>`;
+    panel.querySelector<HTMLButtonElement>('#actionQuestCollapse')?.addEventListener('click', () => {
+      actionQuestCollapsed = false;
+      renderActionQuestPanel();
+    });
+    return;
+  }
+  const collapseButton = `<button class="action-quest-collapse" id="actionQuestCollapse" type="button" aria-label="Hide Action Quest" title="Hide Action Quest">−</button>`;
   if (!current) {
     const nextRound = gameState.turn <= 1 ? 1 : Math.ceil((gameState.turn - 1) / 10) * 10 + 1;
-    panel.innerHTML = `<span>ACTION QUEST</span><strong>Next Quest: Round ${nextRound}</strong><small>${questState?.usedQuestIds.length ?? 0} of ${ACTION_QUEST_POOL.length} Quests completed</small>`;
+    panel.innerHTML = `${collapseButton}<span>ACTION QUEST</span><strong>Next Quest: Round ${nextRound}</strong><small>${questState?.usedQuestIds.length ?? 0} of ${ACTION_QUEST_POOL.length} Quests completed</small>`;
+    panel.querySelector<HTMLButtonElement>('#actionQuestCollapse')?.addEventListener('click', () => {
+      actionQuestCollapsed = true;
+      renderActionQuestPanel();
+    });
     return;
   }
   const remaining = Math.max(0, current.endsAfterRound - gameState.turn + 1);
@@ -1009,7 +1024,12 @@ function renderActionQuestPanel() {
       ? `<button class="quest-reward-toggle" id="questRewardToggle">SHOW REWARD</button>`
       : `<div class="quest-reward-card ${rewardCard.kind}" data-quest-reward-preview="${rewardCard.id}" tabindex="0"><span>REWARD</span><strong>${escapeHtml(rewardCard.name)}</strong><small>${escapeHtml(rewardCard.effectText ?? '')}</small><button class="quest-reward-hide" id="questRewardHide" type="button">HIDE</button></div>`
     : `<small>Reward: ${escapeHtml(definition?.reward ?? 'None')}</small>`;
-  panel.innerHTML = `<span>ACTION QUEST · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = player.id === 'P1' ? '#45c8ff' : player.id === 'P2' ? '#ff5d68' : '#a06cff'; return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  panel.innerHTML = `${collapseButton}<span>ACTION QUEST · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = player.id === 'P1' ? '#45c8ff' : player.id === 'P2' ? '#ff5d68' : '#a06cff'; return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  panel.querySelector<HTMLButtonElement>('#actionQuestCollapse')?.addEventListener('click', () => {
+    actionQuestCollapsed = true;
+    hideCardPreview();
+    renderActionQuestPanel();
+  });
   panel.querySelector<HTMLButtonElement>('#questRewardToggle, #questRewardHide')?.addEventListener('click', () => {
     hiddenQuestRewardId = rewardHidden ? null : current.id;
     hideCardPreview();

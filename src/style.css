@@ -350,6 +350,11 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .command-deck { width: 100%; }
 .battle-log { width: 100%; }
 .action-quest-panel { position: absolute; left: 14px; right: auto; bottom: 14px; z-index: 12; width: min(280px, 28vw); padding: 12px; border: 1px solid #826c32; background: rgba(10,18,14,.92); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.action-quest-collapse { position: absolute; top: 5px; right: 5px; z-index: 2; min-width: 20px; height: 18px; padding: 0 5px; border: 1px solid #65562d; background: rgba(24,21,10,.94); color: #d7bb63; cursor: pointer; font: 700 10px/16px 'Barlow Condensed', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.action-quest-collapse:hover { border-color: #d7bb63; color: #fff3bd; }
+.action-quest-panel:not(.collapsed) > span:first-of-type { padding-right: 25px; }
+.action-quest-panel.collapsed { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; overflow: visible; }
+.action-quest-panel.collapsed .action-quest-collapse { position: static; width: auto; height: 22px; padding: 0 7px; box-shadow: 0 5px 16px rgba(0,0,0,.42); font-size: 8px; line-height: 20px; }
 .action-quest-panel > span { display: block; color: #d7bb63; font-size: 9px; letter-spacing: .16em; }
 .action-quest-panel > strong { display: block; margin-top: 4px; font-size: 16px; color: #fff3bd; }
 .action-quest-panel > small { display: block; margin-top: 4px; color: #9eb5ad; line-height: 1.35; }
@@ -462,15 +467,18 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .spell-echo > div { gap: 3px; }
   .echo-slot { min-height: 35px; }
   .action-quest-panel {
-    left: 7px;
+    left: 66px;
     bottom: 7px;
     width: min(190px, 21vw);
-    max-height: calc(100% - 150px);
+    max-height: calc(100% - 116px);
     padding: 7px;
     overflow-y: auto;
   }
-  .action-quest-panel > strong { font-size: 13px; }
-  .action-quest-panel > small { font-size: 8px; }
+  .action-quest-panel.collapsed { left: 7px; padding: 0; overflow: visible; }
+  .action-quest-panel > span { font-size: 7px; }
+  .action-quest-panel > strong { font-size: 12px; }
+  .action-quest-panel > small { font-size: 7px; line-height: 1.25; }
+  .action-quest-panel p { gap: 4px; margin-top: 5px; font-size: 8px; }
   .quest-reward-card { padding: 5px 6px; }
   .command-deck { height: 145px; grid-template-columns: 165px minmax(0, 1fr) 130px; gap: 6px; padding: 5px 0; overflow: hidden; }
   .identity, .turn-actions { min-height: 0; padding: 6px; gap: 3px; overflow: hidden; }
