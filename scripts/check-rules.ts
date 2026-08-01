@@ -2484,7 +2484,7 @@ if (spentRage.ok) {
   assert.equal(spentRage.state.players.P2.rageStacks, 3, 'All Rage augments the Attack before combat.');
   const resolvedRageAttack = applyCommand(spentRage.state, { type: 'pass-defense', playerId: 'P1' });
   assert.equal(resolvedRageAttack.ok, true);
-  if (resolvedRageAttack.ok) assert.equal(resolvedRageAttack.state.players.P2.rageStacks, 2, 'Only 1 Rage is removed after combat.');
+  if (resolvedRageAttack.ok) assert.equal(resolvedRageAttack.state.players.P2.rageStacks, 0, 'Every Rage Stack applied to the Attack is consumed when combat resolves.');
 }
 
 const unshieldedStart = createInitialState();

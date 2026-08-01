@@ -715,10 +715,11 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   if (distance(player.position, object.position) > player.attackRange) return fail(state, 'Object is outside the attack range.');
   if (!hasLineOfSight(state, player.position, object.position)) return fail(state, 'A Wall Object blocks line of sight to that Object.');
   if (card.id === 'fistbolt' && player.character === 'orkk' && player.rageStacks === 0) player.rageStacks = 1;
+  const rageSpent = player.character === 'orkk' ? player.rageStacks : 0;
   const banner = player.hand.find((entry) => entry.cardId === 'banner');
   const attackValue = card.value
     + (player.character === 'shinobi' && player.lightsaberBuff ? 1 : 0)
-    + (player.character === 'orkk' ? player.rageStacks : 0)
+    + rageSpent
     + (player.character === 'john-christ' && player.spiritForm ? 2 : 0)
     + (isHighGround(state, player.position) && !isHighGround(state, object.position) ? 1 : 0)
     + (player.character === 'magician' ? player.arcaneBoltAttackBonus : 0)
@@ -740,9 +741,9 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     player.highgroundAdvantageBuff = false;
   }
   if (player.character === 'magician' && player.manaMode === 'generate') gainManaFromResolvedSpell(state, player);
-  if (player.character === 'orkk' && player.rageStacks > 0) {
-    player.rageStacks -= 1;
-    state.log.unshift(`${player.name} lost 1 Rage after resolving an Attack Card against an Object (${player.rageStacks} remaining).`);
+  if (rageSpent > 0) {
+    player.rageStacks = Math.max(0, player.rageStacks - rageSpent);
+    state.log.unshift(`${player.name} consumed all ${rageSpent} Rage Stack${rageSpent === 1 ? '' : 's'} applied to the Attack against an Object (${player.rageStacks} remaining).`);
   }
   if (card.id === 'fistbolt' && player.character === 'orkk') {
     player.rageStacks += 1;
@@ -1597,9 +1598,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
         state.log.unshift(`Flurry dealt 1 pre-combat damage to adjacent attacker ${attacker.name}.`);
         if (attacker.hp === 0) {
           if (pending.generatesMana) gainManaFromResolvedSpell(state, attacker);
-          if (attacker.character === 'orkk' && attacker.rageStacks > 0) {
-            attacker.rageStacks -= 1;
-            state.log.unshift(`${attacker.name} lost 1 Rage after the Attack ended (${attacker.rageStacks} remaining).`);
+          const rageSpent = pending.rageSpent ?? 0;
+          if (attacker.character === 'orkk' && rageSpent > 0) {
+            attacker.rageStacks = Math.max(0, attacker.rageStacks - rageSpent);
+            state.log.unshift(`${attacker.name} consumed all ${rageSpent} Rage Stack${rageSpent === 1 ? '' : 's'} applied to the Attack (${attacker.rageStacks} remaining).`);
           }
           state.pendingAttack = null;
           state.phase = 'finished';
@@ -1626,9 +1628,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   recordCombatDamageBlocked(state, defender, pending.attackValue - damage);
   state.log.unshift(`${defender.name} ${defenseCardId ? `discarded ${cardDefinition({ instanceId: '', cardId: defenseCardId }).name} (${defenseValue})` : 'declined to defend'} and received ${damage} damage.`);
   const attackerAfterCombat = state.players[pending.attackerId];
-  if (attackerAfterCombat.character === 'orkk' && attackerAfterCombat.rageStacks > 0) {
-    attackerAfterCombat.rageStacks -= 1;
-    state.log.unshift(`${attackerAfterCombat.name} lost 1 Rage after combat (${attackerAfterCombat.rageStacks} remaining).`);
+  const rageSpent = pending.rageSpent ?? 0;
+  if (attackerAfterCombat.character === 'orkk' && rageSpent > 0) {
+    attackerAfterCombat.rageStacks = Math.max(0, attackerAfterCombat.rageStacks - rageSpent);
+    state.log.unshift(`${attackerAfterCombat.name} consumed all ${rageSpent} Rage Stack${rageSpent === 1 ? '' : 's'} applied to the Attack (${attackerAfterCombat.rageStacks} remaining).`);
   }
   const stateBeforeAfterCombatEffects = structuredClone(state);
   if (defenseCardId === 'calmness') {
