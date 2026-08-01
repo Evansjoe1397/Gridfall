@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
 import { LORDAERON_ARENA } from '../shared/arenas.ts';
+import { CARD_RULES_RU, UI_RU_EXACT } from './i18n.ts';
 import {
   CARDS,
   ACTION_QUEST_POOL,
@@ -20,6 +21,7 @@ import {
   diagonalMovementBlockedByObject,
   effectiveMoveRange,
   hasLineOfSight,
+  isCardRevealedToOpponents,
   movementPath,
   kykDirectionAllowed,
   pinnedCount,
@@ -76,20 +78,20 @@ app.innerHTML = `
       </div>
       <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
-        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one card and move Again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">Hints</button></div>
+        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one card and move Again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS (H)</button></div>
         <div class="hand" id="hand"></div>
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
       <aside class="battle-log"><span>COMBAT FEED</span><div id="log"></div></aside>
     </section>
-    <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong></div>
+    <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong><span class="turn-heal-message"></span></div>
     <div class="choice-modal hidden" id="flurryModal"></div>
     <div class="choice-modal hidden" id="armDaWizModal"></div>
     <div class="choice-modal hidden" id="manaModal"></div>
     <div class="choice-modal hidden" id="focusModal"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
-    <div class="hints-modal hidden" id="hintsModal" role="dialog" aria-modal="true" aria-labelledby="hintsTitle"><section class="hints-window"><button class="hints-language" id="hintsLanguage" type="button">RU</button><nav class="hints-tabs" aria-label="Help sections"><button class="active" id="hintsTab" type="button">Hints</button><button id="myCardsTab" type="button">My Cards</button></nav><button class="hints-close" id="hintsClose" type="button" aria-label="Close hints">×</button><div class="hints-content" id="hintsContent"></div></section></div>
+    <div class="hints-modal hidden" id="hintsModal" role="dialog" aria-modal="true" aria-labelledby="hintsTitle"><section class="hints-window"><button class="hints-language" id="hintsLanguage" type="button">RU</button><nav class="hints-tabs" aria-label="Help sections"><button class="active" id="hintsTab" type="button">Hints</button><button id="characterTab" type="button">Character</button><button id="myCardsTab" type="button">My Cards</button></nav><button class="hints-close" id="hintsClose" type="button" aria-label="Close hints">×</button><div class="hints-content" id="hintsContent"></div></section></div>
     <div class="discard-modal hidden" id="discardModal" role="dialog" aria-modal="true" aria-labelledby="discardTitle"><section class="discard-window"><button class="hints-close" id="discardClose" type="button" aria-label="Close Discard Deck">×</button><div id="discardContent"></div></section></div>
     <div class="card-hover-preview hidden" id="cardHoverPreview"></div>
     <div class="toast" id="toast"></div>
@@ -109,7 +111,7 @@ let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
 let hintsLanguage: 'en' | 'ru' = 'en';
-let hintsTab: 'hints' | 'cards' | 'damage' = 'hints';
+let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
@@ -129,6 +131,10 @@ damageLogTab.id = 'damageLogTab';
 damageLogTab.type = 'button';
 damageLogTab.textContent = 'Damage Log';
 document.querySelector('.hints-tabs')?.append(damageLogTab);
+const interfaceObserver = new MutationObserver(() => {
+  if (hintsLanguage === 'ru') applyInterfaceLanguage();
+});
+interfaceObserver.observe(app, { childList: true, subtree: true, characterData: true });
 
 document.querySelector('#hotseat')!.addEventListener('click', () => showFormatSelect('hotseat'));
 document.querySelector('#createRoom')!.addEventListener('click', () => showFormatSelect('online'));
@@ -139,8 +145,15 @@ document.querySelector('#dashButton')!.addEventListener('click', () => dispatch(
 document.querySelector('#hintsButton')!.addEventListener('click', () => { hintsOpen = true; renderHintsModal(); });
 document.querySelector('#hintsClose')!.addEventListener('click', () => { hintsOpen = false; renderHintsModal(); });
 document.querySelector('#hintsModal')!.addEventListener('click', (event) => { if (event.target === byId('hintsModal')) { hintsOpen = false; renderHintsModal(); } });
-document.querySelector('#hintsLanguage')!.addEventListener('click', () => { hintsLanguage = hintsLanguage === 'en' ? 'ru' : 'en'; renderHintsModal(); });
+document.querySelector('#hintsLanguage')!.addEventListener('click', () => {
+  hintsLanguage = hintsLanguage === 'en' ? 'ru' : 'en';
+  document.documentElement.lang = hintsLanguage;
+  if (!game.classList.contains('hidden')) renderUI();
+  renderHintsModal();
+  applyInterfaceLanguage();
+});
 document.querySelector('#hintsTab')!.addEventListener('click', () => { hintsTab = 'hints'; renderHintsModal(); });
+document.querySelector('#characterTab')!.addEventListener('click', () => { hintsTab = 'character'; renderHintsModal(); });
 document.querySelector('#myCardsTab')!.addEventListener('click', () => { hintsTab = 'cards'; renderHintsModal(); });
 damageLogTab.addEventListener('click', () => { hintsTab = 'damage'; renderHintsModal(); });
 document.querySelector('#discardClose')!.addEventListener('click', () => { discardViewerPlayerId = null; renderDiscardModal(); });
@@ -200,6 +213,19 @@ window.addEventListener('keydown', (event) => {
       freeMoveButton.click();
     }
   }
+  if (event.code === 'KeyG' && !game.classList.contains('hidden')) {
+    const guardButton = byId('guardButton') as HTMLButtonElement;
+    if (!guardButton.disabled) { event.preventDefault(); guardButton.click(); }
+  }
+  if (event.code === 'KeyR' && !game.classList.contains('hidden')) {
+    const dashButton = byId('dashButton') as HTMLButtonElement;
+    if (!dashButton.disabled) { event.preventDefault(); dashButton.click(); }
+  }
+  if (event.code === 'KeyH' && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    hintsOpen = !hintsOpen;
+    renderHintsModal();
+  }
 });
 
 function isWaitingForResolvedCardTarget() {
@@ -238,12 +264,13 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   }));
 }
 
-type SelectableCharacter = 'shinobi' | 'orkk' | 'magician';
+type SelectableCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ';
 type HotseatOpponent = SelectableCharacter | 'dummy';
 const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 26, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage, then remove 1 Rage after combat. Remove another 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
+  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
 };
 function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
@@ -256,7 +283,7 @@ function dummySelectButton(): string {
 
 function showHotseatCharacterSelect(format: GameFormat) {
   const panel = byId('onlineWaiting');
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as SelectableCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character);
@@ -267,7 +294,7 @@ function showHotseatCharacterSelect(format: GameFormat) {
 function showHotseatOpponentSelect(playerCharacter: SelectableCharacter) {
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · NAGRAND ARENA</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · NAGRAND ARENA</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
   panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy'));
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as SelectableCharacter)));
   panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel'));
@@ -341,7 +368,7 @@ function normalizeOnlineState(state: GameState): GameState {
   state.log ??= [];
   Object.values(state.players).forEach((player) => {
     player.moveRange ??= player.character === 'orkk' ? 3 : 2;
-    player.attackRange ??= player.character === 'magician' ? 2 : 1;
+    player.attackRange ??= player.character === 'john-christ' ? 3 : player.character === 'magician' ? 2 : 1;
     player.movementRemaining ??= 0;
     player.actionsRemaining ??= 2;
     player.swiftformMoveBonus ??= 0;
@@ -351,6 +378,12 @@ function normalizeOnlineState(state: GameState): GameState {
     player.deck ??= [];
     player.discard ??= [];
     player.spellEcho ??= [null, null, null];
+    player.spiritForm ??= false;
+    player.spiritEnemyUnderfoot ??= null;
+    player.stoicShell ??= false;
+    player.queuedBlessingCardIds ??= [];
+    player.stoicShellHealedTurn ??= null;
+    player.stoicShellHealEventId ??= null;
   });
   return state;
 }
@@ -407,6 +440,8 @@ function actingPlayer(): PlayerId {
     const choice = gameState.combatReveal?.viciousMockery;
     return choice?.eligible.find((id) => !choice.decided.includes(id)) ?? gameState.activePlayerId;
   }
+  if (gameState.phase === 'choosing-blessing-light') return gameState.combatReveal?.blessingLight?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-mythril-helmet') return gameState.combatReveal?.mythrilHelmet?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-force-pull-target') return gameState.forcePull!.casterId;
@@ -473,7 +508,7 @@ function renderUI() {
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
   showTurnAnnouncement(actor);
-  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : 'TRAINING DUMMY';
+  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
   byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${actor.attackRange}</b></span>`;
   const knownTopCard = actor.knownTopCardId ? cardDefinition({ instanceId: '', cardId: actor.knownTopCardId }) : null;
@@ -504,13 +539,13 @@ function renderUI() {
   byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${escapeHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
   const prompt = byId('prompt');
-  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose an Attack card to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
+  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
   if (gameState.phase === 'choosing-end-discard' && actor.hand.length <= 5) prompt.textContent = 'Hand limit satisfied · discard more eligible cards or select End Turn';
   if (gameState.phase === 'choosing-force-throw-target') prompt.textContent = 'Force Throw: select a valid target · Escape to cancel';
   if (gameState.phase === 'choosing-force-throw-direction') prompt.textContent = 'Force Throw: select the linear push direction · Escape to cancel';
   if (gameState.phase === 'choosing-force-pull-target') prompt.textContent = 'Force Pull: select an enemy or Object · Escape to cancel';
-  if (gameState.phase === 'choosing-kyk-target') prompt.textContent = 'KYK: select an adjacent Object · Escape to cancel';
+  if (gameState.phase === 'choosing-kyk-target') prompt.textContent = 'KYK: select an adjacent Object or enemy · Escape to cancel';
   if (gameState.phase === 'choosing-kyk-direction') prompt.textContent = 'KYK: select a highlighted legal push direction · Escape to cancel';
   if (gameState.phase === 'choosing-arkane-arow-target') prompt.textContent = `ARKANE AROW: select a highlighted Square within Range ${gameState.arkaneArow!.range} · Escape to cancel`;
   if (gameState.phase === 'choosing-arm-da-wiz-choice') prompt.textContent = 'Arm da Wiz: choose Recall or Create Shield · Escape to cancel';
@@ -526,7 +561,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
   if (gameState.phase === 'choosing-fireball-target') prompt.textContent = 'Fireball: select an enemy within Range 3 · Escape to cancel';
-  if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Attack Range · Escape to cancel';
+  if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 5 · obstacles are ignored · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
   if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy in range and line of sight · Escape to cancel';
   if (gameState.phase === 'choosing-magic-hand-target') prompt.textContent = 'Magic Hand: select any visible Object · Escape to cancel';
@@ -547,9 +582,10 @@ function renderUI() {
   (byId('guardButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canLocalAct(actor.id);
   const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || !cardDefinition(card).cannotBeDiscarded);
   (byId('dashButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canPayForDash || !canLocalAct(actor.id);
-  (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
+  (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
   if (((actor.movementRemaining > 0 && gameState.phase === 'active') || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
   highlightCells();
+  applyInterfaceLanguage();
 }
 
 function renderMatchResults() {
@@ -573,21 +609,23 @@ function renderMatchResults() {
 
 function renderHintsModal() {
   const modal = byId('hintsModal');
-  byId('hintsButton').textContent = hintsLanguage === 'ru' ? 'Подсказки' : 'Hints';
+  byId('hintsButton').textContent = hintsLanguage === 'ru' ? 'ПОДСКАЗКИ (H)' : 'HINTS (H)';
   modal.classList.toggle('hidden', !hintsOpen);
   if (!hintsOpen) return;
   const ru = hintsLanguage === 'ru';
   byId('hintsLanguage').textContent = ru ? 'EN' : 'RU';
   byId('hintsLanguage').title = ru ? 'Switch to English' : 'Переключить на русский';
   byId('hintsTab').textContent = ru ? 'Подсказки' : 'Hints';
+  byId('characterTab').textContent = ru ? 'Персонаж' : 'Character';
   byId('myCardsTab').textContent = ru ? 'Мои карты' : 'My Cards';
   byId('hintsTab').classList.toggle('active', hintsTab === 'hints');
+  byId('characterTab').classList.toggle('active', hintsTab === 'character');
   byId('myCardsTab').classList.toggle('active', hintsTab === 'cards');
   byId('damageLogTab').textContent = ru ? 'Журнал урона' : 'Damage Log';
   byId('damageLogTab').classList.toggle('active', hintsTab === 'damage');
   byId('hintsClose').setAttribute('aria-label', ru ? 'Закрыть подсказки' : 'Close hints');
   const content = byId('hintsContent');
-  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'cards' ? cardAdviceHtml(ru) : damageLogHtml(ru);
+  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'character' ? characterTraitHtml(ru) : hintsTab === 'cards' ? cardAdviceHtml(ru) : damageLogHtml(ru);
   if (hintsTab === 'damage') {
     const intro = content.querySelector<HTMLElement>('.damage-log-intro');
     if (intro) intro.textContent = ru ? 'Все отдельные случаи урона и восстановления HP в этом матче. Потеря HP не считается уроном.' : 'Every separate instance of damage and restored HP in this match. Effects that explicitly lose HP are not damage.';
@@ -597,6 +635,65 @@ function renderHintsModal() {
     element.addEventListener('pointermove', positionCardPreview);
     element.addEventListener('pointerleave', hideCardPreview);
   });
+  applyInterfaceLanguage();
+}
+
+function characterTraitHtml(ru: boolean) {
+  const player = gameState.players[actingPlayer()];
+  if (!(player.character in CHARACTER_SELECT_INFO)) {
+    return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'У этого тестового персонажа нет особенности персонажа.' : 'This test character has no Character Trait.'}</p>`;
+  }
+  const character = player.character as SelectableCharacter;
+  const info = CHARACTER_SELECT_INFO[character];
+  const copy = {
+    shinobi: {
+      trait: 'Lightsaber',
+      description: ru
+        ? 'Если Оби Ван Шиноби завершает свой ход, не перемещаясь, Lightsaber активируется и до конца его следующего хода даёт +1 к значениям ATT и DEF карт, а также +1 MOV. Перемещение от собственных карт Атаки или Защиты не мешает активации; обычное или вызванное врагом перемещение мешает. Некоторые эффекты могут активировать или продлить Lightsaber отдельно.'
+        : 'If Obi Wan Shinobi ends his turn without moving, Lightsaber activates until the end of his next turn, adding +1 to Attack and Defend Card Values and +1 MOV. Movement from his own Attack or Defend Cards does not prevent activation; normal movement or enemy-forced movement does. Some Card effects can activate or extend Lightsaber separately.',
+      detail: ru
+        ? '-MOV Stacks: карты статуса Pinned, создаваемые Атаками и Перками Оби Вана. Каждая карта Pinned в Руке уменьшает MOV персонажа на 1. Одна из этих карт удаляется в конце следующего последовательного хода этого персонажа; новая карта Pinned не может быть удалена в тот же ход, в котором она была получена.'
+        : "-MOV Stacks: Pinned Status Cards generated by Obi Wan's Attacks and Perks. Each Pinned Card decreases a character's MOV stat by 1 while it is in Hand. One of these Cards is removed at the end of that character's next consecutive turn; newly gained Pinned cannot be removed during the same turn it was gained.",
+      status: ru
+        ? `Сейчас: ${player.lightsaberBuff ? 'активен' : 'неактивен'}${player.lightsaberStacks ? ` · продление: ${player.lightsaberStacks}` : ''}.`
+        : `Current state: ${player.lightsaberBuff ? 'active' : 'inactive'}${player.lightsaberStacks ? ` · duration stacks: ${player.lightsaberStacks}` : ''}.`,
+    },
+    orkk: {
+      trait: 'Rage',
+      description: ru
+        ? 'Да Оркк получает 1 Rage, когда получает урон от карты или Действия, не более одного раза за общий эффект; отдельный последующий эффект может дать Rage снова. При Атаке все накопленные стаки добавляются к значению ATT, после боя снимается 1 стак, а в конце хода снимается ещё 1. Если Оркк начинает ход без Щита и без Rage, он получает 1 Rage.'
+        : 'Da Orkk gains 1 Rage when damaged by a Card or Action, at most once per overall effect; a separate later effect may grant Rage again. Every stored stack adds +1 ATT to an Attack, then 1 stack is removed after combat and another 1 at turn end. If Orkk starts his turn with no Shield and no Rage, he gains 1 Rage.',
+      detail: ru
+        ? 'Shield: метаемый Объект, который Да Оркк может экипировать. Щит наносит урон при броске или притягивании, если проходит через клетку, занятую врагом. В начале своего хода Да Оркк получает стак Rage, если Щит не экипирован и у него нет Rage; экипированный Щит вместо этого даёт +1 к значению DEF его карт Защиты.'
+        : 'Shield: A throwable Object that can be equipped by Da Orkk. The Shield deals damage when thrown or pulled through a Square occupied by an enemy. At the beginning of his turn, Da Orkk gains 1 Rage if the Shield is not equipped and he has no Rage; while equipped, the Shield instead adds +1 to the Defend Value of his Cards.',
+      status: ru
+        ? `Сейчас: ${player.rageStacks} Rage · Щит ${player.shieldEquipped ? 'экипирован (+1 DEF картам Защиты)' : 'снят и находится на поле как Стенной Объект'}.`
+        : `Current state: ${player.rageStacks} Rage · Shield ${player.shieldEquipped ? 'equipped (+1 to Defend Card Values)' : 'unequipped on the Board as a Wall Object'}.`,
+    },
+    magician: {
+      trait: 'Classic Wizardry',
+      description: ru
+        ? 'После разрешения своей карты Атаки или Перка-заклинания Лонг Хэт Логан создаёт 1 Mana, максимум 3, пока действует режим Generate. Если ход начинается с 3 Mana, он выбирает: сохранить Mana и продолжить Generate либо потратить все 3, включив Consume на этот ход. Consume активирует указанные на картах усиленные эффекты, но обычное разрешение заклинаний в этот ход Mana не создаёт.'
+        : 'After resolving his own Attack Card or Perk spell, Long Hat Logan generates 1 Mana, up to 3, while in Generate mode. If he starts a turn with 3 Mana, he may keep it and continue Generating or spend all 3 to enter Consume for that turn. Consume enables the advanced effects printed on his Cards, but normal spell resolution does not generate Mana that turn.',
+      detail: '',
+      status: ru
+        ? `Сейчас: ${player.manaPoints}/3 Mana · режим ${player.manaMode === 'consume' ? 'Consume' : 'Generate'}.`
+        : `Current state: ${player.manaPoints}/3 Mana · ${player.manaMode === 'consume' ? 'Consume' : 'Generate'} mode.`,
+    },
+    'john-christ': {
+      trait: 'Possessed',
+      description: ru
+        ? 'После получения любого урона John Christ входит в Spirit Form. В этой форме все его карты Атаки получают +2 ATT, дальность Атаки становится ближней (1 клетка), дальность движения становится 1, и он может проходить через клетки с врагами. Каждая занятая врагом клетка возвращает потраченный на вход 1 MOV. Он не может завершить движение или ход на одной клетке с врагом. После выхода из Spirit Form дальность Атаки снова становится 3.'
+        : 'After receiving any Damage, John Christ enters Spirit Form. In this form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, his movement Range becomes 1, and he may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it. He cannot finish movement or end his turn on the same Square as an enemy. Leaving Spirit Form restores Attack Range 3.',
+      detail: ru
+        ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Форма заканчивается после использования карты Атаки или в конце хода. Blessing, добавленная в Руку в ход John, немедленно создаёт Stoic Shell. Отложенные Blessing добавляются в начале его хода только если у него не было Stoic Shell. Если ход начался со Stoic Shell, John восстанавливает 1 HP и удаляет Shell; любой полученный урон удаляет Shell.'
+        : 'Spirit Form prevents Cards containing “Bless” in their name from being used. The form ends after using an Attack Card or at turn end. A Blessing added to John’s Hand during his turn immediately creates Stoic Shell. Queued Blessings enter his Hand at turn start only if he did not begin with Stoic Shell. Beginning with Stoic Shell restores 1 HP and removes it; any Damage removes the Shell.',
+      status: ru
+        ? `Сейчас: ${player.spiritForm ? 'Spirit Form активна' : 'обычная форма'} · Stoic Shell ${player.stoicShell ? 'активна' : 'неактивна'} · отложено Blessing: ${player.queuedBlessingCardIds.length}.`
+        : `Current state: ${player.spiritForm ? 'Spirit Form active' : 'normal form'} · Stoic Shell ${player.stoicShell ? 'active' : 'inactive'} · queued Blessings: ${player.queuedBlessingCardIds.length}.`,
+    },
+  }[character];
+  return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>${escapeHtml(copy.trait)}</h3></div></header><p>${escapeHtml(copy.description)}</p>${copy.detail ? `<p class="character-hint-detail">${escapeHtml(copy.detail)}</p>` : ''}<strong>${escapeHtml(copy.status)}</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>${ru ? 'ДАЛЬНОСТЬ АТАКИ' : 'ATTACK RANGE'} <b>${player.attackRange}</b></span></footer></article>`;
 }
 
 function damageLogHtml(ru: boolean) {
@@ -712,12 +809,12 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'cut-them-legs': { en: 'A strong repeatable Attack. Aim for a favourable combat so it returns to Hand, applies Pinned, and can be played again if another Action remains.', ru: 'Сильная повторяемая Атака. Добивайтесь победы в бою, чтобы карта вернулась в Руку, наложила Pinned и могла быть сыграна снова при наличии Действия.' },
   'hello-there': { en: 'Shinobi’s Pinned payoff. Stack Pinned first, then use this even against a strong Defence: its bonus damage applies after combat, and Headache further clogs the enemy Hand.', ru: 'Главная реализация Pinned у Шиноби. Сначала накопите Pinned, затем используйте даже против сильной Защиты: дополнительный урон наносится после боя, а Headache засоряет Руку врага.' },
   block: { en: 'Choose this against Attacks whose effects matter more than raw damage. It cancels the printed Attack effect before combat and Pins the attacker for later Shinobi combinations.', ru: 'Выбирайте против Атак, чьи эффекты опаснее чистого урона. Карта отменяет собственный эффект Атаки до боя и накладывает Pinned для будущих комбинаций Шиноби.' },
-  'flurry-defensive-strikes': { en: 'Use against an adjacent attacker to deal 1 Damage before combat. If you can spare 1 HP, lose it to strip two Cards from the attacker and disrupt their next turn.', ru: 'Используйте против атакующего на соседней клетке, чтобы нанести 1 урон до боя. Если можете пожертвовать 1 HP, потеряйте его, чтобы атакующий сбросил две карты и ослабил следующий ход.' },
+  'flurry-defensive-strikes': { en: 'Use against an adjacent attacker to deal 1 Damage before combat. If you can spare 1 HP, lose it to force the attacker to discard 1 Card.', ru: 'Используйте против атакующего на соседней клетке, чтобы нанести 1 урон до боя. Если можете пожертвовать 1 HP, потеряйте его, чтобы атакующий сбросил 1 карту.' },
   calmness: { en: 'A hard counter to a Pinned attacker: it negates all damage regardless of combat value. The cleanse removes Shinobi’s positive effects too, so spend valuable buffs first when possible.', ru: 'Жёсткий ответ на атакующего с Pinned: отменяет весь урон независимо от значений боя. Очищение снимает и положительные эффекты Шиноби, поэтому по возможности сначала используйте ценные усиления.' },
   'not-a-shinobi': { en: 'A sturdy Defence that cleanses negative effects after combat. Hold it when Status Cards are restricting movement or combat, especially before an important positioning turn.', ru: 'Надёжная Защита, снимающая негативные эффекты после боя. Сохраняйте, когда Статусные карты мешают движению или бою, особенно перед важным позиционным ходом.' },
   'double-jump': { en: 'Excellent against a heavily Pinned attacker because each stack adds DEF. The two post-combat steps can disengage or pass through enemies to add more Pinned, ending on an empty Square.', ru: 'Особенно силён против атакующего с множеством Pinned: каждый стек даёт DEF. Два шага после боя позволяют выйти из боя или пройти сквозь врагов, добавляя Pinned, с завершением на пустой клетке.' },
   'higround-advantage': { en: 'Shinobi’s Reserve and long-term Spell Echo engine. Level 1 replaces itself, Level 2 maintains Lightsaber, and Level 3 enables a valuable Attack to return to Hand for a combo turn.', ru: 'Резерв Шиноби и долгосрочный двигатель Spell Echo. Уровень 1 заменяет себя картой, уровень 2 поддерживает Lightsaber, а уровень 3 возвращает ценную Атаку в Руку для комбо-хода.' },
-  'force-throw': { en: 'Use Objects as projectiles to damage enemies while changing the board. Higher levels extend the throw and eventually let Shinobi displace enemy Players directly.', ru: 'Используйте Объекты как снаряды, нанося урон и меняя поле. Высокие уровни увеличивают толчок и в итоге позволяют напрямую перемещать вражеских Игроков.' },
+  'force-throw': { en: 'Use Objects as projectiles to damage enemies while changing the board. At Level 3, a pushed enemy takes 1 Damage when colliding with anything; if two enemy Players collide, both take 1 Damage.', ru: 'Используйте Объекты как снаряды, нанося урон и меняя поле. На 3-м уровне толкаемый враг получает 1 урон при столкновении с чем угодно; если сталкиваются два вражеских Игрока, оба получают 1 урон.' },
   'force-pull': { en: 'Pull an enemy into Attack Range, off a protected position, or toward a hazardous cluster; pull an Object to reshape cover. Level 3 also prepares Pinned synergies.', ru: 'Подтягивайте врага в Радиус Атаки, с защищённой позиции или к опасному скоплению; Объектом меняйте укрытия. Уровень 3 также готовит комбинации с Pinned.' },
   swiftform: { en: 'A mobility turn enabler. Use it before normal movement to gain distance and pass through enemies without ending on them. Level 3 Pins each crossed enemy once and restores Lightsaber at turn end.', ru: 'Основа мобильного хода. Используйте до обычного движения, чтобы увеличить дальность и проходить сквозь врагов, не заканчивая на них. Уровень 3 один раз накладывает Pinned на каждого пересечённого врага и возвращает Lightsaber.' },
   'mind-tricks': { en: 'Trade information for Hand disruption without losing the revealed Cards. Higher levels pressure every enemy more heavily; Level 3 also plants future draw disruption with Headache.', ru: 'Обменивайте информацию на разрушение Рук, не теряя показанные карты. Высокие уровни сильнее давят на всех врагов; уровень 3 также портит будущий добор картой Headache.' },
@@ -766,6 +863,10 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
   const color = playerUiColor(player.id);
   announcement.style.setProperty('--turn-color', color);
   announcement.querySelector('strong')!.textContent = `${player.name}'s turn`;
+  const healMessage = announcement.querySelector<HTMLElement>('.turn-heal-message')!;
+  const stoicShellHealed = player.character === 'john-christ' && player.stoicShellHealedTurn === gameState.turn;
+  healMessage.textContent = stoicShellHealed ? "Stoic Shell has restored John's 1 HP" : '';
+  healMessage.classList.toggle('visible', stoicShellHealed);
   announcement.classList.remove('hidden', 'visible');
   void announcement.offsetWidth;
   announcement.classList.add('visible');
@@ -779,6 +880,7 @@ function renderCharacterTraits() {
   if (playerTwo.character === 'shinobi') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
   else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
   else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card, then remove 1 after combat. Remove 1 more at turn end.</span></div></div>`;
+  else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies. Attacking or ending the turn exits the form.</span></div></div>`;
   else byId('characterTraitPanelP2').innerHTML = '';
   if (player.character === 'shinobi') {
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
@@ -791,6 +893,11 @@ function renderCharacterTraits() {
   if (player.character === 'orkk') {
     const shield = player.shieldEquipped ? `<div class="trait-icon highground-active" tabindex="0">🛡<span class="trait-tooltip"><b>Iron Shield Equipped</b>Da Orkk's Defend Cards gain +1 Defence Value.</span></div>` : '';
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card, then remove 1 after combat. Remove 1 more at turn end.</span></div>${shield}</div>`;
+    return;
+  }
+  if (player.character === 'john-christ') {
+    const shell = player.stoicShell ? `<div class="trait-icon highground-active" tabindex="0">◉<span class="trait-tooltip"><b>Stoic Shell</b>The next HP Damage removes this Status. If it remains at the beginning of John's next turn, restore 1 HP and remove it.</span></div>` : '';
+    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies. Attacking or ending the turn exits the form.</span></div>${shell}</div>`;
     return;
   }
   byId('characterTraitPanel').innerHTML = '';
@@ -820,7 +927,9 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const flagCarrier = Boolean(flagState && (flagState.carrierIds?.includes(player.id) || flagState.carrierId === player.id));
     const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Captured Flag</strong>Carry the Flag to your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">🔥${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
-    return `${flagIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards, MOV 1, and may pass through enemies. Attack or end the turn to exit.</span></div>` : '';
+    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">◉<span class="status-tooltip"><strong>Stoic Shell</strong>Removed by HP Damage; otherwise restores 1 HP at the beginning of John's next turn.</span></div>` : '';
+    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderCharacterStatuses() {
@@ -850,11 +959,12 @@ function renderHand() {
   }
   if (gameState.phase === 'choosing-force-disarm-discard') {
     const requiredTarget = gameState.forceDisarm!.targetId;
+    const requiredKind = gameState.forceDisarm!.cardKind ?? 'attack';
     if (viewerId !== requiredTarget) {
       byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredTarget].name)} to discard an Attack card.</div>`;
       return;
     }
-    const attacks = viewer.hand.filter((instance) => cardDefinition(instance).kind === 'attack');
+    const attacks = viewer.hand.filter((instance) => cardDefinition(instance).kind === requiredKind);
     byId('hand').innerHTML = attacks.map((instance) => {
       const card = cardDefinition(instance);
       return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
@@ -887,7 +997,8 @@ function renderHand() {
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
-    const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
+    const spiritBlocked = viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
+    const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const interactionCopy = mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
     const typeLabel = card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
@@ -1099,6 +1210,22 @@ function renderCombatReveal() {
     document.querySelector('#keepViciousMockery:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'vicious-mockery-decision', playerId: decisionPlayer, use: false }));
     return;
   }
+  if (reveal.blessingLight) {
+    const decisionPlayer = reveal.blessingLight.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    document.querySelector('#useBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
+  if (reveal.mythrilHelmet) {
+    const decisionPlayer = reveal.mythrilHelmet.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>REWARD · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Mythril Helmet?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Mythril Helmet from the Deck to negate all Damage in this combat, or keep it for later.</div><div class="combat-choice-buttons"><button id="useMythrilHelmet" ${mayDecide ? '' : 'disabled'}>USE · NEGATE ALL DAMAGE</button><button id="keepMythrilHelmet" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    document.querySelector('#useMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
   if (reveal.exhaust) {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.exhaust.eligible.includes(decisionPlayer) && !reveal.exhaust.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
@@ -1177,7 +1304,7 @@ function renderOpponentHand() {
     const ownerColor = playerUiColor(opponentId);
     const cards = opponent.hand.map((instance) => {
       const card = cardDefinition(instance);
-      if (!instance.revealedToOpponent && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"><i></i><b>G</b></div>`;
+      if (!isCardRevealedToOpponents(opponent, instance) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"><i></i><b>G</b></div>`;
       return `<div class="opponent-card revealed ${card.kind}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${opponent.hand.length} CARD${opponent.hand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
@@ -1208,19 +1335,107 @@ function positionCardPreview(pointer: PointerEvent) {
 }
 
 function cardRulesText(card: ReturnType<typeof cardDefinition>): string {
-  const levels = card.levelEffects?.map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n');
-  const fallback = card.kind === 'attack' ? `Deal combat damage with ${card.value} Attack Value.` : `Defend with ${card.value} Defence Value.`;
-  return [levels, card.effectText, card.consumeText].filter(Boolean).join('\n') || fallback;
+  const translation = hintsLanguage === 'ru' ? CARD_RULES_RU[card.id] : undefined;
+  const levelEffects = translation?.levelEffects ?? card.levelEffects;
+  const levels = levelEffects?.map((effect, index) => `${hintsLanguage === 'ru' ? 'Уровень' : 'Level'} ${index + 1}: ${effect}`).join('\n');
+  const fallback = card.kind === 'attack'
+    ? hintsLanguage === 'ru' ? `Нанесите боевой урон со значением Атаки ${card.value}.` : `Deal combat damage with ${card.value} Attack Value.`
+    : hintsLanguage === 'ru' ? `Защищайтесь со значением Защиты ${card.value}.` : `Defend with ${card.value} Defence Value.`;
+  return [levels, translation?.effectText ?? card.effectText, translation?.consumeText ?? card.consumeText].filter(Boolean).join('\n') || fallback;
 }
 
 function cardRulesHtml(card: ReturnType<typeof cardDefinition>): string {
-  const levels = card.levelEffects?.map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n') ?? '';
-  const effect = card.effectText
-    ? (/^\s*\*?consume\s*:/i.test(card.effectText) ? `<em class="consume-effect">${escapeHtml(card.effectText.replace(/^\s*\*/, ''))}</em>` : escapeHtml(card.effectText))
+  const translation = hintsLanguage === 'ru' ? CARD_RULES_RU[card.id] : undefined;
+  const levelEffects = translation?.levelEffects ?? card.levelEffects;
+  const effectText = translation?.effectText ?? card.effectText;
+  const consumeText = translation?.consumeText ?? card.consumeText;
+  const levels = levelEffects?.map((effect, index) => `${hintsLanguage === 'ru' ? 'Уровень' : 'Level'} ${index + 1}: ${effect}`).join('\n') ?? '';
+  const effect = effectText
+    ? (/^\s*\*?consume\s*:/i.test(effectText) ? `<em class="consume-effect">${escapeHtml(effectText.replace(/^\s*\*/, ''))}</em>` : escapeHtml(effectText))
     : '';
-  const consume = card.consumeText ? `<em class="consume-effect">${escapeHtml(card.consumeText)}</em>` : '';
+  const consume = consumeText ? `<em class="consume-effect">${escapeHtml(consumeText)}</em>` : '';
   if (levels || effect || consume) return [escapeHtml(levels), effect, consume].filter(Boolean).join('\n');
   return escapeHtml(cardRulesText(card));
+}
+
+const originalInterfaceText = new WeakMap<Text, string>();
+const originalInterfaceAttributes = new WeakMap<Element, Map<string, string>>();
+const cardRulePhraseTranslations = new Map<string, string>();
+for (const card of CARDS) {
+  const translated = CARD_RULES_RU[card.id];
+  if (card.effectText && translated?.effectText) cardRulePhraseTranslations.set(card.effectText, translated.effectText);
+  if (card.consumeText && translated?.consumeText) cardRulePhraseTranslations.set(card.consumeText, translated.consumeText);
+  card.levelEffects?.forEach((effect, index) => {
+    const translatedEffect = translated?.levelEffects?.[index];
+    if (translatedEffect) {
+      cardRulePhraseTranslations.set(effect, translatedEffect);
+      cardRulePhraseTranslations.set(`Level ${index + 1}: ${effect}`, `Уровень ${index + 1}: ${translatedEffect}`);
+    }
+  });
+}
+
+function translateInterfaceValue(value: string): string {
+  const leading = value.match(/^\s*/)?.[0] ?? '';
+  const trailing = value.match(/\s*$/)?.[0] ?? '';
+  const core = value.trim();
+  if (!core) return value;
+  const exact = UI_RU_EXACT[core] ?? cardRulePhraseTranslations.get(core);
+  if (exact) return `${leading}${exact}${trailing}`;
+  let translated = core
+    .replace(/^ROUND (\d+)$/i, 'РАУНД $1')
+    .replace(/^(.+)'s turn$/i, 'Ход: $1')
+    .replace(/^(.+) wins$/i, '$1 побеждает')
+    .replace(/^Level (\d+): /gim, 'Уровень $1: ')
+    .replace(/\bAttack Value\b/gi, 'значение Атаки')
+    .replace(/\bDefend Value\b/gi, 'значение Защиты')
+    .replace(/\bDamage\b/g, 'Урон')
+    .replace(/\bRange\b/g, 'Радиус')
+    .replace(/\bSquare(s)?\b/g, 'клетк$1')
+    .replace(/\bCard(s)?\b/g, 'карт$1')
+    .replace(/\bAction(s)?\b/g, 'Действи$1')
+    .replace(/\bPlayer(s)?\b/g, 'Игрок$1')
+    .replace(/\bTurn\b/g, 'Ход')
+    .replace(/\bRound(s)?\b/g, 'Раунд$1')
+    .replace(/\bHand\b/g, 'Рука')
+    .replace(/\bDeck\b/g, 'Колода')
+    .replace(/\bDiscard\b/g, 'Сброс')
+    .replace(/\bShow\b/g, 'Показать')
+    .replace(/\bHide\b/g, 'Скрыть')
+    .replace(/\bCancel\b/g, 'Отменить')
+    .replace(/\bSelect\b/g, 'Выберите')
+    .replace(/\bWaiting for\b/g, 'Ожидание:')
+    .replace(/\bempty\b/gi, 'пустая')
+    .replace(/\benemy\b/gi, 'враг')
+    .replace(/\bObject\b/g, 'Объект');
+  return `${leading}${translated}${trailing}`;
+}
+
+function applyInterfaceLanguage(root: ParentNode = app) {
+  const russian = hintsLanguage === 'ru';
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (russian) {
+      if (!originalInterfaceText.has(node)) originalInterfaceText.set(node, node.data);
+      const translated = translateInterfaceValue(originalInterfaceText.get(node)!);
+      if (node.data !== translated) node.data = translated;
+    } else {
+      const original = originalInterfaceText.get(node);
+      if (original !== undefined && node.data !== original) node.data = original;
+    }
+    node = walker.nextNode() as Text | null;
+  }
+  root.querySelectorAll<HTMLElement>('[placeholder], [title], [aria-label]').forEach((element) => {
+    let originals = originalInterfaceAttributes.get(element);
+    if (!originals) { originals = new Map(); originalInterfaceAttributes.set(element, originals); }
+    for (const attribute of ['placeholder', 'title', 'aria-label']) {
+      const current = element.getAttribute(attribute);
+      if (current === null) continue;
+      if (!originals.has(attribute)) originals.set(attribute, current);
+      const original = originals.get(attribute)!;
+      element.setAttribute(attribute, russian ? translateInterfaceValue(original) : original);
+    }
+  });
 }
 
 function hideCardPreview() {
@@ -1284,7 +1499,9 @@ const lastObjectVisualCells = new Map<string, string>();
 const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; removeOnComplete?: boolean; equipPlayerId?: PlayerId; parachute?: boolean }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
-const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number }[] = [];
+const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; boomerang?: boolean }[] = [];
+const processedStoicShellHeals = new Set<string>();
+const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
@@ -1349,11 +1566,20 @@ renderer.setAnimationLoop((time) => {
   updateCharacterMovement(time);
   updateObjectMovement(time);
   updateSpellProjectiles(time);
+  updateStoicShellHealAnimations(time);
   updateCharacterFacing(deltaSeconds);
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
     const moving = movementAnimations.has(id);
     body.position.y = moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    const shellAura = group.getObjectByName('StoicShellAura');
+    if (shellAura?.visible) {
+      const pulse = 1 + Math.sin(time * 0.0045) * 0.055;
+      shellAura.scale.set(pulse, pulse * 1.02, pulse);
+      shellAura.rotation.y = time * 0.00045;
+      const light = shellAura.getObjectByName('StoicShellAuraLight') as THREE.PointLight | undefined;
+      if (light) light.intensity = 2.8 + Math.sin(time * 0.006) * 0.7;
+    }
   });
   updateDamageVisuals(time);
   renderer.render(scene, camera);
@@ -1415,13 +1641,24 @@ function syncSpellProjectiles() {
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
     processedSpellProjectiles.add(event.id);
-    const points = event.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 1.25, 0)));
+    let points = event.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 1.25, 0)));
+    if (event.style === 'boomerang') {
+      const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.15, 0));
+      const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.15, 0));
+      const direction = to.clone().sub(from);
+      const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).normalize().multiplyScalar(Math.max(1.6, direction.length() * 0.45));
+      points = Array.from({ length: 21 }, (_, step) => {
+        const t = step / 20;
+        return from.clone().lerp(to, t).add(perpendicular.clone().multiplyScalar(Math.sin(Math.PI * t))).add(new THREE.Vector3(0, Math.sin(Math.PI * t) * 0.45, 0));
+      });
+    }
     for (let index = 0; index < event.count; index++) {
-      const material = new THREE.MeshStandardMaterial({ color: 0xc34cff, emissive: 0x8a18ff, emissiveIntensity: 3 });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), material);
-      const light = new THREE.PointLight(0xb14cff, 2.4, 3); mesh.add(light);
+      const boomerang = event.style === 'boomerang';
+      const material = new THREE.MeshStandardMaterial({ color: boomerang ? 0xd8a24b : 0xc34cff, emissive: boomerang ? 0xffc45c : 0x8a18ff, emissiveIntensity: 3, metalness: boomerang ? 0.75 : 0, roughness: 0.25 });
+      const mesh = new THREE.Mesh(boomerang ? new THREE.TorusGeometry(0.22, 0.055, 10, 24, Math.PI * 1.45) : new THREE.SphereGeometry(0.12, 16, 12), material);
+      const light = new THREE.PointLight(boomerang ? 0xffb84f : 0xb14cff, 2.4, 3); mesh.add(light);
       mesh.position.copy(points[0]); scene.add(mesh);
-      spellProjectileAnimations.push({ mesh, points, startedAt: performance.now(), duration: Math.max(900, (points.length - 1) * 480), delay: index * 280 });
+      spellProjectileAnimations.push({ mesh, points, startedAt: performance.now(), duration: boomerang ? 1050 : Math.max(900, (points.length - 1) * 480), delay: index * 280, boomerang });
     }
   }
 }
@@ -1438,6 +1675,10 @@ function updateSpellProjectiles(time: number) {
     const local = segmentFloat - segment;
     animation.mesh.position.lerpVectors(animation.points[segment], animation.points[segment + 1], local);
     animation.mesh.position.y += Math.sin(progress * Math.PI * 8) * 0.08;
+    if (animation.boomerang) {
+      animation.mesh.rotation.y = progress * Math.PI * 12;
+      animation.mesh.rotation.x = Math.PI / 2 + Math.sin(progress * Math.PI * 2) * 0.18;
+    }
     if (progress >= 1) {
       scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
       spellProjectileAnimations.splice(index, 1);
@@ -1726,6 +1967,76 @@ function createLongHatLogan(playerColor = 0x169bd3) {
   return root;
 }
 
+function createJohnChrist(playerColor = 0x169bd3) {
+  const root = new THREE.Group(); const body = new THREE.Group(); body.name = 'JohnBody'; root.add(body);
+  root.userData.facingSide = 'negative-z';
+  const white = new THREE.MeshStandardMaterial({ color: 0xf2eee0, roughness: 0.68 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xd6aa36, roughness: 0.3, metalness: 0.58 });
+  const red = new THREE.MeshStandardMaterial({ color: 0x8f1831, roughness: 0.72 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc99b7d, roughness: 0.74 });
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
+    const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = true; parent.add(mesh); return mesh;
+  };
+  add(new THREE.ConeGeometry(0.5, 1.25, 24), white, [0, 0.72, 0]);
+  const bulk = new THREE.Group(); bulk.name = 'SpiritBulk'; body.add(bulk);
+  add(new THREE.CapsuleGeometry(0.31, 0.48, 7, 16), white, [0, 1.22, 0], bulk);
+  for (const side of [-1, 1]) {
+    const shoulder = add(new THREE.SphereGeometry(0.19, 16, 12), red, [side * 0.36, 1.34, 0], bulk); shoulder.scale.set(1.3, 0.75, 1);
+    const arm = add(new THREE.CapsuleGeometry(0.085, 0.5, 5, 10), white, [side * 0.4, 1.04, 0]);
+    arm.name = side < 0 ? 'JohnArmLeft' : 'JohnArmRight';
+    arm.rotation.z = side < 0 ? 0.16 : -0.4;
+  }
+  add(new THREE.SphereGeometry(0.25, 20, 16), skin, [0, 1.73, 0]);
+  add(new THREE.CylinderGeometry(0.32, 0.39, 0.09, 24), gold, [0, 1.94, 0]);
+  const mitre = add(new THREE.ConeGeometry(0.28, 0.65, 4), white, [0, 2.25, 0]); mitre.rotation.y = Math.PI / 4;
+  add(new THREE.BoxGeometry(0.055, 0.34, 0.055), gold, [0, 2.7, 0]);
+  add(new THREE.BoxGeometry(0.23, 0.055, 0.055), gold, [0, 2.72, 0]);
+  const staff = add(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 12), gold, [0.57, 1.08, 0]); staff.rotation.z = -0.08;
+  add(new THREE.SphereGeometry(0.11, 14, 10), gold, [0.64, 1.91, 0]);
+  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+  ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  return root;
+}
+
+function syncStoicShellHealAnimations() {
+  for (const player of Object.values(gameState.players)) {
+    if (player.character !== 'john-christ' || player.stoicShellHealedTurn !== gameState.turn) continue;
+    const eventId = player.stoicShellHealEventId;
+    if (!eventId) continue;
+    if (processedStoicShellHeals.has(eventId)) continue;
+    processedStoicShellHeals.add(eventId);
+    const group = new THREE.Group();
+    const beamMaterial = new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.62, depthWrite: false, blending: THREE.AdditiveBlending });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.72, 3.8, 32, 1, true), beamMaterial);
+    beam.position.y = 1.9;
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffdc4d, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.68, 48), ringMaterial);
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.08;
+    const light = new THREE.PointLight(0xffdf58, 7, 5); light.position.y = 1.1;
+    group.add(beam, ring, light); group.position.copy(worldPosition(player.position)); scene.add(group);
+    stoicShellHealAnimations.push({ group, beam, ring, light, startedAt: performance.now() });
+  }
+}
+
+function updateStoicShellHealAnimations(time: number) {
+  for (let index = stoicShellHealAnimations.length - 1; index >= 0; index--) {
+    const animation = stoicShellHealAnimations[index];
+    const progress = Math.min(1, (time - animation.startedAt) / 1700);
+    const pulse = 0.72 + Math.sin(progress * Math.PI * 5) * 0.12;
+    animation.beam.scale.set(pulse, 1, pulse);
+    animation.ring.scale.setScalar(0.7 + progress * 1.8);
+    (animation.beam.material as THREE.MeshBasicMaterial).opacity = 0.62 * (1 - progress);
+    (animation.ring.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - progress);
+    animation.light.intensity = 7 * (1 - progress);
+    if (progress < 1) continue;
+    scene.remove(animation.group);
+    animation.beam.geometry.dispose(); (animation.beam.material as THREE.Material).dispose();
+    animation.ring.geometry.dispose(); (animation.ring.material as THREE.Material).dispose();
+    stoicShellHealAnimations.splice(index, 1);
+  }
+}
+
 function createObiWanShinobi(playerColor = 0x169bd3) {
   const root = new THREE.Group();
   const body = new THREE.Group();
@@ -1872,7 +2183,7 @@ function syncBoard() {
     if (!group || group.userData.character !== character) {
       if (group) scene.remove(group);
       const color = id === 'P1' ? 0x169bd3 : id === 'P2' ? 0xff5d68 : 0xa06cff;
-      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : createDummy(color);
+      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : createDummy(color);
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
@@ -1904,6 +2215,8 @@ function syncBoard() {
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     if (equippedShield) equippedShield.visible = gameState.players[id].shieldEquipped && !recallInFlight;
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
+    updateSpiritFormVisual(group, gameState.players[id].spiritForm);
+    updateStoicShellAura(group, gameState.players[id].stoicShell);
     group.traverse((child) => { child.userData.playerId = id; });
   });
   syncCaptureTheFlagVisual();
@@ -1958,6 +2271,7 @@ function syncBoard() {
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();
+  syncStoicShellHealAnimations();
 }
 
 function createQuestFlag(color: number) {
@@ -2047,6 +2361,64 @@ function updateSwiftformVisual(group: THREE.Group, active: boolean, playerColor:
   glow.intensity = active ? 4.2 : 0;
 }
 
+function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
+  const body = group.getObjectByName('JohnBody');
+  if (!body) return;
+  body.scale.setScalar(active ? 1.13 : 1);
+  const bulk = group.getObjectByName('SpiritBulk');
+  if (bulk) bulk.scale.set(active ? 1.2 : 1, active ? 1.08 : 1, active ? 1.16 : 1);
+  const leftArm = group.getObjectByName('JohnArmLeft');
+  const rightArm = group.getObjectByName('JohnArmRight');
+  if (leftArm) {
+    leftArm.rotation.z = active ? Math.PI / 2 : 0.16;
+    leftArm.position.set(-0.57, active ? 1.34 : 1.04, 0);
+  }
+  if (rightArm) {
+    rightArm.rotation.z = active ? -Math.PI / 2 : -0.4;
+    rightArm.position.set(0.57, active ? 1.34 : 1.04, 0);
+  }
+  body.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      if (!material.userData.spiritOriginal) material.userData.spiritOriginal = { transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite, emissive: material.emissive.getHex(), emissiveIntensity: material.emissiveIntensity };
+      const original = material.userData.spiritOriginal as { transparent: boolean; opacity: number; depthWrite: boolean; emissive: number; emissiveIntensity: number };
+      material.transparent = active || original.transparent; material.opacity = active ? 0.7 : original.opacity; material.depthWrite = active ? false : original.depthWrite;
+      material.emissive.setHex(active ? 0xffd84d : original.emissive); material.emissiveIntensity = active ? 1.25 : original.emissiveIntensity; material.needsUpdate = true;
+    });
+  });
+  let glow = group.getObjectByName('SpiritFormGlow') as THREE.PointLight | undefined;
+  if (!glow) { glow = new THREE.PointLight(0xffd84d, 0, 5); glow.name = 'SpiritFormGlow'; glow.position.set(0, 1.25, 0); group.add(glow); }
+  glow.intensity = active ? 4.8 : 0;
+}
+
+function updateStoicShellAura(group: THREE.Group, active: boolean) {
+  if (!group.getObjectByName('JohnBody')) return;
+  let aura = group.getObjectByName('StoicShellAura') as THREE.Group | undefined;
+  if (!aura) {
+    aura = new THREE.Group();
+    aura.name = 'StoicShellAura';
+    aura.position.y = 1.12;
+    const shield = new THREE.Mesh(
+      new THREE.SphereGeometry(0.82, 32, 24),
+      new THREE.MeshBasicMaterial({ color: 0x9c4dff, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    shield.scale.y = 1.35;
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xc28aff, transparent: true, opacity: 0.72, depthWrite: false, blending: THREE.AdditiveBlending });
+    const equator = new THREE.Mesh(new THREE.TorusGeometry(0.79, 0.022, 10, 48), ringMaterial);
+    equator.rotation.x = Math.PI / 2;
+    const meridian = new THREE.Mesh(new THREE.TorusGeometry(0.79, 0.022, 10, 48), ringMaterial.clone());
+    meridian.rotation.y = Math.PI / 2;
+    const light = new THREE.PointLight(0x9c4dff, 3, 4);
+    light.name = 'StoicShellAuraLight';
+    aura.add(shield, equator, meridian, light);
+    group.add(aura);
+  }
+  aura.visible = active;
+  if (!active) aura.scale.setScalar(1);
+}
+
 function distanceFromWorld(from: THREE.Vector3, to: THREE.Vector3) {
   return Math.max(Math.abs(from.x - to.x), Math.abs(from.z - to.z)) / 1.92;
 }
@@ -2069,9 +2441,13 @@ function highlightCells() {
     const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && !diagonalBlocked && (!occupiedByEnemy || specialSteps > 1);
     const shizzleWallBlocked = objectOnCell?.kind === 'wall-pillar' || objectOnCell?.kind === 'orkk-shield';
     const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !diagonalBlocked && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
-    const regularDistance = movementPath(gameState, actor, cell).length;
+    const regularPath = movementPath(gameState, actor, cell);
+    const regularDistance = regularPath.length;
+    const spiritRefunds = actor.spiritForm ? regularPath.filter((step) => Object.values(gameState.players).some((candidate) => candidate.id !== actor.id && candidate.position.x === step.x && candidate.position.y === step.y)).length : 0;
+    const spiritMovementCost = regularDistance - spiritRefunds;
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
-    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && !occupiedByObject && (!occupiedByPlayer || swiftformPassSquare) && regularDistance >= 1 && regularDistance <= actor.movementRemaining;
+    const spiritPassSquare = occupiedByPlayer && actor.spiritForm && spiritMovementCost <= actor.movementRemaining;
+    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && !occupiedByObject && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare) && regularDistance >= 1 && (actor.spiritForm ? spiritMovementCost : regularDistance) <= actor.movementRemaining;
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;
@@ -2085,8 +2461,10 @@ function highlightCells() {
     const magicLinear = magicDx === 0 || magicDy === 0 || Math.abs(magicDx) === Math.abs(magicDy);
     const magicDirectionValid = gameState.phase === 'choosing-magic-hand-direction' && Math.max(Math.abs(magicDx), Math.abs(magicDy)) >= 1 && magicLinear;
     const forceCollisionWarning = forceDirectionValid && Object.values(gameState.players).some((player) => player.position.x === cell.x && player.position.y === cell.y);
-    const kykObject = gameState.phase === 'choosing-kyk-direction' ? gameState.objects.find((object) => object.id === gameState.forceThrow?.targetId) : null;
-    const kykDirectionValid = Boolean(kykObject) && kykDirectionAllowed(gameState.players[gameState.forceThrow!.casterId].position, kykObject!.position, cell);
+    const kykTarget = gameState.phase === 'choosing-kyk-direction' && gameState.forceThrow?.targetKind && gameState.forceThrow.targetId
+      ? (gameState.forceThrow.targetKind === 'object' ? gameState.objects.find((object) => object.id === gameState.forceThrow!.targetId) : gameState.players[gameState.forceThrow.targetId as PlayerId])
+      : null;
+    const kykDirectionValid = Boolean(kykTarget) && kykDirectionAllowed(gameState.players[gameState.forceThrow!.casterId].position, kykTarget!.position, cell);
     const arkane = gameState.arkaneArow;
     const arkaneValid = gameState.phase === 'choosing-arkane-arow-target' && Boolean(arkane) && arkaneArowPath(gameState, gameState.players[arkane!.casterId], cell, arkane!.range).length > 0;
     const teleportCaster = gameState.phase === 'choosing-preparation-teleport' ? gameState.players[gameState.preparation!.casterId]
@@ -2129,7 +2507,7 @@ function highlightCells() {
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
       && distance(gameState.players[fireball!.casterId].position, cell) <= 3 && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
-    const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && distance(gameState.players[force!.casterId].position, cell) === 1;
+    const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || kykTargetValid;
     const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || preparationValid || shizzleDestinationValid || boxTeleportValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
@@ -2256,7 +2634,8 @@ function onBoardClick(event: PointerEvent) {
     if (objectHit) dispatch({ type: 'arm-da-wiz-target', playerId: gameState.armDaWiz!.casterId, objectId: objectHit });
   } else if (gameState.phase === 'choosing-kyk-target') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
-    if (objectHit) dispatch({ type: 'kyk-target', playerId: gameState.forceThrow!.casterId, objectId: objectHit });
+    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    if (objectHit || playerHit) dispatch({ type: 'kyk-target', playerId: gameState.forceThrow!.casterId, objectId: objectHit ?? playerHit! });
   } else if (gameState.phase === 'choosing-kyk-direction') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'kyk-direction', playerId: gameState.forceThrow!.casterId, to: cellHit.object.userData.cell });

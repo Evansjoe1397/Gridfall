@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, applyCommand as applyGameCommand, applyPinned, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, distance, drawCards, effectiveMoveRange, hasLineOfSight, kykDirectionAllowed, markCharacterMoved, movementPath, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, applyCommand as applyGameCommand, applyPinned, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, kykDirectionAllowed, markCharacterMoved, movementPath, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 // Most historical rule checks focus on the final resolved card state. Preserve
 // their concise form while production now holds after-combat effects until both
@@ -1129,7 +1129,8 @@ if (beginDirectRecall.ok) {
     if (resolveDirectRecall.ok) {
       assert.equal(resolveDirectRecall.state.players.P1.shieldEquipped, true, 'Arm da Wiz authoritatively equips the recalled Shield on Da Orkk.');
       assert.equal(resolveDirectRecall.state.objects.some((object) => object.kind === 'orkk-shield' && object.ownerId === 'P1'), false, 'An equipped recalled Shield no longer remains as a Board Object.');
-      assert.equal(resolveDirectRecall.state.players.P2.hp, 18, 'Level 3 detects the enemy on the direct Shield recall line, deals collision damage, then adjacent damage.');
+      assert.equal(resolveDirectRecall.state.players.P2.hp, 19, 'Level 3 keeps the Level 2 collision Damage without the former adjacent Damage.');
+      assert.equal(resolveDirectRecall.state.players.P1.rageStacks, 3, 'Level 3 gains 1 base Rage plus 2 Rage for the crossed enemy.');
       assert.deepEqual(resolveDirectRecall.state.players.P2.position, { x: 4, y: 2 }, 'Arm da Wiz no longer moves an enemy passed through by the Shield.');
       assert.equal(distance(resolveDirectRecall.state.players.P2.position, directArmRecall.players.P2.position), 0, 'The enemy remains on its original Square.');
       assert.equal(distance(resolveDirectRecall.state.players.P2.position, resolveDirectRecall.state.players.P1.position), 1);
@@ -1159,7 +1160,7 @@ if (fistboltAttack.ok) {
   assert.equal(fistboltAttack.state.players.P1.rageStacks, 1, 'The full Rage total remains available until combat resolves.');
   const fistboltCombat = applyCommand(fistboltAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(fistboltCombat.ok, true);
-  if (fistboltCombat.ok) assert.equal(fistboltCombat.state.players.P1.rageStacks, 0, 'Exactly 1 Rage is removed after combat.');
+  if (fistboltCombat.ok) assert.equal(fistboltCombat.state.players.P1.rageStacks, 1, 'Fistbolt generates 1 Rage after the combat Rage cost resolves.');
 }
 
 const chainShielded = createGameInitialState();
@@ -1176,7 +1177,7 @@ if (shieldedChainAttack.ok) {
     assert.equal(shieldedChainResult.state.players.P1.shieldEquipped, false, 'Chain Punchin drops an equipped Shield after combat.');
     assert.equal(shieldedChainResult.state.objects.some((object) => object.kind === 'orkk-shield' && object.ownerId === 'P1'), true);
     assert.equal(shieldedChainResult.state.players.P1.actionsRemaining, 1, 'Shielded Chain Punchin does not generate an extra Action.');
-    assert.equal(shieldedChainResult.state.players.P1.rageStacks, 1, 'Chain Punchin generates 1 Rage after combat.');
+    assert.equal(shieldedChainResult.state.players.P1.rageStacks, 0, 'Chain Punchin no longer generates Rage after combat.');
   }
 }
 
@@ -1193,7 +1194,7 @@ if (unshieldedChainAttack.ok) {
   assert.equal(unshieldedChainResult.ok, true);
   if (unshieldedChainResult.ok) {
     assert.equal(unshieldedChainResult.state.players.P1.actionsRemaining, 2, 'Unshielded Chain Punchin refunds an extra Action after combat.');
-    assert.equal(unshieldedChainResult.state.players.P1.rageStacks, 1);
+    assert.equal(unshieldedChainResult.state.players.P1.rageStacks, 0);
   }
 }
 
@@ -1808,13 +1809,7 @@ if (flurryAttack.ok) {
       assert.equal(firstEnemyDiscard.ok, true);
       if (firstEnemyDiscard.ok) {
         assert.equal(firstEnemyDiscard.state.players.P2.hand.length, 2);
-        assert.equal(firstEnemyDiscard.state.phase, 'choosing-flurry-enemy-discard');
-        const secondEnemyDiscard = applyCommand(firstEnemyDiscard.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-2' });
-        assert.equal(secondEnemyDiscard.ok, true);
-        if (secondEnemyDiscard.ok) {
-          assert.equal(secondEnemyDiscard.state.players.P2.hand.length, 1);
-          assert.equal(secondEnemyDiscard.state.phase, 'active');
-        }
+        assert.equal(firstEnemyDiscard.state.phase, 'active', 'Flurry now forces exactly one enemy Card discard.');
       }
     }
   }
@@ -2075,10 +2070,27 @@ if (forceThrowLevelThree.ok) {
     const forcePush = applyCommand(forceTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 4, y: 1 } });
     assert.equal(forcePush.ok, true);
     if (forcePush.ok) {
-      assert.equal(forcePush.state.players.P2.hp, 26, 'A directly pushed enemy takes no collision damage from Force Throw.');
+      assert.equal(forcePush.state.players.P2.hp, 25, 'A Level 3 Force Throw target takes 1 Damage when colliding with anything.');
       assert.equal(forcePush.state.objects[0].hp, 3, 'Test Objects are indestructible.');
       assert.equal(forcePush.state.phase, 'active');
     }
+  }
+}
+const forceEnemyCollision = createHotseatTestState(true, 'shinobi', 3);
+forceEnemyCollision.objects = [];
+forceEnemyCollision.players.P1.position = { x: 1, y: 1 };
+forceEnemyCollision.players.P2.position = { x: 2, y: 1 };
+forceEnemyCollision.players.P3.position = { x: 3, y: 1 };
+forceEnemyCollision.phase = 'choosing-force-throw-target';
+forceEnemyCollision.forceThrow = { casterId: 'P1', level: 3, distance: 3, targetRange: 4, targetKind: null, targetId: null, undo: null };
+const forceEnemyTarget = applyCommand(forceEnemyCollision, { type: 'force-throw-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
+assert.equal(forceEnemyTarget.ok, true);
+if (forceEnemyTarget.ok) {
+  const forceEnemyPush = applyCommand(forceEnemyTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 5, y: 1 } });
+  assert.equal(forceEnemyPush.ok, true);
+  if (forceEnemyPush.ok) {
+    assert.equal(forceEnemyPush.state.players.P2.hp, 19, 'The pushed enemy takes 1 collision Damage.');
+    assert.equal(forceEnemyPush.state.players.P3.hp, 19, 'The enemy Player struck by another enemy also takes 1 collision Damage.');
   }
 }
 const directForceState = createInitialState();
@@ -2252,7 +2264,7 @@ assert.equal(edgeTarget.ok, true);
 if (edgeTarget.ok) {
   const edgePush = applyCommand(edgeTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 8, y: 1 } });
   assert.equal(edgePush.ok, true);
-  if (edgePush.ok) { assert.equal(edgePush.state.players.P2.hp, 26); assert.deepEqual(edgePush.state.players.P2.position, { x: 8, y: 1 }); }
+  if (edgePush.ok) { assert.equal(edgePush.state.players.P2.hp, 25, 'A pushed enemy takes 1 Damage when colliding with the board edge.'); assert.deepEqual(edgePush.state.players.P2.position, { x: 8, y: 1 }); }
 }
 
 const orkkCombat = createInitialState();
@@ -2620,8 +2632,9 @@ if (beginArmThree.ok) {
     const recalledThree = applyCommand(chooseArmThree.state, { type: 'arm-da-wiz-target', playerId: 'P2', objectId: 'recall-three' });
     assert.equal(recalledThree.ok, true);
     if (recalledThree.ok) {
-      assert.equal(recalledThree.state.players.P1.hp, 18, 'Level 3 deals collision and adjacent-to-Orkk damage.');
-      assert.deepEqual(recalledThree.state.players.P1.position, { x: 3, y: 2 }, 'Level 3 does not move the enemy while applying both pass-through and adjacent damage.');
+      assert.equal(recalledThree.state.players.P1.hp, 19, 'Level 3 retains the Level 2 pass-through Damage.');
+      assert.equal(recalledThree.state.players.P2.rageStacks, 3, 'Level 3 gains 1 base Rage and 2 Rage for the crossed enemy.');
+      assert.deepEqual(recalledThree.state.players.P1.position, { x: 3, y: 2 }, 'Arm da Wiz does not move an enemy whose pull destination is blocked.');
     }
   }
 }
@@ -2696,8 +2709,13 @@ if (helmetAttack.ok) {
   const helmetDefend = applyCommand(helmetAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'helmet-defend' });
   assert.equal(helmetDefend.ok, true);
   if (helmetDefend.ok) {
-    assert.equal(helmetDefend.state.players.P2.hp, 26, 'Mythril Helmet adds +1 to the holder\'s played Defend Card while it remains in Hand.');
-    assert.equal(helmetDefend.state.players.P2.hand.some((card) => card.cardId === 'mythril-helmet'), true, 'Mythril Helmet remains in Hand after applying its passive bonus.');
+    assert.equal(helmetDefend.state.phase, 'choosing-mythril-helmet');
+    const helmetApplied = applyCommand(helmetDefend.state, { type: 'mythril-helmet-decision', playerId: 'P2', use: true });
+    assert.equal(helmetApplied.ok, true);
+    if (helmetApplied.ok) {
+      assert.equal(helmetApplied.state.players.P2.hp, 26, 'Mythril Helmet negates all combat Damage.');
+      assert.equal(helmetApplied.state.players.P2.hand.some((card) => card.cardId === 'mythril-helmet'), false, 'Applied Mythril Helmet is Removed from the Deck.');
+    }
   }
 }
 
@@ -2789,9 +2807,9 @@ wallAttackState.objects = [{ id: 'immune-column', name: 'Column', kind: 'wall-pi
 assert.equal(applyCommand(wallAttackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'wall-attack', targetId: 'immune-column', targetKind: 'object' }).ok, false, 'Wall Objects remain immune to direct Attack Cards.');
 
 const boomerangState = createInitialState();
-boomerangState.objects = [];
+boomerangState.objects = [{ id: 'boomerang-wall', name: 'Wall', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 4, y: 2 } }];
 boomerangState.players.P1.position = { x: 2, y: 2 };
-boomerangState.players.P2.position = { x: 3, y: 2 };
+boomerangState.players.P2.position = { x: 7, y: 2 };
 boomerangState.players.P1.hand = [{ instanceId: 'reward-boomerang', cardId: 'boomerang' }];
 boomerangState.players.P1.deck = [{ instanceId: 'boomerang-draw', cardId: 'attack-2' }];
 const beginBoomerangPlay = applyCommand(boomerangState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'reward-boomerang' });
@@ -2808,7 +2826,8 @@ if (beginBoomerangPlay.ok) {
     assert.deepEqual((resolvedBoomerang.state as any).damageLog?.at(-1), { eventType: 'damage', turn: 1, targetId: 'P2', sourceId: 'P1', sourceKind: 'other', amount: 1, hpAfter: 25, collision: false }, 'Every dealt Damage instance is recorded with its target, source, turn, amount, and resulting HP.');
     assert.equal(resolvedBoomerang.state.players.P1.actionsRemaining, 2, 'Boomerang consumes no Action.');
     assert.equal(resolvedBoomerang.state.players.P1.discard.some((card) => card.cardId === 'boomerang'), false, 'Played Boomerang never remains in Discard.');
-    assert.equal([...resolvedBoomerang.state.players.P1.hand, ...resolvedBoomerang.state.players.P1.deck].filter((card) => card.cardId === 'boomerang').length, 1, 'Boomerang is shuffled back into the Deck.');
+    assert.equal(resolvedBoomerang.state.players.P1.deck.at(-1)?.cardId, 'boomerang', 'Boomerang is placed on top of the Deck.');
+    assert.equal(resolvedBoomerang.state.spellProjectiles.at(-1)?.style, 'boomerang', 'Boomerang emits its wide-arc flight animation event.');
     assert.equal(resolvedBoomerang.state.players.P1.hand.length, 0, 'Playing Boomerang does not draw a replacement Card.');
   }
 }
@@ -2868,6 +2887,128 @@ assert.equal(redirectedBoomerang.ok, true);
 if (redirectedBoomerang.ok) {
   assert.equal(redirectedBoomerang.state.players.P1.discard.some((card) => card.cardId === 'boomerang'), false);
   assert.equal((redirectedBoomerang.state as any).questPhases.currentQuest?.progress.P1 ?? 0, 0, 'Boomerang redirected into the Deck does not count as a discard.');
+}
+
+const johnState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+const john = johnState.players.P1;
+assert.equal(john.maxHp, 14);
+assert.equal(john.moveRange, 3);
+assert.equal(john.attackRange, 3);
+assert.equal(john.hand.length, 5, 'John starts with Blessed Light plus four existing generic test cards.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessed-light'), true, 'Blessed Light starts in John Christ’s Hand.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessing-light'), false, 'Blessing: Light is generated and never starts in Hand.');
+john.movementRemaining = 3;
+john.stoicShell = true;
+dealDamage(johnState, john, 2);
+assert.equal(john.hp, 12);
+assert.equal(john.spiritForm, true);
+assert.equal(john.attackRange, 1, 'Spirit Form gives John Christ melee Attack Range 1.');
+assert.equal(john.movementRemaining, 1, 'Entering Spirit Form caps unspent movement at 1.');
+assert.equal(john.stoicShell, false, 'HP Damage removes Stoic Shell.');
+johnState.objects = [];
+john.position = { x: 2, y: 2 };
+johnState.players.P2.position = { x: 4, y: 2 };
+john.hand = [{ instanceId: 'spirit-range-test', cardId: 'attack-2' }];
+assert.equal(applyGameCommand(johnState, { type: 'attack', playerId: 'P1', cardInstanceId: 'spirit-range-test', targetId: 'P2' }).ok, false, 'Spirit Form cannot attack a target two Squares away.');
+const johnSpiritEnd = applyGameCommand(johnState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(johnSpiritEnd.ok, true);
+if (johnSpiritEnd.ok) {
+  assert.equal(johnSpiritEnd.state.players.P1.spiritForm, false);
+  assert.equal(johnSpiritEnd.state.players.P1.attackRange, 3, 'Leaving Spirit Form restores John Christ’s Attack Range to 3.');
+}
+
+const johnOverlapState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+johnOverlapState.objects = [];
+johnOverlapState.players.P1.position = { x: 2, y: 2 };
+johnOverlapState.players.P2.position = { x: 3, y: 2 };
+johnOverlapState.players.P1.spiritForm = true;
+johnOverlapState.players.P1.movementRemaining = 1;
+const johnEnteredEnemy = applyGameCommand(johnOverlapState, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(johnEnteredEnemy.ok, true);
+if (johnEnteredEnemy.ok) {
+  assert.equal(johnEnteredEnemy.state.players.P1.movementRemaining, 1, 'Entering an enemy Square refunds its spent Movement.');
+  assert.equal(johnEnteredEnemy.state.players.P1.spiritEnemyUnderfoot, 'P2');
+  assert.equal(applyGameCommand(johnEnteredEnemy.state, { type: 'end-turn', playerId: 'P1' }).ok, false, 'Spirit Form cannot end its turn on an occupied Square.');
+  const johnLeftEnemy = applyGameCommand(johnEnteredEnemy.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 2 } });
+  assert.equal(johnLeftEnemy.ok, true);
+  if (johnLeftEnemy.ok) {
+    assert.equal(johnLeftEnemy.state.players.P1.movementRemaining, 0);
+    assert.equal(johnLeftEnemy.state.players.P1.spiritEnemyUnderfoot, null);
+  }
+}
+
+const blessedLightState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+blessedLightState.objects = [];
+blessedLightState.players.P1.position = { x: 2, y: 2 };
+blessedLightState.players.P2.position = { x: 4, y: 2 };
+blessedLightState.players.P1.hand = [{ instanceId: 'blessed-light-test', cardId: 'blessed-light' }];
+blessedLightState.players.P2.hand = [];
+blessedLightState.players.P2.deck = [];
+const blessedLightAttack = applyGameCommand(blessedLightState, { type: 'attack', playerId: 'P1', cardInstanceId: 'blessed-light-test', targetId: 'P2' });
+assert.equal(blessedLightAttack.ok, true);
+if (blessedLightAttack.ok) {
+  const blessedLightResolved = applyGameCommand(blessedLightAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(blessedLightResolved.ok, true);
+  if (blessedLightResolved.ok) {
+    const blessedAckOne = applyGameCommand(blessedLightResolved.state, { type: 'ack-combat', playerId: 'P1' });
+    assert.equal(blessedAckOne.ok, true);
+    const blessedAckTwo = blessedAckOne.ok ? applyGameCommand(blessedAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : blessedAckOne;
+    assert.equal(blessedAckTwo.ok, true);
+    if (blessedAckTwo.ok) {
+      assert.equal(blessedAckTwo.state.players.P2.deck.length, 1);
+      assert.equal(blessedAckTwo.state.players.P2.deck[0].cardId, 'exhaust', 'With an empty Deck, Blessed Light places Exhaust on top as the next draw.');
+      assert.equal(blessedAckTwo.state.players.P1.hand.some((card) => card.cardId === 'blessing-light'), true);
+      const generatedBlessing = blessedAckTwo.state.players.P1.hand.find((card) => card.cardId === 'blessing-light')!;
+      assert.equal(generatedBlessing.revealedToOpponent, true, 'Generated Blessing Cards are public while in John’s Hand.');
+      assert.equal(isCardRevealedToOpponents(blessedAckTwo.state.players.P1, generatedBlessing), true);
+      assert.equal(blessedAckTwo.state.players.P1.stoicShell, true, 'Creating Blessing: Light immediately grants Stoic Shell.');
+    }
+  }
+}
+
+const blessingCombatState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+blessingCombatState.objects = [];
+blessingCombatState.players.P1.position = { x: 2, y: 2 };
+blessingCombatState.players.P2.position = { x: 3, y: 2 };
+blessingCombatState.players.P1.hand = [{ instanceId: 'john-attack', cardId: 'attack-2' }, { instanceId: 'light-blessing', cardId: 'blessing-light' }];
+blessingCombatState.players.P2.hand = [{ instanceId: 'target-defense', cardId: 'defend-1' }];
+const blessingAttack = applyGameCommand(blessingCombatState, { type: 'attack', playerId: 'P1', cardInstanceId: 'john-attack', targetId: 'P2' });
+assert.equal(blessingAttack.ok, true);
+if (blessingAttack.ok) {
+  const blessingDefense = applyGameCommand(blessingAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'target-defense' });
+  assert.equal(blessingDefense.ok, true);
+  if (blessingDefense.ok) {
+    assert.equal(blessingDefense.state.phase, 'choosing-blessing-light');
+    const blessingApplied = applyGameCommand(blessingDefense.state, { type: 'blessing-light-decision', playerId: 'P1', use: true });
+    assert.equal(blessingApplied.ok, true);
+    if (blessingApplied.ok) {
+      assert.equal(blessingApplied.state.players.P1.hand.some((card) => card.cardId === 'blessing-light'), false, 'Blessing: Light is Removed after use.');
+      assert.equal(blessingApplied.state.combatReveal?.defendTotal, 0, 'Blessing: Light reduces the enemy Defend Card by 1.');
+    }
+  }
+}
+
+const blessingDiscardState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+blessingDiscardState.phase = 'choosing-end-discard';
+blessingDiscardState.players.P1.hand.push({ instanceId: 'discarded-light-blessing', cardId: 'blessing-light' });
+const blessingDiscarded = applyGameCommand(blessingDiscardState, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'discarded-light-blessing' });
+assert.equal(blessingDiscarded.ok, true);
+if (blessingDiscarded.ok) {
+  assert.equal(blessingDiscarded.state.players.P1.hand.some((card) => card.instanceId === 'discarded-light-blessing'), false);
+  assert.equal(blessingDiscarded.state.players.P1.discard.some((card) => card.instanceId === 'discarded-light-blessing'), false, 'Discarding Blessing: Light Removes it instead of placing it in Discard.');
+}
+
+const stoicHealState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+stoicHealState.activePlayerId = 'P2';
+stoicHealState.players.P1.hp = 10;
+stoicHealState.players.P1.stoicShell = true;
+const stoicHealTurn = applyGameCommand(stoicHealState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(stoicHealTurn.ok, true);
+if (stoicHealTurn.ok) {
+  assert.equal(stoicHealTurn.state.activePlayerId, 'P1');
+  assert.equal(stoicHealTurn.state.players.P1.hp, 11);
+  assert.equal(stoicHealTurn.state.players.P1.stoicShell, false);
+  assert.equal(stoicHealTurn.state.players.P1.stoicShellHealedTurn, stoicHealTurn.state.turn, 'Stoic Shell healing emits a turn-scoped visual/message event.');
 }
 
 console.log('Rules checks passed.');
