@@ -31,7 +31,11 @@ if (arcaneBarrierAttack.ok) {
     const firstAck = applyGameCommand(arcaneBarrierDefense.state, { type: 'ack-combat', playerId: 'P1' });
     assert.equal(firstAck.ok, true);
     if (firstAck.ok) {
+      assert.deepEqual(firstAck.state.combatReveal?.acknowledged, ['P1'], 'Each player records an independent combat acknowledgement.');
       assert.deepEqual(firstAck.state.players.P1.position, { x: 2, y: 2 }, 'One acknowledgement does not apply deferred after-combat effects.');
+      const duplicateAck = applyGameCommand(firstAck.state, { type: 'ack-combat', playerId: 'P1' });
+      assert.equal(duplicateAck.ok, true);
+      if (duplicateAck.ok) assert.deepEqual(duplicateAck.state.combatReveal?.acknowledged, ['P1'], 'One player cannot confirm combat twice for both players.');
       const secondAck = applyGameCommand(firstAck.state, { type: 'ack-combat', playerId: 'P2' });
       assert.equal(secondAck.ok, true);
       if (secondAck.ok) assert.deepEqual(secondAck.state.players.P1.position, { x: 1, y: 2 }, 'Arcane Barrier pushes the adjacent attacker directly away from Logan after both acknowledgements.');

@@ -244,8 +244,8 @@ let expirationRequestFor = 0;
 window.setInterval(() => {
   const reveal = gameState.combatReveal;
   if (!reveal) { expirationRequestFor = 0; return; }
-  renderCombatReveal();
-  if (hintsOpen) renderHintsModal();
+  const countdown = document.querySelector<HTMLElement>('#combatRevealModal .combat-countdown b');
+  if (countdown) countdown.textContent = String(Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000)));
   if (Date.now() < reveal.expiresAt || expirationRequestFor === reveal.expiresAt) return;
   expirationRequestFor = reveal.expiresAt;
   const playerId = mode === 'online' ? localSeat : 'P1';
@@ -1234,7 +1234,12 @@ function renderCombatReveal() {
     document.querySelector('#keepExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: false }));
     return;
   }
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2><div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">${mode === 'online' ? `${reveal.acknowledged.length}/2 players confirmed` : 'Confirm to continue immediately'}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : 'OK'}</button></div>`;
+  const combatPlayers = gameState.pendingAttack ? [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId] : (Object.keys(gameState.players) as PlayerId[]).slice(0, 2);
+  const confirmationStatus = mode === 'online'
+    ? combatPlayers.map((id) => `${escapeHtml(gameState.players[id].name)}: ${reveal.acknowledged.includes(id) ? 'READY' : 'WAITING'}`).join(' · ')
+    : 'Confirm to continue immediately';
+  const readyLabel = viewer ? `${escapeHtml(gameState.players[viewer].name)}: READY` : 'OK';
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2><div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
 }
 
@@ -1244,9 +1249,10 @@ function acknowledgeCombatReveal() {
     if (localSeat) dispatch({ type: 'ack-combat', playerId: localSeat });
     return;
   }
-  const first = applyCommand(gameState, { type: 'ack-combat', playerId: 'P1' });
+  const combatPlayers = gameState.pendingAttack ? [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId] : (Object.keys(gameState.players) as PlayerId[]).slice(0, 2);
+  const first = applyCommand(gameState, { type: 'ack-combat', playerId: combatPlayers[0] });
   if (!first.ok) return notify(first.error);
-  const second = applyCommand(first.state, { type: 'ack-combat', playerId: 'P2' });
+  const second = applyCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1] });
   if (!second.ok) return notify(second.error);
   gameState = second.state;
   renderAll();

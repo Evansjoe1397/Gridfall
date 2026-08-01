@@ -2029,8 +2029,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
 function acknowledgeCombat(state: GameState, playerId: PlayerId): CommandResult {
   const reveal = state.combatReveal;
   if (!reveal) return fail(state, 'There is no combat result to acknowledge.');
+  const participants = state.pendingAttack ? [state.pendingAttack.attackerId, state.pendingAttack.defenderId] : (Object.keys(state.players) as PlayerId[]).slice(0, 2);
+  if (!participants.includes(playerId)) return fail(state, 'Only players in this combat may acknowledge its result.');
   if (!reveal.acknowledged.includes(playerId)) reveal.acknowledged.push(playerId);
-  if (reveal.acknowledged.length === 2) {
+  if (participants.every((id) => reveal.acknowledged.includes(id))) {
     if (reveal.deferredAfterCombatState) {
       const resolvedState = JSON.parse(reveal.deferredAfterCombatState) as GameState;
       resolvedState.combatReveal = null;
