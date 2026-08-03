@@ -20,6 +20,7 @@ import {
   distance,
   diagonalMovementBlockedByObject,
   effectiveMoveRange,
+  effectiveAttackRange,
   hasLineOfSight,
   isCardRevealedToOpponents,
   movementPath,
@@ -72,7 +73,7 @@ app.innerHTML = `
     <section class="game hidden" id="game">
       <div class="hud">
         <article class="fighter blue" id="p1Stats"></article>
-        <div class="turn-core"><span id="turnNumber">ROUND 01</span><strong id="turnLabel">AZURE DUMMY</strong><small id="phaseLabel">SELECT AN ACTION</small></div>
+        <div class="turn-core"><span id="turnNumber">ROUND 01</span><button class="activate-consume hidden" id="activateConsumeButton" type="button">Activate Consume</button><strong id="turnLabel">AZURE DUMMY</strong><small id="phaseLabel">SELECT AN ACTION</small></div>
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
@@ -87,7 +88,7 @@ app.innerHTML = `
     <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong><span class="turn-heal-message"></span></div>
     <div class="choice-modal hidden" id="flurryModal"></div>
     <div class="choice-modal hidden" id="armDaWizModal"></div>
-    <div class="choice-modal hidden" id="manaModal"></div>
+    <div class="choice-modal mana-choice-modal hidden" id="manaModal"></div>
     <div class="choice-modal hidden" id="focusModal"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
@@ -140,6 +141,12 @@ document.querySelector('#hotseat')!.addEventListener('click', () => showFormatSe
 document.querySelector('#createRoom')!.addEventListener('click', () => showFormatSelect('online'));
 document.querySelector('#joinRoom')!.addEventListener('click', () => connectOnline('join'));
 document.querySelector('#freeMoveButton')!.addEventListener('click', () => dispatch({ type: 'free-move', playerId: actingPlayer() }));
+document.querySelector('#activateConsumeButton')!.addEventListener('click', () => {
+  const playerId = gameState.pendingManaChoice;
+  if (!playerId) return;
+  gameState.phase = 'choosing-mana-mode';
+  renderUI();
+});
 document.querySelector('#guardButton')!.addEventListener('click', () => dispatch({ type: 'guard', playerId: actingPlayer() }));
 document.querySelector('#dashButton')!.addEventListener('click', () => dispatch({ type: 'dash', playerId: actingPlayer() }));
 document.querySelector('#hintsButton')!.addEventListener('click', () => { hintsOpen = true; renderHintsModal(); });
@@ -378,6 +385,7 @@ function normalizeOnlineState(state: GameState): GameState {
     player.deck ??= [];
     player.discard ??= [];
     player.spellEcho ??= [null, null, null];
+    player.manaConsumeEventId ??= null;
     player.spiritForm ??= false;
     player.spiritEnemyUnderfoot ??= null;
     player.stoicShell ??= false;
@@ -441,7 +449,9 @@ function actingPlayer(): PlayerId {
     return choice?.eligible.find((id) => !choice.decided.includes(id)) ?? gameState.activePlayerId;
   }
   if (gameState.phase === 'choosing-blessing-light') return gameState.combatReveal?.blessingLight?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-blessing-might') return gameState.combatReveal?.blessingMight?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mythril-helmet') return gameState.combatReveal?.mythrilHelmet?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-mana-barrage') return gameState.combatReveal?.manaBarrage?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-force-pull-target') return gameState.forcePull!.casterId;
@@ -502,6 +512,10 @@ function renderUI() {
   if (game.classList.contains('hidden')) return;
   const actor = gameState.players[gameState.activePlayerId];
   byId('turnNumber').textContent = `ROUND ${String(gameState.turn).padStart(2, '0')}`;
+  const consumeButton = byId('activateConsumeButton') as HTMLButtonElement;
+  const pendingConsumePlayer = gameState.pendingManaChoice ? gameState.players[gameState.pendingManaChoice] : null;
+  const mayRestoreConsume = gameState.phase === 'active' && Boolean(pendingConsumePlayer) && pendingConsumePlayer!.actionsRemaining === 2 && !pendingConsumePlayer!.freeMoveUsed && canLocalAct(pendingConsumePlayer!.id);
+  consumeButton.classList.toggle('hidden', !mayRestoreConsume);
   byId('turnLabel').textContent = gameState.phase === 'finished' ? `${gameState.players[gameState.winner!].name} wins` : `${actor.name}'s turn`;
   const activeColor = playerUiColor(actor.id);
   byId('turnLabel').style.color = activeColor;
@@ -510,7 +524,7 @@ function renderUI() {
   showTurnAnnouncement(actor);
   byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
-  byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${actor.attackRange}</b></span>`;
+  byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${effectiveAttackRange(gameState, actor)}</b></span>`;
   const knownTopCard = actor.knownTopCardId ? cardDefinition({ instanceId: '', cardId: actor.knownTopCardId }) : null;
   byId('piles').innerHTML = `${knownTopCard ? `<button class="pile-button pile-clickable known-deck" id="knownDeckButton" data-known-top-card="${knownTopCard.id}" title="Known top Card: ${escapeHtml(knownTopCard.name)}">DECK <b>${actor.deck.length}</b></button>` : `<span>DECK <b>${actor.deck.length}</b></span>`}<span>HAND <b>${actor.hand.length}</b></span>${actor.discard.length > 0 ? `<button class="pile-button pile-clickable" id="discardPileButton" title="Open Discard pile">DISCARD <b>${actor.discard.length}</b></button>` : `<span>DISCARD <b>0</b></span>`}`;
   byId('discardPileButton')?.addEventListener('click', () => { discardViewerPlayerId = actor.id; renderDiscardModal(); });
@@ -720,7 +734,7 @@ function renderDiscardModal() {
   modal.classList.toggle('hidden', !player);
   if (!player) return;
   const cards = [...player.discard].reverse();
-  byId('discardContent').innerHTML = `<span class="discard-eyebrow">PUBLIC CARD INFORMATION</span><h2 id="discardTitle">${escapeHtml(player.name)} · Discard Deck</h2><p>${cards.length} Card${cards.length === 1 ? '' : 's'} · newest discarded Card shown first</p>${cards.length === 0 ? '<div class="discard-empty">This Discard Deck is empty.</div>' : `<div class="discard-card-grid">${cards.map((instance, index) => { const card = cardDefinition(instance); return `<article class="card ${card.kind}"><span>${index === 0 ? 'TOP OF DISCARD · ' : ''}${card.kind.toUpperCase()}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`; }).join('')}</div>`}`;
+  byId('discardContent').innerHTML = `<span class="discard-eyebrow">PUBLIC CARD INFORMATION</span><h2 id="discardTitle">${escapeHtml(player.name)} · Discard Deck</h2><p>${cards.length} Card${cards.length === 1 ? '' : 's'} · newest discarded Card shown first</p>${cards.length === 0 ? '<div class="discard-empty">This Discard Deck is empty.</div>' : `<div class="discard-card-grid">${cards.map((instance, index) => { const card = cardDefinition(instance); return `<article class="card ${cardVisualClass(card)}"><span>${index === 0 ? 'TOP OF DISCARD · ' : ''}${card.kind.toUpperCase()}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`; }).join('')}</div>`}`;
 }
 
 function hintsRulesHtml(ru: boolean) {
@@ -741,15 +755,16 @@ function cardAdviceHtml(ru: boolean) {
   const adviceCards = [...cards, ...generatedStatuses];
   const heading = ru ? `Советы для ${escapeHtml(player.name)}` : `${escapeHtml(player.name)} · Hand Advice`;
   if (cards.length === 0) return `<h2 id="hintsTitle">${heading}</h2><p class="empty-advice">${ru ? 'В Руке нет карт. Используйте свободное движение, чтобы взять карту.' : 'Your Hand is empty. Use Free Move to draw a Card.'}</p>`;
-  return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${adviceCards.map((card) => `<article class="advice-card ${card.kind}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}${statusGeneratorAdvice(card.id, cards, ru)}</p></article>`).join('')}</div>`;
+  return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${adviceCards.map((card) => `<article class="advice-card ${cardVisualClass(card)}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}${statusGeneratorAdvice(card.id, cards, ru)}</p></article>`).join('')}</div>`;
 }
 
-type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning';
+type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning' | 'panic';
 const STATUS_CARD_GENERATORS: Record<StatusCardId, readonly CardTypeId[]> = {
   pinned: ['light-the-saber', 'dance-through', 'cut-them-legs', 'block', 'double-jump', 'force-pull', 'swiftform'],
-  headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell'],
-  exhaust: ['mana-barrage', 'force-disarm', 'consume-rage', 'teef-strike'],
+  headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell', 'enforce'],
+  exhaust: ['force-disarm', 'consume-rage', 'teef-strike'],
   burning: ['fireball'],
+  panic: ['enforce'],
 };
 function statusGeneratorsInHand(statusId: StatusCardId, cards: readonly (typeof CARDS)[number][]) {
   const generatorIds = STATUS_CARD_GENERATORS[statusId];
@@ -791,17 +806,17 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
   'chain-lightning': { en: 'Best when enemies and destructible Objects are clustered. Higher levels extend and repeat bounces; Consume is strongest in a crowded area where repeated hits can revisit targets.', ru: 'Лучше всего работает в скоплении врагов и разрушаемых Объектов. Высокие уровни удлиняют и повторяют скачки; Consume особенно силён в толпе, где молния может повторно поражать цели.' },
-  'magic-hand': { en: 'Global line-of-sight Object control. Move a visible box to block a lane, open a path, or line it up with an enemy; Level 3 turns the collision into 2 Damage. Consume pushes the Object until an obstruction stops it.', ru: 'Глобальный контроль видимых Объектов по линии видимости. Перемещайте ящик, чтобы перекрыть путь, открыть проход или направить его во врага; уровень 3 превращает столкновение в 2 урона. Consume толкает Объект до препятствия.' },
-  shizzle: { en: 'Logan’s escape and reposition tool. Dash through enemies and ordinary Objects such as wooden boxes, but Wall Objects—including pillars and Da Orkk’s Shield—block the route. Finish on an empty Square. Higher levels add pass-through damage and distance; Consume allows turns between one-Square steps.', ru: 'Инструмент побега и смены позиции Логана. Проходите сквозь врагов и обычные Объекты, например деревянные ящики, но Стенные Объекты — колонны и Щит Да Оркка — блокируют путь. Заканчивайте на пустой клетке. Высокие уровни дают урон и дальность; Consume позволяет менять направление между шагами.' },
-  'arcane-bolt': { en: 'Lead a multi-Attack turn with this card: its +1 ATT improves later Attacks until turn end. Consume also immediately grants 1 MOV for repositioning.', ru: 'Начинайте этой картой ход с несколькими Атаками: +1 ATT усилит последующие Атаки до конца хода. Consume также немедленно даёт 1 MOV для смены позиции.' },
+  'magic-hand': { en: 'Throw an Object 3 Squares within Range 5. Level 2 targets globally; Level 3 may target enemies and pushes until the board edge or a collision. Remaining momentum transfers through collisions without dealing Damage. Consume refunds 1 Action.', ru: 'Бросьте Объект на 3 клетки в радиусе 5. Уровень 2 даёт глобальную дальность; уровень 3 позволяет выбирать врагов и толкает до края поля или столкновения. Оставшийся импульс передаётся дальше без урона. Consume возвращает 1 Действие.' },
+  shizzle: { en: 'Logan’s escape and reposition tool. Dash up to 2 Squares, increasing to 3 at Level 3. Pass through enemies and ordinary Objects such as wooden boxes, but Wall Objects—including pillars and Da Orkk’s Shield—block the route. Finish on an empty Square. Level 2 adds pass-through damage; Consume allows turns between one-Square steps.', ru: 'Инструмент побега и смены позиции Логана. Совершите рывок до 2 клеток или до 3 клеток на уровне 3. Проходите сквозь врагов и обычные Объекты, но Стенные Объекты — колонны и Щит Да Оркка — блокируют путь. Заканчивайте на пустой клетке. Уровень 2 добавляет урон при прохождении; Consume позволяет менять направление между шагами.' },
+  'arcane-bolt': { en: 'Lead a multi-Attack turn with this card: its +1 ATT improves later Attacks until turn end. Consume upgrades that persistent bonus to +2 ATT instead.', ru: 'Начинайте этой картой ход с несколькими Атаками: +1 ATT усилит последующие Атаки до конца хода. Consume вместо этого повышает постоянный бонус до +2 ATT.' },
   'snowball-effect': { en: 'A repeatable low-value Attack that returns to Hand. Use it when you can spend multiple Actions or need a reliable future Attack; Consume also cycles one unwanted Card after combat.', ru: 'Повторяемая Атака малого значения, возвращающаяся в Руку. Используйте при нескольких Действиях или чтобы сохранить Атаку на будущее; Consume после боя также заменяет одну ненужную карту.' },
   'mana-blast': { en: 'Pressure the enemy’s Hand: they either discard or let Logan gain Mana. It is strongest when their Hand contains valuable Cards; Consume raises ATT and threatens 3 MP if they can legally refuse a discard.', ru: 'Давите на Руку врага: он либо сбрасывает карту, либо даёт Логану Ману. Особенно полезно против ценных карт; Consume повышает ATT и угрожает 3 MP при законном отказе от сброса.' },
-  'mana-barrage': { en: 'Convert stored Mana into post-combat damage. Consume sets the Card Value to 6 and adds Exhaust to the target’s Hand if the printed effect is not cancelled.', ru: 'Превращайте накопленную Ману в урон после боя. Consume устанавливает значение карты на 6 и добавляет Exhaust в Руку цели, если эффект карты не отменён.' },
+  'mana-barrage': { en: 'During normal combat, decide whether to spend exactly 1 stored Mana for 1 Damage. Consume replaces that choice with 2 guaranteed Damage after combat.', ru: 'В обычном бою решите, потратить ли ровно 1 сохранённую Mana ради 1 урона. Consume заменяет этот выбор гарантированными 2 единицами урона после боя.' },
   'grimoire-cleanse': { en: 'Win combat to force the target to discard up to two eligible Cards. With Consume, each Card they actually discard immediately grants Logan +1 MOV.', ru: 'Победите в бою, чтобы заставить цель сбросить до двух допустимых карт. При Consume каждая фактически сброшенная карта немедленно даёт Логану +1 MOV.' },
   spellblock: { en: 'Use against an Attack with a dangerous printed effect. It cancels that effect before combat and converts blocked Attack Value into Mana, combining protection with resource generation.', ru: 'Используйте против Атаки с опасным собственным эффектом. Карта отменяет его до боя и превращает заблокированное значение Атаки в Ману, совмещая защиту и генерацию ресурса.' },
   'mana-shield': { en: 'A Mana-dependent Defence that first generates 1 MP, then uses total stored Mana as DEF. Best when a small amount of Mana is enough to stop damage without emptying resources needed for a later Consume turn.', ru: 'Защита, зависящая от Маны: сначала даёт 1 MP, затем использует весь запас как DEF. Лучше всего, когда малого количества Маны достаточно для блока без потери ресурса на будущий Consume-ход.' },
   'arcane-barrier': { en: "Best against an adjacent attacker when the Square directly behind them is open. Arcane Barrier pushes them away after combat, or deals 1 Damage if that push is blocked.", ru: 'Лучше всего использовать против соседнего атакующего, когда клетка прямо за ним свободна. После боя Arcane Barrier отталкивает его, а если путь заблокирован — наносит 1 урон.' },
-  counterspell: { en: 'A high-value Defence and retaliation tool. Save it for 2–3 stored MP so the attacker takes meaningful damage, while the Headache placed on top disrupts their next draw.', ru: 'Сильная Защита и ответный удар. Сохраняйте при 2–3 MP, чтобы нанести заметный урон атакующему, а Headache сверху его Колоды испортит следующий добор.' },
+  counterspell: { en: 'A high-value Defence and retaliation tool. Keep at least 1 stored MP to deal 1 Damage to the attacker; Counterspell also places Headache on top of their Deck to disrupt the next draw.', ru: 'Сильная Защита и ответный удар. Сохраните хотя бы 1 MP, чтобы нанести атакующему 1 урон; Counterspell также кладёт Headache сверху его Колоды и портит следующий добор.' },
   blink: { en: 'Logan’s emergency Defence: it blocks all combat damage. With Mana, it also teleports him to safety; without Mana, expect to sacrifice a chosen Hand Card or a non-Status Card from Deck.', ru: 'Экстренная Защита Логана: блокирует весь боевой урон. При наличии Маны также телепортирует в безопасность; без Маны придётся пожертвовать выбранной картой Руки или не-Статусной картой Колоды.' },
   'light-the-saber': { en: 'An efficient setup Attack. Apply Pinned early to reduce enemy mobility and prepare Calmness, Double Jump, or Hello There for stronger follow-up value.', ru: 'Эффективная подготовительная Атака. Наложите Pinned заранее, чтобы снизить мобильность врага и усилить последующие Calmness, Double Jump или Hello There.' },
   'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies to escape, cross a blocked lane, or apply Pinned, but reserve the final step for an empty Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов для побега, пересечения занятого пути или наложения Pinned, но оставьте последний шаг для пустой клетки.' },
@@ -910,6 +925,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const exhaustInHand = player.hand.filter((card) => card.cardId === 'exhaust').length;
     const exhaustStored = player.deck.concat(player.discard).filter((card) => card.cardId === 'exhaust').length;
     const burning = player.hand.filter((card) => card.cardId === 'burning').length;
+    const panic = player.hand.filter((card) => card.cardId === 'panic').length;
     const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every Rage Stack applied to that Attack. Remove 1 stack at turn end.</span></div>` : '';
     const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">×2<span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">🦵<i></i><b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
@@ -923,13 +939,14 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
-    const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { carrierIds?: PlayerId[]; carrierId?: PlayerId | null } | null } }).questPhases?.captureTheFlag;
-    const flagCarrier = Boolean(flagState && (flagState.carrierIds?.includes(player.id) || flagState.carrierId === player.id));
-    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Captured Flag</strong>Carry the Flag to your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
+    const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: { carrierId: PlayerId | null; status: string }[] } | null } }).questPhases?.captureTheFlag;
+    const flagCarrier = Boolean(flagState?.flags.some((flag) => flag.status === 'carried' && flag.carrierId === player.id));
+    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">🔥${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
+    const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards, MOV 1, and may pass through enemies. Attack or end the turn to exit.</span></div>` : '';
     const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">◉<span class="status-tooltip"><strong>Stoic Shell</strong>Removed by HP Damage; otherwise restores 1 HP at the beginning of John's next turn.</span></div>` : '';
-    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderCharacterStatuses() {
@@ -975,7 +992,7 @@ function renderHand() {
   if (gameState.phase === 'choosing-grimoire-discard') {
     const pending = gameState.pendingAttack!;
     if (viewerId !== pending.defenderId) { handElement.innerHTML = `<div class="drone-placeholder">Waiting for the target to discard for Grimoire Cleanse.</div>`; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${card.kind}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-grimoire-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'grimoire-discard', playerId: viewerId, cardInstanceId: button.dataset.grimoireDiscard! })));
     return;
   }
@@ -985,24 +1002,25 @@ function renderHand() {
       byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredPlayer].name)} to discard cards.</div>`;
       return;
     }
-    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${card.kind}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
+    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-flurry-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'flurry-enemy-discard', playerId: viewerId, cardInstanceId: button.dataset.flurryDiscard! })));
     return;
   }
   const choosingDiscard = gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard' || gameState.phase === 'choosing-end-discard' || gameState.phase === 'choosing-preparation-discard' || gameState.phase === 'choosing-blink-discard' || gameState.phase === 'choosing-snowball-discard' || gameState.phase === 'choosing-mind-tricks-discard' || gameState.phase === 'choosing-mind-tricks-enemy-discard';
   byId('hand').innerHTML = viewer.hand.map((instance) => {
     const card = cardDefinition(instance);
+    const panicked = viewer.hand.some((entry) => entry.cardId === 'panic');
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
-    const playableAction = card.kind === 'attack' ? viewer.actionsRemaining > 0 : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const interactionCopy = mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const typeLabel = instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
-    return `<button class="card ${card.kind} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
+    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-instance]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     if (gameState.phase === 'choosing-preparation-discard') dispatch({ type: 'preparation-discard', playerId: viewerId, cardInstanceId: button.dataset.instance! });
@@ -1014,7 +1032,8 @@ function renderHand() {
     else {
       const instance = viewer.hand.find((card) => card.instanceId === button.dataset.instance)!;
       const definition = cardDefinition(instance);
-      if (definition.kind === 'status' && definition.canRemoveAsAction) dispatch({ type: 'remove-status', playerId: viewerId, cardInstanceId: instance.instanceId });
+      if (instance.cardId === 'blessing-prayer') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
+      else if (definition.kind === 'status' && definition.canRemoveAsAction) dispatch({ type: 'remove-status', playerId: viewerId, cardInstanceId: instance.instanceId });
       else if (definition.kind === 'free-action') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
       else selection.send(definition.kind === 'perk' ? { type: 'SELECT_PERK', cardInstanceId: instance.instanceId } : { type: 'SELECT_ATTACK', cardInstanceId: instance.instanceId });
     }
@@ -1025,6 +1044,15 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  if (gameState.phase === 'choosing-blessed-prayer-discard') {
+    const player = gameState.players[gameState.activePlayerId];
+    const visible = viewerId === player.id && canLocalAct(player.id);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    modal.innerHTML = `<div class="choice-dialog"><span>BLESSED PRAYER · LEVEL 3</span><h2>Choose a Card from Discard</h2><p>Move the selected Card from your Discard into your Hand.</p><div class="choice-cards">${[...player.discard].reverse().map((instance) => { const card = cardDefinition(instance); return `<button data-prayer-discard="${instance.instanceId}"><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? `${card.kind} ${card.value}`)}</small></button>`; }).join('')}</div></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-prayer-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'blessed-prayer-discard', playerId: player.id, cardInstanceId: button.dataset.prayerDiscard! })));
+    return;
+  }
   if (gameState.phase === 'mana-blast-offer' && gameState.pendingAttack) {
     const defender = gameState.players[gameState.pendingAttack.defenderId];
     const attacker = gameState.players[gameState.pendingAttack.attackerId];
@@ -1072,9 +1100,10 @@ function renderManaModal() {
   if (gameState.phase !== 'choosing-mana-mode' || !playerId || !canLocalAct(playerId)) { modal.classList.add('hidden'); modal.innerHTML = ''; return; }
   const player = gameState.players[playerId];
   modal.classList.remove('hidden');
-  modal.innerHTML = `<div class="choice-panel mana-choice-panel"><span>CLASSIC WIZARDRY · START OF TURN</span><strong>${player.name} has 3 Mana</strong><p>Consume all 3 Mana to enable advanced Attack and Perk spell effects this turn? Normal spell resolution will not generate Mana while Consume is active.</p><div><button id="consumeMana">Consume · Advanced Spells</button><button id="generateMana">Reject · Keep Generating</button></div></div>`;
+  modal.innerHTML = `<div class="choice-panel mana-choice-panel"><span>CLASSIC WIZARDRY · START OF TURN</span><strong>${player.name} has 3 Mana</strong><p>Consume all 3 Mana to enable advanced Attack and Perk spell effects this turn? Normal spell resolution will not generate Mana while Consume is active.</p><div><button id="consumeMana">Consume · Advanced Spells</button><button id="generateMana">Reject · Keep Generating</button></div><button class="minimize-mana-choice" id="minimizeManaChoice">Minimize · Review Hand and Battlefield</button></div>`;
   document.querySelector('#consumeMana')?.addEventListener('click', () => dispatch({ type: 'mana-choice', playerId, consume: true }));
   document.querySelector('#generateMana')?.addEventListener('click', () => dispatch({ type: 'mana-choice', playerId, consume: false }));
+  document.querySelector('#minimizeManaChoice')?.addEventListener('click', () => dispatch({ type: 'minimize-mana-choice', playerId }));
 }
 
 function renderFocusModal() {
@@ -1155,7 +1184,7 @@ function actionQuestConditionWithEndRound(questId: string, fallback: string, end
   if (questId === 'tank-junior') return `Block the most combat Damage until Round ${endRound}. Defend Value and damage prevented by Defend Card effects both count.`;
   if (questId === 'rabbit-run') return `Move the greatest distance until Round ${endRound}. Teleports count as 1.`;
   if (questId === 'provocateur') return `Spend the most Rounds starting and ending the same turn on High Ground until Round ${endRound}.`;
-  if (questId === 'capture-the-flag') return 'First to capture the shared Flag beside High Ground and end a turn carrying it on their Base.';
+  if (questId === 'capture-the-flag') return "Each player's Flag begins between their two painted Base Squares. Occupy either enemy Base Square to grab its Flag, then end a turn on either Square of your own Base while carrying it. A defeated carrier drops the Flag on their death Square, where another character can grab it. Each Flag can leave its Base only once.";
   if (questId === 'the-elephant') return `Destroy the most Objects until Round ${endRound}.`;
   if (questId === 'the-gambler') return `Add the most Cards to your Discard Deck until Round ${endRound}. Removed Cards do not count.`;
   const withoutRelativeDuration = fallback.replace(/(?:in|during) the next \d+ Rounds?/i, `until Round ${endRound}`);
@@ -1200,7 +1229,18 @@ function renderCombatReveal() {
   const modifier = (base: number, total: number) => total === base ? `${total}` : `${base} ${total > base ? '+' : '−'} ${Math.abs(total - base)} = ${total}`;
   const viewer = mode === 'online' ? localSeat : null;
   const acknowledged = viewer ? reveal.acknowledged.includes(viewer) : false;
+  const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
+    ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}</b> from ${escapeHtml(item.source)}</li>`).join('')
+    : '<li class="neutral">No bonus values applied</li>';
   const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml(defend.effectText ?? '')}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  if (reveal.manaBarrage) {
+    const decisionPlayer = reveal.manaBarrage.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MANA BARRAGE · COMBAT EFFECT</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply 1 Mana Point?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Spend exactly 1 stored Mana Point to deal 1 Damage to the target during combat, or keep the Mana.</div><div class="combat-choice-buttons"><button id="useManaBarrage" ${mayDecide ? '' : 'disabled'}>SPEND 1 MANA · DEAL 1 DAMAGE</button><button id="keepManaBarrage" ${mayDecide ? '' : 'disabled'}>KEEP MANA</button></div></div>`;
+    document.querySelector('#useManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
   if (reveal.viciousMockery) {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.viciousMockery.eligible.includes(decisionPlayer) && !reveal.viciousMockery.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
@@ -1216,6 +1256,14 @@ function renderCombatReveal() {
     modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
+  if (reveal.blessingMight) {
+    const decisionPlayer = reveal.blessingMight.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    document.querySelector('#useBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
     return;
   }
   if (reveal.mythrilHelmet) {
@@ -1239,7 +1287,13 @@ function renderCombatReveal() {
     ? combatPlayers.map((id) => `${escapeHtml(gameState.players[id].name)}: ${reveal.acknowledged.includes(id) ? 'READY' : 'WAITING'}`).join(' · ')
     : 'Confirm to continue immediately';
   const readyLabel = viewer ? `${escapeHtml(gameState.players[viewer].name)}: READY` : 'OK';
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2><div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  const combatWinner = reveal.combatWinnerId ? gameState.players[reveal.combatWinnerId] : null;
+  const combatDamage = reveal.combatDamage ?? Math.max(0, reveal.attackTotal - reveal.defendTotal);
+  const resultSummary = combatWinner
+    ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
+    : '';
+  const breakdown = `<div class="combat-modifier-breakdown"><section><h4>ATTACK VALUE SOURCES</h4><ul>${modifierLines(reveal.attackModifiers)}</ul></section><section><h4>DEFEND VALUE SOURCES</h4><ul>${modifierLines(reveal.defendModifiers)}</ul></section></div>`;
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
 }
 
@@ -1311,7 +1365,7 @@ function renderOpponentHand() {
     const cards = opponent.hand.map((instance) => {
       const card = cardDefinition(instance);
       if (!isCardRevealedToOpponents(opponent, instance) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"><i></i><b>G</b></div>`;
-      return `<div class="opponent-card revealed ${card.kind}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
+      return `<div class="opponent-card revealed ${cardVisualClass(card)}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${opponent.hand.length} CARD${opponent.hand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
@@ -1326,7 +1380,7 @@ function showCardPreview(cardId: string, pointer?: PointerEvent) {
   const card = CARDS.find((candidate) => candidate.id === cardId);
   if (!card) return;
   const preview = byId('cardHoverPreview');
-  preview.innerHTML = `<article class="card ${card.kind}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
+  preview.innerHTML = `<article class="card ${cardVisualClass(card)}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
   preview.classList.remove('hidden');
   preview.classList.toggle('cursor-preview', Boolean(pointer));
   if (pointer) positionCardPreview(pointer);
@@ -1348,6 +1402,10 @@ function cardRulesText(card: ReturnType<typeof cardDefinition>): string {
     ? hintsLanguage === 'ru' ? `Нанесите боевой урон со значением Атаки ${card.value}.` : `Deal combat damage with ${card.value} Attack Value.`
     : hintsLanguage === 'ru' ? `Защищайтесь со значением Защиты ${card.value}.` : `Defend with ${card.value} Defence Value.`;
   return [levels, translation?.effectText ?? card.effectText, translation?.consumeText ?? card.consumeText].filter(Boolean).join('\n') || fallback;
+}
+
+function cardVisualClass(card: ReturnType<typeof cardDefinition>): string {
+  return `${card.kind}${card.kind === 'status' && card.name.startsWith('Blessing:') ? ' blessing-status' : ''}${card.id === 'panic' ? ' panic-card' : ''}`;
 }
 
 function cardRulesHtml(card: ReturnType<typeof cardDefinition>): string {
@@ -1507,7 +1565,9 @@ const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; boomerang?: boolean }[] = [];
 const processedStoicShellHeals = new Set<string>();
-const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
+const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
+const processedManaConsumeEvents = new Set<string>();
+const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
@@ -1573,6 +1633,7 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateSpellProjectiles(time);
   updateStoicShellHealAnimations(time);
+  updateManaConsumeAnimations(time);
   updateCharacterFacing(deltaSeconds);
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
@@ -1586,6 +1647,7 @@ renderer.setAnimationLoop((time) => {
       const light = shellAura.getObjectByName('StoicShellAuraLight') as THREE.PointLight | undefined;
       if (light) light.intensity = 2.8 + Math.sin(time * 0.006) * 0.7;
     }
+    updateManaOrbAnimation(group, time);
   });
   updateDamageVisuals(time);
   renderer.render(scene, camera);
@@ -2002,7 +2064,72 @@ function createJohnChrist(playerColor = 0x169bd3) {
   add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  const manaAura = new THREE.Group(); manaAura.name = 'ManaOrbAura'; root.add(manaAura);
+  for (let index = 0; index < 3; index++) {
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), new THREE.MeshStandardMaterial({ color: 0x69d4ff, emissive: 0x168fe8, emissiveIntensity: 4.2, roughness: 0.08, transparent: true, opacity: 0.96 }));
+    orb.name = `ManaOrb${index + 1}`; orb.visible = false; orb.userData.orbIndex = index; manaAura.add(orb);
+  }
   return root;
+}
+
+function syncManaOrbVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
+  const aura = group.getObjectByName('ManaOrbAura') as THREE.Group | undefined;
+  if (!aura) return;
+  const consumeOrbs = player.character === 'magician' && player.manaMode === 'consume' && player.id === gameState.activePlayerId;
+  const visibleCount = consumeOrbs ? 3 : player.character === 'magician' ? player.manaPoints : 0;
+  const previousCount = Number(aura.userData.visibleCount ?? 0);
+  aura.children.forEach((child, index) => {
+    child.visible = index < visibleCount;
+    const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    material.color.setHex(consumeOrbs ? 0xb66cff : 0x69d4ff);
+    material.emissive.setHex(consumeOrbs ? 0x7a24da : 0x168fe8);
+    if (index >= previousCount && index < visibleCount) child.userData.spawnedAt = performance.now();
+  });
+  aura.userData.visibleCount = visibleCount;
+}
+
+function updateManaOrbAnimation(group: THREE.Group, time: number) {
+  const aura = group.getObjectByName('ManaOrbAura') as THREE.Group | undefined;
+  if (!aura) return;
+  aura.children.forEach((child, index) => {
+    if (!child.visible) return;
+    const angle = time * 0.00125 + index * Math.PI * 2 / 3;
+    child.position.set(Math.cos(angle) * 0.78, 1.05 + Math.sin(time * 0.0024 + index * 1.7) * 0.18, Math.sin(angle) * 0.78);
+    const spawnProgress = Math.min(1, (time - Number(child.userData.spawnedAt ?? 0)) / 420);
+    const scale = Math.max(0.01, spawnProgress) * (1 + Math.sin(time * 0.006 + index) * 0.08);
+    child.scale.setScalar(scale);
+  });
+}
+
+function syncManaConsumeAnimation(playerId: PlayerId, group: THREE.Group) {
+  const eventId = gameState.players[playerId].manaConsumeEventId;
+  if (!eventId || processedManaConsumeEvents.has(eventId)) return;
+  processedManaConsumeEvents.add(eventId);
+  const effect = new THREE.Group();
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.64, 7, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0xb978ff, transparent: true, opacity: 0.72, depthWrite: false, blending: THREE.AdditiveBlending }));
+  beam.position.y = 4.1;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.8, 48), new THREE.MeshBasicMaterial({ color: 0xc184ff, transparent: true, opacity: 0.94, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.1;
+  const light = new THREE.PointLight(0xa84dff, 9, 7); light.position.y = 1.7;
+  effect.add(beam, ring, light); group.add(effect);
+  manaConsumeAnimations.push({ parent: group, group: effect, beam, ring, light, startedAt: performance.now() });
+}
+
+function updateManaConsumeAnimations(time: number) {
+  for (let index = manaConsumeAnimations.length - 1; index >= 0; index--) {
+    const animation = manaConsumeAnimations[index];
+    const progress = Math.min(1, (time - animation.startedAt) / 1900);
+    animation.beam.scale.set(0.8 + Math.sin(progress * Math.PI * 8) * 0.12, 1, 0.8 + Math.sin(progress * Math.PI * 8) * 0.12);
+    animation.ring.scale.setScalar(0.5 + progress * 2.2);
+    (animation.beam.material as THREE.MeshBasicMaterial).opacity = 0.72 * (1 - progress);
+    (animation.ring.material as THREE.MeshBasicMaterial).opacity = 0.94 * (1 - progress);
+    animation.light.intensity = 9 * (1 - progress);
+    if (progress < 1) continue;
+    animation.parent.remove(animation.group);
+    animation.beam.geometry.dispose(); (animation.beam.material as THREE.Material).dispose();
+    animation.ring.geometry.dispose(); (animation.ring.material as THREE.Material).dispose();
+    manaConsumeAnimations.splice(index, 1);
+  }
 }
 
 function syncStoicShellHealAnimations() {
@@ -2013,32 +2140,39 @@ function syncStoicShellHealAnimations() {
     if (processedStoicShellHeals.has(eventId)) continue;
     processedStoicShellHeals.add(eventId);
     const group = new THREE.Group();
-    const beamMaterial = new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.62, depthWrite: false, blending: THREE.AdditiveBlending });
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.72, 3.8, 32, 1, true), beamMaterial);
-    beam.position.y = 1.9;
+    const beamMaterial = new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.82, 6.4, 32, 1, true), beamMaterial);
+    beam.position.y = 3.2;
     const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffdc4d, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.68, 48), ringMaterial);
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.08;
-    const light = new THREE.PointLight(0xffdf58, 7, 5); light.position.y = 1.1;
-    group.add(beam, ring, light); group.position.copy(worldPosition(player.position)); scene.add(group);
-    stoicShellHealAnimations.push({ group, beam, ring, light, startedAt: performance.now() });
+    const crownMaterial = new THREE.MeshBasicMaterial({ color: 0xffffc7, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const crown = new THREE.Mesh(new THREE.RingGeometry(0.34, 1.05, 64), crownMaterial);
+    crown.rotation.x = -Math.PI / 2; crown.position.y = 6.18;
+    const light = new THREE.PointLight(0xffe77d, 10, 7); light.position.y = 2.2;
+    group.add(beam, ring, crown, light); group.position.copy(worldPosition(player.position)); scene.add(group);
+    stoicShellHealAnimations.push({ group, beam, ring, crown, light, startedAt: performance.now() });
   }
 }
 
 function updateStoicShellHealAnimations(time: number) {
   for (let index = stoicShellHealAnimations.length - 1; index >= 0; index--) {
     const animation = stoicShellHealAnimations[index];
-    const progress = Math.min(1, (time - animation.startedAt) / 1700);
-    const pulse = 0.72 + Math.sin(progress * Math.PI * 5) * 0.12;
+    const progress = Math.min(1, (time - animation.startedAt) / 2100);
+    const pulse = 0.76 + Math.sin(progress * Math.PI * 6) * 0.14;
     animation.beam.scale.set(pulse, 1, pulse);
     animation.ring.scale.setScalar(0.7 + progress * 1.8);
-    (animation.beam.material as THREE.MeshBasicMaterial).opacity = 0.62 * (1 - progress);
+    animation.crown.rotation.z = progress * Math.PI * 1.5;
+    animation.crown.scale.setScalar(0.86 + Math.sin(progress * Math.PI) * 0.35);
+    (animation.beam.material as THREE.MeshBasicMaterial).opacity = 0.72 * (1 - progress);
     (animation.ring.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - progress);
-    animation.light.intensity = 7 * (1 - progress);
+    (animation.crown.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - progress);
+    animation.light.intensity = 10 * (1 - progress);
     if (progress < 1) continue;
     scene.remove(animation.group);
     animation.beam.geometry.dispose(); (animation.beam.material as THREE.Material).dispose();
     animation.ring.geometry.dispose(); (animation.ring.material as THREE.Material).dispose();
+    animation.crown.geometry.dispose(); (animation.crown.material as THREE.Material).dispose();
     stoicShellHealAnimations.splice(index, 1);
   }
 }
@@ -2223,6 +2357,8 @@ function syncBoard() {
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
+    syncManaOrbVisual(group, gameState.players[id]);
+    syncManaConsumeAnimation(id, group);
     group.traverse((child) => { child.userData.playerId = id; });
   });
   syncCaptureTheFlagVisual();
@@ -2292,35 +2428,39 @@ function createQuestFlag(color: number) {
 }
 
 function syncCaptureTheFlagVisual() {
-  const flag = (gameState as GameState & { questPhases?: { captureTheFlag?: { anchor: { x: number; y: number }; carrierIds?: PlayerId[]; carrierId?: PlayerId | null } | null } }).questPhases?.captureTheFlag;
-  const carrierIds = flag ? (flag.carrierIds ?? (flag.carrierId ? [flag.carrierId] : [])) : [];
-  const key = flag ? `${flag.anchor.x},${flag.anchor.y}:${carrierIds.join(',')}` : 'none';
+  type VisualFlag = { id: string; ownerId: PlayerId; homeAnchor: { x: number; y: number }; status: 'home' | 'carried' | 'dropped' | 'captured'; carrierId: PlayerId | null; droppedAt: Cell | null };
+  const capture = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: VisualFlag[] } | null } }).questPhases?.captureTheFlag;
+  const flags = capture?.flags ?? [];
+  const key = flags.length > 0 ? flags.map((flag) => `${flag.id}:${flag.status}:${flag.carrierId ?? ''}:${flag.droppedAt ? cellLabel(flag.droppedAt) : ''}`).join('|') : 'none';
   if (key !== questFlagVisualKey) {
     questFlagModels.forEach((model) => model.removeFromParent());
     questFlagModels.clear();
-    if (flag) {
-      questFlagModels.set('ground', createQuestFlag(0xffd166));
-      for (const carrierId of carrierIds) {
-        const color = carrierId === 'P1' ? 0x45c8ff : carrierId === 'P2' ? 0xff5d68 : 0xa06cff;
-        questFlagModels.set(carrierId, createQuestFlag(color));
-      }
+    for (const flag of flags) {
+      const color = flag.ownerId === 'P1' ? 0x45c8ff : flag.ownerId === 'P2' ? 0xff5d68 : 0xa06cff;
+      questFlagModels.set(flag.id, createQuestFlag(color));
     }
     questFlagVisualKey = key;
   }
-  if (!flag) return;
-  const groundFlag = questFlagModels.get('ground');
-  if (groundFlag) {
-    if (groundFlag.parent !== scene) scene.add(groundFlag);
-    groundFlag.position.set((flag.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (flag.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
-  }
-  for (const carrierId of carrierIds) {
-    const model = questFlagModels.get(carrierId);
-    const carrier = dummyGroups.get(carrierId);
-    if (!model || !carrier) continue;
-    if (model.parent !== carrier) carrier.add(model);
-    model.position.set(0, .72, .55);
-    model.rotation.set(0, Math.PI, 0);
-    model.scale.setScalar(.72);
+  const carrierCounts = new Map<PlayerId, number>();
+  for (const flag of flags) {
+    const model = questFlagModels.get(flag.id);
+    if (!model || flag.status === 'captured') { model?.removeFromParent(); continue; }
+    if (flag.status === 'carried' && flag.carrierId) {
+      const carrier = dummyGroups.get(flag.carrierId);
+      if (!carrier) continue;
+      const index = carrierCounts.get(flag.carrierId) ?? 0;
+      carrierCounts.set(flag.carrierId, index + 1);
+      if (model.parent !== carrier) carrier.add(model);
+      model.position.set(index ? -.42 : .42, .72, .55);
+      model.rotation.set(0, Math.PI, 0);
+      model.scale.setScalar(.72);
+      continue;
+    }
+    const location = flag.status === 'dropped' && flag.droppedAt ? flag.droppedAt : flag.homeAnchor;
+    if (model.parent !== scene) scene.add(model);
+    model.position.set((location.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (location.y - (visualBoardHeight() - 1) / 2) * 1.92);
+    model.rotation.set(0, 0, 0);
+    model.scale.setScalar(1);
   }
 }
 
@@ -2492,7 +2632,7 @@ function highlightCells() {
     const protectedFromHigh = activeHigh && !targetHigh && protectedLabels.includes(cellLabel(cell)) && distance(activePlayer.position, cell) > 1;
     const attackableObject = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id) || attackableObject)
-      && distance(activePlayer.position, cell) <= activePlayer.attackRange && hasLineOfSight(gameState, activePlayer.position, cell) && !protectedFromHigh;
+      && distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && !protectedFromHigh;
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
       (selectedCard?.cardId === 'force-throw' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && distance(activePlayer.position, cell) <= 4)
       || (selectedCard?.cardId === 'force-pull' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && hasLineOfSight(gameState, activePlayer.position, cell)) || (Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar')) && distance(activePlayer.position, cell) <= 4)
@@ -2504,11 +2644,12 @@ function highlightCells() {
     const pullTargetValid = gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull) && distance(gameState.players[gameState.forcePull!.casterId].position, cell) <= gameState.forcePull!.targetRange
       && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== gameState.forcePull!.casterId && hasLineOfSight(gameState, gameState.players[gameState.forcePull!.casterId].position, cell)));
     const magicTargetValid = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic)
-      && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, cell) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
+      && (magic!.level >= 2 || distance(gameState.players[magic!.casterId].position, cell) <= 5)
+      && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (magic!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== magic!.casterId));
     const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.arcaneMissle!.casterId
       && Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level));
     const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.chainLightning!.casterId
-      && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= gameState.players[gameState.chainLightning!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
+      && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[gameState.chainLightning!.casterId]) && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
     const fireball = (gameState as any).fireball as { casterId: PlayerId } | undefined;
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
       && distance(gameState.players[fireball!.casterId].position, cell) <= 3 && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
@@ -2543,12 +2684,12 @@ function updateTargetHighlights(time: number) {
     const targetHigh = (gameState.elevations[cellLabel(target.position)] ?? 0) > 0;
     const protectedLabels = gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.highgroundProtected : ['C4', 'C5', 'D3', 'E3', 'D6', 'E6', 'F4', 'F5'];
     const protectedFromHigh = attackerHigh && !targetHigh && protectedLabels.includes(cellLabel(target.position)) && distance(attacker.position, target.position) > 1;
-    const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= attacker.attackRange && hasLineOfSight(gameState, attacker.position, target.position) && !protectedFromHigh;
+    const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && !protectedFromHigh;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
     const validArcane = canArcaneTarget && playerId !== arcane!.casterId && Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level));
     const chainCaster = chain ? gameState.players[chain.casterId] : null;
-    const validChain = canChainTarget && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= chainCaster!.attackRange && hasLineOfSight(gameState, chainCaster!.position, target.position);
+    const validChain = canChainTarget && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= effectiveAttackRange(gameState, chainCaster!) && hasLineOfSight(gameState, chainCaster!.position, target.position);
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
     const validMagic = canMagicTarget && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
     const valid = validAttack || validPull || validArcane || validChain || validMagic;
@@ -2613,6 +2754,7 @@ function onBoardClick(event: PointerEvent) {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     if (objectHit) dispatch({ type: 'magic-hand-target', playerId: gameState.magicHand!.casterId, targetKind: 'object', targetId: objectHit });
+    else if (playerHit && playerHit !== gameState.magicHand!.casterId) dispatch({ type: 'magic-hand-target', playerId: gameState.magicHand!.casterId, targetKind: 'player', targetId: playerHit });
   } else if (gameState.phase === 'choosing-magic-hand-direction') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'magic-hand-direction', playerId: gameState.magicHand!.casterId, to: cellHit.object.userData.cell });
