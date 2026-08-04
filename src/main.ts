@@ -11,7 +11,6 @@ import {
   STARTING_DECKS,
   applyCommand,
   arcaneMisslePath,
-  mindBlastCanTarget,
   arkaneArowPath,
   cardDefinition,
   cellLabel,
@@ -192,11 +191,6 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' && gameState.phase === 'dance-through') {
     event.preventDefault();
     dispatch({ type: 'end-dance', playerId: gameState.activePlayerId });
-    return;
-  }
-  if (event.code === 'Escape' && gameState.phase === 'mana-blast-offer' && gameState.pendingAttack?.feedSpiritOffered) {
-    event.preventDefault();
-    dispatch({ type: 'feed-spirit-decision', playerId: gameState.pendingAttack.defenderId, cardInstanceId: null });
     return;
   }
   if (event.code === 'Escape' && isWaitingForResolvedCardTarget()) {
@@ -386,7 +380,6 @@ function normalizeOnlineState(state: GameState): GameState {
     player.actionsRemaining ??= 2;
     player.swiftformMoveBonus ??= 0;
     player.grimoireMoveBonus ??= 0;
-    player.movementAnnulledByBlessedSwiftness ??= false;
     player.pinnedStacks ??= 0;
     player.hand ??= [];
     player.deck ??= [];
@@ -560,7 +553,7 @@ function renderUI() {
   byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${escapeHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
   const prompt = byId('prompt');
-  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
+  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
   if (gameState.phase === 'choosing-end-discard' && actor.hand.length <= 5) prompt.textContent = 'Hand limit satisfied · discard more eligible cards or select End Turn';
   if (gameState.phase === 'choosing-force-throw-target') prompt.textContent = 'Force Throw: select a valid target · Escape to cancel';
@@ -942,7 +935,6 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">🥵${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
     const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">✦<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
-    const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
     const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">➜<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
@@ -954,7 +946,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards, MOV 1, and may pass through enemies. Attack or end the turn to exit.</span></div>` : '';
     const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">◉<span class="status-tooltip"><strong>Stoic Shell</strong>Removed by HP Damage; otherwise restores 1 HP at the beginning of John's next turn.</span></div>` : '';
-    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderCharacterStatuses() {
@@ -985,21 +977,11 @@ function renderHand() {
   if (gameState.phase === 'choosing-force-disarm-discard') {
     const requiredTarget = gameState.forceDisarm!.targetId;
     const requiredKind = gameState.forceDisarm!.cardKind ?? 'attack';
-    const mindBlast = 'mindBlastLevel' in gameState.forceDisarm!;
     if (viewerId !== requiredTarget) {
       byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredTarget].name)} to discard an Attack card.</div>`;
       return;
     }
-    if (mindBlast) {
-      const eligible = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded);
-      byId('hand').innerHTML = eligible.map((instance) => {
-        const card = cardDefinition(instance);
-        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
-      }).join('');
-      document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
-      return;
-    }
-    const attacks = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded && (mindBlast || cardDefinition(instance).kind === requiredKind));
+    const attacks = viewer.hand.filter((instance) => cardDefinition(instance).kind === requiredKind);
     byId('hand').innerHTML = attacks.map((instance) => {
       const card = cardDefinition(instance);
       return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
@@ -1062,28 +1044,6 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
-  const innerPeace = (gameState as GameState & { innerPeace?: { playerId: PlayerId; level: number } | null }).innerPeace;
-  if (gameState.phase === 'choosing-blessed-prayer-discard' && innerPeace) {
-    const player = gameState.players[innerPeace.playerId];
-    const visible = viewerId === player.id && canLocalAct(player.id);
-    modal.classList.toggle('hidden', !visible);
-    if (!visible) { modal.innerHTML = ''; return; }
-    const statuses = player.hand.filter((instance) => cardDefinition(instance).kind === 'status');
-    modal.innerHTML = `<div class="choice-dialog"><span>INNER PEACE · LEVEL 1</span><h2>Remove a Status Card</h2><p>Choose one Status Card from Hand to Remove. Higher-level effects resolve afterward.</p><div class="choice-cards">${statuses.map((instance) => `<button data-inner-peace-status="${instance.instanceId}"><strong>${escapeHtml(cardDefinition(instance).name)}</strong><small>Remove from Hand</small></button>`).join('')}</div></div>`;
-    modal.querySelectorAll<HTMLButtonElement>('[data-inner-peace-status]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'inner-peace-status-choice', playerId: player.id, cardInstanceId: button.dataset.innerPeaceStatus! })));
-    return;
-  }
-  if (gameState.phase === 'mana-blast-offer' && gameState.pendingAttack?.feedSpiritOffered) {
-    const john = gameState.players[gameState.pendingAttack.defenderId];
-    const visible = viewerId === john.id && canLocalAct(john.id);
-    modal.classList.toggle('hidden', !visible);
-    if (!visible) { modal.innerHTML = ''; return; }
-    const blessings = john.hand.filter((instance) => cardDefinition(instance).name.startsWith('Blessing:'));
-    modal.innerHTML = `<div class="choice-dialog"><span>DEFENCE FOLLOW-UP</span><h2>Feed the Spirit</h2><p>You may Remove one Blessing Card to restore 1 additional Hit Point.</p><div class="choice-cards">${blessings.map((instance) => `<button data-feed-blessing="${instance.instanceId}"><strong>${escapeHtml(cardDefinition(instance).name)}</strong><small>Remove · Restore +1 HP</small></button>`).join('')}</div><button class="choice-decline" id="feedSpiritDecline">Do not remove · Esc</button></div>`;
-    modal.querySelectorAll<HTMLButtonElement>('[data-feed-blessing]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'feed-spirit-decision', playerId: john.id, cardInstanceId: button.dataset.feedBlessing! })));
-    modal.querySelector('#feedSpiritDecline')?.addEventListener('click', () => dispatch({ type: 'feed-spirit-decision', playerId: john.id, cardInstanceId: null }));
-    return;
-  }
   if (gameState.phase === 'choosing-blessed-prayer-discard') {
     const player = gameState.players[gameState.activePlayerId];
     const visible = viewerId === player.id && canLocalAct(player.id);
@@ -1304,15 +1264,6 @@ function renderCombatReveal() {
     modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
-    return;
-  }
-  if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
-    const decisionPlayer = reveal.mythrilHelmet.playerId;
-    const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Shield to absorb 1 Damage caused by this Attack Card's effects. Ordinary combat Damage is unaffected.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1 EFFECT DAMAGE</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
-    modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
-    document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
-    document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
     return;
   }
   if (reveal.mythrilHelmet) {
@@ -1649,6 +1600,13 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (event.code === 'Home') {
+    fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
+    cameraKeys.clear();
+    notify('Camera angle and zoom reset to the arena.');
+    event.preventDefault();
+    return;
+  }
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(event.code)) {
     cameraKeys.add(event.code);
     event.preventDefault();
@@ -2688,9 +2646,8 @@ function highlightCells() {
     const magicTargetValid = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic)
       && (magic!.level >= 2 || distance(gameState.players[magic!.casterId].position, cell) <= 5)
       && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (magic!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== magic!.casterId));
-    const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
     const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.arcaneMissle!.casterId
-      && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], playerOnCell!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level)));
+      && Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level));
     const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.chainLightning!.casterId
       && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[gameState.chainLightning!.casterId]) && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
     const fireball = (gameState as any).fireball as { casterId: PlayerId } | undefined;
@@ -2716,7 +2673,6 @@ function updateTargetHighlights(time: number) {
   const canArmTarget = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && canLocalAct(gameState.armDaWiz!.casterId);
   const canKykTarget = gameState.phase === 'choosing-kyk-target' && Boolean(gameState.forceThrow) && canLocalAct(gameState.forceThrow!.casterId);
   const arcane = gameState.arcaneMissle;
-  const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
   const canArcaneTarget = gameState.phase === 'choosing-arcane-missle-target' && Boolean(arcane) && canLocalAct(arcane!.casterId);
   const chain = gameState.chainLightning;
   const canChainTarget = gameState.phase === 'choosing-chain-lightning-target' && Boolean(chain) && canLocalAct(chain!.casterId);
@@ -2731,7 +2687,7 @@ function updateTargetHighlights(time: number) {
     const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && !protectedFromHigh;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
-    const validArcane = canArcaneTarget && playerId !== arcane!.casterId && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], target) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level)));
+    const validArcane = canArcaneTarget && playerId !== arcane!.casterId && Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level));
     const chainCaster = chain ? gameState.players[chain.casterId] : null;
     const validChain = canChainTarget && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= effectiveAttackRange(gameState, chainCaster!) && hasLineOfSight(gameState, chainCaster!.position, target.position);
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
