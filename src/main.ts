@@ -193,6 +193,11 @@ window.addEventListener('keydown', (event) => {
     dispatch({ type: 'end-dance', playerId: gameState.activePlayerId });
     return;
   }
+  if (event.code === 'Escape' && gameState.phase === 'mana-blast-offer' && gameState.pendingAttack?.feedSpiritOffered) {
+    event.preventDefault();
+    dispatch({ type: 'feed-spirit-decision', playerId: gameState.pendingAttack.defenderId, cardInstanceId: null });
+    return;
+  }
   if (event.code === 'Escape' && isWaitingForResolvedCardTarget()) {
     event.preventDefault();
     dispatch({ type: 'cancel-targeting', playerId: actingPlayer() });
@@ -1044,6 +1049,17 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  if (gameState.phase === 'mana-blast-offer' && gameState.pendingAttack?.feedSpiritOffered) {
+    const john = gameState.players[gameState.pendingAttack.defenderId];
+    const visible = viewerId === john.id && canLocalAct(john.id);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    const blessings = john.hand.filter((instance) => cardDefinition(instance).name.startsWith('Blessing:'));
+    modal.innerHTML = `<div class="choice-dialog"><span>DEFENCE FOLLOW-UP</span><h2>Feed the Spirit</h2><p>You may Remove one Blessing Card to restore 1 additional Hit Point.</p><div class="choice-cards">${blessings.map((instance) => `<button data-feed-blessing="${instance.instanceId}"><strong>${escapeHtml(cardDefinition(instance).name)}</strong><small>Remove · Restore +1 HP</small></button>`).join('')}</div><button class="choice-decline" id="feedSpiritDecline">Do not remove · Esc</button></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-feed-blessing]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'feed-spirit-decision', playerId: john.id, cardInstanceId: button.dataset.feedBlessing! })));
+    modal.querySelector('#feedSpiritDecline')?.addEventListener('click', () => dispatch({ type: 'feed-spirit-decision', playerId: john.id, cardInstanceId: null }));
+    return;
+  }
   if (gameState.phase === 'choosing-blessed-prayer-discard') {
     const player = gameState.players[gameState.activePlayerId];
     const visible = viewerId === player.id && canLocalAct(player.id);
@@ -1264,6 +1280,15 @@ function renderCombatReveal() {
     modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
+  if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
+    const decisionPlayer = reveal.mythrilHelmet.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Shield to absorb 1 Damage caused by this Attack Card's effects. Ordinary combat Damage is unaffected.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1 EFFECT DAMAGE</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
+    document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
     return;
   }
   if (reveal.mythrilHelmet) {

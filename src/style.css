@@ -291,23 +291,23 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .hand.hand-overflow .card strong { font-size: 16px; }
 .hand.hand-overflow .card small { font-size: calc(9px + .5pt); }
 
-/* Central action prompt. */
+/* Compact action prompt above the board action. */
 .prompt {
-  top: 50%;
+  top: 14px;
   bottom: auto;
   width: max-content;
-  max-width: calc(100% - 32px);
-  padding: clamp(10px, 1.5vw, 20px) clamp(14px, 2.5vw, 36px);
-  font-size: clamp(11px, 1.25vw, 20px);
-  line-height: 1.2;
+  max-width: min(70%, 680px);
+  padding: 7px 14px;
+  font-size: clamp(9px, .72vw, 12px);
+  line-height: 1.15;
   text-align: center;
   white-space: normal;
   overflow-wrap: anywhere;
-  transform: translate(-50%, -50%) scale(.96);
+  transform: translate(-50%, -6px) scale(.98);
   z-index: 20;
 }
 .prompt.visible {
-  transform: translate(-50%, -50%) scale(1);
+  transform: translate(-50%, 0) scale(1);
 }
 
 .combat-reveal-modal { z-index: 140; }
@@ -598,7 +598,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .spell-echo { width: 50px; }
   .echo-slot { min-height: 36px; }
   .action-quest-panel { left: 8px; right: auto; bottom: 8px; width: min(190px, 42vw); transform: none; }
-  .prompt { max-width: min(55%, 520px); }
+  .prompt { top: 8px; max-width: min(62%, 440px); padding: 5px 9px; font-size: 9px; }
   .command-deck { display: grid; grid-template-columns: 1fr; }
   .hud,
   .hud:has(#p3Stats.hidden) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
