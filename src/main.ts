@@ -1649,13 +1649,6 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-  if (event.code === 'Home') {
-    fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
-    cameraKeys.clear();
-    notify('Camera angle and zoom reset to the arena.');
-    event.preventDefault();
-    return;
-  }
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(event.code)) {
     cameraKeys.add(event.code);
     event.preventDefault();
