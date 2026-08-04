@@ -3148,19 +3148,24 @@ assert.equal(john.maxHp, 14);
 assert.equal(john.moveRange, 3);
 assert.equal(john.attackRange, 3);
 assert.equal(john.hand.length, 5, 'John’s starting Hand contains exactly his five newest Cards.');
-assert.deepEqual(john.hand.map((card) => card.cardId), ['blessed-might', 'blessed-prayer', 'blessed-block', 'feed-the-spirit', 'thorns'], 'John starts with his five most recently created Cards in creation order.');
-assert.deepEqual(john.deck.map((card) => card.cardId), ['blessed-light', 'cleanse', 'repent', 'enforce'], 'Older John Cards begin in his Deck.');
+assert.deepEqual(john.hand.map((card) => card.cardId), ['blessed-swiftness', 'resurrection', 'fear-the-justice', 'inner-peace', 'mind-blast'], 'John starts with his five most recently created Cards in creation order.');
+assert.deepEqual(john.deck.map((card) => card.cardId), ['blessed-light', 'cleanse', 'repent', 'enforce', 'blessed-might', 'blessed-prayer', 'blessed-block', 'feed-the-spirit', 'thorns'], 'Older John Cards begin in his Deck.');
 assert.equal(john.hand.some((card) => card.cardId === 'blessed-light'), false, 'Blessed Light no longer starts in John Christ’s Hand.');
 assert.equal(john.hand.some((card) => card.cardId === 'cleanse'), false, 'Cleanse moves to John Christ’s Deck as newer Cards are created.');
 assert.equal(john.hand.some((card) => card.cardId === 'repent'), false, 'Repent! moves to John Christ’s Deck as newer Cards are created.');
 assert.equal(john.hand.some((card) => card.cardId === 'enforce'), false, 'Enforce moves to John Christ’s Deck as newer Cards are created.');
-assert.equal(john.hand.some((card) => card.cardId === 'blessed-might'), true, 'Blessed Might starts in John Christ’s Hand.');
-assert.equal(john.hand.some((card) => card.cardId === 'blessed-prayer'), true, 'Blessed Prayer starts in John Christ’s Hand.');
-assert.equal(john.hand.some((card) => card.cardId === 'blessed-block'), true, 'Blessed Block starts in John Christ’s Hand as his newest Card.');
-assert.equal(john.hand.some((card) => card.cardId === 'feed-the-spirit'), true, 'Feed the Spirit starts in John Christ’s Hand as his newest Card.');
-assert.equal(john.hand.some((card) => card.cardId === 'thorns'), true, 'Thorns starts in John Christ’s Hand as his newest Card.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessed-might'), false, 'Blessed Might moves to John Christ’s Deck as newer Cards are created.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessed-prayer'), false, 'Blessed Prayer moves to John Christ’s Deck as newer Cards are created.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessed-block'), false, 'Blessed Block moves to John Christ’s Deck as newer Cards are created.');
+assert.equal(john.hand.some((card) => card.cardId === 'feed-the-spirit'), false, 'Feed the Spirit moves to John Christ’s Deck as newer Cards are created.');
+assert.equal(john.hand.some((card) => card.cardId === 'thorns'), false, 'Thorns moves to John Christ’s Deck as newer Cards are created.');
+assert.equal(john.hand.some((card) => card.cardId === 'blessed-swiftness'), true, 'Blessed Swiftness starts in John Christ’s Hand as his newest Card.');
+assert.equal(john.hand.some((card) => card.cardId === 'resurrection'), true, 'Resurrection starts in John Christ’s Hand as his newest Card.');
+assert.equal(john.hand.some((card) => card.cardId === 'fear-the-justice'), true, 'Fear the Justice starts in John Christ’s Hand as his newest Card.');
+assert.equal(john.hand.some((card) => card.cardId === 'inner-peace'), true, 'Inner Peace starts in John Christ’s Hand as his newest Card.');
+assert.equal(john.hand.some((card) => card.cardId === 'mind-blast'), true, 'Mind Blast starts in John Christ’s Hand as his newest Card.');
 assert.equal(john.hand.some((card) => card.cardId === 'blessing-light'), false, 'Blessing: Light is generated and never starts in Hand.');
-assert.equal(john.deck.some((card) => card.cardId === 'blessing-light' || card.cardId === 'blessing-prayer' || card.cardId === 'blessing-might' || card.cardId === 'blessing-shield'), false, 'Generated Blessings never begin in John’s Deck.');
+assert.equal(john.deck.some((card) => card.cardId === 'blessing-light' || card.cardId === 'blessing-prayer' || card.cardId === 'blessing-might' || card.cardId === 'blessing-shield' || card.cardId === 'blessing-swiftness' || card.cardId === 'blessing-faith'), false, 'Generated Blessings never begin in John’s Deck.');
 john.movementRemaining = 3;
 john.stoicShell = true;
 dealDamage(johnState, john, 2);
@@ -3198,6 +3203,104 @@ if (johnEnteredEnemy.ok) {
   if (johnLeftEnemy.ok) {
     assert.equal(johnLeftEnemy.state.players.P1.movementRemaining, 0);
     assert.equal(johnLeftEnemy.state.players.P1.spiritEnemyUnderfoot, null);
+  }
+}
+
+const fearJusticeState = createHotseatTestState(false, 'john-christ', 3, 'dummy');
+fearJusticeState.phase = 'active';
+fearJusticeState.objects = [];
+fearJusticeState.players.P1.position = { x: 3, y: 3 };
+fearJusticeState.players.P2.position = { x: 2, y: 3 };
+fearJusticeState.players.P3.position = { x: 4, y: 3 };
+fearJusticeState.players.P1.movementRemaining = 3;
+fearJusticeState.players.P1.hand = [];
+fearJusticeState.players.P1.spellEcho = [null, null, { instanceId: 'fear-justice-level-3', cardId: 'fear-the-justice' }];
+fearJusticeState.players.P2.hand = [{ instanceId: 'fear-defend-p2', cardId: 'defend-1' }];
+fearJusticeState.players.P3.hand = [{ instanceId: 'fear-defend-p3', cardId: 'defend-1' }];
+const fearJusticePlayed = applyGameCommand(fearJusticeState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(fearJusticePlayed.ok, true);
+if (fearJusticePlayed.ok) {
+  assert.equal(fearJusticePlayed.state.players.P1.spiritForm, true, 'Fear the Justice level 1 enters Spirit Form.');
+  assert.equal(fearJusticePlayed.state.players.P1.movementRemaining, 1, 'Entering Spirit Form through Fear the Justice caps unspent MOV at 1.');
+  assert.equal(fearJusticePlayed.state.players.P2.hand.some((card) => card.cardId === 'panic'), true, 'Fear the Justice level 2 applies Panic to adjacent P2.');
+  assert.equal(fearJusticePlayed.state.players.P3.hand.some((card) => card.cardId === 'panic'), true, 'Fear the Justice level 2 applies Panic to adjacent P3.');
+  assert.equal(fearJusticePlayed.state.forceDisarm?.targetId, 'P2', 'Fear the Justice level 3 begins sequential Defend discards with the first affected enemy.');
+  const fearP2Discard = applyGameCommand(fearJusticePlayed.state, { type: 'force-disarm-discard', playerId: 'P2', cardInstanceId: 'fear-defend-p2' });
+  assert.equal(fearP2Discard.ok, true);
+  if (fearP2Discard.ok) {
+    assert.equal(fearP2Discard.state.forceDisarm?.targetId, 'P3', 'Fear the Justice continues to the next affected enemy.');
+    const fearP3Discard = applyGameCommand(fearP2Discard.state, { type: 'force-disarm-discard', playerId: 'P3', cardInstanceId: 'fear-defend-p3' });
+    assert.equal(fearP3Discard.ok, true);
+    if (fearP3Discard.ok) {
+      assert.equal(fearP3Discard.state.phase, 'active');
+      assert.equal(fearP3Discard.state.forceDisarm, null);
+    }
+  }
+}
+
+const innerPeaceState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+innerPeaceState.players.P1.spiritForm = true;
+innerPeaceState.players.P1.attackRange = 1;
+innerPeaceState.players.P1.hand = [
+  { instanceId: 'inner-peace-pinned', cardId: 'pinned', revealedToOpponent: true },
+  { instanceId: 'inner-peace-headache', cardId: 'headache', revealedToOpponent: true },
+];
+innerPeaceState.players.P1.pinnedStacks = 1;
+innerPeaceState.players.P1.deck = [{ instanceId: 'inner-peace-burning-deck', cardId: 'burning' }];
+innerPeaceState.players.P1.discard = [{ instanceId: 'inner-peace-exhaust-discard', cardId: 'exhaust' }];
+innerPeaceState.players.P1.spellEcho = [null, null, { instanceId: 'inner-peace-level-3', cardId: 'inner-peace' }];
+const innerPeacePlayed = applyGameCommand(innerPeaceState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(innerPeacePlayed.ok, true);
+if (innerPeacePlayed.ok) {
+  assert.equal(innerPeacePlayed.state.players.P1.spiritForm, false, 'Inner Peace level 1 exits Spirit Form.');
+  assert.equal(innerPeacePlayed.state.phase, 'choosing-blessed-prayer-discard', 'Inner Peace waits for the Level 1 Hand Status choice.');
+  const innerPeaceChoice = applyGameCommand(innerPeacePlayed.state, { type: 'inner-peace-status-choice', playerId: 'P1', cardInstanceId: 'inner-peace-pinned' });
+  assert.equal(innerPeaceChoice.ok, true);
+  if (innerPeaceChoice.ok) {
+    assert.equal(innerPeaceChoice.state.players.P1.hand.some((card) => card.cardId === 'pinned' || card.cardId === 'headache'), false, 'Inner Peace removes the chosen Hand Status and one additional random Hand Status at level 2.');
+    assert.equal(innerPeaceChoice.state.players.P1.deck.some((card) => card.cardId === 'burning'), true, 'Level 2 prefers a remaining Hand Status before Deck and Discard Status Cards.');
+    assert.equal(innerPeaceChoice.state.players.P1.hand.some((card) => card.cardId === 'blessing-faith' && card.revealedToOpponent), true, 'Inner Peace level 3 immediately creates revealed Blessing: Faith.');
+    assert.equal(innerPeaceChoice.state.players.P1.stoicShell, true, 'Perk-created Blessing: Faith immediately grants Stoic Shell.');
+  }
+}
+
+const innerPeaceNoHandState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+innerPeaceNoHandState.players.P1.hand = [];
+innerPeaceNoHandState.players.P1.deck = [{ instanceId: 'inner-peace-deck-priority', cardId: 'burning' }];
+innerPeaceNoHandState.players.P1.discard = [{ instanceId: 'inner-peace-discard-later', cardId: 'exhaust' }];
+innerPeaceNoHandState.players.P1.spellEcho = [null, { instanceId: 'inner-peace-level-2', cardId: 'inner-peace' }, null];
+const innerPeaceNoHandPlayed = applyGameCommand(innerPeaceNoHandState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(innerPeaceNoHandPlayed.ok, true);
+if (innerPeaceNoHandPlayed.ok) {
+  assert.equal(innerPeaceNoHandPlayed.state.players.P1.deck.some((card) => card.cardId === 'burning'), false, 'Without a Hand Status, Inner Peace level 2 removes one random Status from Deck first.');
+  assert.equal(innerPeaceNoHandPlayed.state.players.P1.discard.some((card) => card.cardId === 'exhaust'), true, 'Inner Peace removes only one Level 2 Status and leaves lower-priority Discard Status Cards untouched.');
+}
+
+const mindBlastState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+mindBlastState.objects = [];
+mindBlastState.players.P1.position = { x: 2, y: 2 };
+mindBlastState.players.P2.position = { x: 4, y: 2 };
+mindBlastState.players.P1.spellEcho = [null, null, { instanceId: 'mind-blast-level-3', cardId: 'mind-blast' }];
+mindBlastState.players.P2.hand = [{ instanceId: 'mind-blast-discard', cardId: 'attack-2' }];
+mindBlastState.players.P2.deck = [{ instanceId: 'mind-blast-existing-deck', cardId: 'defend-1' }];
+const mindBlastPlayed = applyGameCommand(mindBlastState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(mindBlastPlayed.ok, true);
+if (mindBlastPlayed.ok) {
+  assert.equal(mindBlastPlayed.state.phase, 'choosing-arcane-missle-target', 'Mind Blast first waits for John to select an enemy in Range and line of sight.');
+  const mindBlastTargeted = applyGameCommand(mindBlastPlayed.state, { type: 'arcane-missle-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(mindBlastTargeted.ok, true);
+  if (mindBlastTargeted.ok) {
+    assert.equal(mindBlastTargeted.state.phase, 'choosing-force-disarm-discard', 'Mind Blast lets the target choose the Level 1 discard before later effects resolve.');
+    const hpBefore = mindBlastTargeted.state.players.P2.hp;
+    const mindBlastDiscarded = applyGameCommand(mindBlastTargeted.state, { type: 'force-disarm-discard', playerId: 'P2', cardInstanceId: 'mind-blast-discard' });
+    assert.equal(mindBlastDiscarded.ok, true);
+    if (mindBlastDiscarded.ok) {
+      assert.equal(mindBlastDiscarded.state.players.P2.hand.length, 0, 'Mind Blast level 1 discards the target-selected Card.');
+      assert.equal(mindBlastDiscarded.state.players.P2.hp, hpBefore - 1, 'Mind Blast level 2 deals 1 Damage after the discard.');
+      assert.equal(mindBlastDiscarded.state.players.P2.deck.at(-1)?.cardId, 'exhaust', "Mind Blast level 3 puts Exhaust on top of the target's Deck.");
+      assert.equal(mindBlastDiscarded.state.players.P2.knownTopCardId, 'exhaust', 'The Exhaust added on top is tracked as the known top Card.');
+      assert.equal(mindBlastDiscarded.state.phase, 'active');
+    }
   }
 }
 
@@ -3244,8 +3347,9 @@ if (blessedBlockAttack.ok) {
   const blessedBlockOffer = applyGameCommand(blessedBlockAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'blessed-block-test' });
   assert.equal(blessedBlockOffer.ok, true);
   if (blessedBlockOffer.ok) {
-    assert.equal(blessedBlockOffer.state.players.P2.hand.some((card) => card.cardId === 'blessing-shield' && card.revealedToOpponent), true, 'Blessed Block creates a revealed Blessing: Shield before combat.');
-    assert.equal(blessedBlockOffer.state.players.P2.stoicShell, true, 'Creating Blessing: Shield immediately grants Stoic Shell.');
+    assert.equal(blessedBlockOffer.state.players.P2.hand.some((card) => card.cardId === 'blessing-shield'), false, 'Blessed Block does not create Blessing: Shield during the enemy turn.');
+    assert.equal(blessedBlockOffer.state.players.P2.queuedBlessingCardIds.includes('blessing-shield'), true, 'Blessed Block queues Blessing: Shield for John’s turn start.');
+    assert.equal(blessedBlockOffer.state.players.P2.stoicShell, false, 'Blessed Block does not grant Stoic Shell during the enemy turn.');
     assert.notEqual(blessedBlockOffer.state.phase, 'choosing-mythril-helmet', 'A Blessing: Shield generated by Blessed Block is unavailable during that same combat.');
     {
       const blessedBlockAckOne = applyGameCommand(blessedBlockOffer.state, { type: 'ack-combat', playerId: 'P1' });
@@ -3254,6 +3358,20 @@ if (blessedBlockAttack.ok) {
       if (blessedBlockAckTwo.ok) assert.equal(blessedBlockAckTwo.state.players.P2.deck.some((card) => card.cardId === 'exhaust'), false, 'Blessed Block cancels Blessed Light’s Attack Card effect.');
     }
   }
+}
+
+const queuedDefenseBlessingState = createHotseatTestState(false, 'magician', 2, 'john-christ');
+queuedDefenseBlessingState.phase = 'active';
+queuedDefenseBlessingState.pendingManaChoice = null;
+queuedDefenseBlessingState.players.P2.queuedBlessingCardIds = ['blessing-shield', 'blessing-swiftness'];
+queuedDefenseBlessingState.players.P2.stoicShell = false;
+const queuedDefenseBlessingsAwarded = applyGameCommand(queuedDefenseBlessingState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(queuedDefenseBlessingsAwarded.ok, true);
+if (queuedDefenseBlessingsAwarded.ok) {
+  assert.equal(queuedDefenseBlessingsAwarded.state.players.P2.hand.some((card) => card.cardId === 'blessing-shield' && card.revealedToOpponent), true, 'Queued Defend Blessing: Shield enters Hand at the beginning of John’s turn.');
+  assert.equal(queuedDefenseBlessingsAwarded.state.players.P2.hand.some((card) => card.cardId === 'blessing-swiftness' && card.revealedToOpponent), true, 'Queued Defend Blessing: Swiftness enters Hand at the beginning of John’s turn.');
+  assert.equal(queuedDefenseBlessingsAwarded.state.players.P2.stoicShell, true, 'Turn-start Defend Blessing creation grants Stoic Shell.');
+  assert.equal(queuedDefenseBlessingsAwarded.state.players.P2.queuedBlessingCardIds.length, 0, 'Awarded Defend Blessings leave the queue.');
 }
 
 const thornsState = createHotseatTestState(false, 'magician', 2, 'john-christ');
@@ -3280,6 +3398,102 @@ if (thornsAttack.ok) {
       assert.equal(thornsAckTwo.state.players.P2.spiritForm, true, 'Combat Damage causes John to enter Spirit Form.');
       assert.equal(thornsAckTwo.state.players.P1.hand.some((card) => card.cardId === 'burning'), true, 'Thorns applies Burning to the Attacker after John enters Spirit Form.');
     }
+  }
+}
+
+const blessedSwiftnessState = createHotseatTestState(false, 'magician', 2, 'john-christ');
+blessedSwiftnessState.objects = [];
+blessedSwiftnessState.phase = 'active';
+blessedSwiftnessState.pendingManaChoice = null;
+blessedSwiftnessState.players.P1.position = { x: 2, y: 2 };
+blessedSwiftnessState.players.P2.position = { x: 3, y: 2 };
+blessedSwiftnessState.players.P1.movementRemaining = 2;
+blessedSwiftnessState.players.P1.hand = [{ instanceId: 'attack-vs-swiftness', cardId: 'grimoire-cleanse' }];
+blessedSwiftnessState.players.P2.hand = [{ instanceId: 'blessed-swiftness-test', cardId: 'blessed-swiftness' }];
+const swiftnessAttack = applyGameCommand(blessedSwiftnessState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack-vs-swiftness', targetId: 'P2' });
+assert.equal(swiftnessAttack.ok, true);
+if (swiftnessAttack.ok) {
+  const swiftnessDefense = applyGameCommand(swiftnessAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'blessed-swiftness-test' });
+  assert.equal(swiftnessDefense.ok, true);
+  if (swiftnessDefense.ok) {
+    assert.equal(swiftnessDefense.state.players.P1.movementRemaining, 0, 'Blessed Swiftness annuls all of the attacker’s unspent MOV.');
+    assert.equal(swiftnessDefense.state.players.P1.movementAnnulledByBlessedSwiftness, true, 'Blessed Swiftness displays a temporary annulled-MOV status on the affected Player.');
+    assert.equal(swiftnessDefense.state.players.P2.hand.some((card) => card.cardId === 'blessing-swiftness'), false, 'Blessed Swiftness does not create its Blessing during the enemy turn.');
+    assert.equal(swiftnessDefense.state.players.P2.queuedBlessingCardIds.includes('blessing-swiftness'), true, 'Blessed Swiftness queues its Blessing for John’s turn start.');
+    assert.equal(effectiveMoveRange(swiftnessDefense.state.players.P2), 3, 'Queued Blessing: Swiftness grants no MOV before entering Hand.');
+    assert.equal(swiftnessDefense.state.players.P2.stoicShell, false, 'Queued Blessing: Swiftness does not grant Stoic Shell early.');
+  }
+}
+
+const swiftnessExpiryState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
+swiftnessExpiryState.players.P1.movementAnnulledByBlessedSwiftness = true;
+swiftnessExpiryState.players.P1.hand = [
+  { instanceId: 'auto-swiftness', cardId: 'blessing-swiftness', revealedToOpponent: true },
+  { instanceId: 'swiftness-card-1', cardId: 'blessed-light' },
+  { instanceId: 'swiftness-card-2', cardId: 'cleanse' },
+  { instanceId: 'swiftness-card-3', cardId: 'repent' },
+  { instanceId: 'swiftness-card-4', cardId: 'enforce' },
+  { instanceId: 'swiftness-card-5', cardId: 'blessed-might' },
+];
+assert.equal(swiftnessExpiryState.players.P1.hand.some((card) => card.cardId === 'blessing-swiftness'), true, 'Blessing: Swiftness remains in a six-Card Hand until end-turn processing actually begins.');
+const swiftnessExpired = applyGameCommand(swiftnessExpiryState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(swiftnessExpired.ok, true);
+if (swiftnessExpired.ok) {
+  assert.equal(swiftnessExpired.state.players.P1.hand.some((card) => card.cardId === 'blessing-swiftness'), false, 'Blessing: Swiftness automatically leaves an over-limit Hand at end of turn.');
+  assert.equal(swiftnessExpired.state.players.P1.discard.some((card) => card.cardId === 'blessing-swiftness'), false, 'Automatically discarded Blessing: Swiftness is Removed instead of entering Discard.');
+  assert.notEqual(swiftnessExpired.state.phase, 'choosing-end-discard', 'Automatic removal satisfies a one-Card Hand overage before normal discard choice.');
+  assert.equal(swiftnessExpired.state.players.P1.movementAnnulledByBlessedSwiftness, false, 'The temporary annulled-MOV status clears when the affected Player begins ending their turn.');
+}
+
+const resurrectionState = createHotseatTestState(false, 'magician', 2, 'john-christ');
+resurrectionState.objects = [];
+resurrectionState.phase = 'active';
+resurrectionState.pendingManaChoice = null;
+resurrectionState.players.P1.position = { x: 2, y: 2 };
+resurrectionState.players.P2.position = { x: 3, y: 2 };
+resurrectionState.players.P1.hand = [{ instanceId: 'attack-vs-resurrection', cardId: 'arcane-bolt' }];
+resurrectionState.players.P2.hand = [{ instanceId: 'resurrection-test', cardId: 'resurrection' }];
+resurrectionState.players.P2.deck = [{ instanceId: 'resurrection-draw', cardId: 'cleanse' }];
+const resurrectionAttack = applyGameCommand(resurrectionState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack-vs-resurrection', targetId: 'P2' });
+assert.equal(resurrectionAttack.ok, true);
+if (resurrectionAttack.ok) {
+  const resurrectionCombat = applyGameCommand(resurrectionAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'resurrection-test' });
+  assert.equal(resurrectionCombat.ok, true);
+  if (resurrectionCombat.ok) {
+    assert.equal(resurrectionCombat.state.players.P2.hp, 14, 'Resurrection negates combat Damage when a Base Square is available.');
+    const resurrectionAckOne = applyGameCommand(resurrectionCombat.state, { type: 'ack-combat', playerId: 'P1' });
+    const resurrectionAckTwo = resurrectionAckOne.ok ? applyGameCommand(resurrectionAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : resurrectionAckOne;
+    assert.equal(resurrectionAckTwo.ok, true);
+    if (resurrectionAckTwo.ok) {
+      assert.equal(['H4', 'H5'].includes(cellLabel(resurrectionAckTwo.state.players.P2.position)), true, 'Resurrection teleports John to an available own Base Square.');
+      assert.equal(resurrectionAckTwo.state.players.P2.hand.some((card) => card.instanceId === 'resurrection-draw'), true, 'Resurrection draws 1 Card.');
+    }
+  }
+}
+
+const blockedResurrectionState = createHotseatTestState(false, 'magician', 2, 'john-christ');
+blockedResurrectionState.phase = 'active';
+blockedResurrectionState.pendingManaChoice = null;
+blockedResurrectionState.players.P1.position = { x: 2, y: 2 };
+blockedResurrectionState.players.P2.position = { x: 3, y: 2 };
+blockedResurrectionState.objects = [
+  { id: 'blocked-base-h4', name: 'Wooden Box', hp: 1, maxHp: 1, position: { x: 8, y: 3 }, kind: 'wooden-box' },
+  { id: 'blocked-base-h5', name: 'Wooden Box', hp: 1, maxHp: 1, position: { x: 8, y: 4 }, kind: 'wooden-box' },
+];
+blockedResurrectionState.players.P1.hand = [{ instanceId: 'attack-vs-blocked-resurrection', cardId: 'arcane-bolt' }];
+blockedResurrectionState.players.P2.hand = [{ instanceId: 'blocked-resurrection-test', cardId: 'resurrection' }];
+blockedResurrectionState.players.P2.deck = [{ instanceId: 'blocked-resurrection-draw', cardId: 'cleanse' }];
+const blockedResurrectionAttack = applyGameCommand(blockedResurrectionState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack-vs-blocked-resurrection', targetId: 'P2' });
+assert.equal(blockedResurrectionAttack.ok, true);
+if (blockedResurrectionAttack.ok) {
+  const blockedResurrectionCombat = applyGameCommand(blockedResurrectionAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'blocked-resurrection-test' });
+  assert.equal(blockedResurrectionCombat.ok, true);
+  if (blockedResurrectionCombat.ok) {
+    assert.equal(blockedResurrectionCombat.state.players.P2.hp, 12, 'Resurrection does not negate Damage when both Base Squares are blocked.');
+    const blockedAckOne = applyGameCommand(blockedResurrectionCombat.state, { type: 'ack-combat', playerId: 'P1' });
+    const blockedAckTwo = blockedAckOne.ok ? applyGameCommand(blockedAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : blockedAckOne;
+    assert.equal(blockedAckTwo.ok, true);
+    if (blockedAckTwo.ok) assert.equal(blockedAckTwo.state.players.P2.hand.some((card) => card.instanceId === 'blocked-resurrection-draw'), true, 'Resurrection still draws 1 Card when teleportation is impossible.');
   }
 }
 
@@ -3492,7 +3706,8 @@ if (blessedPrayerPlayed.ok) {
 }
 
 const blessedPrayerThreeState = createHotseatTestState(false, 'john-christ', 2, 'dummy');
-const blessedPrayerThreeCard = blessedPrayerThreeState.players.P1.hand.find((card) => card.cardId === 'blessed-prayer')!;
+const blessedPrayerThreeCard = blessedPrayerThreeState.players.P1.deck.find((card) => card.cardId === 'blessed-prayer')!;
+blessedPrayerThreeState.players.P1.deck = blessedPrayerThreeState.players.P1.deck.filter((card) => card.instanceId !== blessedPrayerThreeCard.instanceId);
 blessedPrayerThreeState.players.P1.hand = [];
 blessedPrayerThreeState.players.P1.spellEcho = [null, null, blessedPrayerThreeCard];
 blessedPrayerThreeState.players.P1.discard = [{ instanceId: 'chosen-prayer-discard', cardId: 'cleanse' }];
