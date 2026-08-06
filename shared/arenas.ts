@@ -1,4 +1,4 @@
-export type ArenaId = 'nagrand' | 'lordaeron';
+export type ArenaId = 'nagrand' | 'lordaeron' | 'trench';
 export type ArenaPlayerSlot = 'P1' | 'P2' | 'P3';
 
 export type ArenaDefinition = {
@@ -16,6 +16,7 @@ export type ArenaDefinition = {
   }>;
   highground: readonly string[];
   highgroundProtected: readonly string[];
+  slideSquares?: readonly string[];
   drawSquares: readonly string[];
   bases: Readonly<Record<ArenaPlayerSlot, readonly string[]>>;
   startingSquares: Readonly<Partial<Record<ArenaPlayerSlot, string>>>;
@@ -79,6 +80,27 @@ export const LORDAERON_ARENA: ArenaDefinition = {
   },
   startingSquares: { P1: 'B7', P2: 'F2', P3: 'G7' },
 };
+
+export const THE_TRENCH_ARENA: ArenaDefinition = {
+  id: 'trench', name: 'The Trench', playerCount: 2, width: 8, height: 8,
+  pillars: ['A3', 'A6', 'H3', 'H6'],
+  boxes: [],
+  highground: ['C3', 'D3', 'E3', 'F3', 'C6', 'D6', 'E6', 'F6'],
+  highgroundProtected: ['C2', 'D2', 'E2', 'F2', 'C7', 'D7', 'E7', 'F7'],
+  slideSquares: ['C2', 'F2', 'C4', 'F4', 'C5', 'F5', 'C7', 'F7'],
+  drawSquares: ['A4', 'A5', 'H4', 'H5'],
+  bases: { P1: ['D1', 'E1'], P2: ['D8', 'E8'], P3: [] },
+  startingSquares: { P1: 'D1', P2: 'E8' },
+};
+
+export function randomTrenchBoxSpawns(random: () => number = Math.random): string[] {
+  const pick = <T>(values: readonly T[]): T => values[Math.min(values.length - 1, Math.floor(random() * values.length))];
+  const groupOne = ['C3', 'D3', 'E3', 'F3'] as const;
+  const groupTwo = ['C6', 'D6', 'E6', 'F6'] as const;
+  const groupThree = pick(['B3', 'G3'] as const);
+  const groupFour = groupThree === 'B3' ? 'G6' : 'B6';
+  return [pick(groupOne), pick(groupTwo), groupThree, groupFour];
+}
 
 export const arenaForPlayerCount = (playerCount: number): ArenaDefinition =>
   playerCount >= 3 ? LORDAERON_ARENA : NAGRAND_ARENA;

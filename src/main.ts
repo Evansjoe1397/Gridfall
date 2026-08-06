@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
-import { LORDAERON_ARENA } from '../shared/arenas.ts';
+import { LORDAERON_ARENA, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaDefinition, type ArenaId } from '../shared/arenas.ts';
 import { CARD_RULES_RU, UI_RU_EXACT } from './i18n.ts';
 import {
   CARDS,
@@ -17,16 +17,19 @@ import {
   cellLabel,
   BOARD_SIZE,
   createHotseatTestState,
+  createTrenchTestState,
   createInitialState,
   distance,
   diagonalMovementBlockedByObject,
   effectiveMoveRange,
   effectiveAttackRange,
   hasLineOfSight,
+  isForbiddenSlideAscent,
   isCardRevealedToOpponents,
   movementPath,
   kykDirectionAllowed,
   pinnedCount,
+  spiritGuardianEnemyPenalty,
   type CardTypeId,
   type Cell,
   type GameCommand,
@@ -242,6 +245,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
+  if (gameState.phase === 'choosing-spirit-guardian-square' && Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian)) return true;
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
@@ -273,12 +277,14 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   panel.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((button) => button.addEventListener('click', () => {
     const format = button.dataset.format as GameFormat;
     if (flow === 'online') void connectOnline('create', format);
-    else showHotseatCharacterSelect(format);
+    else if (format === 'duel') showHotseatArenaSelect();
+    else showHotseatCharacterSelect(format, 'nagrand');
   }));
 }
 
 type SelectableCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ';
 type HotseatOpponent = SelectableCharacter | 'dummy';
+type HotseatArena = 'nagrand' | 'trench';
 const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 26, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage, then remove 1 Rage after combat. Remove another 1 Rage at turn end." },
@@ -294,29 +300,43 @@ function dummySelectButton(): string {
   return `<button data-hotseat-opponent="dummy"><strong>Test Dummy</strong><span class="character-core-stats"><small><b>20</b> MAX HP</small><small><b>2</b> MOV</small><small><b>2</b> ATT RANGE</small><small class="character-trait-stat">TRAINING OPPONENT</small></span></button>`;
 }
 
-function showHotseatCharacterSelect(format: GameFormat) {
+function showHotseatArenaSelect() {
   const panel = byId('onlineWaiting');
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${format === 'ffa' ? 'LORDAERON ARENA' : 'NAGRAND ARENA'}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-hotseat-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-hotseat-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button></div><button class="lobby-back-button" id="backToFormat" type="button">Back to Game Format</button>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-arena]').forEach((button) => button.addEventListener('click', () => showHotseatCharacterSelect('duel', button.dataset.hotseatArena as HotseatArena)));
+  panel.querySelector<HTMLButtonElement>('#backToFormat')!.addEventListener('click', () => showFormatSelect('hotseat'));
+}
+
+function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
+  const panel = byId('onlineWaiting');
+  const arenaName = format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as SelectableCharacter;
-    if (format === 'duel') showHotseatOpponentSelect(character);
-    else startHotseat(character, format);
+    if (format === 'duel') showHotseatOpponentSelect(character, arena);
+    else startHotseat(character, format, 'dummy', arena);
   }));
 }
 
-function showHotseatOpponentSelect(playerCharacter: SelectableCharacter) {
+function showHotseatOpponentSelect(playerCharacter: SelectableCharacter, arena: HotseatArena) {
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · NAGRAND ARENA</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
-  panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy'));
-  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as SelectableCharacter)));
-  panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel'));
+  const arenaName = arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
+  panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as SelectableCharacter, arena)));
+  panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel', arena));
 }
 
-function startHotseat(character: SelectableCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy') {
+function startHotseat(character: SelectableCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
   mode = 'hotseat';
   localSeat = null;
-  gameState = createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  gameState = format === 'duel' && arena === 'trench'
+    ? createTrenchTestState(false, character, opponentCharacter)
+    : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
+  const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
+  if (mastheadArena) mastheadArena.textContent = arenaTitle;
   boardVisualKey = '';
   fittedArenaKey = '';
   lobby.classList.add('hidden');
@@ -447,6 +467,7 @@ function renderOnlineLobby() {
 
 function actingPlayer(): PlayerId {
   if (mode === 'online') return localSeat ?? 'P1';
+  if (gameState.phase === 'choosing-spirit-guardian-square') return (gameState as GameState & { spiritGuardian: { casterId: PlayerId } }).spiritGuardian.casterId;
   if (gameState.phase === 'choosing-exhaust') {
     const choice = gameState.combatReveal?.exhaust;
     return choice?.eligible.find((id) => !choice.decided.includes(id)) ?? gameState.activePlayerId;
@@ -584,6 +605,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-fireball-target') prompt.textContent = 'Fireball: select an enemy within Range 3 · Escape to cancel';
   if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 5 · obstacles are ignored · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
+  if (gameState.phase === 'choosing-spirit-guardian-square') prompt.textContent = 'Spirit Guardian: select an empty highlighted Square within Range · Escape to cancel';
   if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy in range and line of sight · Escape to cancel';
   if (gameState.phase === 'choosing-magic-hand-target') prompt.textContent = 'Magic Hand: select any visible Object · Escape to cancel';
   if (gameState.phase === 'choosing-magic-hand-direction') prompt.textContent = 'Magic Hand: select any linear push direction · Escape to cancel';
@@ -601,7 +623,7 @@ function renderUI() {
   cancelDanceButton.title = gameState.danceThrough?.enemyUnderfoot ? 'Shinobi must leave the enemy-occupied Square before cancelling.' : 'End Dance Through movement early.';
   (byId('freeMoveButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || actor.freeMoveUsed || !canLocalAct(actor.id);
   (byId('guardButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canLocalAct(actor.id);
-  const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || !cardDefinition(card).cannotBeDiscarded);
+  const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || (!cardDefinition(card).cannotBeDiscarded && !cardDefinition(card).name.startsWith('Blessing:')));
   (byId('dashButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canPayForDash || !canLocalAct(actor.id);
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
   if (((actor.movementRemaining > 0 && gameState.phase === 'active') || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
@@ -765,13 +787,19 @@ function cardAdviceHtml(ru: boolean) {
   return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${adviceCards.map((card) => `<article class="advice-card ${cardVisualClass(card)}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}${statusGeneratorAdvice(card.id, cards, ru)}</p></article>`).join('')}</div>`;
 }
 
-type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning' | 'panic';
+type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning' | 'panic' | 'blessing-light' | 'blessing-prayer' | 'blessing-might' | 'blessing-shield' | 'blessing-swiftness' | 'blessing-faith';
 const STATUS_CARD_GENERATORS: Record<StatusCardId, readonly CardTypeId[]> = {
   pinned: ['light-the-saber', 'dance-through', 'cut-them-legs', 'block', 'double-jump', 'force-pull', 'swiftform'],
   headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell', 'enforce'],
-  exhaust: ['force-disarm', 'consume-rage', 'teef-strike'],
-  burning: ['fireball'],
-  panic: ['enforce'],
+  exhaust: ['force-disarm', 'consume-rage', 'teef-strike', 'blessed-light', 'mind-blast'],
+  burning: ['fireball', 'cleanse', 'thorns'],
+  panic: ['enforce', 'fear-the-justice'],
+  'blessing-light': ['blessed-light'],
+  'blessing-prayer': ['blessed-prayer'],
+  'blessing-might': ['blessed-might'],
+  'blessing-shield': ['blessed-block'],
+  'blessing-swiftness': ['blessed-swiftness'],
+  'blessing-faith': ['inner-peace'],
 };
 function statusGeneratorsInHand(statusId: StatusCardId, cards: readonly (typeof CARDS)[number][]) {
   const generatorIds = STATUS_CARD_GENERATORS[statusId];
@@ -807,7 +835,7 @@ function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['pla
 
 const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: string; ru: string }>> = {
   'echo-pulse': { en: 'A flexible Spell Echo engine. Use it early for a Card, mature it to Level 2 when an extra Action creates a combo turn, or hold Level 3 for emergency healing.', ru: 'Гибкий двигатель Spell Echo. Используйте рано ради карты, поднимите до 2-го уровня для дополнительного Действия в комбо-ходе или сохраните 3-й уровень для срочного лечения.' },
-  fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at each turn start and can only be Removed by performing Dash, which then moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Горение наносит 1 урон в начале каждого хода и снимается только через Dash, после чего цель движется случайным образом.' },
+  fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at turn end if still held; Dash deals that Damage first, then Removes it and moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Burning наносит 1 урон в конце хода, если остаётся в Руке; Dash сначала наносит этот урон, затем удаляет карту и перемещает цель случайно.' },
   portal: { en: 'A one-use global reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card.', ru: 'Одноразовое глобальное перемещение. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты.' },
   'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
@@ -825,6 +853,27 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'arcane-barrier': { en: "Best against an adjacent attacker when the Square directly behind them is open. Arcane Barrier pushes them away after combat, or deals 1 Damage if that push is blocked.", ru: 'Лучше всего использовать против соседнего атакующего, когда клетка прямо за ним свободна. После боя Arcane Barrier отталкивает его, а если путь заблокирован — наносит 1 урон.' },
   counterspell: { en: 'A high-value Defence and retaliation tool. Keep at least 1 stored MP to deal 1 Damage to the attacker; Counterspell also places Headache on top of their Deck to disrupt the next draw.', ru: 'Сильная Защита и ответный удар. Сохраните хотя бы 1 MP, чтобы нанести атакующему 1 урон; Counterspell также кладёт Headache сверху его Колоды и портит следующий добор.' },
   blink: { en: 'Logan’s emergency Defence: it blocks all combat damage. With Mana, it also teleports him to safety; without Mana, expect to sacrifice a chosen Hand Card or a non-Status Card from Deck.', ru: 'Экстренная Защита Логана: блокирует весь боевой урон. При наличии Маны также телепортирует в безопасность; без Маны придётся пожертвовать выбранной картой Руки или не-Статусной картой Колоды.' },
+  'blessed-light': { en: 'A setup Attack that plants Exhaust in the target’s Deck—on top if their Deck is empty—so a later draw can impose -1 ATT and DEF while Exhaust remains in Hand. It immediately creates revealed Blessing: Light and Stoic Shell; save that Blessing to reduce an enemy Defend Card by 1 in a later combat. Because its name contains “Blessed,” John cannot use this card in Spirit Form.', ru: 'Подготовительная Атака: замешивает Exhaust в Колоду цели, а при пустой Колоде кладёт его сверху. Exhaust даёт -1 ATT и DEF, пока находится в Руке. Карта сразу создаёт открытую Blessing: Light и Stoic Shell; сохраните Blessing, чтобы позже уменьшить DEF врага на 1. Из-за слова “Blessed” карта недоступна в Spirit Form.' },
+  cleanse: { en: 'Use early to place Burning in the target’s Hand after combat. It deals 1 Damage at their turn end if still held; Dash deals that Damage before Removing Burning and spending movement randomly. The Status applies even if Cleanse loses combat, unless the Attack effect is cancelled.', ru: 'Используйте рано, чтобы после боя добавить Burning в Руку цели. В конце её хода карта наносит 1 урон, если остаётся в Руке; Dash наносит урон до удаления Burning и случайной траты движения. Статус применяется даже при проигранном бою, если эффект Атаки не отменён.' },
+  repent: { en: 'A deliberate Spirit Form trigger and area punish: after combat John takes 1 Damage and every adjacent enemy takes 1. Use it while healthy and surrounded; successful self-Damage puts John into Spirit Form for the remainder of the turn, enabling pass-through movement and +2 ATT on a later non-Bless Attack.', ru: 'Осознанный вход в Spirit Form и наказание группы: после боя Джон получает 1 урон, как и каждый соседний враг. Используйте при достаточном HP и в окружении; прошедший самоурон включает Spirit Form до конца хода, открывая проход сквозь врагов и +2 ATT для следующей Атаки без “Bless”.' },
+  enforce: { en: 'A control Attack that applies both Panic and Headache after combat unless its debuffs are prevented. Panic greys out Attack and Perk Cards until Free Move Removes it and spends the target’s current movement randomly; Headache then remains dead Hand weight that costs an Action to Remove.', ru: 'Контрольная Атака, накладывающая после боя Panic и Headache, если дебаффы не предотвращены. Panic блокирует Атаки и Перки до Free Move и случайно тратит текущее движение цели; Headache остаётся мёртвым грузом в Руке и требует Действия для удаления.' },
+  'blessed-might': { en: 'A high-value Attack that cancels the enemy Defend Card’s printed effect unless they use an effect-blocking Defence. After combat it creates revealed Blessing: Might and Stoic Shell; use that Blessing in a different combat for +2 ATT. Neither card can be used while John is in Spirit Form.', ru: 'Сильная Атака, отменяющая печатный эффект карты Защиты врага, если тот не применил Защиту, блокирующую эффект Атаки. После боя создаёт открытую Blessing: Might и Stoic Shell; используйте Blessing в другом бою ради +2 ATT. Обе карты недоступны в Spirit Form.' },
+  'blessed-block': { en: 'Use against a low-value Attack with a dangerous printed effect: Blessed Block cancels that effect before combat. Blessing: Shield is queued for the beginning of John’s next eligible turn—not this combat—so the opponent gets a turn to break the resulting Stoic Shell with Damage.', ru: 'Используйте против слабой Атаки с опасным печатным эффектом: Blessed Block отменяет его до боя. Blessing: Shield ставится в очередь до начала следующего подходящего хода Джона и недоступна в этом бою; у врага будет ход, чтобы уроном снять появившийся Stoic Shell.' },
+  'feed-the-spirit': { en: 'Best when the incoming combat Damage will make John enter Spirit Form without killing him: after combat that transition restores 2 HP. If any Blessing remains in Hand, you may Remove one for +1 HP; spend a low-impact Blessing: Faith or an expiring Prayer before a stronger combat Blessing.', ru: 'Лучше всего, когда входящий урон введёт Джона в Spirit Form, но не убьёт: после боя этот переход восстановит 2 HP. При наличии Blessing можно удалить одну ради ещё +1 HP; жертвуйте малополезной Faith или истекающей Prayer раньше сильной боевой Blessing.' },
+  thorns: { en: 'Retaliates for 1 Damage before combat, potentially defeating a fragile attacker before values resolve. If combat Damage then makes John enter Spirit Form, Thorns adds Burning after combat; it deals 1 at that attacker’s turn end, or immediately before movement if they Remove it with Dash.', ru: 'Наносит атакующему 1 урон до боя и может добить его ещё до сравнения значений. Если боевой урон затем введёт Джона в Spirit Form, Thorns добавит Burning после боя; карта нанесёт 1 урон в конце хода атакующего либо непосредственно перед движением при удалении через Dash.' },
+  'blessed-swiftness': { en: 'A tempo Defence: immediately erase all of the attacker’s unspent MOV to stop their post-combat reposition. Blessing: Swiftness is queued for John’s next eligible turn and grants +1 MOV while held; if Hand size is 6 or more, it is automatically Removed only when that turn begins ending.', ru: 'Темповая Защита: сразу аннулирует весь неизрасходованный MOV атакующего и мешает сменить позицию после боя. Blessing: Swiftness ставится в очередь на следующий подходящий ход Джона и даёт +1 MOV в Руке; при 6+ картах она автоматически удаляется только в начале завершения хода.' },
+  resurrection: { en: 'Emergency Defence when at least one of John’s two Base Squares is empty. A legal teleport negates all combat and card-effect Damage, returns John to Base, and draws 1 Card. If both Base Squares are occupied, he still draws but receives Damage normally, so inspect the Base before committing a 0 DEF card.', ru: 'Экстренная Защита, если хотя бы одна из двух клеток Базы Джона свободна. Успешный телепорт отменяет весь боевой урон и урон эффектов, возвращает на Базу и даёт 1 карту. Если обе клетки заняты, добор остаётся, но урон не отменяется — проверяйте Базу перед выбором DEF 0.' },
+  'blessed-prayer': { en: 'John’s Spell Echo engine. Level 1 immediately creates revealed Blessing: Prayer and Stoic Shell; Level 2 adds 1 MOV for this turn, and Level 3 retrieves a chosen Card from Discard. Avoid casting it in Spirit Form, and plan Prayer’s Free Action draw before its mandatory end-turn removal.', ru: 'Двигатель Spell Echo Джона. Уровень 1 сразу создаёт открытую Blessing: Prayer и Stoic Shell; уровень 2 даёт 1 MOV на этот ход, уровень 3 возвращает выбранную карту из Discard. Нельзя применять в Spirit Form; используйте Свободное Действие Prayer до её обязательного удаления в конце хода.' },
+  'fear-the-justice': { en: 'Enter Spirit Form on demand without losing HP. At Level 2 every adjacent enemy receives Panic, disabling Attack and Perk Cards until Free Move Removes it while spending movement randomly; Level 3 also makes each affected enemy discard a Defend Card. Surround multiple enemies before using the higher levels.', ru: 'Позволяет войти в Spirit Form без потери HP. На уровне 2 каждый соседний враг получает Panic, блокирующий Атаки и Перки до Free Move со случайной тратой движения; уровень 3 также заставляет каждого затронутого врага сбросить карту Защиты. Перед высоким уровнем окружите несколько целей.' },
+  'inner-peace': { en: 'A reset tool: leave Spirit Form so Bless cards become usable, then Remove a chosen Status from Hand. Level 2 Removes one additional random Status, preferring Hand, then Deck, then Discard; Level 3 creates revealed Blessing: Faith and Stoic Shell. Use it to purge Panic, Exhaust, Burning, Headache, or excess Blessings before a key turn.', ru: 'Инструмент сброса состояния: выйдите из Spirit Form, снова открыв карты Bless, затем удалите выбранный Статус из Руки. Уровень 2 случайно удаляет ещё один Статус с приоритетом Рука → Колода → Discard; уровень 3 создаёт открытую Blessing: Faith и Stoic Shell. Очищайте Panic, Exhaust, Burning, Headache или лишние Blessing перед важным ходом.' },
+  'mind-blast': { en: 'Ranged Hand and draw disruption. Level 1 forces one discard, Level 2 adds 1 direct Damage, and Level 3 places Exhaust on top of the target’s Deck so their next draw carries -1 ATT and DEF while held. Use Level 3 just before their turn for the most reliable Status timing.', ru: 'Дальнее разрушение Руки и добора. Уровень 1 заставляет сбросить карту, уровень 2 наносит 1 прямой урон, уровень 3 кладёт Exhaust сверху Колоды цели: после добора тот даёт -1 ATT и DEF, пока находится в Руке. Применяйте уровень 3 перед ходом цели для надёжного тайминга.' },
+  'spirit-guardian': { en: 'Create a positional anchor within John’s Range. Stay adjacent for +1 DEF; Level 2 makes the Guardian an invincible Heavy Wall that each push or pull can move only 1 Square, and Level 3 gives adjacent enemies -1 to every Attack and Defend Card Value. It disappears when John uses an Attack or at his next turn, so exploit its zone before attacking.', ru: 'Создайте позиционный якорь в Дальности Джона. Стойте рядом ради +1 DEF; уровень 2 делает Стража неуязвимой Тяжёлой Стеной, которую каждый толчок или притягивание двигает лишь на 1 клетку; уровень 3 даёт соседним врагам -1 ко всем Атакам и Защитам. Страж исчезает при Атаке Джона или в начале следующего хода — используйте зону заранее.' },
+  'blessing-light': { en: 'A revealed one-use combat Status. Apply it only when -1 to the enemy Defend Value changes the outcome; it is Removed after use or any discard. It grants Stoic Shell when created, but cannot be activated while John is in Spirit Form.', ru: 'Открытый одноразовый боевой Статус. Применяйте, только когда -1 DEF врага меняет исход; карта удаляется после применения или любого сброса. При создании даёт Stoic Shell, но недоступна в Spirit Form.' },
+  'blessing-prayer': { en: 'Convert 1 MOV into 1 drawn Card as a Free Action, then Remove this revealed Blessing. Use it after movement positioning is secure; otherwise it disappears at turn end. Creating it grants Stoic Shell, and Spirit Form prevents using it.', ru: 'Превратите 1 MOV в добор 1 карты Свободным Действием, затем удалите открытую Blessing. Используйте после завершения позиционирования, иначе она исчезнет в конце хода. Создание даёт Stoic Shell; в Spirit Form карта недоступна.' },
+  'blessing-might': { en: 'A revealed combat finisher that adds +2 to John’s played Attack Card. Hold it for a combat where the bonus creates Damage or defeats the target; it is Removed after use and cannot be applied during Spirit Form despite that form’s own +2 ATT.', ru: 'Открытый боевой финишер, добавляющий +2 к сыгранной Атаке Джона. Берегите для боя, где бонус создаст урон или добьёт цель; после применения карта удаляется и не работает в Spirit Form, несмотря на собственные +2 ATT формы.' },
+  'blessing-shield': { en: 'A revealed one-use damage buffer. During combat, absorb 1 Damage from an enemy Attack or Defend Card effect—not ordinary combat-value Damage—then Remove it. A Shield generated by Blessed Block arrives next turn and cannot protect the combat that created it; Spirit Form also prevents its use.', ru: 'Открытый одноразовый щит. В бою поглотите 1 урон от эффекта вражеской карты Атаки или Защиты, но не обычный урон разницы значений, затем удалите карту. Shield от Blessed Block приходит лишь в следующий ход и не защищает создавший её бой; Spirit Form также блокирует применение.' },
+  'blessing-swiftness': { en: 'A revealed passive Status granting +1 MOV while in Hand. Keep Hand size at 5 or fewer when ending the turn if you want to retain it; at 6 or more it is Removed at the beginning of the end-turn process. Its creation also grants Stoic Shell.', ru: 'Открытый пассивный Статус, дающий +1 MOV в Руке. Завершайте ход с 5 или менее картами, если хотите сохранить его; при 6+ он удаляется в самом начале процесса окончания хода. Создание также даёт Stoic Shell.' },
+  'blessing-faith': { en: 'Faith has no standalone combat modifier, but its creation grants Stoic Shell and it remains a revealed Blessing resource. Prefer removing it for Feed the Spirit’s +1 HP or with Inner Peace before sacrificing Light, Might, Shield, or Swiftness.', ru: 'Faith не даёт отдельного боевого модификатора, но при создании включает Stoic Shell и остаётся открытым ресурсом Blessing. Предпочитайте удалять её ради +1 HP Feed the Spirit или через Inner Peace, сохраняя Light, Might, Shield и Swiftness.' },
   'light-the-saber': { en: 'An efficient setup Attack. Apply Pinned early to reduce enemy mobility and prepare Calmness, Double Jump, or Hello There for stronger follow-up value.', ru: 'Эффективная подготовительная Атака. Наложите Pinned заранее, чтобы снизить мобильность врага и усилить последующие Calmness, Double Jump или Hello There.' },
   'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies to escape, cross a blocked lane, or apply Pinned, but reserve the final step for an empty Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов для побега, пересечения занятого пути или наложения Pinned, но оставьте последний шаг для пустой клетки.' },
   'force-disarm': { en: 'Use when the enemy is holding revealed or suspected Attack Cards. It removes their offensive option; if none exists, revealing the Hand provides information and Exhaust weakens future combat.', ru: 'Используйте, когда у врага есть открытые или предполагаемые Карты Атаки. Карта убирает наступательную угрозу; если Атак нет, раскрытие Руки даёт информацию, а Exhaust ослабляет будущие бои.' },
@@ -858,6 +907,8 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   pinned: { en: 'This restricts movement and cannot be discarded for Hand overstacking. Plan a low-movement turn, use an allowed Finishing Move discard, or wait for the automatic end-turn removal.', ru: 'Ограничивает движение и не может быть сброшена при переполнении Руки. Планируйте ход с малым движением, используйте разрешённый сброс Завершающего приёма или дождитесь автоматического удаления в конце хода.' },
   headache: { en: 'Dead Hand weight that cannot be discarded. Spend an Action to Remove it before the five-Card limit becomes dangerous.', ru: 'Мёртвый груз в Руке, который нельзя Сбросить. Потратьте Действие на Удаление до того, как лимит в пять карт станет опасным.' },
   exhaust: { en: 'While held, every Attack and Defence loses 1 Value. Discard it normally when possible, or attach and Remove it during combat for the larger one-time -3 penalty when that combat is expendable.', ru: 'Пока карта в Руке, каждая Атака и Защита теряет 1. Сбросьте её обычным способом или прикрепите и Удалите в менее важном бою ради одноразового штрафа -3.' },
+  burning: { en: 'Burning deals 1 Damage at turn end only if it remains in Hand. Discarding it through another effect avoids that Damage; Dash instead deals the Damage first, then Removes every Burning Card and spends movement randomly.', ru: 'Burning наносит 1 урон в конце хода, только если остаётся в Руке. Сброс другим эффектом предотвращает этот урон; Dash сначала наносит урон, затем удаляет все карты Burning и случайно тратит движение.' },
+  panic: { en: 'Panic disables all Attack and Perk Cards in Hand. Free Move Removes it and spends all movement available at that moment randomly; movement gained later in the turn remains usable, so sequence bonuses after clearing Panic when possible.', ru: 'Panic блокирует все карты Атаки и Перка в Руке. Free Move удаляет его и случайно тратит всё движение, доступное в этот момент; MOV, полученный позже в том же ходу, можно использовать, поэтому по возможности активируйте бонусы движения после очищения.' },
 };
 
 function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') {
@@ -954,7 +1005,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards, MOV 1, and may pass through enemies. Attack or end the turn to exit.</span></div>` : '';
     const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">◉<span class="status-tooltip"><strong>Stoic Shell</strong>Removed by HP Damage; otherwise restores 1 HP at the beginning of John's next turn.</span></div>` : '';
-    return `${flagIcon}${spiritIcon}${shellIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
+    return `${flagIcon}${spiritIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderCharacterStatuses() {
@@ -1032,7 +1084,7 @@ function renderHand() {
     const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
-    const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
+    const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const interactionCopy = mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
@@ -1254,7 +1306,7 @@ function renderPhaseRewardModal() {
   const definition = STARTING_DECKS[player.character as 'shinobi' | 'orkk' | 'magician'];
   const initialFocus = extended.questPhases!.progression[playerId]?.initialFocus ?? 'attack';
   const choices = reward.phase === 1 ? (initialFocus === 'attack' ? definition.defendFocus : definition.attackFocus) : definition.perkPhase;
-  phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} REWARD</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'You won the previous Action Quest and may choose this Card’s destination.' : 'This Card will be shuffled into your Deck.'}</p><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); return `<button data-phase-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${card.kind === 'attack' ? 'ATTACK' : card.kind === 'defend' ? 'DEFEND' : 'PERK'} VALUE</b><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? '')}</small></button>`; }).join('')}</div></div>`;
+  phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} REWARD</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); return `<button data-phase-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${card.kind === 'attack' ? 'ATTACK' : card.kind === 'defend' ? 'DEFEND' : 'PERK'} VALUE</b><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? '')}</small></button>`; }).join('')}</div></div>`;
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
@@ -1609,7 +1661,7 @@ const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const objectGroups = new Map<string, THREE.Group>();
 const lastObjectVisualCells = new Map<string, string>();
-const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; removeOnComplete?: boolean; equipPlayerId?: PlayerId; parachute?: boolean }>();
+const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; boomerang?: boolean }[] = [];
@@ -1626,7 +1678,13 @@ let questFlagVisualKey = '';
 let boardVisualKey = '';
 let fittedArenaKey = '';
 let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
-const visualBoardWidth = () => gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.width : gameState.boardSize;
+const visualArena = (): ArenaDefinition => {
+  const arenaId = (gameState as GameState & { arenaId?: ArenaId }).arenaId;
+  if (arenaId === 'trench') return THE_TRENCH_ARENA;
+  if (arenaId === 'lordaeron' || gameState.boardSize === LORDAERON_ARENA.height) return LORDAERON_ARENA;
+  return NAGRAND_ARENA;
+};
+const visualBoardWidth = () => visualArena().width;
 const visualBoardHeight = () => gameState.boardSize;
 const placementState = () => (gameState as GameState & { lordaeronPlacement?: { availableBaseIds: ('P1' | 'P2' | 'P3')[]; claims: Partial<Record<PlayerId, 'P1' | 'P2' | 'P3'>> } }).lordaeronPlacement;
 const boardGeometryKey = () => `${visualBoardWidth()}x${visualBoardHeight()}-${JSON.stringify(placementState()?.claims ?? {})}`;
@@ -1865,6 +1923,11 @@ function updateObjectMovement(time: number) {
       group.rotation.x = Math.sin(progress * Math.PI) * 0.32;
       group.rotation.z = Math.sin(progress * Math.PI * 2) * 0.18;
     } else group.rotation.y += 0.012;
+    if (animation.destroy) {
+      const collapse = Math.max(.04, 1 - Math.pow(progress, 1.35));
+      group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(collapse);
+      group.rotation.y = progress * Math.PI * 3;
+    }
     if (progress >= 1) {
       group.position.copy(animation.to);
       group.rotation.set(0, 0, 0);
@@ -1941,20 +2004,94 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
   return first.add(last).multiplyScalar(.5).setY(.12);
 }
 
+function createSlideRamp(cell: Cell, color: number): THREE.Group {
+  const root = new THREE.Group();
+  const arena = visualArena();
+  const cardinalDirections = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+  const diagonalDirections = [{ x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 }];
+  const highAt = (dx: number, dy: number) => arena.highground.includes(cellLabel({ x: cell.x + dx, y: cell.y + dy }));
+  const rise = cardinalDirections.find((direction) => highAt(direction.x, direction.y));
+  if (!rise) return root;
+  const diagonal = diagonalDirections.find((direction) => highAt(direction.x, direction.y) && (direction.x === rise.x || direction.y === rise.y));
+  const lateral = { x: -rise.y, y: rise.x };
+  const segments = 8;
+  const lowEdge = -.86;
+  const highEdge = .96; // Bridges the narrow grid seam to the orthogonal High Ground Square.
+  const halfWidth = .86;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= segments; row++) {
+    const progress = row / segments;
+    const along = THREE.MathUtils.lerp(lowEdge, highEdge, progress);
+    const height = THREE.MathUtils.smoothstep(progress, 0, 1) * .375 + .085;
+    for (let column = 0; column <= segments; column++) {
+      const across = THREE.MathUtils.lerp(-halfWidth, halfWidth, column / segments);
+      positions.push(lateral.x * across + rise.x * along, height, lateral.y * across + rise.y * along);
+    }
+  }
+  for (let row = 0; row < segments; row++) for (let column = 0; column < segments; column++) {
+    const a = row * (segments + 1) + column;
+    const b = a + 1;
+    const c = a + segments + 1;
+    const d = c + 1;
+    indices.push(a, c, b, b, c, d);
+  }
+  const rampGeometry = new THREE.BufferGeometry();
+  rampGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  rampGeometry.setIndex(indices);
+  rampGeometry.computeVertexNormals();
+  const material = new THREE.MeshStandardMaterial({ color, emissive: 0x123f42, emissiveIntensity: .28, roughness: .68, metalness: .1, side: THREE.DoubleSide });
+  const ramp = new THREE.Mesh(rampGeometry, material);
+  ramp.receiveShadow = true;
+  root.add(ramp);
+
+  if (diagonal) {
+    const shoulderWidth = 1.72 * .35;
+    const dx = diagonal.x;
+    const dz = diagonal.y;
+    const center: [number, number, number] = [dx * .12, .205, dz * .12];
+    const nearX: [number, number, number] = [dx * .86, .405, dz * (.86 - shoulderWidth)];
+    const nearZ: [number, number, number] = [dx * (.86 - shoulderWidth), .405, dz * .86];
+    const corner: [number, number, number] = [dx * 1.06, .466, dz * 1.06];
+    const farX: [number, number, number] = [dx * (1.06 + shoulderWidth), .466, dz * 1.06];
+    const farZ: [number, number, number] = [dx * 1.06, .466, dz * (1.06 + shoulderWidth)];
+    const shoulderGeometry = new THREE.BufferGeometry();
+    shoulderGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      ...center, ...nearX, ...nearZ,
+      ...nearX, ...farX, ...corner,
+      ...nearX, ...corner, ...nearZ,
+      ...nearZ, ...corner, ...farZ,
+    ], 3));
+    shoulderGeometry.computeVertexNormals();
+    const shoulderMaterial = material.clone();
+    shoulderMaterial.color.copy(new THREE.Color(color).lerp(new THREE.Color(0x4fb5a2), .3));
+    shoulderMaterial.emissive.setHex(0x174f4d);
+    shoulderMaterial.emissiveIntensity = .42;
+    const shoulder = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
+    shoulder.receiveShadow = true;
+    root.add(shoulder);
+    const outlineGeometry = new THREE.BufferGeometry().setFromPoints([nearX, farX, corner, farZ, nearZ].map(([x, y, z]) => new THREE.Vector3(x, y + .006, z)));
+    const outline = new THREE.Line(outlineGeometry, new THREE.LineBasicMaterial({ color: 0x67e8d1, transparent: true, opacity: .78 }));
+    root.add(outline);
+  }
+  return root;
+}
+
 function createCell(cell: Cell) {
   const label = cellLabel(cell);
-  const nagrand = gameState.boardSize === BOARD_SIZE;
-  const lordaeron = gameState.boardSize === LORDAERON_ARENA.height;
+  const arena = visualArena();
+  const lordaeron = arena.id === 'lordaeron';
   const highGround = (gameState.elevations[label] ?? 0) > 0;
-  const ownerOne = nagrand ? ['A4', 'A5'].includes(label) : lordaeron && LORDAERON_ARENA.bases.P1.includes(label);
-  const ownerTwo = nagrand ? ['H4', 'H5'].includes(label) : lordaeron && LORDAERON_ARENA.bases.P2.includes(label);
-  const ownerThree = lordaeron && LORDAERON_ARENA.bases.P3.includes(label);
+  const ownerOne = arena.bases.P1.includes(label);
+  const ownerTwo = arena.bases.P2.includes(label);
+  const ownerThree = arena.bases.P3.includes(label);
   const baseId = (['P1', 'P2', 'P3'] as const).find((id) => LORDAERON_ARENA.bases[id].includes(label));
   const placement = placementState();
   const claimant = placement && baseId ? (Object.entries(placement.claims).find(([, claimedBase]) => claimedBase === baseId)?.[0] as PlayerId | undefined) : undefined;
   const unclaimedPlacementBase = gameState.phase === 'choosing-base-placement' && Boolean(baseId) && placement?.availableBaseIds.includes(baseId!);
-  const drawSquare = nagrand ? ['D1', 'E1', 'D8', 'E8'].includes(label) : lordaeron && LORDAERON_ARENA.drawSquares.includes(label);
-  const protectedSquare = nagrand ? ['C4', 'C5', 'D3', 'E3', 'D6', 'E6', 'F4', 'F5'].includes(label) : lordaeron && LORDAERON_ARENA.highgroundProtected.includes(label);
+  const drawSquare = arena.drawSquares.includes(label);
+  const protectedSquare = arena.highgroundProtected.includes(label);
+  const slideSquare = arena.slideSquares?.includes(label) ?? false;
   const claimedColor = claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
   const color = unclaimedPlacementBase ? 0xc21f35 : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : drawSquare ? 0x665a25 : highGround ? 0x285046 : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
   const emissive = unclaimedPlacementBase ? 0xff1638 : claimant === 'P1' ? 0x07374f : claimant === 'P2' ? 0x3d0f18 : claimant === 'P3' ? 0x291a45 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
@@ -1963,6 +2100,11 @@ function createCell(cell: Cell) {
   mesh.receiveShadow = true;
   mesh.userData.cell = cell;
   scene.add(mesh); cellMeshes.push(mesh);
+  if (slideSquare) {
+    const ramp = createSlideRamp(cell, color);
+    ramp.userData.cell = cell;
+    mesh.add(ramp);
+  }
 }
 
 function createDummy(color: number) {
@@ -2020,6 +2162,28 @@ function createWoodenPillar() {
   base.position.y = 0.14; base.castShadow = true; root.add(base);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.48, 0.34, 12), dark);
   cap.position.y = 2.92; cap.castShadow = true; root.add(cap);
+  return root;
+}
+
+function createSpiritGuardian(level: number) {
+  const root = new THREE.Group();
+  const gold = new THREE.MeshStandardMaterial({ color: 0xffdc78, emissive: 0xd99a24, emissiveIntensity: 1.8, transparent: true, opacity: 0.82, roughness: 0.28, metalness: 0.32 });
+  const lightGold = new THREE.MeshStandardMaterial({ color: 0xfff0b0, emissive: 0xffc84a, emissiveIntensity: 1.35, transparent: true, opacity: 0.72, side: THREE.DoubleSide });
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number]) => { const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = true; root.add(mesh); return mesh; };
+  add(new THREE.CapsuleGeometry(0.34, 0.78, 8, 16), gold, [0, 1.15, 0]);
+  add(new THREE.SphereGeometry(0.27, 18, 14), lightGold, [0, 1.82, 0]);
+  const cloak = add(new THREE.ConeGeometry(0.58, 1.5, 18, 1, true), lightGold, [0, 0.92, 0.2]); cloak.rotation.x = -0.08;
+  for (const side of [-1, 1]) {
+    const wing = add(new THREE.ConeGeometry(0.34, 1.5, 5), lightGold, [side * 0.52, 1.46, 0.28]);
+    wing.rotation.z = side * -0.72; wing.rotation.x = 0.18; wing.scale.z = 0.32;
+  }
+  const spear = add(new THREE.CylinderGeometry(0.035, 0.045, 2.7, 10), gold, [0.62, 1.23, -0.04]); spear.rotation.z = -0.08;
+  const spearTip = add(new THREE.ConeGeometry(0.11, 0.38, 10), lightGold, [0.73, 2.58, -0.04]); spearTip.rotation.z = -0.08;
+  const shield = add(new THREE.CylinderGeometry(0.46, 0.46, 0.12, 28), gold, [-0.46, 1.18, -0.22]); shield.rotation.x = Math.PI / 2;
+  add(new THREE.SphereGeometry(0.13, 14, 10), lightGold, [-0.46, 1.18, -0.3]);
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.035, 10, 40), lightGold); halo.position.set(0, 2.18, 0); halo.rotation.x = Math.PI / 2; root.add(halo);
+  const glow = new THREE.PointLight(0xffc74f, level >= 2 ? 4.5 : 3, 5); glow.position.set(0, 1.4, 0); root.add(glow);
+  root.scale.setScalar(level >= 2 ? 1.13 : 0.75);
   return root;
 }
 
@@ -2361,7 +2525,8 @@ function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vec
 
 function worldPosition(cell: Cell) {
   const highGround = (gameState.elevations[cellLabel(cell)] ?? 0) > 0;
-  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? 0.54 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  const slide = visualArena().slideSquares?.includes(cellLabel(cell)) ?? false;
+  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? 0.54 : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
 function syncBoard() {
@@ -2416,7 +2581,7 @@ function syncBoard() {
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
-    if (!group) { group = object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : createWoodenBox(); objectGroups.set(object.id, group); scene.add(group); }
+    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : createWoodenBox(); objectGroups.set(object.id, group); scene.add(group); }
     const target = worldPosition(object.position);
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
@@ -2447,7 +2612,7 @@ function syncBoard() {
       return;
     }
     let group = objectGroups.get(event.objectId);
-    if (!group && event.removeOnComplete) { group = createOrkkShieldObject(); objectGroups.set(event.objectId, group); scene.add(group); }
+    if (!group && event.removeOnComplete && event.equipPlayerId) { group = createOrkkShieldObject(); objectGroups.set(event.objectId, group); scene.add(group); }
     if (!group) return;
     processedObjectPushAnimations.add(event.id);
     const from = worldPosition(event.from); const to = worldPosition(event.to);
@@ -2458,7 +2623,7 @@ function syncBoard() {
     }
     group.position.copy(from);
     const travelSquares = Math.max(1, distance(event.from, event.to));
-    objectMovementAnimations.set(event.objectId, { from, to, startedAt: performance.now(), duration: event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190, collided: event.collided, dx: event.dx, dy: event.dy, path: event.path?.map(worldPosition), removeOnComplete: event.removeOnComplete, equipPlayerId: event.equipPlayerId, parachute: event.parachute });
+    objectMovementAnimations.set(event.objectId, { from, to, startedAt: performance.now(), duration: event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190, collided: event.collided, dx: event.dx, dy: event.dy, path: event.path?.map(worldPosition), removeOnComplete: event.removeOnComplete, destroy: event.destroy, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute });
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();
@@ -2628,14 +2793,16 @@ function highlightCells() {
     const cell = mesh.userData.cell as Cell;
     const playerOnCell = Object.values(gameState.players).find((player) => player.position.x === cell.x && player.position.y === cell.y);
     const objectOnCell = gameState.objects.find((object) => object.position.x === cell.x && object.position.y === cell.y);
+    const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
     const occupiedByPlayer = Boolean(playerOnCell && playerOnCell.id !== actor.id);
     const occupiedByObject = Boolean(objectOnCell);
     const occupiedByEnemy = occupiedByPlayer || occupiedByObject;
     const specialSteps = gameState.phase === 'double-jump' ? (gameState.doubleJump?.stepsRemaining ?? 0) : (gameState.danceThrough?.stepsRemaining ?? 0);
     const diagonalBlocked = diagonalMovementBlockedByObject(gameState, actor.position, cell);
-    const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && !diagonalBlocked && (!occupiedByEnemy || specialSteps > 1);
+    const forbiddenSlideAscent = isForbiddenSlideAscent(gameState, actor.position, cell);
+    const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
     const shizzleWallBlocked = objectOnCell?.kind === 'wall-pillar' || objectOnCell?.kind === 'orkk-shield';
-    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !diagonalBlocked && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
+    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = regularPath.length;
     const spiritRefunds = actor.spiritForm ? regularPath.filter((step) => Object.values(gameState.players).some((candidate) => candidate.id !== actor.id && candidate.position.x === step.x && candidate.position.y === step.y)).length : 0;
@@ -2673,28 +2840,32 @@ function highlightCells() {
     const shizzleLinear = shizzleDx === 0 || shizzleDy === 0 || Math.abs(shizzleDx) === Math.abs(shizzleDy);
     const shizzlePath = shizzleLinear ? Array.from({ length: shizzleDistance }, (_, index) => ({ x: actor.position.x + Math.sign(shizzleDx) * (index + 1), y: actor.position.y + Math.sign(shizzleDy) * (index + 1) })) : [];
     const shizzleDiagonalBlocked = shizzlePath.some((pathCell, index) => diagonalMovementBlockedByObject(gameState, index === 0 ? actor.position : shizzlePath[index - 1], pathCell));
-    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleDiagonalBlocked && !occupiedByPlayer && !occupiedByObject && !shizzlePath.some((pathCell) => gameState.objects.some((object) => (object.kind === 'wall-pillar' || object.kind === 'orkk-shield') && object.position.x === pathCell.x && object.position.y === pathCell.y));
+    const shizzleClimbsSlide = shizzlePath.some((pathCell, index) => isForbiddenSlideAscent(gameState, index === 0 ? actor.position : shizzlePath[index - 1], pathCell));
+    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleDiagonalBlocked && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject && !shizzlePath.some((pathCell) => gameState.objects.some((object) => (object.kind === 'wall-pillar' || object.kind === 'orkk-shield') && object.position.x === pathCell.x && object.position.y === pathCell.y));
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
+    const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
+    const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && Boolean(guardianPending) && !occupiedByPlayer && !occupiedByObject
+      && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId]);
     const activeHigh = (gameState.elevations[cellLabel(activePlayer.position)] ?? 0) > 0;
     const targetHigh = (gameState.elevations[cellLabel(cell)] ?? 0) > 0;
-    const protectedLabels = gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.highgroundProtected : ['C4', 'C5', 'D3', 'E3', 'D6', 'E6', 'F4', 'F5'];
+    const protectedLabels = visualArena().highgroundProtected;
     const protectedFromHigh = activeHigh && !targetHigh && protectedLabels.includes(cellLabel(cell)) && distance(activePlayer.position, cell) > 1;
     const attackableObject = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id) || attackableObject)
       && distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && !protectedFromHigh;
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
-      (selectedCard?.cardId === 'force-throw' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && distance(activePlayer.position, cell) <= 4)
-      || (selectedCard?.cardId === 'force-pull' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && hasLineOfSight(gameState, activePlayer.position, cell)) || (Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar')) && distance(activePlayer.position, cell) <= 4)
+      (selectedCard?.cardId === 'force-throw' && movableObjectOnCell && distance(activePlayer.position, cell) <= 4)
+      || (selectedCard?.cardId === 'force-pull' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && hasLineOfSight(gameState, activePlayer.position, cell)) || movableObjectOnCell) && distance(activePlayer.position, cell) <= 4)
       || (selectedCard?.cardId === 'arkane-arow' && arkaneArowPath(gameState, activePlayer, cell, 3).length > 0)
       || (selectedCard?.cardId === 'kyk' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && distance(activePlayer.position, cell) === 1)
     );
     const forceTargetValid = gameState.phase === 'choosing-force-throw-target' && Boolean(force) && distance(gameState.players[force!.casterId].position, cell) <= force!.targetRange
-      && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (force!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId && hasLineOfSight(gameState, gameState.players[force!.casterId].position, cell)));
+      && (movableObjectOnCell || (force!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId && hasLineOfSight(gameState, gameState.players[force!.casterId].position, cell)));
     const pullTargetValid = gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull) && distance(gameState.players[gameState.forcePull!.casterId].position, cell) <= gameState.forcePull!.targetRange
-      && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== gameState.forcePull!.casterId && hasLineOfSight(gameState, gameState.players[gameState.forcePull!.casterId].position, cell)));
+      && (movableObjectOnCell || (Boolean(playerOnCell) && playerOnCell!.id !== gameState.forcePull!.casterId && hasLineOfSight(gameState, gameState.players[gameState.forcePull!.casterId].position, cell)));
     const magicTargetValid = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic)
       && (magic!.level >= 2 || distance(gameState.players[magic!.casterId].position, cell) <= 5)
-      && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (magic!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== magic!.casterId));
+      && (movableObjectOnCell || (magic!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== magic!.casterId));
     const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
     const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.arcaneMissle!.casterId
       && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], playerOnCell!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level)));
@@ -2706,9 +2877,9 @@ function highlightCells() {
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || kykTargetValid;
-    const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || preparationValid || shizzleDestinationValid || boxTeleportValid || targetSquareValid;
+    const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    material.emissive.set(forceCollisionWarning ? 0xff2638 : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
   });
   updateTargetHighlights(performance.now());
 }
@@ -2733,7 +2904,7 @@ function updateTargetHighlights(time: number) {
     const target = gameState.players[playerId];
     const attackerHigh = (gameState.elevations[cellLabel(attacker.position)] ?? 0) > 0;
     const targetHigh = (gameState.elevations[cellLabel(target.position)] ?? 0) > 0;
-    const protectedLabels = gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA.highgroundProtected : ['C4', 'C5', 'D3', 'E3', 'D6', 'E6', 'F4', 'F5'];
+    const protectedLabels = visualArena().highgroundProtected;
     const protectedFromHigh = attackerHigh && !targetHigh && protectedLabels.includes(cellLabel(target.position)) && distance(attacker.position, target.position) > 1;
     const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && !protectedFromHigh;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
@@ -2783,6 +2954,10 @@ function onBoardClick(event: PointerEvent) {
   } else if (gameState.phase === 'choosing-base-placement') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'place-character', playerId: gameState.activePlayerId, to: cellHit.object.userData.cell });
+  } else if (gameState.phase === 'choosing-spirit-guardian-square') {
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const guardian = (gameState as GameState & { spiritGuardian: { casterId: PlayerId } }).spiritGuardian;
+    if (cellHit) dispatch({ type: 'spirit-guardian-square', playerId: guardian.casterId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-preparation-teleport') {
     const objectId = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     if (objectId) dispatch({ type: 'preparation-teleport', playerId: gameState.preparation!.casterId, objectId });
