@@ -2494,10 +2494,17 @@ type WizardPowerRuntime = {
   targetId?: string;
   resolvedAt?: number;
 };
+type WizardOrbitalState = {
+  controller: THREE.Object3D;
+  basePosition: THREE.Vector3;
+  baseRotation: THREE.Euler;
+  elapsed: number;
+};
 type WizardAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<WizardAnimationName, THREE.AnimationAction>;
   current: WizardAnimationName;
+  orbital?: WizardOrbitalState;
   power?: WizardPowerRuntime;
 };
 
@@ -2540,7 +2547,13 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     body.add(model);
     root.getObjectByName('ManaOrbAura')?.removeFromParent();
 
-    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip])) as Partial<Record<WizardAnimationName, THREE.AnimationClip>>;
+    // The GLB embeds an orb-controller track in each body clip. Excluding it
+    // gives the orbs one continuous timeline, independent of Idle/Walk/Power.
+    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, new THREE.AnimationClip(
+      clip.name,
+      clip.duration,
+      clip.tracks.filter((track) => !track.name.startsWith('Wizard_Orbital_Controller.')),
+    )])) as Partial<Record<WizardAnimationName, THREE.AnimationClip>>;
     if (!clips.Idle || !clips.Walk || !clips.Power) throw new Error('Wizard GLB must contain Idle, Walk, and Power clips.');
     const mixer = new THREE.AnimationMixer(model);
     const actions = {
@@ -2552,7 +2565,18 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
     actions.Idle.play();
-    root.userData.wizardAnimation = { mixer, actions, current: 'Idle' } satisfies WizardAnimationState;
+    const orbitalController = model.getObjectByName('Wizard_Orbital_Controller');
+    root.userData.wizardAnimation = {
+      mixer,
+      actions,
+      current: 'Idle',
+      orbital: orbitalController && {
+        controller: orbitalController,
+        basePosition: orbitalController.position.clone(),
+        baseRotation: orbitalController.rotation.clone(),
+        elapsed: 0,
+      },
+    } satisfies WizardAnimationState;
     model.getObjectByName('Wizard_Native_LeftHand')!.visible = true;
     model.getObjectByName('Wizard_Power_LeftHand_Controller')!.visible = false;
 
@@ -2656,8 +2680,9 @@ function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds
       }
     }
     state.mixer.update(deltaSeconds);
+    updateWizardOrbitalAnimation(state, deltaSeconds);
     const powerDuration = state.actions.Power.getClip().duration;
-    if (state.power.holdAtEnd && !state.power.liftStarted && state.actions.Power.time >= powerDuration * 0.45) {
+    if (state.power.holdAtEnd && !state.power.liftStarted && state.actions.Power.time >= powerDuration * 0.9) {
       const playerId = group.userData.playerId as PlayerId | undefined;
       if (playerId && state.power.targetKind && state.power.targetId) {
         liftWizardPowerTarget(playerId, state.power.targetKind, state.power.targetId);
@@ -2679,6 +2704,20 @@ function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds
     state.current = next;
   }
   state.mixer.update(deltaSeconds);
+  updateWizardOrbitalAnimation(state, deltaSeconds);
+}
+
+function updateWizardOrbitalAnimation(state: WizardAnimationState, deltaSeconds: number) {
+  const orbital = state.orbital;
+  if (!orbital) return;
+  orbital.elapsed += deltaSeconds;
+  const { controller, basePosition, baseRotation, elapsed } = orbital;
+  controller.position.set(basePosition.x, basePosition.y + Math.sin(elapsed * 1.35) * 0.035, basePosition.z);
+  controller.rotation.set(
+    baseRotation.x + Math.sin(elapsed * 0.85) * 0.045,
+    baseRotation.y + elapsed * 0.72,
+    baseRotation.z + Math.cos(elapsed * 1.1) * 0.035,
+  );
 }
 
 function createJohnChrist(playerColor = 0x169bd3) {
