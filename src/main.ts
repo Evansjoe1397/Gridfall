@@ -9,11 +9,13 @@ import {
   CARDS,
   ACTION_QUEST_POOL,
   STARTING_DECKS,
+  applicableCombatCardInstanceIds,
   applyCommand,
   arcaneMisslePath,
   mindBlastCanTarget,
   arkaneArowPath,
   cardDefinition,
+  canAttackTargetSquare,
   cellLabel,
   BOARD_SIZE,
   createHotseatTestState,
@@ -81,9 +83,9 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><div class="prompt" id="prompt"></div></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
-        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one card and move Again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS (H)</button></div>
+        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS (H)</button></div>
         <div class="hand" id="hand"></div>
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
@@ -107,9 +109,12 @@ let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
 type GameFormat = 'duel' | 'ffa';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, 'shinobi' | 'orkk' | 'magician'>>; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, SelectableCharacter>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
+let combatStackSelectionKey = '';
+let selectedCombatCardIds = new Set<string>();
+let combatStackSubmittedPlayerIds: PlayerId[] = [];
 let hiddenQuestRewardId: string | null = null;
 let actionQuestCollapsed = false;
 let announcedTurnKey = '';
@@ -174,6 +179,7 @@ document.querySelector('#directPerkButton')!.addEventListener('click', () => {
   if (selected.kind === 'perk') dispatch({ type: 'play-perk', playerId: actingPlayer(), cardInstanceId: selected.cardInstanceId, destination: 'direct' });
 });
 document.querySelector('#finishDanceButton')!.addEventListener('click', () => dispatch({ type: 'end-dance', playerId: actingPlayer() }));
+document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
 document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () => dispatch({ type: 'mind-tricks-finish', playerId: actingPlayer() }));
 document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
 document.querySelector('#leaveGame')!.addEventListener('click', () => location.reload());
@@ -242,6 +248,10 @@ window.addEventListener('keydown', (event) => {
     hintsOpen = !hintsOpen;
     renderHintsModal();
   }
+  if (event.code === 'KeyC' && !game.classList.contains('hidden')) {
+    const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
+    if (!cancelMovementButton.classList.contains('hidden') && !cancelMovementButton.disabled) { event.preventDefault(); cancelMovementButton.click(); }
+  }
 });
 
 function isWaitingForResolvedCardTarget() {
@@ -258,15 +268,21 @@ function isWaitingForSelectedCardTarget() {
 }
 
 let expirationRequestFor = 0;
+let combatAckRequestFor = 0;
+function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
+  if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
+  combatAckRequestFor = revealExpiresAt;
+  dispatch({ type: 'ack-combat', playerId: localSeat, combatExpiresAt: revealExpiresAt });
+}
 window.setInterval(() => {
   const reveal = gameState.combatReveal;
-  if (!reveal) { expirationRequestFor = 0; return; }
+  if (!reveal) { expirationRequestFor = 0; combatAckRequestFor = 0; return; }
   const countdown = document.querySelector<HTMLElement>('#combatRevealModal .combat-countdown b');
   if (countdown) countdown.textContent = String(Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000)));
   if (Date.now() < reveal.expiresAt || expirationRequestFor === reveal.expiresAt) return;
   expirationRequestFor = reveal.expiresAt;
-  const playerId = mode === 'online' ? localSeat : 'P1';
-  if (playerId) dispatch({ type: 'ack-combat', playerId });
+  if (mode === 'online') submitOnlineCombatAcknowledgement(reveal.expiresAt);
+  else acknowledgeCombatReveal();
 }, 250);
 
 function showFormatSelect(flow: 'hotseat' | 'online') {
@@ -276,7 +292,8 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   panel.innerHTML = `<p class="eyebrow">${flow === 'hotseat' ? 'HOTSEAT TEST' : 'PRIVATE MULTIPLAYER ROOM'}</p><h2>Choose Game Format</h2><div class="character-choices"><button data-format="duel"><strong>1 versus 1</strong><small>Nagrand Arena · 2 Players</small></button><button data-format="ffa"><strong>Free For All</strong><small>Lordaeron Arena · 3 Players</small></button></div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((button) => button.addEventListener('click', () => {
     const format = button.dataset.format as GameFormat;
-    if (flow === 'online') void connectOnline('create', format);
+    if (flow === 'online' && format === 'duel') showOnlineArenaSelect();
+    else if (flow === 'online') void connectOnline('create', format);
     else if (format === 'duel') showHotseatArenaSelect();
     else showHotseatCharacterSelect(format, 'nagrand');
   }));
@@ -287,9 +304,9 @@ type HotseatOpponent = SelectableCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench';
 const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
-  orkk: { name: 'Da Orkk', hp: 26, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage, then remove 1 Rage after combat. Remove another 1 Rage at turn end." },
+  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
-  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
+  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
 };
 function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
@@ -305,6 +322,13 @@ function showHotseatArenaSelect() {
   panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-hotseat-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-hotseat-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button></div><button class="lobby-back-button" id="backToFormat" type="button">Back to Game Format</button>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-arena]').forEach((button) => button.addEventListener('click', () => showHotseatCharacterSelect('duel', button.dataset.hotseatArena as HotseatArena)));
   panel.querySelector<HTMLButtonElement>('#backToFormat')!.addEventListener('click', () => showFormatSelect('hotseat'));
+}
+
+function showOnlineArenaSelect() {
+  const panel = byId('onlineWaiting');
+  panel.innerHTML = `<p class="eyebrow">PRIVATE MULTIPLAYER ROOM · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-online-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-online-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button></div><button class="lobby-back-button" id="backToOnlineFormat" type="button">Back to Game Format</button>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-online-arena]').forEach((button) => button.addEventListener('click', () => void connectOnline('create', 'duel', button.dataset.onlineArena as HotseatArena)));
+  panel.querySelector<HTMLButtonElement>('#backToOnlineFormat')!.addEventListener('click', () => showFormatSelect('online'));
 }
 
 function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
@@ -334,6 +358,7 @@ function startHotseat(character: SelectableCharacter, format: GameFormat, oppone
   gameState = format === 'duel' && arena === 'trench'
     ? createTrenchTestState(false, character, opponentCharacter)
     : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
   const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
@@ -349,14 +374,14 @@ function startHotseat(character: SelectableCharacter, format: GameFormat, oppone
   });
 }
 
-async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel') {
+async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand') {
   try {
     roomIdAutoSelected = false;
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
     const client = new Client(endpoint);
     const password = (document.querySelector<HTMLInputElement>('#password')!).value;
     if (action === 'create') {
-      room = await client.create('duel', { password, format });
+      room = await client.create('duel', { password, format, arena });
       (document.querySelector<HTMLInputElement>('#roomId')!).value = room.roomId;
     } else {
       const roomId = (document.querySelector<HTMLInputElement>('#roomId')!).value.trim();
@@ -366,11 +391,16 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     mode = 'online';
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
+    room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const arenaChanged = gameState.boardSize !== state.boardSize;
       const shouldFitCamera = enteringBattle || arenaChanged;
       gameState = normalizeOnlineState(state);
+      if (gameState.phase !== 'choosing-combat-stack') { combatStackSelectionKey = ''; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
+      const onlineArena = (gameState as GameState & { arenaId?: ArenaId }).arenaId === 'trench' ? THE_TRENCH_ARENA : gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA : NAGRAND_ARENA;
+      const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
+      if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
         boardVisualKey = '';
         fittedArenaKey = '';
@@ -416,9 +446,17 @@ function normalizeOnlineState(state: GameState): GameState {
     player.spiritForm ??= false;
     player.spiritEnemyUnderfoot ??= null;
     player.stoicShell ??= false;
+    player.stoicShellStacks ??= 0;
+    player.spiritObjectUnderfoot ??= null;
+    player.spiritSiphonedEnemyIds ??= [];
+    player.spiritSiphonedMovement ??= 0;
+    player.johnCumulativeMovementRemaining ??= player.spiritForm ? 0 : player.movementRemaining;
+    player.spiritMovementDepleted ??= false;
+    player.spiritMovementSpentThisTurn ??= false;
     player.queuedBlessingCardIds ??= [];
     player.stoicShellHealedTurn ??= null;
     player.stoicShellHealEventId ??= null;
+    player.stoicShellHealAmount ??= 0;
   });
   return state;
 }
@@ -444,6 +482,7 @@ function renderOnlineLobby() {
       ${characterSelectButton('orkk', 'data-character', !mayChoose)}
       ${characterSelectButton('shinobi', 'data-character', !mayChoose)}
       ${characterSelectButton('magician', 'data-character', !mayChoose)}
+      ${characterSelectButton('john-christ', 'data-character', !mayChoose)}
     </div><small>Players may choose the same Character.</small>`;
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
@@ -478,6 +517,7 @@ function actingPlayer(): PlayerId {
   }
   if (gameState.phase === 'choosing-blessing-light') return gameState.combatReveal?.blessingLight?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-blessing-might') return gameState.combatReveal?.blessingMight?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-blessing-faith') return gameState.combatReveal?.blessingFaith?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mythril-helmet') return gameState.combatReveal?.mythrilHelmet?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mana-barrage') return gameState.combatReveal?.manaBarrage?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction') return gameState.forceThrow!.casterId;
@@ -565,7 +605,6 @@ function renderUI() {
   byId('p3Stats').classList.toggle('hidden', !hudPlayerIds[2]);
   if (hudPlayerIds[2]) renderFighter(hudPlayerIds[2], 'p3Stats', 'right');
   renderCharacterTraits();
-  renderCharacterStatuses();
   renderOpponentHand();
   renderSpellEchoBars();
   renderHand();
@@ -603,7 +642,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
   if (gameState.phase === 'choosing-fireball-target') prompt.textContent = 'Fireball: select an enemy within Range 3 · Escape to cancel';
-  if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 5 · obstacles are ignored · Escape to cancel';
+  if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 3 · Range 1 automatically uses an Action for 2 Damage · Range 2-3 is a Free Action for 1 Damage · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
   if (gameState.phase === 'choosing-spirit-guardian-square') prompt.textContent = 'Spirit Guardian: select an empty highlighted Square within Range · Escape to cancel';
   if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy in range and line of sight · Escape to cancel';
@@ -621,6 +660,11 @@ function renderUI() {
   cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through');
   cancelDanceButton.disabled = Boolean(gameState.danceThrough?.enemyUnderfoot) || !canLocalAct(gameState.activePlayerId);
   cancelDanceButton.title = gameState.danceThrough?.enemyUnderfoot ? 'Shinobi must leave the enemy-occupied Square before cancelling.' : 'End Dance Through movement early.';
+  const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
+  const movementUndo = gameState.movementUndo;
+  const canCancelMovement = Boolean(movementUndo && movementUndo.playerId === actor.id && movementUndo.actionsRemaining === actor.actionsRemaining && movementUndo.perkUsed === actor.perkUsed && ['active', 'dashing'].includes(gameState.phase) && canLocalAct(actor.id));
+  cancelMovementButton.classList.toggle('hidden', !canCancelMovement);
+  cancelMovementButton.disabled = !canCancelMovement;
   (byId('freeMoveButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || actor.freeMoveUsed || !canLocalAct(actor.id);
   (byId('guardButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canLocalAct(actor.id);
   const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || (!cardDefinition(card).cannotBeDiscarded && !cardDefinition(card).name.startsWith('Blessing:')));
@@ -705,7 +749,7 @@ function characterTraitHtml(ru: boolean) {
       trait: 'Rage',
       description: ru
         ? 'Да Оркк получает 1 Rage, когда получает урон от карты или Действия, не более одного раза за общий эффект; отдельный последующий эффект может дать Rage снова. При Атаке все накопленные стаки добавляются к ATT, затем все добавленные к карте стаки Rage удаляются. В конце хода также снимается 1 стак. Если Оркк начинает ход без Щита и без Rage, он получает 1 Rage.'
-        : 'Da Orkk gains 1 Rage when damaged by a Card or Action, at most once per overall effect; a separate later effect may grant Rage again. Every stored stack adds +1 ATT to an Attack, then every Rage Stack applied to that Attack is consumed. One Rage Stack is also removed at turn end. If Orkk starts his turn with no Shield and no Rage, he gains 1 Rage.',
+        : 'Da Orkk gains 1 Rage when damaged by a Card or Action, at most once per overall effect; a separate later effect may grant Rage again. Every stored stack adds +1 ATT to an Attack, then every Rage Stack applied to that Attack is consumed unless the target was an Object. One Rage Stack is also removed at turn end. If Orkk starts his turn with no Shield and no Rage, he gains 1 Rage.',
       detail: ru
         ? 'Shield: метаемый Объект, который Да Оркк может экипировать. Щит наносит урон при броске или притягивании, если проходит через клетку, занятую врагом. В начале своего хода Да Оркк получает стак Rage, если Щит не экипирован и у него нет Rage; экипированный Щит вместо этого даёт +1 к значению DEF его карт Защиты.'
         : 'Shield: A throwable Object that can be equipped by Da Orkk. The Shield deals damage when thrown or pulled through a Square occupied by an enemy. At the beginning of his turn, Da Orkk gains 1 Rage if the Shield is not equipped and he has no Rage; while equipped, the Shield instead adds +1 to the Defend Value of his Cards.',
@@ -726,11 +770,11 @@ function characterTraitHtml(ru: boolean) {
     'john-christ': {
       trait: 'Possessed',
       description: ru
-        ? 'После получения любого урона John Christ входит в Spirit Form. В этой форме все его карты Атаки получают +2 ATT, дальность Атаки становится ближней (1 клетка), дальность движения становится 1, и он может проходить через клетки с врагами. Каждая занятая врагом клетка возвращает потраченный на вход 1 MOV. Он не может завершить движение или ход на одной клетке с врагом. После выхода из Spirit Form дальность Атаки снова становится 3.'
-        : 'After receiving any Damage, John Christ enters Spirit Form. In this form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, his movement Range becomes 1, and he may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it. He cannot finish movement or end his turn on the same Square as an enemy. Leaving Spirit Form restores Attack Range 3.',
+        ? 'После получения любого урона John Christ входит в Spirit Form. В этой форме все его карты Атаки получают +2 ATT, дальность Атаки становится ближней (1 клетка), а Form получает 1 MOV независимо от отрицательных эффектов движения. Он может проходить через клетки с врагами. Каждая занятая врагом клетка возвращает потраченный на вход 1 MOV и один раз за ход отнимает 1 MOV у пересечённого врага до конца его хода. Он не может завершить движение или ход на одной клетке с врагом. После выхода из Spirit Form дальность Атаки снова становится 3.'
+        : 'After receiving any Damage, John Christ enters Spirit Form. In this form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, and the Form receives 1 MOV regardless of negative movement effects. He may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it and siphons 1 MOV from that enemy until the end of their turn, once per enemy per John turn. He cannot finish movement or end his turn on the same Square as an enemy. Leaving Spirit Form restores Attack Range 3.',
       detail: ru
-        ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Форма заканчивается после использования карты Атаки или в конце хода. Blessing, добавленная в Руку в ход John, немедленно создаёт Stoic Shell. Отложенные Blessing добавляются в начале его хода только если у него не было Stoic Shell. Если ход начался со Stoic Shell, John восстанавливает 1 HP и удаляет Shell; любой полученный урон удаляет Shell.'
-        : 'Spirit Form prevents Cards containing “Bless” in their name from being used. The form ends after using an Attack Card or at turn end. A Blessing added to John’s Hand during his turn immediately creates Stoic Shell. Queued Blessings enter his Hand at turn start only if he did not begin with Stoic Shell. Beginning with Stoic Shell restores 1 HP and removes it; any Damage removes the Shell.',
+        ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Негативные модификаторы MOV применяются к общему запасу John и не уменьшают собственный 1 MOV формы. Исключение: если John в одном ходу вошёл в Form, потратил её MOV, вышел, затем потратил весь оставшийся общий MOV и вошёл снова, повторный вход даёт 0 MOV. Если общий MOV ещё остался, повторный вход даёт 1 MOV. Полностью потраченный MOV формы уменьшает общий запас на 1 при выходе; возвраты за занятые клетки его не увеличивают. Форма проходит сквозь врагов, Объекты, Щиты и Стены. Blessing создаёт Stoic Shell; урон снимает все Stacks.'
+        : 'Spirit Form prevents Cards containing “Bless” in their name from being used. Negative MOV modifiers affect John’s cumulative pool and never reduce the Form’s own 1 MOV. Exception: if John enters the Form, spends its MOV, exits, spends all remaining cumulative MOV, and enters again during the same turn, that second entry has 0 MOV. If cumulative MOV remains, re-entry still grants 1 MOV. Fully spending the Form’s MOV subtracts 1 from the cumulative pool on exit; occupied-Square refunds do not increase it. The Form crosses enemies, Objects, Shields, and Walls. Blessings create Stoic Shell; Damage removes all Stacks.',
       status: ru
         ? `Сейчас: ${player.spiritForm ? 'Spirit Form активна' : 'обычная форма'} · Stoic Shell ${player.stoicShell ? 'активна' : 'неактивна'} · отложено Blessing: ${player.queuedBlessingCardIds.length}.`
         : `Current state: ${player.spiritForm ? 'Spirit Form active' : 'normal form'} · Stoic Shell ${player.stoicShell ? 'active' : 'inactive'} · queued Blessings: ${player.queuedBlessingCardIds.length}.`,
@@ -768,11 +812,11 @@ function renderDiscardModal() {
 
 function hintsRulesHtml(ru: boolean) {
   if (ru) return `<h2 id="hintsTitle">Правила хода</h2><div class="rules-grid">
-    <article><h3>Доступные действия</h3><p><b>Свободное движение + карта:</b> возьмите карту и получите очки движения. Можно двигаться до и после других действий.</p><p><b>Атака:</b> выберите карту Атаки и допустимую цель. Обычно доступно до двух Действий за ход.</p><p><b>Перк:</b> разыграйте один Перк напрямую на 1-м уровне или поместите его в Spell Echo. За ход можно использовать только один Перк.</p><p><b>Защита:</b> когда вас атакуют, сыграйте карту Защиты или примите удар.</p><p><b>Завершающие приёмы:</b> Guard — взять и сбросить карту; Dash — сбросить карту и снова двигаться. Оба немедленно завершают ход.</p></article>
+    <article><h3>Доступные действия</h3><p><b>Свободное движение + карта:</b> возьмите карту и получите очки движения. Можно двигаться до и после других действий.</p><p><b>Атака:</b> выберите карту Атаки и допустимую цель. Обычно доступно до двух Действий за ход.</p><p><b>Перк:</b> разыграйте один Перк напрямую на 1-м уровне или поместите его в Spell Echo. За ход можно использовать только один Перк.</p><p><b>Защита:</b> когда вас атакуют, сыграйте карту Защиты или примите удар.</p><p><b>Завершающие приёмы:</b> Guard — взять и сбросить карту; Dash — сбросить карту, не являющуюся Blessing, и снова двигаться. Оба немедленно завершают ход.</p></article>
     <article><h3>Правила боя</h3><p>Сравните итоговую Силу Атаки и Защиты после всех бонусов и штрафов. Если Атака выше, цель получает урон, равный разнице. При равенстве или меньшей Атаке боевой урон не наносится.</p><p>Эффекты карт срабатывают в указанное время: до боя, во время сравнения или после боя. Эффект, отменяющий карту Атаки, не отменяет внешние бонусы к её Силе.</p><h3>Статусные карты</h3><p>Статусные карты занимают место в Руке и действуют, пока находятся там. Их оранжевая рамка отличает их от обычных карт. Правила конкретного Статуса определяют, можно ли его сбросить или удалить. При лимите Руки в 5 карт несбрасываемые Статусы нельзя выбрать для обычного сброса.</p></article></div>`;
   return `<h2 id="hintsTitle">Turn Rules</h2><div class="rules-grid">
-    <article><h3>Available Player Actions</h3><p><b>Free Move + Draw Card:</b> draw a Card and gain movement. Movement may be split before and after other Actions.</p><p><b>Action: Attack:</b> select an Attack Card and a valid target. A Player normally has up to two Actions per turn.</p><p><b>Action: Perk:</b> play one Perk directly at Level 1 or place it in Spell Echo. Only one Perk may be used each turn.</p><p><b>Action: Defend:</b> when attacked, play a Defend Card or take the hit.</p><p><b>Finishing Moves:</b> Guard draws and discards a Card; Dash discards a Card and grants another movement. Either immediately ends the turn when resolved.</p></article>
-    <article><h3>Combat Rules</h3><p>Compare the final Attack and Defend Values after all bonuses and penalties. If Attack is higher, the target takes damage equal to the difference. Equal or lower Attack deals no combat damage.</p><p>Card effects resolve at their stated timing: before combat, during comparison, or after combat. Cancelling an Attack Card's effect does not cancel external improvements to its Attack Value.</p><h3>Status Cards</h3><p>Status Cards occupy Hand space and apply their effects while held. Their orange highlight distinguishes them from regular Cards. Each Status specifies whether it may be discarded or Removed. At the five-Card end-of-turn Hand limit, non-discardable Status Cards cannot be chosen for a normal discard.</p></article></div>`;
+    <article><h3>Available Player Actions</h3><p><b>Free Move + Draw Card:</b> draw a Card and gain movement. Movement may be split before and after other Actions.</p><p><b>Action: Attack:</b> select an Attack Card and a valid target. A Player normally has up to two Actions per turn.</p><p><b>Action: Perk:</b> play one Perk directly at Level 1 or place it in Spell Echo. Only one Perk may be used each turn.</p><p><b>Action: Defend:</b> when attacked, play a Defend Card or take the hit.</p><p><b>Finishing Moves:</b> Guard draws and discards a Card; Dash discards one non-Blessing Card and grants another movement. Either immediately ends the turn when resolved.</p></article>
+    <article><h3>Combat Stack</h3><ol><li><b>Before combat:</b> resolve the Defender's pre-combat Card effect first, then the Attacker's pre-combat Card effect.</li><li><b>Reveal:</b> reveal the selected Attack and Defend Cards. The combat screen lists every pre-combat Value change, Damage instance, and cancelled effect.</li><li><b>Combat Cards:</b> a Combat Card is any separate Card from Hand that can optionally be applied after the Attack and Defend Cards have been selected and played. Each Player privately selects no more than one applicable Combat Card, or selects “Use no Combat Cards.” Neither Player's selection or effect is shown until both have submitted.</li><li><b>Combat Card reveal:</b> reveal both selections together, apply their effects, update Attack and Defend Values, and list every newly applied effect.</li><li><b>Result and confirmation:</b> compare the final Values. Attack above Defend deals the difference as combat Damage; a tie or lower Attack deals none. After both Players confirm and close the combat screen, resolve and animate the Attacker's post-combat effects first, followed by the Defender's post-combat effects.</li></ol><p>Cancelling a played Card's effect does not cancel external modifiers unless their own rules say so. Choices intrinsic to the already played Attack or Defend Card are combat effects, but are not additional Combat Cards from Hand.</p><h3>Status Cards</h3><p>Status Cards occupy Hand space and apply their effects while held. Their orange highlight distinguishes them from regular Cards. Each Status specifies whether it may be discarded or Removed. At the five-Card end-of-turn Hand limit, non-discardable Status Cards cannot be chosen for a normal discard. By default, a Blessing is Removed from its holder's Deck whenever that holder uses or discards it, unless the Blessing explicitly states otherwise.</p></article></div>`;
 }
 
 function cardAdviceHtml(ru: boolean) {
@@ -790,8 +834,8 @@ function cardAdviceHtml(ru: boolean) {
 type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning' | 'panic' | 'blessing-light' | 'blessing-prayer' | 'blessing-might' | 'blessing-shield' | 'blessing-swiftness' | 'blessing-faith';
 const STATUS_CARD_GENERATORS: Record<StatusCardId, readonly CardTypeId[]> = {
   pinned: ['light-the-saber', 'dance-through', 'cut-them-legs', 'block', 'double-jump', 'force-pull', 'swiftform'],
-  headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell', 'enforce'],
-  exhaust: ['force-disarm', 'consume-rage', 'teef-strike', 'blessed-light', 'mind-blast'],
+  headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell', 'enforce', 'mind-blast'],
+  exhaust: ['force-disarm', 'consume-rage', 'teef-strike', 'blessed-light'],
   burning: ['fireball', 'cleanse', 'thorns'],
   panic: ['enforce', 'fear-the-justice'],
   'blessing-light': ['blessed-light'],
@@ -836,7 +880,7 @@ function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['pla
 const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: string; ru: string }>> = {
   'echo-pulse': { en: 'A flexible Spell Echo engine. Use it early for a Card, mature it to Level 2 when an extra Action creates a combo turn, or hold Level 3 for emergency healing.', ru: 'Гибкий двигатель Spell Echo. Используйте рано ради карты, поднимите до 2-го уровня для дополнительного Действия в комбо-ходе или сохраните 3-й уровень для срочного лечения.' },
   fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at turn end if still held; Dash deals that Damage first, then Removes it and moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Burning наносит 1 урон в конце хода, если остаётся в Руке; Dash сначала наносит этот урон, затем удаляет карту и перемещает цель случайно.' },
-  portal: { en: 'A one-use global reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card.', ru: 'Одноразовое глобальное перемещение. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты.' },
+  portal: { en: 'A one-use global reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты. Portal удаляется из игры после применения или сброса.' },
   'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
@@ -855,7 +899,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   blink: { en: 'Logan’s emergency Defence: it blocks all combat damage. With Mana, it also teleports him to safety; without Mana, expect to sacrifice a chosen Hand Card or a non-Status Card from Deck.', ru: 'Экстренная Защита Логана: блокирует весь боевой урон. При наличии Маны также телепортирует в безопасность; без Маны придётся пожертвовать выбранной картой Руки или не-Статусной картой Колоды.' },
   'blessed-light': { en: 'A setup Attack that plants Exhaust in the target’s Deck—on top if their Deck is empty—so a later draw can impose -1 ATT and DEF while Exhaust remains in Hand. It immediately creates revealed Blessing: Light and Stoic Shell; save that Blessing to reduce an enemy Defend Card by 1 in a later combat. Because its name contains “Blessed,” John cannot use this card in Spirit Form.', ru: 'Подготовительная Атака: замешивает Exhaust в Колоду цели, а при пустой Колоде кладёт его сверху. Exhaust даёт -1 ATT и DEF, пока находится в Руке. Карта сразу создаёт открытую Blessing: Light и Stoic Shell; сохраните Blessing, чтобы позже уменьшить DEF врага на 1. Из-за слова “Blessed” карта недоступна в Spirit Form.' },
   cleanse: { en: 'Use early to place Burning in the target’s Hand after combat. It deals 1 Damage at their turn end if still held; Dash deals that Damage before Removing Burning and spending movement randomly. The Status applies even if Cleanse loses combat, unless the Attack effect is cancelled.', ru: 'Используйте рано, чтобы после боя добавить Burning в Руку цели. В конце её хода карта наносит 1 урон, если остаётся в Руке; Dash наносит урон до удаления Burning и случайной траты движения. Статус применяется даже при проигранном бою, если эффект Атаки не отменён.' },
-  repent: { en: 'A deliberate Spirit Form trigger and area punish: after combat John takes 1 Damage and every adjacent enemy takes 1. Use it while healthy and surrounded; successful self-Damage puts John into Spirit Form for the remainder of the turn, enabling pass-through movement and +2 ATT on a later non-Bless Attack.', ru: 'Осознанный вход в Spirit Form и наказание группы: после боя Джон получает 1 урон, как и каждый соседний враг. Используйте при достаточном HP и в окружении; прошедший самоурон включает Spirit Form до конца хода, открывая проход сквозь врагов и +2 ATT для следующей Атаки без “Bless”.' },
+  repent: { en: 'A deliberate Spirit Form trigger and area punish: after combat John takes 1 Damage while every adjacent enemy takes 2 and erupts in Holy Fire. Use it while healthy and surrounded; successful self-Damage activates Spirit Form for a later non-Bless Attack.', ru: 'Осознанный вход в Spirit Form и наказание группы: после боя Джон получает 1 урон, а каждый соседний враг получает 2 урона и вспыхивает Святым Огнём. Используйте при достаточном HP и в окружении; прошедший самоурон включает Spirit Form для следующей Атаки без “Bless”.' },
   enforce: { en: 'A control Attack that applies both Panic and Headache after combat unless its debuffs are prevented. Panic greys out Attack and Perk Cards until Free Move Removes it and spends the target’s current movement randomly; Headache then remains dead Hand weight that costs an Action to Remove.', ru: 'Контрольная Атака, накладывающая после боя Panic и Headache, если дебаффы не предотвращены. Panic блокирует Атаки и Перки до Free Move и случайно тратит текущее движение цели; Headache остаётся мёртвым грузом в Руке и требует Действия для удаления.' },
   'blessed-might': { en: 'A high-value Attack that cancels the enemy Defend Card’s printed effect unless they use an effect-blocking Defence. After combat it creates revealed Blessing: Might and Stoic Shell; use that Blessing in a different combat for +2 ATT. Neither card can be used while John is in Spirit Form.', ru: 'Сильная Атака, отменяющая печатный эффект карты Защиты врага, если тот не применил Защиту, блокирующую эффект Атаки. После боя создаёт открытую Blessing: Might и Stoic Shell; используйте Blessing в другом бою ради +2 ATT. Обе карты недоступны в Spirit Form.' },
   'blessed-block': { en: 'Use against a low-value Attack with a dangerous printed effect: Blessed Block cancels that effect before combat. Blessing: Shield is queued for the beginning of John’s next eligible turn—not this combat—so the opponent gets a turn to break the resulting Stoic Shell with Damage.', ru: 'Используйте против слабой Атаки с опасным печатным эффектом: Blessed Block отменяет его до боя. Blessing: Shield ставится в очередь до начала следующего подходящего хода Джона и недоступна в этом бою; у врага будет ход, чтобы уроном снять появившийся Stoic Shell.' },
@@ -865,15 +909,15 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   resurrection: { en: 'Emergency Defence when at least one of John’s two Base Squares is empty. A legal teleport negates all combat and card-effect Damage, returns John to Base, and draws 1 Card. If both Base Squares are occupied, he still draws but receives Damage normally, so inspect the Base before committing a 0 DEF card.', ru: 'Экстренная Защита, если хотя бы одна из двух клеток Базы Джона свободна. Успешный телепорт отменяет весь боевой урон и урон эффектов, возвращает на Базу и даёт 1 карту. Если обе клетки заняты, добор остаётся, но урон не отменяется — проверяйте Базу перед выбором DEF 0.' },
   'blessed-prayer': { en: 'John’s Spell Echo engine. Level 1 immediately creates revealed Blessing: Prayer and Stoic Shell; Level 2 adds 1 MOV for this turn, and Level 3 retrieves a chosen Card from Discard. Avoid casting it in Spirit Form, and plan Prayer’s Free Action draw before its mandatory end-turn removal.', ru: 'Двигатель Spell Echo Джона. Уровень 1 сразу создаёт открытую Blessing: Prayer и Stoic Shell; уровень 2 даёт 1 MOV на этот ход, уровень 3 возвращает выбранную карту из Discard. Нельзя применять в Spirit Form; используйте Свободное Действие Prayer до её обязательного удаления в конце хода.' },
   'fear-the-justice': { en: 'Enter Spirit Form on demand without losing HP. At Level 2 every adjacent enemy receives Panic, disabling Attack and Perk Cards until Free Move Removes it while spending movement randomly; Level 3 also makes each affected enemy discard a Defend Card. Surround multiple enemies before using the higher levels.', ru: 'Позволяет войти в Spirit Form без потери HP. На уровне 2 каждый соседний враг получает Panic, блокирующий Атаки и Перки до Free Move со случайной тратой движения; уровень 3 также заставляет каждого затронутого врага сбросить карту Защиты. Перед высоким уровнем окружите несколько целей.' },
-  'inner-peace': { en: 'A reset tool: leave Spirit Form so Bless cards become usable, then Remove a chosen Status from Hand. Level 2 Removes one additional random Status, preferring Hand, then Deck, then Discard; Level 3 creates revealed Blessing: Faith and Stoic Shell. Use it to purge Panic, Exhaust, Burning, Headache, or excess Blessings before a key turn.', ru: 'Инструмент сброса состояния: выйдите из Spirit Form, снова открыв карты Bless, затем удалите выбранный Статус из Руки. Уровень 2 случайно удаляет ещё один Статус с приоритетом Рука → Колода → Discard; уровень 3 создаёт открытую Blessing: Faith и Stoic Shell. Очищайте Panic, Exhaust, Burning, Headache или лишние Blessing перед важным ходом.' },
-  'mind-blast': { en: 'Ranged Hand and draw disruption. Level 1 forces one discard, Level 2 adds 1 direct Damage, and Level 3 places Exhaust on top of the target’s Deck so their next draw carries -1 ATT and DEF while held. Use Level 3 just before their turn for the most reliable Status timing.', ru: 'Дальнее разрушение Руки и добора. Уровень 1 заставляет сбросить карту, уровень 2 наносит 1 прямой урон, уровень 3 кладёт Exhaust сверху Колоды цели: после добора тот даёт -1 ATT и DEF, пока находится в Руке. Применяйте уровень 3 перед ходом цели для надёжного тайминга.' },
-  'spirit-guardian': { en: 'Create a positional anchor within John’s Range. Stay adjacent for +1 DEF; Level 2 makes the Guardian an invincible Heavy Wall that each push or pull can move only 1 Square, and Level 3 gives adjacent enemies -1 to every Attack and Defend Card Value. It disappears when John uses an Attack or at his next turn, so exploit its zone before attacking.', ru: 'Создайте позиционный якорь в Дальности Джона. Стойте рядом ради +1 DEF; уровень 2 делает Стража неуязвимой Тяжёлой Стеной, которую каждый толчок или притягивание двигает лишь на 1 клетку; уровень 3 даёт соседним врагам -1 ко всем Атакам и Защитам. Страж исчезает при Атаке Джона или в начале следующего хода — используйте зону заранее.' },
-  'blessing-light': { en: 'A revealed one-use combat Status. Apply it only when -1 to the enemy Defend Value changes the outcome; it is Removed after use or any discard. It grants Stoic Shell when created, but cannot be activated while John is in Spirit Form.', ru: 'Открытый одноразовый боевой Статус. Применяйте, только когда -1 DEF врага меняет исход; карта удаляется после применения или любого сброса. При создании даёт Stoic Shell, но недоступна в Spirit Form.' },
+  'inner-peace': { en: 'A safe cleanse: leave Spirit Form so Bless cards become usable, then Remove a chosen negative Status from Hand. Level 2 Removes one additional random negative Status, preferring Hand, then Deck, then Discard; Level 3 creates revealed Blessing: Faith and Stoic Shell. Blessings and other positive Status Cards are never removed by this Perk.', ru: 'Безопасное очищение: выйдите из Spirit Form, снова открыв карты Bless, затем удалите выбранный отрицательный Статус из Руки. Уровень 2 случайно удаляет ещё один отрицательный Статус с приоритетом Рука → Колода → Discard; уровень 3 создаёт открытую Blessing: Faith и Stoic Shell. Этот Перк никогда не удаляет Blessing и другие положительные Статусы.' },
+  'mind-blast': { en: 'Ranged Hand and draw disruption. Level 1 forces one discard, Level 2 adds 1 direct Damage, and Level 3 places 2 Headache Cards on top of the target’s Deck, burdening their next two draws with Status Cards that cost an Action to Remove. Use Level 3 just before their turn for the strongest draw denial.', ru: 'Дальнее разрушение Руки и добора. Уровень 1 заставляет сбросить карту, уровень 2 наносит 1 прямой урон, уровень 3 кладёт 2 карты Headache сверху Колоды цели, занимая два следующих добора Статусами, удаление которых требует Действия. Применяйте уровень 3 непосредственно перед ходом цели.' },
+  'spirit-guardian': { en: 'Create a positional anchor within John’s Range; it remains through John’s Attack Card use and expires at the beginning of his next turn. While adjacent, gain +1 DEF and block the first 1 Perk Damage in each Action. Adjacency is checked when Damage resolves: if that same Perk pushes John away before collision Damage, nothing is blocked. Level 2 makes the Guardian an invincible Heavy Wall moved only 1 Square per push/pull; Level 3 gives adjacent enemies -1 Attack and Defend Value.', ru: 'Создайте позиционный якорь в Дальности Джона; использование Джоном карты Атаки не удаляет его, и Страж исчезает в начале следующего хода Джона. Пока Джон рядом, он получает +1 DEF и блокирует первую 1 единицу урона Перка в каждом Действии. Соседство проверяется в момент урона: если тот же Перк сначала вытолкнул Джона из зоны, урон столкновения не блокируется. Уровень 2 делает Стража неуязвимой Тяжёлой Стеной с перемещением лишь на 1 клетку за толчок/притягивание; уровень 3 даёт соседним врагам -1 к Атаке и Защите.' },
+  'blessing-light': { en: 'A revealed combat Status. Apply it only when -1 to the enemy Defend Value changes the outcome. It grants Stoic Shell when created, but cannot be activated while John is in Spirit Form.', ru: 'Открытый боевой Статус. Применяйте, только когда -1 DEF врага меняет исход. При создании даёт Stoic Shell, но недоступна в Spirit Form.' },
   'blessing-prayer': { en: 'Convert 1 MOV into 1 drawn Card as a Free Action, then Remove this revealed Blessing. Use it after movement positioning is secure; otherwise it disappears at turn end. Creating it grants Stoic Shell, and Spirit Form prevents using it.', ru: 'Превратите 1 MOV в добор 1 карты Свободным Действием, затем удалите открытую Blessing. Используйте после завершения позиционирования, иначе она исчезнет в конце хода. Создание даёт Stoic Shell; в Spirit Form карта недоступна.' },
-  'blessing-might': { en: 'A revealed combat finisher that adds +2 to John’s played Attack Card. Hold it for a combat where the bonus creates Damage or defeats the target; it is Removed after use and cannot be applied during Spirit Form despite that form’s own +2 ATT.', ru: 'Открытый боевой финишер, добавляющий +2 к сыгранной Атаке Джона. Берегите для боя, где бонус создаст урон или добьёт цель; после применения карта удаляется и не работает в Spirit Form, несмотря на собственные +2 ATT формы.' },
-  'blessing-shield': { en: 'A revealed one-use damage buffer. During combat, absorb 1 Damage from an enemy Attack or Defend Card effect—not ordinary combat-value Damage—then Remove it. A Shield generated by Blessed Block arrives next turn and cannot protect the combat that created it; Spirit Form also prevents its use.', ru: 'Открытый одноразовый щит. В бою поглотите 1 урон от эффекта вражеской карты Атаки или Защиты, но не обычный урон разницы значений, затем удалите карту. Shield от Blessed Block приходит лишь в следующий ход и не защищает создавший её бой; Spirit Form также блокирует применение.' },
+  'blessing-might': { en: 'A revealed combat finisher that adds +2 to John’s played Attack Card. Hold it for a combat where the bonus creates Damage or defeats the target. It cannot be applied during Spirit Form despite that form’s own +2 ATT.', ru: 'Открытый боевой финишер, добавляющий +2 к сыгранной Атаке Джона. Берегите для боя, где бонус создаст урон или добьёт цель. Карта не работает в Spirit Form, несмотря на собственные +2 ATT формы.' },
+  'blessing-shield': { en: 'Apply after reveal for two independent protections during the rest of combat: absorb 1 Damage from an enemy Attack/Defend Card effect and automatically block the first negative Status application. Pre-combat Status effects have already resolved and are unaffected. A Shield generated by Blessed Block arrives next turn; Spirit Form prevents its use.', ru: 'Примените после раскрытия ради двух независимых защит до конца боя: поглотите 1 урон от эффекта вражеской Атаки/Защиты и автоматически заблокируйте первое наложение негативного Статуса. Предбоевые Статусы уже разрешены и не блокируются. Shield от Blessed Block приходит в следующий ход; Spirit Form не позволяет его использовать.' },
   'blessing-swiftness': { en: 'A revealed passive Status granting +1 MOV while in Hand. Keep Hand size at 5 or fewer when ending the turn if you want to retain it; at 6 or more it is Removed at the beginning of the end-turn process. Its creation also grants Stoic Shell.', ru: 'Открытый пассивный Статус, дающий +1 MOV в Руке. Завершайте ход с 5 или менее картами, если хотите сохранить его; при 6+ он удаляется в самом начале процесса окончания хода. Создание также даёт Stoic Shell.' },
-  'blessing-faith': { en: 'Faith has no standalone combat modifier, but its creation grants Stoic Shell and it remains a revealed Blessing resource. Prefer removing it for Feed the Spirit’s +1 HP or with Inner Peace before sacrificing Light, Might, Shield, or Swiftness.', ru: 'Faith не даёт отдельного боевого модификатора, но при создании включает Stoic Shell и остаётся открытым ресурсом Blessing. Предпочитайте удалять её ради +1 HP Feed the Spirit или через Inner Peace, сохраняя Light, Might, Shield и Swiftness.' },
+  'blessing-faith': { en: 'A revealed one-combat sanctuary. Apply it to negate every Damage instance dealt to both attacker and defender, including combat-value and card-effect Damage. If unused, it expires at the beginning of your next turn, so use it in the current enemy turn when meaningful.', ru: 'Открытое убежище на один бой. Примените, чтобы отменить весь урон обеим сторонам — и от разницы боевых значений, и от эффектов карт. Если не использовать, карта исчезнет в начале вашего следующего хода, поэтому применяйте её во время текущего хода врага, когда это выгодно.' },
   'light-the-saber': { en: 'An efficient setup Attack. Apply Pinned early to reduce enemy mobility and prepare Calmness, Double Jump, or Hello There for stronger follow-up value.', ru: 'Эффективная подготовительная Атака. Наложите Pinned заранее, чтобы снизить мобильность врага и усилить последующие Calmness, Double Jump или Hello There.' },
   'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies to escape, cross a blocked lane, or apply Pinned, but reserve the final step for an empty Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов для побега, пересечения занятого пути или наложения Pinned, но оставьте последний шаг для пустой клетки.' },
   'force-disarm': { en: 'Use when the enemy is holding revealed or suspected Attack Cards. It removes their offensive option; if none exists, revealing the Hand provides information and Exhaust weakens future combat.', ru: 'Используйте, когда у врага есть открытые или предполагаемые Карты Атаки. Карта убирает наступательную угрозу; если Атак нет, раскрытие Руки даёт информацию, а Exhaust ослабляет будущие бои.' },
@@ -901,7 +945,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'knee-blast': { en: 'A strong Attack that converts Rage into displacement. Line up the target with an Object, Player, wall, or board edge so an interrupted push also adds Headache to their Hand.', ru: 'Сильная Атака, превращающая Rage в перемещение. Выстройте цель напротив Объекта, Игрока, стены или края поля, чтобы прерванный толчок также добавил Headache в её Руку.' },
   'da-blokk': { en: 'Use against an Attack with a dangerous printed effect. If damage still breaks through, the 2 Rage gained fuels a powerful counterattack on Orkk’s next turn.', ru: 'Используйте против Атаки с опасным собственным эффектом. Если урон всё же пройдёт, полученные 2 Rage подготовят мощную контратаку в следующий ход Оркка.' },
   double: { en: 'Best early in an enemy turn when several damage instances may follow. It doubles Rage gained for the rest of that turn, setting up a large Rage-powered Attack.', ru: 'Лучше использовать в начале хода врага, когда ожидается несколько случаев урона. Карта удваивает получаемый Rage до конца хода и готовит мощную Rage-Атаку.' },
-  'arcane-shield': { en: 'Use while equipped to turn the Shield into an adjacent obstacle after combat. While unequipped, it instead gives Rage, so choose it when offence matters more than restoring the DEF bonus.', ru: 'Со Щитом превращает его после боя в соседнее препятствие. Без Щита вместо этого даёт Rage, поэтому выбирайте карту, когда нападение важнее восстановления бонуса DEF.' },
+  'arcane-shield': { en: 'When the Shield is unequipped, recall and equip it after combat. Route it through an enemy to deal 2 additional Damage; like every Recall, its travel may extend by 1 Square when that extra Square lets it cross an enemy.', ru: 'Если Щит не экипирован, верните и экипируйте его после боя. Проведите его через врага, чтобы нанести 2 дополнительного урона; как и любой возврат, путь может удлиниться на 1 клетку, если это позволяет пересечь врага.' },
   countaspell: { en: 'A high Defence that weaponizes stored Rage without consuming it. Save it for an enemy with a vulnerable Deck, then load their Discard with Headaches before a later shuffle effect.', ru: 'Высокая Защита, использующая накопленный Rage без расхода. Сохраняйте против врага с уязвимой Колодой, затем наполняйте его Discard картами Headache перед будущим замешиванием.' },
   'mana-baryer': { en: 'With the Shield equipped, Mana Baryer has exactly 5 base DEF—the normal equipped-Shield +1 is not added again. Without the Shield, recall it through enemies for 2 Damage; the general Shield recall rule also pulls each crossed enemy 1 Square toward Orkk.', ru: 'С экипированным Щитом Mana Baryer имеет ровно 5 базовой DEF — обычный бонус +1 за Щит повторно не добавляется. Без Щита верните его через врагов, нанося 2 урона; общее правило возврата Щита также притягивает каждого пересечённого врага на 1 клетку к Оркку.' },
   pinned: { en: 'This restricts movement and cannot be discarded for Hand overstacking. Plan a low-movement turn, use an allowed Finishing Move discard, or wait for the automatic end-turn removal.', ru: 'Ограничивает движение и не может быть сброшена при переполнении Руки. Планируйте ход с малым движением, используйте разрешённый сброс Завершающего приёма или дождитесь автоматического удаления в конце хода.' },
@@ -920,7 +964,8 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   const orkkIndicators = player.character === 'orkk' ? `<div class="header-statuses"><span title="${player.shieldEquipped ? '+1 Defence Value to Defend Cards.' : 'Shield is unequipped and exists as a Board obstacle.'}">&#128737; ${player.shieldEquipped ? 'EQUIPPED' : 'UNEQUIPPED'}</span></div>` : '';
   const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}<small>${player.manaMode === 'consume' ? 'CONSUME' : 'GENERATE'}</small></div>` : '';
   const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
-  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i></div>${mana}${orkkIndicators}`;
+  const statusIcons = playerStatusIcons(player);
+  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i></div>${statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} statuses">${statusIcons}</div>` : ''}${mana}${orkkIndicators}`;
 }
 
 function playerUiColor(playerId: PlayerId) {
@@ -938,7 +983,7 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
   announcement.querySelector('strong')!.textContent = `${player.name}'s turn`;
   const healMessage = announcement.querySelector<HTMLElement>('.turn-heal-message')!;
   const stoicShellHealed = player.character === 'john-christ' && player.stoicShellHealedTurn === gameState.turn;
-  healMessage.textContent = stoicShellHealed ? "Stoic Shell has restored John's 1 HP" : '';
+  healMessage.textContent = stoicShellHealed ? `Stoic Shell has restored John's ${player.stoicShellHealAmount} HP` : '';
   healMessage.classList.toggle('visible', stoicShellHealed);
   announcement.classList.remove('hidden', 'visible');
   void announcement.offsetWidth;
@@ -952,8 +997,8 @@ function renderCharacterTraits() {
   const playerTwo = gameState.players.P2;
   if (playerTwo.character === 'shinobi') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
   else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
-  else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card, then remove 1 after combat. Remove 1 more at turn end.</span></div></div>`;
-  else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies. Attacking or ending the turn exits the form.</span></div></div>`;
+  else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div></div>`;
+  else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div></div>`;
   else byId('characterTraitPanelP2').innerHTML = '';
   if (player.character === 'shinobi') {
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
@@ -965,12 +1010,12 @@ function renderCharacterTraits() {
   }
   if (player.character === 'orkk') {
     const shield = player.shieldEquipped ? `<div class="trait-icon highground-active" tabindex="0">🛡<span class="trait-tooltip"><b>Iron Shield Equipped</b>Da Orkk's Defend Cards gain +1 Defence Value.</span></div>` : '';
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card, then remove 1 after combat. Remove 1 more at turn end.</span></div>${shield}</div>`;
+    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div>${shield}</div>`;
     return;
   }
   if (player.character === 'john-christ') {
-    const shell = player.stoicShell ? `<div class="trait-icon highground-active" tabindex="0">◉<span class="trait-tooltip"><b>Stoic Shell</b>The next HP Damage removes this Status. If it remains at the beginning of John's next turn, restore 1 HP and remove it.</span></div>` : '';
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies. Attacking or ending the turn exits the form.</span></div>${shell}</div>`;
+    const shell = player.stoicShell ? `<div class="trait-icon highground-active" tabindex="0">${player.stoicShellStacks}<span class="trait-tooltip"><b>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</b>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. No Stack is gained at maximum HP. HP Damage removes every Stack.</span></div>` : '';
+    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div>${shell}</div>`;
     return;
   }
   byId('characterTraitPanel').innerHTML = '';
@@ -984,7 +1029,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const exhaustStored = player.deck.concat(player.discard).filter((card) => card.cardId === 'exhaust').length;
     const burning = player.hand.filter((card) => card.cardId === 'burning').length;
     const panic = player.hand.filter((card) => card.cardId === 'panic').length;
-    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every Rage Stack applied to that Attack. Remove 1 stack at turn end.</span></div>` : '';
+    const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang');
+    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
     const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">×2<span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">🦵<i></i><b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
     const handHeadacheIcon = headacheInHand > 0 ? `<div class="status-icon headache-status in-hand" tabindex="0">🤕${headacheInHand > 1 ? `<b>${headacheInHand}</b>` : ''}<span class="status-tooltip"><strong>Headache · Hand</strong>${headacheInHand} Headache Card${headacheInHand === 1 ? '' : 's'} currently filling this player's Hand. Filled red while active in Hand.</span></div>` : '';
@@ -1003,21 +1049,12 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">🔥${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
-    const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards, MOV 1, and may pass through enemies. Attack or end the turn to exit.</span></div>` : '';
-    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">◉<span class="status-tooltip"><strong>Stoic Shell</strong>Removed by HP Damage; otherwise restores 1 HP at the beginning of John's next turn.</span></div>` : '';
+    const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
+    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${player.stoicShellStacks}<span class="status-tooltip"><strong>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</strong>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. At maximum HP, existing Stacks remain but do not increase. HP Damage removes all Stacks.</span></div>` : '';
+    const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
-    return `${flagIcon}${spiritIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
-}
-
-function renderCharacterStatuses() {
-  const playerIds = hudSeatPlayerIds();
-  (['P1', 'P2', 'P3'] as PlayerId[]).forEach((slotId, index) => {
-    const panel = byId(`status${slotId}`);
-    const player = gameState.players[playerIds[index]];
-    const icons = player ? playerStatusIcons(player) : '';
-    panel.classList.toggle('hidden', !icons);
-    panel.innerHTML = icons ? `<div class="status-row" aria-label="${escapeHtml(player.name)} statuses">${icons}</div>` : '';
-  });
+    const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
+    return `${flagIcon}${spiritIcon}${spiritSiphonIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1085,7 +1122,7 @@ function renderHand() {
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
-    const spiritBlocked = viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
+    const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const interactionCopy = mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
     const typeLabel = instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
@@ -1120,8 +1157,8 @@ function renderFlurryModal() {
     const visible = viewerId === player.id && canLocalAct(player.id);
     modal.classList.toggle('hidden', !visible);
     if (!visible) { modal.innerHTML = ''; return; }
-    const statuses = player.hand.filter((instance) => cardDefinition(instance).kind === 'status');
-    modal.innerHTML = `<div class="choice-dialog"><span>INNER PEACE · LEVEL 1</span><h2>Remove a Status Card</h2><p>Choose one Status Card from Hand to Remove. Higher-level effects resolve afterward.</p><div class="choice-cards">${statuses.map((instance) => `<button data-inner-peace-status="${instance.instanceId}"><strong>${escapeHtml(cardDefinition(instance).name)}</strong><small>Remove from Hand</small></button>`).join('')}</div></div>`;
+    const statuses = player.hand.filter((instance) => ['pinned', 'headache', 'exhaust', 'burning', 'panic'].includes(instance.cardId));
+    modal.innerHTML = `<div class="choice-dialog"><span>INNER PEACE · LEVEL 1</span><h2>Remove a Negative Status</h2><p>Choose one negative Status Card from Hand to Remove. Blessings and positive Status Cards are protected.</p><div class="choice-cards">${statuses.map((instance) => `<button data-inner-peace-status="${instance.instanceId}"><strong>${escapeHtml(cardDefinition(instance).name)}</strong><small>Remove from Hand</small></button>`).join('')}</div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-inner-peace-status]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'inner-peace-status-choice', playerId: player.id, cardInstanceId: button.dataset.innerPeaceStatus! })));
     return;
   }
@@ -1284,7 +1321,7 @@ function actionQuestConditionWithEndRound(questId: string, fallback: string, end
 }
 
 function renderPhaseRewardModal() {
-  const extended = gameState as GameState & { questPhases?: { lastQuestWinners: PlayerId[]; progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend' }>>; phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; selectedCardId?: any } | null } };
+  const extended = gameState as GameState & { questPhases?: { lastQuestWinners: PlayerId[]; progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend' }>>; phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; selectedCardId?: any; phaseThreeDuplicated?: boolean; phaseThreeRemoved?: boolean } | null } };
   const reward = extended.questPhases?.phaseReward;
   const playerId = reward?.pendingPlayerIds[0];
   const visible = Boolean(reward && playerId && ['choosing-phase-card', 'choosing-phase-three-card', 'choosing-phase-destination'].includes(gameState.phase) && canLocalAct(playerId!));
@@ -1298,9 +1335,17 @@ function renderPhaseRewardModal() {
     return;
   }
   if (reward.phase === 3) {
+    const duplicated = Boolean(reward.phaseThreeDuplicated);
+    const removed = Boolean(reward.phaseThreeRemoved);
     const phaseThreeCards = ([['HAND', player.hand], ['DECK', player.deck], ['DISCARD', player.discard]] as const).flatMap(([pile, cards]) => cards.map((instance) => ({ pile, instance })));
-    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE THREE · CARD REFINEMENT</span><h2>${escapeHtml(player.name)}</h2><p>Choose any Card in your Hand, Deck, or Discard, then Duplicate or Remove it.${winner ? ' You may choose the destination of a duplicate.' : ' A duplicate must be shuffled into your Deck.'}</p><div class="choice-cards">${phaseThreeCards.map(({ pile, instance }) => { const card = cardDefinition(instance); return `<button class="phase-three-card"><span>${pile}</span><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(card.effectText ?? '')}</small><em data-phase-op="duplicate" data-instance="${instance.instanceId}">Duplicate</em><em data-phase-op="remove" data-instance="${instance.instanceId}">Remove</em></button>`; }).join('')}</div></div>`;
+    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE THREE · CARD REFINEMENT</span><h2>${escapeHtml(player.name)}</h2><p>Duplicate up to 1 Card and Remove up to 1 Card from your Hand, Deck, or Discard. Each action can be used once.${winner ? ' You may choose the destination of a duplicate.' : ' A duplicate is shuffled into your Deck.'} Hover a Card for its complete rules.</p><div class="phase-three-progress"><span class="${duplicated ? 'used' : ''}">Duplicate: ${duplicated ? 'used' : 'available'}</span><span class="${removed ? 'used' : ''}">Remove: ${removed ? 'used' : 'available'}</span></div><div class="choice-cards phase-three-grid">${phaseThreeCards.map(({ pile, instance }) => { const card = cardDefinition(instance); const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'DEFEND VALUE' : card.kind === 'perk' ? 'PERK VALUE' : 'STATUS VALUE'; return `<article class="phase-three-card" data-phase-preview="${card.id}"><span>${pile}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${valueLabel}</b><div class="phase-three-actions"><button type="button" class="phase-duplicate" data-phase-op="duplicate" data-instance="${instance.instanceId}" ${duplicated ? 'disabled' : ''}>Duplicate</button><button type="button" class="phase-remove" data-phase-op="remove" data-instance="${instance.instanceId}" ${removed ? 'disabled' : ''}>Remove</button></div></article>`; }).join('')}</div><button type="button" class="choice-decline" id="finishPhaseThree">${duplicated || removed ? 'Cancel remaining action' : 'Cancel · use neither action'}</button></div>`;
     phaseRewardModal.querySelectorAll<HTMLElement>('[data-phase-op]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); dispatch({ type: 'phase-three-operation', playerId, cardInstanceId: button.dataset.instance!, operation: button.dataset.phaseOp as any }); }));
+    byId('finishPhaseThree').addEventListener('click', () => dispatch({ type: 'phase-three-finish', playerId }));
+    phaseRewardModal.querySelectorAll<HTMLElement>('[data-phase-preview]').forEach((card) => {
+      card.addEventListener('pointerenter', (event) => showCardPreview(card.dataset.phasePreview!, event));
+      card.addEventListener('pointermove', positionCardPreview);
+      card.addEventListener('pointerleave', hideCardPreview);
+    });
     return;
   }
   const definition = STARTING_DECKS[player.character as 'shinobi' | 'orkk' | 'magician'];
@@ -1320,11 +1365,71 @@ function renderCombatReveal() {
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
   const modifier = (base: number, total: number) => total === base ? `${total}` : `${base} ${total > base ? '+' : '−'} ${Math.abs(total - base)} = ${total}`;
   const viewer = mode === 'online' ? localSeat : null;
-  const acknowledged = viewer ? reveal.acknowledged.includes(viewer) : false;
+  const acknowledged = viewer ? reveal.acknowledged.includes(viewer) || combatAckRequestFor === reveal.expiresAt : false;
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
     ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}</b> from ${escapeHtml(item.source)}</li>`).join('')
     : '<li class="neutral">No bonus values applied</li>';
   const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml(defend.effectText ?? '')}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  if (gameState.phase === 'choosing-combat-stack' && gameState.pendingAttack && (localSeat || mode === 'hotseat')) {
+    const pending = gameState.pendingAttack;
+    const combatants = [pending.attackerId, pending.defenderId];
+    const localCombatSelections = (gameState as GameState & { combatStackSelections?: Partial<Record<PlayerId, string[]>> }).combatStackSelections ?? {};
+    const submittedIds = [...new Set([...(mode === 'online' ? combatStackSubmittedPlayerIds : []), ...combatants.filter((id) => localCombatSelections[id] !== undefined)])];
+    const combatSeat = localSeat ?? combatants.find((id) => localCombatSelections[id] === undefined);
+    if (!combatSeat) return;
+    const key = `${pending.cardInstanceId}:${pending.defenderId}`;
+    if (combatStackSelectionKey !== key) { combatStackSelectionKey = key; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
+    if (mode === 'hotseat') combatStackSubmittedPlayerIds = submittedIds;
+    const player = gameState.players[combatSeat];
+    const attacker = combatSeat === pending.attackerId;
+    const applicableIds = new Set(applicableCombatCardInstanceIds(gameState, combatSeat));
+    const applicable = player.hand.filter((instance) => applicableIds.has(instance.instanceId));
+    if (applicable.length === 0 && localCombatSelections[combatSeat] !== undefined) { modal.classList.add('hidden'); modal.innerHTML = ''; return; }
+    const submitted = submittedIds.includes(combatSeat);
+    const opponentId = combatSeat === pending.attackerId ? pending.defenderId : pending.attackerId;
+    const heldExhaust = player.hand.filter((card) => card.cardId === 'exhaust').length;
+    const heldBanner = player.hand.some((card) => card.cardId === 'banner');
+    const unchangedEffects = [
+      heldExhaust ? `${heldExhaust} held Exhaust: -${heldExhaust} ${attacker ? 'ATT' : 'DEF'} already included` : '',
+      heldBanner ? `held Banner: no bonus unless selected as the Combat Card` : '',
+    ].filter(Boolean).join(' · ') || 'No held Combat Card modifier changes the current value';
+    const preCombatEffects = [
+      pending.blessedBlockResolved ? 'Defender pre-combat: the Attack Card effect was cancelled by Blessed Block.' : '',
+      pending.blessedSwiftnessResolved ? 'Defender pre-combat: Blessed Swiftness annulled the Attacker’s unspent MOV.' : '',
+      pending.manaShieldManaGenerated ? 'Defender pre-combat: Mana Shield generated 1 Mana.' : '',
+      ...(pending.attackModifiers ?? []).filter((entry) => entry.source.includes('pre-combat')).map((entry) => `Attacker pre-combat: ${entry.source} changed ATT by ${entry.value > 0 ? '+' : ''}${entry.value}.`),
+    ].filter(Boolean);
+    const optionResult = (instance: (typeof player.hand)[number]) => {
+      const definition = cardDefinition(instance);
+      const ownValue = attacker ? reveal.attackTotal : reveal.defendTotal;
+      if (instance.cardId === 'vicious-mockery') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 2}`;
+      if (instance.cardId === 'exhaust') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue - 2} · attached Exhaust replaces its held -1 with -3`;
+      if (instance.cardId === 'blessing-might') return `ATT ${reveal.attackTotal} → ${reveal.attackTotal + 2}`;
+      if (instance.cardId === 'blessing-light') return `Enemy DEF ${reveal.defendTotal} → ${reveal.defendTotal - 1}`;
+      if (instance.cardId === 'banner') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 1}`;
+      return `ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal} · ${definition.effectText ?? 'apply this Combat Card effect'}`;
+    };
+    const cardButtons = applicable.map((instance) => {
+      const card = cardDefinition(instance);
+      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>USE ${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
+    }).join('');
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Choose exactly one Combat Card, or use none</h3>${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>DO NOT USE ANYTHING</strong><small>Keep every Combat Card in Hand. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-combat-stack-card]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
+      if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
+      else dispatch({ type: 'combat-stack-choice', playerId: combatSeat, cardInstanceId: button.dataset.combatStackCard! });
+    }));
+    modal.querySelectorAll<HTMLElement>('[data-combat-preview]').forEach((button) => {
+      button.addEventListener('pointerenter', (event) => showCardPreview(button.dataset.combatPreview!, event));
+      button.addEventListener('pointermove', positionCardPreview);
+      button.addEventListener('pointerleave', hideCardPreview);
+    });
+    modal.querySelector<HTMLButtonElement>('#refuseCombatStack:not(:disabled)')?.addEventListener('click', () => {
+      if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [] });
+      else dispatch({ type: 'combat-stack-choice', playerId: combatSeat, cardInstanceId: null });
+    });
+    return;
+  }
   if (reveal.manaBarrage) {
     const decisionPlayer = reveal.manaBarrage.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
@@ -1358,11 +1463,20 @@ function renderCombatReveal() {
     document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
     return;
   }
+  if (reveal.blessingFaith) {
+    const decisionPlayer = reveal.blessingFaith.playerId;
+    const mayDecide = canLocalAct(decisionPlayer);
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT SANCTUARY</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Faith?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Faith to negate all combat-value and Card-effect Damage dealt to both attacker and defender in this combat.</div><div class="combat-choice-buttons"><button id="useBlessingFaith" ${mayDecide ? '' : 'disabled'}>USE · NEGATE ALL DAMAGE</button><button id="keepBlessingFaith" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    document.querySelector('#useBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: true }));
+    document.querySelector('#keepBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: false }));
+    return;
+  }
   if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
     modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Shield to absorb 1 Damage caused by this Attack Card's effects. Ordinary combat Damage is unaffected.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1 EFFECT DAMAGE</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
+    modal.innerHTML = modal.innerHTML.replace('Remove Blessing: Shield to absorb 1 Damage caused by an enemy Attack or Defend Card. Ordinary combat Damage is unaffected.', 'Apply Blessing: Shield to absorb 1 Damage from enemy Attack/Defend Card effects and automatically block the first negative Status applied to you during the rest of this combat. Ordinary combat Damage and pre-combat Statuses are unaffected.').replace('USE В· ABSORB 1 EFFECT DAMAGE', 'USE В· SHIELD THIS COMBAT');
     document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -1394,20 +1508,24 @@ function renderCombatReveal() {
     ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
     : '';
   const breakdown = `<div class="combat-modifier-breakdown"><section><h4>ATTACK VALUE SOURCES</h4><ul>${modifierLines(reveal.attackModifiers)}</ul></section><section><h4>DEFEND VALUE SOURCES</h4><ul>${modifierLines(reveal.defendModifiers)}</ul></section></div>`;
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  const appliedCombatCards = reveal.combatStackApplied
+    ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${escapeHtml(cardDefinition({ instanceId: '', cardId }).name)}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
+    : '';
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
 }
 
 function acknowledgeCombatReveal() {
   if (!gameState.combatReveal) return;
   if (mode === 'online') {
-    if (localSeat) dispatch({ type: 'ack-combat', playerId: localSeat });
+    submitOnlineCombatAcknowledgement(gameState.combatReveal.expiresAt);
     return;
   }
   const combatPlayers = gameState.pendingAttack ? [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId] : (Object.keys(gameState.players) as PlayerId[]).slice(0, 2);
-  const first = applyCommand(gameState, { type: 'ack-combat', playerId: combatPlayers[0] });
+  const combatExpiresAt = gameState.combatReveal.expiresAt;
+  const first = applyCommand(gameState, { type: 'ack-combat', playerId: combatPlayers[0], combatExpiresAt });
   if (!first.ok) return notify(first.error);
-  const second = applyCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1] });
+  const second = applyCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1], combatExpiresAt });
   if (!second.ok) return notify(second.error);
   gameState = second.state;
   renderAll();
@@ -1477,7 +1595,6 @@ function renderOpponentHand() {
 }
 
 function showCardPreview(cardId: string, pointer?: PointerEvent) {
-  if (gameState.combatReveal) return;
   const card = CARDS.find((candidate) => candidate.id === cardId);
   if (!card) return;
   const preview = byId('cardHoverPreview');
@@ -1665,6 +1782,7 @@ const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THRE
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; boomerang?: boolean }[] = [];
+const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const processedManaConsumeEvents = new Set<string>();
@@ -1816,6 +1934,23 @@ function syncSpellProjectiles() {
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
     processedSpellProjectiles.add(event.id);
+    if (event.style === 'holy-fire') {
+      const group = new THREE.Group();
+      group.position.copy(worldPosition(event.to)); group.position.y += 0.08;
+      const flames: THREE.Mesh[] = [];
+      for (let index = 0; index < 9; index++) {
+        const angle = index / 9 * Math.PI * 2;
+        const radius = index % 3 === 0 ? 0.16 : 0.48;
+        const material = new THREE.MeshStandardMaterial({ color: index % 2 ? 0xffd84d : 0xfff3a0, emissive: index % 2 ? 0xff7a00 : 0xffd83d, emissiveIntensity: 4, transparent: true, opacity: .9 });
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16 + (index % 3) * 0.035, 0.9 + (index % 4) * 0.17, 8), material);
+        flame.position.set(Math.cos(angle) * radius, flame.geometry.parameters.height / 2, Math.sin(angle) * radius);
+        flame.rotation.z = Math.sin(angle) * .12; flame.rotation.x = Math.cos(angle) * .12;
+        group.add(flame); flames.push(flame);
+      }
+      const light = new THREE.PointLight(0xffc33d, 5, 5); light.position.y = 1; group.add(light);
+      scene.add(group); holyFireAnimations.push({ group, flames, startedAt: performance.now() });
+      continue;
+    }
     let points = event.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 1.25, 0)));
     if (event.style === 'boomerang') {
       const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.15, 0));
@@ -1857,6 +1992,20 @@ function updateSpellProjectiles(time: number) {
     if (progress >= 1) {
       scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
       spellProjectileAnimations.splice(index, 1);
+    }
+  }
+  for (let index = holyFireAnimations.length - 1; index >= 0; index--) {
+    const animation = holyFireAnimations[index];
+    const progress = Math.min(1, (time - animation.startedAt) / 2000);
+    animation.flames.forEach((flame, flameIndex) => {
+      const pulse = .72 + Math.sin(time * .012 + flameIndex * 1.7) * .24;
+      flame.scale.set(pulse, .75 + Math.sin(time * .016 + flameIndex) * .3, pulse);
+      (flame.material as THREE.MeshStandardMaterial).opacity = progress > .72 ? Math.max(0, (1 - progress) / .28) : .9;
+    });
+    if (progress >= 1) {
+      scene.remove(animation.group);
+      animation.flames.forEach((flame) => { flame.geometry.dispose(); (flame.material as THREE.Material).dispose(); });
+      holyFireAnimations.splice(index, 1);
     }
   }
 }
@@ -2092,8 +2241,9 @@ function createCell(cell: Cell) {
   const drawSquare = arena.drawSquares.includes(label);
   const protectedSquare = arena.highgroundProtected.includes(label);
   const slideSquare = arena.slideSquares?.includes(label) ?? false;
+  const trenchSquare = arena.trenchSquares?.includes(label) ?? false;
   const claimedColor = claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
-  const color = unclaimedPlacementBase ? 0xc21f35 : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : drawSquare ? 0x665a25 : highGround ? 0x285046 : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
+  const color = unclaimedPlacementBase ? 0xc21f35 : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : drawSquare ? 0x665a25 : highGround ? 0x285046 : trenchSquare ? 0xb1845c : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
   const emissive = unclaimedPlacementBase ? 0xff1638 : claimant === 'P1' ? 0x07374f : claimant === 'P2' ? 0x3d0f18 : claimant === 'P3' ? 0x291a45 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? 0.54 : 0.16, 1.72), new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : 0.35, roughness: 0.72, metalness: 0.15 }));
   mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? 0.19 : 0;
@@ -2245,6 +2395,11 @@ function createLongHatLogan(playerColor = 0x169bd3) {
   add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  const manaAura = new THREE.Group(); manaAura.name = 'ManaOrbAura'; root.add(manaAura);
+  for (let index = 0; index < 3; index++) {
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), new THREE.MeshStandardMaterial({ color: 0x69d4ff, emissive: 0x168fe8, emissiveIntensity: 4.2, roughness: 0.08, transparent: true, opacity: 0.96 }));
+    orb.name = `ManaOrb${index + 1}`; orb.visible = false; orb.userData.orbIndex = index; randomizeManaOrbit(orb); manaAura.add(orb);
+  }
   return root;
 }
 
@@ -2277,12 +2432,20 @@ function createJohnChrist(playerColor = 0x169bd3) {
   add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
-  const manaAura = new THREE.Group(); manaAura.name = 'ManaOrbAura'; root.add(manaAura);
-  for (let index = 0; index < 3; index++) {
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), new THREE.MeshStandardMaterial({ color: 0x69d4ff, emissive: 0x168fe8, emissiveIntensity: 4.2, roughness: 0.08, transparent: true, opacity: 0.96 }));
-    orb.name = `ManaOrb${index + 1}`; orb.visible = false; orb.userData.orbIndex = index; manaAura.add(orb);
-  }
   return root;
+}
+
+function randomizeManaOrbit(orb: THREE.Object3D) {
+  orb.userData.orbitRadiusX = 0.62 + Math.random() * 0.34;
+  orb.userData.orbitRadiusZ = 0.58 + Math.random() * 0.38;
+  orb.userData.orbitSpeed = (0.00072 + Math.random() * 0.00105) * (Math.random() < 0.5 ? -1 : 1);
+  orb.userData.orbitPhase = Math.random() * Math.PI * 2;
+  orb.userData.orbitHeight = 0.86 + Math.random() * 0.48;
+  orb.userData.orbitVerticalAmplitude = 0.10 + Math.random() * 0.23;
+  orb.userData.orbitVerticalFrequency = 1.25 + Math.random() * 1.8;
+  orb.userData.orbitWobble = 0.025 + Math.random() * 0.08;
+  orb.userData.orbitWobbleSpeed = 0.0011 + Math.random() * 0.0025;
+  orb.userData.orbitWobblePhase = Math.random() * Math.PI * 2;
 }
 
 function syncManaOrbVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
@@ -2291,12 +2454,16 @@ function syncManaOrbVisual(group: THREE.Group, player: GameState['players'][Play
   const consumeOrbs = player.character === 'magician' && player.manaMode === 'consume' && player.id === gameState.activePlayerId;
   const visibleCount = consumeOrbs ? 3 : player.character === 'magician' ? player.manaPoints : 0;
   const previousCount = Number(aura.userData.visibleCount ?? 0);
+  const countChanged = previousCount !== visibleCount;
   aura.children.forEach((child, index) => {
     child.visible = index < visibleCount;
     const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
     material.color.setHex(consumeOrbs ? 0xb66cff : 0x69d4ff);
     material.emissive.setHex(consumeOrbs ? 0x7a24da : 0x168fe8);
-    if (index >= previousCount && index < visibleCount) child.userData.spawnedAt = performance.now();
+    if (countChanged && index < visibleCount) {
+      randomizeManaOrbit(child);
+      child.userData.spawnedAt = performance.now();
+    }
   });
   aura.userData.visibleCount = visibleCount;
 }
@@ -2306,8 +2473,15 @@ function updateManaOrbAnimation(group: THREE.Group, time: number) {
   if (!aura) return;
   aura.children.forEach((child, index) => {
     if (!child.visible) return;
-    const angle = time * 0.00125 + index * Math.PI * 2 / 3;
-    child.position.set(Math.cos(angle) * 0.78, 1.05 + Math.sin(time * 0.0024 + index * 1.7) * 0.18, Math.sin(angle) * 0.78);
+    const speed = Number(child.userData.orbitSpeed ?? 0.00125);
+    const phase = Number(child.userData.orbitPhase ?? index * Math.PI * 2 / 3);
+    const angle = time * speed + phase;
+    const wobble = Math.sin(time * Number(child.userData.orbitWobbleSpeed ?? 0.002) + Number(child.userData.orbitWobblePhase ?? 0)) * Number(child.userData.orbitWobble ?? 0.05);
+    const radiusX = Number(child.userData.orbitRadiusX ?? 0.78) + wobble;
+    const radiusZ = Number(child.userData.orbitRadiusZ ?? 0.78) - wobble * 0.7;
+    const height = Number(child.userData.orbitHeight ?? 1.05)
+      + Math.sin(angle * Number(child.userData.orbitVerticalFrequency ?? 2) + phase * 0.6) * Number(child.userData.orbitVerticalAmplitude ?? 0.18);
+    child.position.set(Math.cos(angle) * radiusX, height, Math.sin(angle) * radiusZ);
     const spawnProgress = Math.min(1, (time - Number(child.userData.spawnedAt ?? 0)) / 420);
     const scale = Math.max(0.01, spawnProgress) * (1 + Math.sin(time * 0.006 + index) * 0.08);
     child.scale.setScalar(scale);
@@ -2805,11 +2979,9 @@ function highlightCells() {
     const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = regularPath.length;
-    const spiritRefunds = actor.spiritForm ? regularPath.filter((step) => Object.values(gameState.players).some((candidate) => candidate.id !== actor.id && candidate.position.x === step.x && candidate.position.y === step.y)).length : 0;
-    const spiritMovementCost = regularDistance - spiritRefunds;
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
-    const spiritPassSquare = occupiedByPlayer && actor.spiritForm && spiritMovementCost <= actor.movementRemaining;
-    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && !occupiedByObject && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare) && regularDistance >= 1 && (actor.spiritForm ? spiritMovementCost : regularDistance) <= actor.movementRemaining;
+    const spiritPassSquare = (occupiedByPlayer || occupiedByObject) && actor.spiritForm && regularDistance <= actor.movementRemaining;
+    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare) && regularDistance >= 1 && regularDistance <= actor.movementRemaining;
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;
@@ -2846,13 +3018,9 @@ function highlightCells() {
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
     const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && Boolean(guardianPending) && !occupiedByPlayer && !occupiedByObject
       && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId]);
-    const activeHigh = (gameState.elevations[cellLabel(activePlayer.position)] ?? 0) > 0;
-    const targetHigh = (gameState.elevations[cellLabel(cell)] ?? 0) > 0;
-    const protectedLabels = visualArena().highgroundProtected;
-    const protectedFromHigh = activeHigh && !targetHigh && protectedLabels.includes(cellLabel(cell)) && distance(activePlayer.position, cell) > 1;
     const attackableObject = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id) || attackableObject)
-      && distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && !protectedFromHigh;
+      && distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && canAttackTargetSquare(gameState, activePlayer.position, cell);
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
       (selectedCard?.cardId === 'force-throw' && movableObjectOnCell && distance(activePlayer.position, cell) <= 4)
       || (selectedCard?.cardId === 'force-pull' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && hasLineOfSight(gameState, activePlayer.position, cell)) || movableObjectOnCell) && distance(activePlayer.position, cell) <= 4)
@@ -2902,11 +3070,7 @@ function updateTargetHighlights(time: number) {
   const canMagicTarget = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic) && canLocalAct(magic!.casterId);
   dummyGroups.forEach((group, playerId) => {
     const target = gameState.players[playerId];
-    const attackerHigh = (gameState.elevations[cellLabel(attacker.position)] ?? 0) > 0;
-    const targetHigh = (gameState.elevations[cellLabel(target.position)] ?? 0) > 0;
-    const protectedLabels = visualArena().highgroundProtected;
-    const protectedFromHigh = attackerHigh && !targetHigh && protectedLabels.includes(cellLabel(target.position)) && distance(attacker.position, target.position) > 1;
-    const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && !protectedFromHigh;
+    const validAttack = canTarget && playerId !== attacker.id && distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
     const validArcane = canArcaneTarget && playerId !== arcane!.casterId && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], target) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level)));

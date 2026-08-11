@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, applyCommand as applyGameCommand, applyPinned, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 // Most historical rule checks focus on the final resolved card state. Preserve
 // their concise form while production now holds after-combat effects until both
@@ -14,6 +14,9 @@ const applyCommand = (source: any, command: any): any => {
   resolved.combatReveal = reveal;
   return { ok: true, state: resolved };
 };
+
+const noCombatAcknowledgement = createGameInitialState();
+assert.equal(applyGameCommand(noCombatAcknowledgement, { type: 'ack-combat', playerId: 'P1', combatExpiresAt: 123 }).ok, true, 'A delayed acknowledgement is idempotent after its combat result has already closed.');
 
 const arcaneBarrierPushState = createGameInitialState('shinobi-vs-magician');
 arcaneBarrierPushState.objects = [];
@@ -28,6 +31,9 @@ if (arcaneBarrierAttack.ok) {
   assert.equal(arcaneBarrierDefense.ok, true);
   if (arcaneBarrierDefense.ok) {
     assert.deepEqual(arcaneBarrierDefense.state.players.P1.position, { x: 2, y: 2 }, 'Arcane Barrier waits for combat acknowledgement before moving the attacker.');
+    const staleCombatAck = applyGameCommand(arcaneBarrierDefense.state, { type: 'ack-combat', playerId: 'P1', combatExpiresAt: arcaneBarrierDefense.state.combatReveal!.expiresAt - 1 });
+    assert.equal(staleCombatAck.ok, true);
+    if (staleCombatAck.ok) assert.deepEqual(staleCombatAck.state.combatReveal?.acknowledged, [], 'An acknowledgement token from an older combat cannot acknowledge the current result.');
     const firstAck = applyGameCommand(arcaneBarrierDefense.state, { type: 'ack-combat', playerId: 'P1' });
     assert.equal(firstAck.ok, true);
     if (firstAck.ok) {
@@ -182,7 +188,7 @@ if (mockeryDefend.ok) {
   const useMockery = applyCommand(mockeryDefend.state, { type: 'vicious-mockery-decision', playerId: 'P1', use: true });
   assert.equal(useMockery.ok, true);
   if (useMockery.ok) {
-    assert.equal(useMockery.state.players.P2.hp, 24, 'Vicious Mockery adds +2 ATT before combat damage is resolved.');
+    assert.equal(useMockery.state.players.P2.hp, 22, 'Vicious Mockery adds +2 ATT before combat damage is resolved.');
     assert.equal([...useMockery.state.players.P1.hand, ...useMockery.state.players.P1.deck, ...useMockery.state.players.P1.discard].some((card) => card.cardId === 'vicious-mockery'), false, 'Used Vicious Mockery is Removed from the game.');
   }
 }
@@ -196,8 +202,43 @@ if (playPortal.ok) {
   assert.equal(usePortal.ok, true);
   if (usePortal.ok) {
     assert.deepEqual(usePortal.state.players.P1.position, { x: 3, y: 3 });
-    assert.equal(usePortal.state.players.P1.discard.some((card) => card.cardId === 'portal'), true, 'Portal behaves as a normal Perk and enters Discard after use.');
+    assert.equal([...usePortal.state.players.P1.hand, ...usePortal.state.players.P1.deck, ...usePortal.state.players.P1.discard].some((card) => card.cardId === 'portal'), false, 'Portal is Removed from the game after use.');
   }
+}
+
+const discardedPortalState = createInitialState();
+discardedPortalState.players.P1.freeMoveUsed = true;
+discardedPortalState.players.P1.hand = [{ instanceId: 'discarded-portal', cardId: 'portal' }];
+discardedPortalState.players.P1.deck = [{ instanceId: 'guard-draw-after-portal', cardId: 'attack-2' }];
+const portalGuard = applyGameCommand(discardedPortalState, { type: 'guard', playerId: 'P1' });
+assert.equal(portalGuard.ok, true);
+if (portalGuard.ok) {
+  const portalDiscarded = applyGameCommand(portalGuard.state, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'discarded-portal' });
+  assert.equal(portalDiscarded.ok, true);
+  if (portalDiscarded.ok) assert.equal([...portalDiscarded.state.players.P1.hand, ...portalDiscarded.state.players.P1.deck, ...portalDiscarded.state.players.P1.discard].some((card) => card.cardId === 'portal'), false, 'Portal is Removed from the game when Discarded.');
+}
+
+const impossibleGuardDiscardState = createInitialState();
+impossibleGuardDiscardState.players.P1.freeMoveUsed = true;
+impossibleGuardDiscardState.players.P1.hand = [{ instanceId: 'guard-headache-held', cardId: 'headache' }];
+impossibleGuardDiscardState.players.P1.deck = [{ instanceId: 'guard-headache-drawn', cardId: 'headache' }];
+const impossibleGuard = applyGameCommand(impossibleGuardDiscardState, { type: 'guard', playerId: 'P1' });
+assert.equal(impossibleGuard.ok, true);
+if (impossibleGuard.ok) {
+  assert.equal(impossibleGuard.state.players.P1.hand.filter((card) => card.cardId === 'headache').length, 2, 'Guard completes its draw before checking whether the required discard is possible.');
+  assert.equal(impossibleGuard.state.players.P1.hp, 0, 'A Player who cannot satisfy Guard\'s mandatory discard loses automatically.');
+  assert.equal(impossibleGuard.state.phase, 'finished');
+  assert.equal(impossibleGuard.state.winner, 'P2');
+}
+
+const impossibleOverstackState = createInitialState();
+impossibleOverstackState.players.P1.hand = Array.from({ length: 6 }, (_, index) => ({ instanceId: `overstack-headache-${index}`, cardId: 'headache' as const }));
+const impossibleOverstack = applyGameCommand(impossibleOverstackState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(impossibleOverstack.ok, true);
+if (impossibleOverstack.ok) {
+  assert.equal(impossibleOverstack.state.players.P1.hp, 0, 'A Player who cannot satisfy mandatory overstacking discards loses automatically.');
+  assert.equal(impossibleOverstack.state.phase, 'finished');
+  assert.equal(impossibleOverstack.state.winner, 'P2');
 }
 
 const blockedPortalState = createInitialState() as any;
@@ -351,7 +392,7 @@ if (playFireball.ok) {
   const hit = applyCommand(playFireball.state, { type: 'fireball-target', playerId: 'P1', targetId: 'P2' });
   assert.equal(hit.ok, true);
   if (hit.ok) {
-    assert.equal(hit.state.players.P2.hp, 24, 'Fireball deals 2 Damage.');
+    assert.equal(hit.state.players.P2.hp, 22, 'Fireball deals 2 Damage.');
     assert.equal(hit.state.players.P2.hand.some((card) => card.cardId === 'burning' && card.sourcePlayerId === 'P1'), true, 'Fireball adds a revealed Burning Status Card to the target Hand.');
     assert.equal(hit.state.players.P1.matchStats?.perkDamage, 2, 'Direct Perk damage is tracked separately.');
     assert.equal(hit.state.players.P1.matchStats?.totalDamage, 2, 'Total Damage includes Perk damage.');
@@ -381,11 +422,11 @@ burningTurnEnd.players.P2.hand = [{ instanceId: 'burning-turn-end', cardId: 'bur
 const beginBurningHolderTurn = applyCommand(burningTurnEnd, { type: 'end-turn', playerId: 'P1' });
 assert.equal(beginBurningHolderTurn.ok, true);
 if (beginBurningHolderTurn.ok) {
-  assert.equal(beginBurningHolderTurn.state.players.P2.hp, 26, 'Burning no longer deals Damage at the beginning of its holder\'s turn.');
+  assert.equal(beginBurningHolderTurn.state.players.P2.hp, 24, 'Burning no longer deals Damage at the beginning of its holder\'s turn.');
   const finishBurningHolderTurn = applyCommand(beginBurningHolderTurn.state, { type: 'end-turn', playerId: 'P2' });
   assert.equal(finishBurningHolderTurn.ok, true);
   if (finishBurningHolderTurn.ok) {
-    assert.equal(finishBurningHolderTurn.state.players.P2.hp, 25, 'Burning deals 1 Damage at the end of its holder\'s turn.');
+    assert.equal(finishBurningHolderTurn.state.players.P2.hp, 23, 'Burning deals 1 Damage at the end of its holder\'s turn.');
     assert.equal(finishBurningHolderTurn.state.players.P2.hand.some((card) => card.cardId === 'burning'), true, 'End-turn Burning Damage does not Remove the Status.');
   }
 }
@@ -519,7 +560,14 @@ phaseThreeHandRemoval.players.P1.discard = [];
 phaseThreeHandRemoval.questPhases = { actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: [], progression: {}, phaseReward: { phase: 3, pendingPlayerIds: ['P1'] } };
 const removedPhaseThreeHand = applyCommand(phaseThreeHandRemoval, { type: 'phase-three-operation', playerId: 'P1', cardInstanceId: 'phase-three-hand', operation: 'remove' });
 assert.equal(removedPhaseThreeHand.ok, true);
-if (removedPhaseThreeHand.ok) assert.equal(removedPhaseThreeHand.state.players.P1.hand.length, 0, 'Phase 3 may Remove a Card from Hand.');
+if (removedPhaseThreeHand.ok) {
+  assert.equal(removedPhaseThreeHand.state.players.P1.hand.length, 0, 'Phase 3 may Remove a Card from Hand.');
+  assert.equal(removedPhaseThreeHand.state.phase, 'choosing-phase-three-card', 'After Remove, the independent Duplicate action remains available.');
+  assert.equal(removedPhaseThreeHand.state.questPhases.phaseReward.phaseThreeRemoved, true);
+  const declineDuplicate = applyCommand(removedPhaseThreeHand.state, { type: 'phase-three-finish', playerId: 'P1' });
+  assert.equal(declineDuplicate.ok, true, 'Cancel may decline the remaining Phase 3 action.');
+  if (declineDuplicate.ok) assert.equal(declineDuplicate.state.phase, 'active');
+}
 
 const phaseThreeDiscardDuplicate = createInitialState() as any;
 phaseThreeDiscardDuplicate.phase = 'choosing-phase-three-card';
@@ -532,7 +580,22 @@ assert.equal(duplicatedPhaseThreeDiscard.ok, true);
 if (duplicatedPhaseThreeDiscard.ok) {
   assert.equal(duplicatedPhaseThreeDiscard.state.players.P1.discard.some((card) => card.instanceId === 'phase-three-discard'), true, 'Duplicating preserves the selected original in Discard.');
   assert.equal(duplicatedPhaseThreeDiscard.state.players.P1.deck.some((card) => card.cardId === 'defend-1'), true, 'A non-winner Phase 3 duplicate from Discard is shuffled into Deck.');
+  assert.equal(duplicatedPhaseThreeDiscard.state.phase, 'choosing-phase-three-card', 'After Duplicate, the independent Remove action remains available.');
+  assert.equal(applyCommand(duplicatedPhaseThreeDiscard.state, { type: 'phase-three-operation', playerId: 'P1', cardInstanceId: 'phase-three-discard', operation: 'duplicate' }).ok, false, 'Duplicate can only be used once during Phase 3.');
+  const removeAfterDuplicate = applyCommand(duplicatedPhaseThreeDiscard.state, { type: 'phase-three-operation', playerId: 'P1', cardInstanceId: 'phase-three-discard', operation: 'remove' });
+  assert.equal(removeAfterDuplicate.ok, true);
+  if (removeAfterDuplicate.ok) {
+    assert.equal(removeAfterDuplicate.state.players.P1.discard.some((card) => card.instanceId === 'phase-three-discard'), false);
+    assert.equal(removeAfterDuplicate.state.phase, 'active', 'Phase 3 finishes automatically after both actions are used.');
+  }
 }
+
+const declinedPhaseThree = createInitialState() as any;
+declinedPhaseThree.phase = 'choosing-phase-three-card';
+declinedPhaseThree.questPhases = { actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: [], progression: {}, phaseReward: { phase: 3, pendingPlayerIds: ['P1'] } };
+const declinedBothPhaseThreeActions = applyCommand(declinedPhaseThree, { type: 'phase-three-finish', playerId: 'P1' });
+assert.equal(declinedBothPhaseThreeActions.ok, true, 'Cancel may decline both optional Phase 3 actions before either is used.');
+if (declinedBothPhaseThreeActions.ok) assert.equal(declinedBothPhaseThreeActions.state.phase, 'active');
 assert.equal(arenaForPlayerCount(3).id, 'lordaeron');
 assert.equal(LORDAERON_ARENA.width, 8);
 assert.equal(LORDAERON_ARENA.height, 11);
@@ -546,6 +609,7 @@ assert.deepEqual(LORDAERON_ARENA.bases.P3, ['G7', 'G8']);
 const lordMultiplayer = createLordaeronMultiplayerState({ P1: 'magician', P2: 'orkk', P3: 'shinobi' }) as LordaeronGameState;
 assert.equal(lordMultiplayer.phase, 'choosing-focus');
 assert.equal(Object.keys(lordMultiplayer.players).length, 3);
+const lordOpeningOrder = lordMultiplayer.lordaeronPlacement!.order;
 assert.deepEqual(lordMultiplayer.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)).sort(), ['B3', 'D10', 'F5'], 'Three-player multiplayer loads every Lordaeron box.');
 let lordReady = lordMultiplayer as any;
 for (const [playerId, cardId] of [['P1', 'mana-barrage'], ['P2', 'shield-bash'], ['P3', 'cut-them-legs']] as const) {
@@ -556,8 +620,8 @@ for (const [playerId, cardId] of [['P1', 'mana-barrage'], ['P2', 'shield-bash'],
   if (cardResult.ok) lordReady = cardResult.state;
 }
 assert.equal(lordReady.phase, 'choosing-base-placement');
-assert.equal(lordReady.players.P1.hand.length, 3);
-assert.equal(lordReady.players.P1.deck.length, 7);
+assert.equal(lordReady.players.P1.hand.length, lordOpeningOrder[1] === 'P1' ? 4 : 3);
+assert.equal(lordReady.players.P1.deck.length, lordOpeningOrder[1] === 'P1' ? 6 : 7);
 assert.equal(lordReady.players.P1.hand.some((card: any) => card.cardId === 'preparation'), true);
 assert.equal(lordReady.players.P1.deck.at(-1)?.cardId, 'mana-barrage');
 const deploymentOrder = lordReady.lordaeronPlacement!.order;
@@ -578,8 +642,9 @@ if (firstPlacement.ok) {
       assert.equal(thirdPlacement.state.activePlayerId, deploymentOrder[0]);
       assert.equal(Boolean((thirdPlacement.state as any).questPhases.currentQuest), true, 'The first Action Quest is announced when multiplayer deployment completes.');
       for (const player of Object.values(thirdPlacement.state.players)) {
-        assert.equal(player.hand.length, 3, 'Every multiplayer player begins with two shuffled default Cards and their Reserve Card.');
-        assert.equal(player.deck.length, 7, 'Every multiplayer player begins with a ten-Card starting Deck split between Hand and Deck.');
+        const goesSecond = player.id === lordOpeningOrder[1];
+        assert.equal(player.hand.length, goesSecond ? 4 : 3, 'The Round 1 second Player receives one additional opening Card.');
+        assert.equal(player.deck.length, goesSecond ? 6 : 7, 'Only the second Player draws an extra Card from the ten-Card starting Deck.');
       }
     }
   }
@@ -604,12 +669,181 @@ if (initialAttackFocus.ok) {
   }
 }
 assert.equal(Object.keys(multiplayerLogan.players).length, 2, 'A Nagrand duel contains exactly two players.');
+let completedDuelSetup: any = multiplayerLogan;
+for (const playerId of ['P1', 'P2'] as PlayerId[]) {
+  const focus = applyCommand(completedDuelSetup, { type: 'choose-focus', playerId, focus: 'attack' });
+  assert.equal(focus.ok, true);
+  const card = focus.ok ? applyCommand(focus.state, { type: 'choose-focus-card', playerId, cardId: 'mana-barrage' }) : focus;
+  assert.equal(card.ok, true);
+  if (card.ok) completedDuelSetup = card.state;
+}
+const duelFirstPlayerId = (completedDuelSetup as any).roundFirstPlayerId as PlayerId;
+const duelSecondPlayerId = duelFirstPlayerId === 'P1' ? 'P2' : 'P1';
+assert.equal(completedDuelSetup.players[duelFirstPlayerId].hand.length, 3, 'The first Player keeps the standard three-Card opening Hand.');
+assert.equal(completedDuelSetup.players[duelSecondPlayerId].hand.length, 4, 'The Player going second in Round 1 draws one additional opening Card.');
 assert.deepEqual(
   multiplayerLogan.objects.filter((object) => object.kind === 'wall-pillar').map((object) => cellLabel(object.position)).sort(),
   [...NAGRAND_ARENA.pillars].sort(),
   'Nagrand uses the shared pillar layout.'
 );
 assertNagrandBoxLayout(multiplayerLogan.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)));
+const multiplayerCombatStackState = createGameInitialState() as any;
+multiplayerCombatStackState.simultaneousCombatStack = true;
+multiplayerCombatStackState.objects = [];
+multiplayerCombatStackState.players.P1.position = { x: 2, y: 2 };
+multiplayerCombatStackState.players.P2.position = { x: 3, y: 2 };
+multiplayerCombatStackState.players.P1.hand = [
+  { instanceId: 'stack-attack', cardId: 'attack-3' },
+  { instanceId: 'stack-attacker-banner', cardId: 'banner' },
+  { instanceId: 'stack-attacker-mockery', cardId: 'vicious-mockery' },
+];
+multiplayerCombatStackState.players.P2.hand = [
+  { instanceId: 'stack-defense', cardId: 'defend-1' },
+  { instanceId: 'stack-defender-banner', cardId: 'banner' },
+];
+const multiplayerStackAttack = applyGameCommand(multiplayerCombatStackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'stack-attack', targetId: 'P2' });
+assert.equal(multiplayerStackAttack.ok, true);
+if (multiplayerStackAttack.ok) {
+  assert.equal(multiplayerStackAttack.state.players.P1.hand.some((card) => card.cardId === 'banner'), true, 'Multiplayer no longer auto-applies Banner before Defence is selected.');
+  const multiplayerStackDefense = applyGameCommand(multiplayerStackAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'stack-defense' });
+  assert.equal(multiplayerStackDefense.ok, true);
+  if (multiplayerStackDefense.ok) {
+    assert.equal(multiplayerStackDefense.state.phase, 'choosing-combat-stack', 'Multiplayer enters simultaneous private Combat Card selection after Attack and Defence reveal.');
+    assert.equal(multiplayerStackDefense.state.combatReveal?.defendTotal, 1, 'Stage 2 reveals the current Defend Value before any optional Combat Card is selected.');
+    const hotseatFirstChoice = applyGameCommand(multiplayerStackDefense.state, { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: 'stack-attacker-mockery' });
+    assert.equal(hotseatFirstChoice.ok, true, 'Hotseat accepts one direct choice from the full list of the first Player\'s applicable Combat Cards.');
+    if (hotseatFirstChoice.ok) {
+      assert.equal(hotseatFirstChoice.state.phase, 'choosing-combat-stack');
+      const hotseatSecondChoice = applyGameCommand(hotseatFirstChoice.state, { type: 'combat-stack-choice', playerId: 'P2', cardInstanceId: null });
+      assert.equal(hotseatSecondChoice.ok, true, 'Hotseat provides the second Player with the same choose-one-or-none Combat Card stage.');
+      if (hotseatSecondChoice.ok) assert.equal(hotseatSecondChoice.state.combatReveal?.attackTotal, 5, 'Both Hotseat choices resolve together after each Player locks one option.');
+    }
+    const tooManyCombatCards = resolveMultiplayerCombatStack(multiplayerStackDefense.state, {
+      P1: ['stack-attacker-banner', 'stack-attacker-mockery'],
+      P2: [],
+    });
+    assert.equal(tooManyCombatCards.ok, false, 'A Player cannot apply more than one Combat Card in an individual combat.');
+    const multiplayerStackResolved = resolveMultiplayerCombatStack(multiplayerStackDefense.state, {
+      P1: ['stack-attacker-mockery'],
+      P2: ['stack-defender-banner'],
+    });
+    assert.equal(multiplayerStackResolved.ok, true);
+    if (multiplayerStackResolved.ok) {
+      assert.equal(multiplayerStackResolved.state.combatReveal?.attackTotal, 5, 'Joint reveal applies the attacker’s single selected Vicious Mockery.');
+      assert.equal(multiplayerStackResolved.state.combatReveal?.defendTotal, 2, 'Joint reveal applies defender Banner to the final Defend Value.');
+      assert.deepEqual(multiplayerStackResolved.state.combatReveal?.combatStackApplied?.P1, ['vicious-mockery']);
+      assert.deepEqual(multiplayerStackResolved.state.combatReveal?.combatStackApplied?.P2, ['banner']);
+      assert.equal(multiplayerStackResolved.state.players.P1.hand.some((card) => card.cardId === 'vicious-mockery'), false, 'The applied attacker Combat Card is Removed.');
+      assert.equal(multiplayerStackResolved.state.players.P1.hand.some((card) => card.cardId === 'banner'), true, 'Unselected Combat Cards remain in Hand.');
+      assert.equal(multiplayerStackResolved.state.players.P2.hand.some((card) => card.cardId === 'banner'), false, 'Applied defender Combat Cards are Removed together.');
+    }
+  }
+}
+const noCombatCardsState = createGameInitialState() as any;
+noCombatCardsState.simultaneousCombatStack = true;
+noCombatCardsState.objects = [];
+noCombatCardsState.players.P1.position = { x: 2, y: 2 };
+noCombatCardsState.players.P2.position = { x: 3, y: 2 };
+noCombatCardsState.players.P1.hand = [{ instanceId: 'no-stack-attack', cardId: 'attack-2' }];
+noCombatCardsState.players.P2.hand = [];
+const noStackAttack = applyGameCommand(noCombatCardsState, { type: 'attack', playerId: 'P1', cardInstanceId: 'no-stack-attack', targetId: 'P2' });
+const noStackDefense = noStackAttack.ok ? applyGameCommand(noStackAttack.state, { type: 'pass-defense', playerId: 'P2' }) : noStackAttack;
+assert.equal(noStackDefense.ok, true);
+if (noStackDefense.ok) assert.notEqual(noStackDefense.state.phase, 'choosing-combat-stack', 'Combat Stack questions are skipped when neither Player has an applicable Combat Card.');
+
+const oneSidedCombatCardsState = createGameInitialState() as any;
+oneSidedCombatCardsState.simultaneousCombatStack = true;
+oneSidedCombatCardsState.objects = [];
+oneSidedCombatCardsState.players.P1.position = { x: 2, y: 2 };
+oneSidedCombatCardsState.players.P2.position = { x: 3, y: 2 };
+oneSidedCombatCardsState.players.P1.hand = [{ instanceId: 'one-stack-attack', cardId: 'attack-2' }, { instanceId: 'one-stack-mockery', cardId: 'vicious-mockery' }];
+oneSidedCombatCardsState.players.P2.hand = [];
+const oneStackAttack = applyGameCommand(oneSidedCombatCardsState, { type: 'attack', playerId: 'P1', cardInstanceId: 'one-stack-attack', targetId: 'P2' });
+const oneStackDefense = oneStackAttack.ok ? applyGameCommand(oneStackAttack.state, { type: 'pass-defense', playerId: 'P2' }) : oneStackAttack;
+assert.equal(oneStackDefense.ok, true);
+if (oneStackDefense.ok) {
+  assert.equal(oneStackDefense.state.phase, 'choosing-combat-stack');
+  assert.deepEqual((oneStackDefense.state as any).combatStackSelections.P2, [], 'A Player without applicable Combat Cards automatically submits no Card and is not prompted.');
+}
+
+const takeHitCombatCardState = createGameInitialState() as any;
+takeHitCombatCardState.simultaneousCombatStack = true;
+takeHitCombatCardState.objects = [];
+takeHitCombatCardState.players.P1.position = { x: 2, y: 2 };
+takeHitCombatCardState.players.P2.position = { x: 3, y: 2 };
+takeHitCombatCardState.players.P1.hand = [{ instanceId: 'take-hit-attack', cardId: 'attack-2' }, { instanceId: 'take-hit-attacker-banner', cardId: 'banner' }];
+takeHitCombatCardState.players.P2.hand = [{ instanceId: 'take-hit-defender-banner', cardId: 'banner' }];
+const takeHitAttack = applyGameCommand(takeHitCombatCardState, { type: 'attack', playerId: 'P1', cardInstanceId: 'take-hit-attack', targetId: 'P2' });
+const takeHitStack = takeHitAttack.ok ? applyGameCommand(takeHitAttack.state, { type: 'pass-defense', playerId: 'P2' }) : takeHitAttack;
+assert.equal(takeHitStack.ok, true);
+if (takeHitStack.ok) {
+  assert.equal(takeHitStack.state.phase, 'choosing-combat-stack', 'The Attacker may still choose a Combat Card when the Defender takes the Hit.');
+  assert.deepEqual(applicableCombatCardInstanceIds(takeHitStack.state, 'P1'), ['take-hit-attacker-banner']);
+  assert.deepEqual(applicableCombatCardInstanceIds(takeHitStack.state, 'P2'), [], 'A Defender who takes the Hit cannot play a Combat Card.');
+  assert.deepEqual((takeHitStack.state as any).combatStackSelections.P2, [], 'The Defender is automatically submitted with no Combat Card after taking the Hit.');
+}
+
+const zeroValueExhaustState = createGameInitialState() as any;
+zeroValueExhaustState.simultaneousCombatStack = true;
+zeroValueExhaustState.objects = [];
+zeroValueExhaustState.players.P1.position = { x: 2, y: 2 };
+zeroValueExhaustState.players.P2.position = { x: 3, y: 2 };
+zeroValueExhaustState.players.P1.hand = [{ instanceId: 'zero-exhaust-attack', cardId: 'attack-2' }];
+zeroValueExhaustState.players.P2.hand = [{ instanceId: 'zero-exhaust-defense', cardId: 'feed-the-spirit' }, { instanceId: 'zero-exhaust-status', cardId: 'exhaust' }];
+const zeroExhaustAttack = applyGameCommand(zeroValueExhaustState, { type: 'attack', playerId: 'P1', cardInstanceId: 'zero-exhaust-attack', targetId: 'P2' });
+const zeroExhaustDefense = zeroExhaustAttack.ok ? applyGameCommand(zeroExhaustAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'zero-exhaust-defense' }) : zeroExhaustAttack;
+assert.equal(zeroExhaustDefense.ok, true);
+if (zeroExhaustDefense.ok) assert.notEqual(zeroExhaustDefense.state.phase, 'choosing-combat-stack', 'Exhaust cannot be attached when the played Card already has a current Value of 0 or less.');
+
+const blessingShieldVsBlockState = createGameInitialState() as any;
+blessingShieldVsBlockState.simultaneousCombatStack = true;
+blessingShieldVsBlockState.objects = [];
+blessingShieldVsBlockState.players.P1.character = 'john-christ';
+blessingShieldVsBlockState.players.P1.position = { x: 2, y: 2 };
+blessingShieldVsBlockState.players.P2.position = { x: 3, y: 2 };
+blessingShieldVsBlockState.players.P1.hand = [{ instanceId: 'shield-block-attack', cardId: 'attack-2' }, { instanceId: 'shield-block-blessing', cardId: 'blessing-shield' }];
+blessingShieldVsBlockState.players.P2.hand = [{ instanceId: 'shield-block-defense', cardId: 'block' }];
+const shieldBlockAttack = applyGameCommand(blessingShieldVsBlockState, { type: 'attack', playerId: 'P1', cardInstanceId: 'shield-block-attack', targetId: 'P2' });
+const shieldBlockDefense = shieldBlockAttack.ok ? applyGameCommand(shieldBlockAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'shield-block-defense' }) : shieldBlockAttack;
+assert.equal(shieldBlockDefense.ok, true);
+if (shieldBlockDefense.ok) {
+  const appliedShield = applyGameCommand(shieldBlockDefense.state, { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: 'shield-block-blessing' });
+  assert.equal(appliedShield.ok, true);
+  if (appliedShield.ok) {
+    assert.equal(appliedShield.state.players.P1.pinnedStacks, 0, 'Blessing: Shield blocks Block’s post-reveal Pinned Status effect.');
+    assert.equal(appliedShield.state.players.P1.hand.some((card) => card.instanceId === 'shield-block-blessing'), false, 'Block does not cancel the separately applied Blessing: Shield Combat Card.');
+  }
+}
+
+const clampedDefenseState = createGameInitialState() as any;
+clampedDefenseState.simultaneousCombatStack = true;
+clampedDefenseState.objects = [];
+clampedDefenseState.players.P1.position = { x: 2, y: 2 };
+clampedDefenseState.players.P2.position = { x: 3, y: 2 };
+clampedDefenseState.players.P1.hand = [{ instanceId: 'clamp-defense-attack', cardId: 'attack-2' }, { instanceId: 'clamp-defense-light', cardId: 'blessing-light' }];
+clampedDefenseState.players.P2.hand = [{ instanceId: 'clamp-defense-zero', cardId: 'feed-the-spirit' }];
+const clampDefenseAttack = applyGameCommand(clampedDefenseState, { type: 'attack', playerId: 'P1', cardInstanceId: 'clamp-defense-attack', targetId: 'P2' });
+const clampDefenseChoice = clampDefenseAttack.ok ? applyGameCommand(clampDefenseAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'clamp-defense-zero' }) : clampDefenseAttack;
+assert.equal(clampDefenseChoice.ok, true);
+if (clampDefenseChoice.ok) {
+  const clampDefenseResolved = applyGameCommand(clampDefenseChoice.state, { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: 'clamp-defense-light' });
+  assert.equal(clampDefenseResolved.ok, true);
+  if (clampDefenseResolved.ok) assert.equal(clampDefenseResolved.state.combatReveal?.defendTotal, 0, 'Final Defend Value is clamped to 0 after Combat Card penalties.');
+}
+
+const multiplayerTrenchJohn = createMultiplayerState({ P1: 'john-christ', P2: 'magician' }, 'trench');
+assert.equal(multiplayerTrenchJohn.players.P1.character, 'john-christ', 'John Christ is available in multiplayer duels.');
+assert.equal(multiplayerTrenchJohn.players.P1.name, 'John Christ');
+assert.equal(multiplayerTrenchJohn.players.P1.maxHp, 14);
+assert.equal((multiplayerTrenchJohn as any).arenaId, 'trench', 'The selected multiplayer arena is stored in shared state.');
+assert.deepEqual(multiplayerTrenchJohn.players.P1.position, { x: 4, y: 0 }, 'The Trench multiplayer P1 starts at D1.');
+assert.deepEqual(multiplayerTrenchJohn.players.P2.position, { x: 5, y: 7 }, 'The Trench multiplayer P2 starts at E8.');
+assert.deepEqual(
+  multiplayerTrenchJohn.objects.filter((object) => object.kind === 'wall-pillar').map((object) => cellLabel(object.position)).sort(),
+  [...THE_TRENCH_ARENA.pillars].sort(),
+  'The Trench multiplayer duel uses its four Columns.',
+);
+assert.equal(multiplayerTrenchJohn.objects.filter((object) => object.kind === 'wooden-box').length, 4, 'The Trench multiplayer duel spawns four Boxes.');
 const duelHotseat = createHotseatTestState(false, 'magician', 2);
 assert.equal(duelHotseat.boardSize, NAGRAND_ARENA.height, 'The 1v1 Test Room uses Nagrand Arena.');
 assert.deepEqual(Object.keys(duelHotseat.players).sort(), ['P1', 'P2'], 'The 1v1 Test Room has one selected Character and one Test Dummy.');
@@ -922,6 +1156,7 @@ if (blinkChoiceAttack.ok) {
 const defaultLineup = createGameInitialState();
 assert.equal(defaultLineup.players.P1.name, 'Da Orkk');
 assert.equal(defaultLineup.players.P1.character, 'orkk');
+assert.equal(defaultLineup.players.P1.maxHp, 24, 'Da Orkk has 24 maximum Hit Points.');
 assert.equal(defaultLineup.players.P1.shieldEquipped, true);
 assert.equal(defaultLineup.players.P2.name, 'Obi Wan Shinobi');
 assert.equal(defaultLineup.players.P2.character, 'shinobi');
@@ -977,6 +1212,23 @@ const diagonalColumnMovementState = structuredClone(diagonalObjectMovementState)
 diagonalColumnMovementState.objects[0] = { id: 'diagonal-blocking-column', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 2, y: 1 } };
 diagonalColumnMovementState.players.P2.position = { x: 1, y: 2 };
 assert.equal(applyCommand(diagonalColumnMovementState, { type: 'move', playerId: 'P1', to: { x: 2, y: 2 } }).ok, false, 'An Object and another entity on both sides of a diagonal close that corner in every Arena.');
+
+const spiritStepwiseRefundState = createGameInitialState();
+spiritStepwiseRefundState.objects = [{ id: 'spirit-diagonal-object', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 3 } }];
+spiritStepwiseRefundState.players.P1.character = 'john-christ';
+spiritStepwiseRefundState.players.P1.spiritForm = true;
+spiritStepwiseRefundState.players.P1.position = { x: 2, y: 2 };
+spiritStepwiseRefundState.players.P1.movementRemaining = 1;
+spiritStepwiseRefundState.players.P2.position = { x: 8, y: 7 };
+assert.equal(applyCommand(spiritStepwiseRefundState, { type: 'move', playerId: 'P1', to: { x: 4, y: 4 } }).ok, false, 'Spirit Form cannot borrow an intermediate occupied-Square refund to move beyond its current 1-Square radius.');
+const spiritEnteredObject = applyCommand(spiritStepwiseRefundState, { type: 'move', playerId: 'P1', to: { x: 3, y: 3 } });
+assert.equal(spiritEnteredObject.ok, true);
+if (spiritEnteredObject.ok) {
+  assert.equal(spiritEnteredObject.state.players.P1.movementRemaining, 1, 'Entering the adjacent occupied Square spends 1 MOV and then refunds it.');
+  const spiritContinuedAfterRefund = applyCommand(spiritEnteredObject.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 4 } });
+  assert.equal(spiritContinuedAfterRefund.ok, true, 'The earned refund becomes available for a separate subsequent diagonal step.');
+  if (spiritContinuedAfterRefund.ok) assert.equal(spiritContinuedAfterRefund.state.players.P1.movementRemaining, 0);
+}
 
 const wallLineOfSightState = createGameInitialState();
 wallLineOfSightState.objects = [{ id: 'los-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
@@ -1120,43 +1372,43 @@ if (resolvedEncourageThree.ok) {
 }
 
 const consumeOne = createGameInitialState();
-consumeOne.players.P1.hp = 24;
+consumeOne.players.P1.hp = 23;
 consumeOne.players.P1.rageStacks = 3;
 const consumeCard = consumeOne.players.P1.hand.find((card) => card.cardId === 'consume-rage')!;
 const consumedOne = applyCommand(consumeOne, { type: 'play-perk', playerId: 'P1', cardInstanceId: consumeCard.instanceId, destination: 'direct' });
 assert.equal(consumedOne.ok, true);
 if (consumedOne.ok) {
-  assert.equal(consumedOne.state.players.P1.hp, 25, 'Consume Rage level 1 heals 1 HP.');
+  assert.equal(consumedOne.state.players.P1.hp, 24, 'Consume Rage level 1 heals 1 HP.');
   assert.equal(consumedOne.state.players.P1.rageStacks, 1, 'Consume Rage level 1 consumes 2 Rage.');
-  assert.deepEqual((consumedOne.state as any).damageLog?.at(-1), { eventType: 'healing', turn: 1, targetId: 'P1', sourceId: 'P1', sourceKind: 'perk', amount: 1, hpAfter: 25, collision: false }, 'Restored HP is recorded as a distinct healing entry in the Damage Log.');
+  assert.deepEqual((consumedOne.state as any).damageLog?.at(-1), { eventType: 'healing', turn: 1, targetId: 'P1', sourceId: 'P1', sourceKind: 'perk', amount: 1, hpAfter: 24, collision: false }, 'Restored HP is recorded as a distinct healing entry in the Damage Log.');
 }
 
 const consumeTwo = createGameInitialState();
-consumeTwo.players.P1.hp = 23;
+consumeTwo.players.P1.hp = 22;
 consumeTwo.players.P1.rageStacks = 2;
 consumeTwo.players.P1.hand = [];
 consumeTwo.players.P1.spellEcho[1] = { instanceId: 'consume-two', cardId: 'consume-rage' };
 const consumedTwo = applyCommand(consumeTwo, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
 assert.equal(consumedTwo.ok, true);
 if (consumedTwo.ok) {
-  assert.equal(consumedTwo.state.players.P1.hp, 25, 'Consume Rage level 2 heals 2 HP total.');
+  assert.equal(consumedTwo.state.players.P1.hp, 24, 'Consume Rage level 2 heals 2 HP total.');
   assert.equal(consumedTwo.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes 2 Rage.');
 }
 
 const consumeInsufficient = createGameInitialState();
-consumeInsufficient.players.P1.hp = 24;
+consumeInsufficient.players.P1.hp = 22;
 consumeInsufficient.players.P1.rageStacks = 1;
 const insufficientCard = consumeInsufficient.players.P1.hand.find((card) => card.cardId === 'consume-rage')!;
 const consumedInsufficient = applyCommand(consumeInsufficient, { type: 'play-perk', playerId: 'P1', cardInstanceId: insufficientCard.instanceId, destination: 'direct' });
 assert.equal(consumedInsufficient.ok, true, 'Consume Rage may still be cast without enough Rage.');
 if (consumedInsufficient.ok) {
-  assert.equal(consumedInsufficient.state.players.P1.hp, 24, 'Insufficient Rage provides no healing.');
+  assert.equal(consumedInsufficient.state.players.P1.hp, 22, 'Insufficient Rage provides no healing.');
   assert.equal(consumedInsufficient.state.players.P1.rageStacks, 1, 'Insufficient Rage is not consumed.');
   assert.equal(consumedInsufficient.state.players.P1.discard.some((card) => card.cardId === 'consume-rage'), true, 'The cast Perk is still discarded normally.');
 }
 
 const consumeThree = createGameInitialState();
-consumeThree.players.P1.hp = 24;
+consumeThree.players.P1.hp = 22;
 consumeThree.players.P1.rageStacks = 2;
 consumeThree.players.P1.position = { x: 2, y: 1 };
 consumeThree.players.P2.position = { x: 3, y: 2 };
@@ -1172,7 +1424,7 @@ consumeThree.players.P1.spellEcho[2] = { instanceId: 'consume-three', cardId: 'c
 const consumedThree = applyCommand(consumeThree, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(consumedThree.ok, true);
 if (consumedThree.ok) {
-  assert.equal(consumedThree.state.players.P1.hp, 26, 'Consume Rage level 3 includes the level 2 +1 HP bonus.');
+  assert.equal(consumedThree.state.players.P1.hp, 24, 'Consume Rage level 3 includes the level 2 +1 HP bonus.');
   assert.equal(consumedThree.state.players.P1.rageStacks, 0);
   assert.equal(consumedThree.state.players.P2.hand.some((card) => card.cardId === 'exhaust'), true, 'Consume Rage level 3 adds Exhaust to adjacent enemies.');
   assert.equal(consumedThree.state.players.P1.hand.some((card) => ['pinned', 'headache', 'exhaust', 'burning'].includes(card.cardId)), false, 'Consume Rage level 3 removes every negative Status Card, including Burning.');
@@ -1472,8 +1724,8 @@ const shinobiLoadout = createGameInitialState('shinobi-vs-orkk');
 assert.equal(shinobiLoadout.players.P1.attackRange, 1, 'Shinobi has melee Attack Range.');
 assert.equal(shinobiLoadout.players.P2.pinnedStacks, 0);
 assert.equal(shinobiLoadout.players.P2.name, 'Da Orkk');
-assert.equal(shinobiLoadout.players.P2.hp, 26);
-assert.equal(shinobiLoadout.players.P2.maxHp, 26);
+assert.equal(shinobiLoadout.players.P2.hp, 24);
+assert.equal(shinobiLoadout.players.P2.maxHp, 24);
 assert.equal(shinobiLoadout.players.P2.moveRange, 3);
 assert.equal(shinobiLoadout.players.P2.attackRange, 1, 'Melee range reaches adjacent squares, including diagonals.');
 assert.equal(shinobiLoadout.players.P2.hand.length, 15, 'Da Orkk receives all currently created unique Cards for testing.');
@@ -1721,7 +1973,7 @@ if (saberAttack.ok && saberAttack.state.pendingAttack) {
   assert.equal(lostCombat.ok, true);
   if (lostCombat.ok) {
     assert.equal(lostCombat.state.players.P2.pinnedStacks, 1);
-    assert.equal(lostCombat.state.players.P2.hp, 26);
+    assert.equal(lostCombat.state.players.P2.hp, 24);
     assert.equal(lostCombat.state.players.P1.hand.length, lightSaberLossHandSize - 1);
     assert.equal(lostCombat.state.players.P1.discard.some((card) => card.cardId === 'light-the-saber'), true);
   }
@@ -1739,7 +1991,7 @@ if (winningAttack.ok) {
   assert.equal(wonCombat.ok, true);
   if (wonCombat.ok) {
     assert.equal(wonCombat.state.players.P2.pinnedStacks, 1);
-    assert.equal(wonCombat.state.players.P2.hp, 24);
+    assert.equal(wonCombat.state.players.P2.hp, 22);
     assert.equal(wonCombat.state.players.P1.hand.some((card) => card.instanceId === winningCard.instanceId), false);
     assert.equal(wonCombat.state.players.P1.discard.some((card) => card.instanceId === winningCard.instanceId), true);
   }
@@ -1763,14 +2015,14 @@ if (danceAttack.ok) {
     const enteredEnemy = applyCommand(danceCombat.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 1 } });
     assert.equal(enteredEnemy.ok, true);
     if (enteredEnemy.ok) {
-      assert.equal(enteredEnemy.state.players.P2.hp, 24);
+      assert.equal(enteredEnemy.state.players.P2.hp, 22);
       assert.equal(enteredEnemy.state.danceThrough?.stepsRemaining, 2);
       const illegalStop = applyCommand(enteredEnemy.state, { type: 'end-dance', playerId: 'P1' });
       assert.equal(illegalStop.ok, false);
       const leftEnemy = applyCommand(enteredEnemy.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 2 } });
       assert.equal(leftEnemy.ok, true);
       if (leftEnemy.ok) {
-        assert.equal(leftEnemy.state.players.P2.hp, 24);
+        assert.equal(leftEnemy.state.players.P2.hp, 22);
         assert.equal(leftEnemy.state.players.P2.pinnedStacks, 1);
         assert.equal(leftEnemy.state.players.P1.movedThisTurn, false);
         const illegalFinalOverlap = applyCommand(leftEnemy.state, { type: 'move', playerId: 'P1', to: { x: 2, y: 1 } });
@@ -1821,7 +2073,7 @@ if (losingDisarm.ok) {
   const defendedDisarm = applyCommand(losingDisarm.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'disarm-defense' });
   assert.equal(defendedDisarm.ok, true);
 if (defendedDisarm.ok) {
-    assert.equal(defendedDisarm.state.players.P2.hp, 26);
+    assert.equal(defendedDisarm.state.players.P2.hp, 24);
     assert.equal(defendedDisarm.state.players.P2.pinnedStacks, 0);
     assert.equal(defendedDisarm.state.players.P2.hand[0]?.revealedToOpponent, true);
     assert.equal(defendedDisarm.state.players.P2.hand.at(-1)?.cardId, 'exhaust');
@@ -1841,7 +2093,7 @@ if (cutAttack.ok) {
   const cutCombat = applyCommand(cutAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(cutCombat.ok, true);
   if (cutCombat.ok) {
-    assert.equal(cutCombat.state.players.P2.hp, 23);
+    assert.equal(cutCombat.state.players.P2.hp, 21);
     assert.equal(cutCombat.state.players.P2.pinnedStacks, 1);
     assert.equal(cutCombat.state.players.P1.hand.some((card) => card.instanceId === cutCard.instanceId), true);
     assert.equal(cutCombat.state.players.P1.actionsRemaining, 1);
@@ -1861,7 +2113,7 @@ if (losingCut.ok && losingCut.state.pendingAttack) {
   const cutDefended = applyCommand(losingCut.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'cut-defense' });
   assert.equal(cutDefended.ok, true);
   if (cutDefended.ok) {
-    assert.equal(cutDefended.state.players.P2.hp, 26);
+    assert.equal(cutDefended.state.players.P2.hp, 24);
     assert.equal(cutDefended.state.players.P2.pinnedStacks, 1);
     assert.equal(cutDefended.state.players.P1.hand.some((card) => card.instanceId === losingCutCard.instanceId), false);
     assert.equal(cutDefended.state.players.P1.discard.some((card) => card.instanceId === losingCutCard.instanceId), true);
@@ -1880,7 +2132,7 @@ if (helloAttack.ok) {
   const helloDefended = applyCommand(helloAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'hello-defense' });
   assert.equal(helloDefended.ok, true);
   if (helloDefended.ok) {
-    assert.equal(helloDefended.state.players.P2.hp, 22);
+    assert.equal(helloDefended.state.players.P2.hp, 20);
     assert.equal(helloDefended.state.players.P2.pinnedStacks, 2);
     assert.equal(helloDefended.state.players.P2.hand.filter((card) => card.cardId === 'headache').length, 1);
     assert.equal(helloDefended.state.players.P2.hand.find((card) => card.cardId === 'headache')?.revealedToOpponent, true);
@@ -1898,7 +2150,7 @@ if (plainHello.ok) {
   const plainHelloCombat = applyCommand(plainHello.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(plainHelloCombat.ok, true);
   if (plainHelloCombat.ok) {
-    assert.equal(plainHelloCombat.state.players.P2.hp, 25);
+    assert.equal(plainHelloCombat.state.players.P2.hp, 23);
     assert.equal(plainHelloCombat.state.players.P2.hand.filter((card) => card.cardId === 'headache').length, 1);
   }
 }
@@ -1919,7 +2171,7 @@ if (blockedAttack.ok) {
 if (blockCombat.ok) {
     assert.equal(blockCombat.state.players.P1.hp, 19);
     assert.equal(blockCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(blockCombat.state.players.P2.hp, 26);
+    assert.equal(blockCombat.state.players.P2.hp, 24);
     assert.equal(blockCombat.state.players.P2.pinnedStacks, 1);
     assert.equal(blockCombat.state.players.P2.hand.some((card) => card.instanceId === 'blocked-cut'), false);
     assert.equal(blockCombat.state.players.P2.discard.some((card) => card.instanceId === 'blocked-cut'), true);
@@ -1963,7 +2215,7 @@ if (rangedFlurryAttack.ok) {
   const rangedFlurry = applyCommand(rangedFlurryAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: rangedFlurryCard.instanceId });
   assert.equal(rangedFlurry.ok, true);
   if (rangedFlurry.ok) {
-    assert.equal(rangedFlurry.state.players.P2.hp, 26, 'Flurry does not deal pre-combat damage to a non-adjacent Attacker.');
+    assert.equal(rangedFlurry.state.players.P2.hp, 24, 'Flurry does not deal pre-combat damage to a non-adjacent Attacker.');
     assert.equal(rangedFlurry.state.phase, 'active', 'Flurry does not offer its optional payment when the Attacker has no Card left to discard.');
   }
 }
@@ -1986,7 +2238,7 @@ if (flurryAttack.ok) {
   const flurryCombat = applyCommand(flurryAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: flurryDefence.instanceId });
   assert.equal(flurryCombat.ok, true);
   if (flurryCombat.ok) {
-    assert.equal(flurryCombat.state.players.P2.hp, 25);
+    assert.equal(flurryCombat.state.players.P2.hp, 23);
     assert.equal(flurryCombat.state.players.P1.hp, 18);
     assert.equal(flurryCombat.state.phase, 'flurry-offer');
     const paidFlurry = applyCommand(flurryCombat.state, { type: 'flurry-pay', playerId: 'P1', cardInstanceId: '' });
@@ -2259,7 +2511,7 @@ if (forceThrowLevelThree.ok) {
     const forcePush = applyCommand(forceTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 4, y: 1 } });
     assert.equal(forcePush.ok, true);
     if (forcePush.ok) {
-      assert.equal(forcePush.state.players.P2.hp, 25, 'A Level 3 Force Throw target takes 1 Damage when colliding with anything.');
+      assert.equal(forcePush.state.players.P2.hp, 23, 'A Level 3 Force Throw target takes 1 Damage when colliding with anything.');
       assert.equal(forcePush.state.objects[0].hp, 3, 'Test Objects are indestructible.');
       assert.equal(forcePush.state.phase, 'active');
     }
@@ -2329,7 +2581,7 @@ if (forcePullPlay.ok) {
   assert.equal(pulled.ok, true);
   if (pulled.ok) {
     assert.deepEqual(pulled.state.players.P2.position, { x: 2, y: 1 });
-    assert.equal(pulled.state.players.P2.hp, 26, 'Force Pull movement must not deal collision damage.');
+    assert.equal(pulled.state.players.P2.hp, 24, 'Force Pull movement must not deal collision damage.');
   }
   const cancelledPull = applyCommand(forcePullPlay.state, { type: 'cancel-targeting', playerId: 'P1' });
   assert.equal(cancelledPull.ok, true);
@@ -2453,7 +2705,7 @@ assert.equal(edgeTarget.ok, true);
 if (edgeTarget.ok) {
   const edgePush = applyCommand(edgeTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 8, y: 1 } });
   assert.equal(edgePush.ok, true);
-  if (edgePush.ok) { assert.equal(edgePush.state.players.P2.hp, 25, 'A pushed enemy takes 1 Damage when colliding with the board edge.'); assert.deepEqual(edgePush.state.players.P2.position, { x: 8, y: 1 }); }
+  if (edgePush.ok) { assert.equal(edgePush.state.players.P2.hp, 23, 'A pushed enemy takes 1 Damage when colliding with the board edge.'); assert.deepEqual(edgePush.state.players.P2.position, { x: 8, y: 1 }); }
 }
 
 const orkkCombat = createInitialState();
@@ -2467,7 +2719,7 @@ if (attackOrkk.ok) {
   const defendOrkk = applyCommand(attackOrkk.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'orkk-test-defense' });
   assert.equal(defendOrkk.ok, true);
   if (defendOrkk.ok) {
-    assert.equal(defendOrkk.state.players.P2.hp, 25, 'Equipped Shield adds +1 to Da Orkk Defend Cards.');
+    assert.equal(defendOrkk.state.players.P2.hp, 23, 'Equipped Shield adds +1 to Da Orkk Defend Cards.');
     assert.equal(defendOrkk.state.players.P2.rageStacks, 1, 'Damage received during an enemy turn continues to generate Rage.');
   }
 }
@@ -2508,7 +2760,7 @@ if (attackDaBlokk.ok) {
   const defendDaBlokk = applyCommand(attackDaBlokk.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'da-blokk-defense' });
   assert.equal(defendDaBlokk.ok, true);
   if (defendDaBlokk.ok) {
-    assert.equal(defendDaBlokk.state.players.P2.hp, 25, 'Da Blokk has 2 total Defence while the Shield is equipped.');
+    assert.equal(defendDaBlokk.state.players.P2.hp, 23, 'Da Blokk has 2 total Defence while the Shield is equipped.');
     assert.equal(defendDaBlokk.state.players.P2.rageStacks, 2, 'Damage Rage plus Da Blokk additional Rage generates 2 total stacks.');
     assert.equal(defendDaBlokk.state.players.P2.hand.some((card) => card.cardId === 'pinned'), false, 'Da Blokk cancels the Attack Card effect through the universal cancellation rule.');
   }
@@ -2576,31 +2828,32 @@ if (attackEquippedArcaneShield.ok) {
   const defendEquippedArcaneShield = applyCommand(attackEquippedArcaneShield.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'arcane-shield-defense' });
   assert.equal(defendEquippedArcaneShield.ok, true);
   if (defendEquippedArcaneShield.ok) {
-    assert.equal(defendEquippedArcaneShield.state.players.P2.shieldEquipped, false, 'Arcane Shield drops a Shield that was equipped when combat began.');
-    const droppedShield = defendEquippedArcaneShield.state.objects.find((object) => object.kind === 'orkk-shield' && object.ownerId === 'P2');
-    assert.ok(droppedShield);
-    assert.equal(distance(droppedShield.position, defendEquippedArcaneShield.state.players.P2.position), 1, 'Arcane Shield drops onto a random empty adjacent Square.');
+    assert.equal(defendEquippedArcaneShield.state.players.P2.shieldEquipped, true, 'Arcane Shield leaves a Shield equipped when combat began.');
+    assert.equal(defendEquippedArcaneShield.state.objects.some((object) => object.kind === 'orkk-shield' && object.ownerId === 'P2'), false, 'Arcane Shield does not drop an equipped Shield onto the Board.');
   }
 }
 
 const arcaneShieldUnequipped = createInitialState();
-arcaneShieldUnequipped.players.P1.position = { x: 2, y: 1 };
-arcaneShieldUnequipped.players.P2.position = { x: 3, y: 1 };
+arcaneShieldUnequipped.players.P1.position = { x: 3, y: 2 };
+arcaneShieldUnequipped.players.P2.position = { x: 4, y: 3 };
 arcaneShieldUnequipped.players.P2.shieldEquipped = false;
 arcaneShieldUnequipped.players.P1.hand = [{ instanceId: 'arcane-rage-attack', cardId: 'attack-2' }];
 arcaneShieldUnequipped.players.P2.hand = [{ instanceId: 'arcane-rage-defense', cardId: 'arcane-shield' }];
-arcaneShieldUnequipped.objects = [{ id: 'arcane-existing-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 4, y: 3 } }];
+arcaneShieldUnequipped.objects = [{ id: 'arcane-existing-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } }];
 const attackUnequippedArcaneShield = applyCommand(arcaneShieldUnequipped, { type: 'attack', playerId: 'P1', cardInstanceId: 'arcane-rage-attack', targetId: 'P2' });
 assert.equal(attackUnequippedArcaneShield.ok, true);
 if (attackUnequippedArcaneShield.ok) {
   const defendUnequippedArcaneShield = applyCommand(attackUnequippedArcaneShield.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'arcane-rage-defense' });
   assert.equal(defendUnequippedArcaneShield.ok, true);
   if (defendUnequippedArcaneShield.ok) {
-    assert.equal(defendUnequippedArcaneShield.state.players.P2.hp, 26);
-    assert.equal(defendUnequippedArcaneShield.state.players.P2.rageStacks, 1, 'Arcane Shield generates 1 Rage after combat when the Shield began unequipped.');
-    assert.equal(defendUnequippedArcaneShield.state.players.P2.shieldEquipped, false, 'Arcane Shield no longer recalls an unequipped Shield.');
-    assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-existing-shield'), true, 'The existing Shield remains on the Board.');
-    assert.equal(defendUnequippedArcaneShield.state.objectPushAnimations.some((event) => event.objectId === 'arcane-existing-shield'), false);
+    assert.equal(defendUnequippedArcaneShield.state.players.P2.hp, 24);
+    assert.equal(defendUnequippedArcaneShield.state.players.P1.hp, 18, 'Arcane Shield deals 2 Damage when its recall path crosses the enemy.');
+    assert.equal(defendUnequippedArcaneShield.state.players.P2.rageStacks, 0, 'Arcane Shield no longer generates Rage when the Shield began unequipped.');
+    assert.equal(defendUnequippedArcaneShield.state.players.P2.shieldEquipped, true, 'Arcane Shield recalls and equips an unequipped Shield.');
+    assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-existing-shield'), false, 'The recalled Shield is removed from the Board.');
+    const arcaneAnimation = defendUnequippedArcaneShield.state.objectPushAnimations.find((event) => event.objectId === 'arcane-existing-shield');
+    assert.equal(arcaneAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Arcane Shield animation passes through the enemy-occupied Square.');
+    assert.equal(arcaneAnimation?.equipPlayerId, 'P2');
   }
 }
 
@@ -2634,7 +2887,7 @@ if (attackManaEquipped.ok) {
   const defendManaEquipped = applyCommand(attackManaEquipped.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'mana-equipped-defense' });
   assert.equal(defendManaEquipped.ok, true);
   if (defendManaEquipped.ok) {
-    assert.equal(defendManaEquipped.state.players.P2.hp, 26, 'Mana Baryer has 5 Defend Value while Shield is equipped.');
+    assert.equal(defendManaEquipped.state.players.P2.hp, 24, 'Mana Baryer has 5 Defend Value while Shield is equipped.');
     assert.equal(defendManaEquipped.state.combatReveal?.defendTotal, 5, 'Mana Baryer transforms to 5 DEF without adding the general equipped-Shield bonus again.');
   }
 }
@@ -2652,7 +2905,7 @@ if (attackManaRecall.ok) {
   const defendManaRecall = applyCommand(attackManaRecall.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'mana-recall-defense' });
   assert.equal(defendManaRecall.ok, true);
   if (defendManaRecall.ok) {
-    assert.equal(defendManaRecall.state.players.P2.hp, 25, 'Unequipped Mana Baryer uses only its base 2 Defend Value.');
+    assert.equal(defendManaRecall.state.players.P2.hp, 23, 'Unequipped Mana Baryer uses only its base 2 Defend Value.');
     assert.equal(defendManaRecall.state.players.P1.hp, 18, 'Mana Baryer deals 2 damage when its recall path crosses the attacker.');
     assert.equal(defendManaRecall.state.players.P2.shieldEquipped, true);
     assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-recall-shield'), false);
@@ -2802,6 +3055,29 @@ if (beginEnemyPreferredRecall.ok) {
   }
 }
 
+const enemyExtendedRecall = createInitialState();
+enemyExtendedRecall.activePlayerId = 'P2';
+enemyExtendedRecall.players.P2.shieldEquipped = false;
+enemyExtendedRecall.players.P2.position = { x: 4, y: 3 };
+enemyExtendedRecall.players.P1.position = { x: 1, y: 2 };
+enemyExtendedRecall.objects = [{ id: 'enemy-extended-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 1 } }];
+const enemyExtendedCard = ensureCardInHand(enemyExtendedRecall, 'P2', 'arm-da-wiz');
+const beginEnemyExtendedRecall = applyCommand(enemyExtendedRecall, { type: 'play-perk', playerId: 'P2', cardInstanceId: enemyExtendedCard.instanceId, destination: 'direct' });
+assert.equal(beginEnemyExtendedRecall.ok, true);
+if (beginEnemyExtendedRecall.ok) {
+  const chooseEnemyExtendedRecall = applyCommand(beginEnemyExtendedRecall.state, { type: 'arm-da-wiz-choice', playerId: 'P2', choice: 'recall' });
+  assert.equal(chooseEnemyExtendedRecall.ok, true);
+  if (chooseEnemyExtendedRecall.ok) {
+    const recalledWithExtension = applyCommand(chooseEnemyExtendedRecall.state, { type: 'arm-da-wiz-target', playerId: 'P2', objectId: 'enemy-extended-shield' });
+    assert.equal(recalledWithExtension.ok, true);
+    if (recalledWithExtension.ok) {
+      const extendedAnimation = recalledWithExtension.state.objectPushAnimations.find((event) => event.objectId === 'enemy-extended-shield');
+      assert.equal(extendedAnimation?.path?.length, 4, 'Shield Recall may extend the minimum three-step route by exactly 1 Square to cross an enemy.');
+      assert.deepEqual(extendedAnimation?.path?.[0], { x: 1, y: 2 }, 'The extended Recall route passes through the otherwise avoidable enemy Square.');
+    }
+  }
+}
+
 const armLevelThree = createInitialState();
 armLevelThree.activePlayerId = 'P2';
 armLevelThree.players.P2.shieldEquipped = false;
@@ -2904,7 +3180,7 @@ if (helmetAttack.ok) {
     const helmetApplied = applyCommand(helmetDefend.state, { type: 'mythril-helmet-decision', playerId: 'P2', use: true });
     assert.equal(helmetApplied.ok, true);
     if (helmetApplied.ok) {
-      assert.equal(helmetApplied.state.players.P2.hp, 26, 'Mythril Helmet negates all combat Damage.');
+      assert.equal(helmetApplied.state.players.P2.hp, 24, 'Mythril Helmet negates all combat Damage.');
       assert.equal(helmetApplied.state.players.P2.hand.some((card) => card.cardId === 'mythril-helmet'), false, 'Applied Mythril Helmet is Removed from the Deck.');
     }
   }
@@ -2925,7 +3201,7 @@ if (tankHelloAttack.ok) {
   const tankCalmnessDefend = applyCommand(tankHelloAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tank-calmness' });
   assert.equal(tankCalmnessDefend.ok, true);
   if (tankCalmnessDefend.ok) {
-    assert.equal(tankCalmnessDefend.state.players.P2.hp, 26, 'Calmness prevents both Attack Value damage and Hello There effect damage.');
+    assert.equal(tankCalmnessDefend.state.players.P2.hp, 24, 'Calmness prevents both Attack Value damage and Hello There effect damage.');
     assert.equal(tankCalmnessDefend.state.players.P2.matchStats?.combatDamageBlocked, 5, 'Blocked Damage includes 1 Attack Value and 4 prevented effect Damage.');
     assert.equal((tankCalmnessDefend.state as any).questPhases.currentQuest.progress.P2, 5, 'Tank Junior receives the same complete blocked-Damage score.');
   }
@@ -3006,7 +3282,10 @@ kneeBlastBoxState.players.P1.hand = [
 ];
 const kneeBlastBox = applyCommand(kneeBlastBoxState, { type: 'attack', playerId: 'P1', cardInstanceId: 'knee-blast-box-attack', targetId: 'knee-blast-box', targetKind: 'object' });
 assert.equal(kneeBlastBox.ok, true);
-if (kneeBlastBox.ok) assert.deepEqual(kneeBlastBox.state.objects.find((object) => object.id === 'knee-blast-box')?.position, { x: 4, y: 3 }, 'Knee Blast applies its Rage-based after-combat push when the Box survives a 0-Value Attack.');
+if (kneeBlastBox.ok) {
+  assert.deepEqual(kneeBlastBox.state.objects.find((object) => object.id === 'knee-blast-box')?.position, { x: 4, y: 3 }, 'Knee Blast applies its Rage-based after-combat push when the Box survives a 0-Value Attack.');
+  assert.equal(kneeBlastBox.state.players.P1.rageStacks, 2, 'Da Orkk retains every Rage Stack applied to an Attack Card used against an Object.');
+}
 
 const snowballBoxState = createHotseatTestState(true, 'magician', 2, 'dummy');
 snowballBoxState.objects = [{ id: 'snowball-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 3 } }];
@@ -3078,7 +3357,7 @@ assert.equal(applyCommand(wallAttackState, { type: 'attack', playerId: 'P1', car
 const boomerangState = createInitialState();
 boomerangState.objects = [{ id: 'boomerang-wall', name: 'Wall', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 4, y: 2 } }];
 boomerangState.players.P1.position = { x: 2, y: 2 };
-boomerangState.players.P2.position = { x: 7, y: 2 };
+boomerangState.players.P2.position = { x: 5, y: 2 };
 boomerangState.players.P1.hand = [{ instanceId: 'reward-boomerang', cardId: 'boomerang' }];
 boomerangState.players.P1.deck = [{ instanceId: 'boomerang-draw', cardId: 'attack-2' }];
 const beginBoomerangPlay = applyCommand(boomerangState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'reward-boomerang' });
@@ -3091,8 +3370,8 @@ if (beginBoomerangPlay.ok) {
   const resolvedBoomerang = applyCommand(beginBoomerangPlay.state, { type: 'boomerang-target', playerId: 'P1', targetId: 'P2' });
   assert.equal(resolvedBoomerang.ok, true);
   if (resolvedBoomerang.ok) {
-    assert.equal(resolvedBoomerang.state.players.P2.hp, 25, 'Boomerang deals 1 Damage as a Free Action.');
-    assert.deepEqual((resolvedBoomerang.state as any).damageLog?.at(-1), { eventType: 'damage', turn: 1, targetId: 'P2', sourceId: 'P1', sourceKind: 'other', amount: 1, hpAfter: 25, collision: false }, 'Every dealt Damage instance is recorded with its target, source, turn, amount, and resulting HP.');
+    assert.equal(resolvedBoomerang.state.players.P2.hp, 23, 'Boomerang deals 1 Damage as a Free Action.');
+    assert.deepEqual((resolvedBoomerang.state as any).damageLog?.at(-1), { eventType: 'damage', turn: 1, targetId: 'P2', sourceId: 'P1', sourceKind: 'other', amount: 1, hpAfter: 23, collision: false }, 'Every dealt Damage instance is recorded with its target, source, turn, amount, and resulting HP.');
     assert.equal(resolvedBoomerang.state.players.P1.actionsRemaining, 2, 'Boomerang consumes no Action.');
     assert.equal(resolvedBoomerang.state.players.P1.discard.some((card) => card.cardId === 'boomerang'), false, 'Played Boomerang never remains in Discard.');
     assert.equal(resolvedBoomerang.state.players.P1.deck.at(-1)?.cardId, 'boomerang', 'Boomerang is placed on top of the Deck.');
@@ -3104,9 +3383,11 @@ if (beginBoomerangPlay.ok) {
 const boomerangPenaltyState = createInitialState();
 boomerangPenaltyState.players.P1.hand = [];
 boomerangPenaltyState.players.P1.deck = [{ instanceId: 'deck-boomerang', cardId: 'boomerang' }];
-assert.equal(effectiveMoveRange(boomerangPenaltyState.players.P1), 2, 'Boomerang applies no MOV penalty while outside Hand.');
+assert.equal(effectiveMoveRange(boomerangPenaltyState.players.P1), 1, 'Boomerang applies -1 MOV while outside Hand.');
 boomerangPenaltyState.players.P1.hand.push(boomerangPenaltyState.players.P1.deck.pop()!);
-assert.equal(effectiveMoveRange(boomerangPenaltyState.players.P1), 2, 'Boomerang also applies no MOV penalty while in Hand.');
+assert.equal(effectiveMoveRange(boomerangPenaltyState.players.P1), 2, 'Boomerang applies no MOV penalty while in Hand.');
+boomerangPenaltyState.players.P1.hand = [];
+assert.equal(effectiveMoveRange(boomerangPenaltyState.players.P1), 2, 'A Boomerang Removed from the game applies no MOV penalty.');
 
 const boomerangDrawMovement = createInitialState();
 boomerangDrawMovement.players.P1.hand = [];
@@ -3116,7 +3397,64 @@ boomerangDrawMovement.players.P1.freeMoveUsed = true;
 boomerangDrawMovement.players.P1.movementRemaining = 1;
 assert.equal(drawCards(boomerangDrawMovement.players.P1, 1), 1);
 assert.equal(boomerangDrawMovement.players.P1.hand.some((card) => card.cardId === 'boomerang'), true);
-assert.equal(boomerangDrawMovement.players.P1.movementRemaining, 1, 'Drawing Boomerang does not change unspent movement because the card has no MOV penalty.');
+assert.equal(boomerangDrawMovement.players.P1.movementRemaining, 2, 'Drawing Boomerang immediately restores the 1 MOV previously lost while it was outside Hand.');
+
+const meleeBoomerangState = createInitialState();
+meleeBoomerangState.players.P1.position = { x: 2, y: 2 };
+meleeBoomerangState.players.P2.position = { x: 3, y: 2 };
+meleeBoomerangState.players.P1.hand = [{ instanceId: 'melee-boomerang', cardId: 'boomerang' }];
+const beginMeleeBoomerang = applyCommand(meleeBoomerangState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'melee-boomerang' });
+assert.equal(beginMeleeBoomerang.ok, true);
+if (beginMeleeBoomerang.ok) {
+  const resolvedMeleeBoomerang = applyCommand(beginMeleeBoomerang.state, { type: 'boomerang-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(resolvedMeleeBoomerang.ok, true);
+  if (resolvedMeleeBoomerang.ok) {
+    assert.equal(resolvedMeleeBoomerang.state.players.P2.hp, 22, 'Boomerang automatically deals 2 Damage at melee Range 1.');
+    assert.equal(resolvedMeleeBoomerang.state.players.P1.actionsRemaining, 1, 'Melee Boomerang automatically spends 1 Action.');
+    assert.equal([...resolvedMeleeBoomerang.state.players.P1.hand, ...resolvedMeleeBoomerang.state.players.P1.deck, ...resolvedMeleeBoomerang.state.players.P1.discard].some((card) => card.cardId === 'boomerang'), false, 'Melee Boomerang is Removed from the game.');
+    assert.equal(effectiveMoveRange(resolvedMeleeBoomerang.state.players.P1), 2, 'Removed melee Boomerang causes no MOV penalty.');
+  }
+}
+
+const movementUndoState = createInitialState();
+movementUndoState.objects = [];
+movementUndoState.players.P1.position = { x: 2, y: 2 };
+movementUndoState.players.P2.position = { x: 8, y: 7 };
+movementUndoState.players.P1.movementRemaining = 3;
+const movementUndoMoved = applyGameCommand(movementUndoState, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(movementUndoMoved.ok, true);
+if (movementUndoMoved.ok) {
+  assert.ok(movementUndoMoved.state.movementUndo, 'Spending movement creates a movement cancellation snapshot.');
+  const movementUndone = applyGameCommand(movementUndoMoved.state, { type: 'cancel-movement', playerId: 'P1' });
+  assert.equal(movementUndone.ok, true);
+  if (movementUndone.ok) {
+    assert.deepEqual(movementUndone.state.players.P1.position, { x: 2, y: 2 }, 'Cancel movement restores the position before movement began.');
+    assert.equal(movementUndone.state.players.P1.movementRemaining, 3, 'Cancel movement restores spent MOV.');
+    assert.equal(movementUndone.state.movementUndo, null, 'A restored movement cannot be cancelled repeatedly.');
+  }
+  movementUndoMoved.state.players.P1.actionsRemaining -= 1;
+  assert.equal(applyGameCommand(movementUndoMoved.state, { type: 'cancel-movement', playerId: 'P1' }).ok, false, 'Movement cannot be reverted after an Action was used.');
+}
+
+const dashMovementUndoState = createInitialState();
+dashMovementUndoState.objects = [];
+dashMovementUndoState.players.P1.position = { x: 2, y: 2 };
+dashMovementUndoState.players.P2.position = { x: 8, y: 7 };
+dashMovementUndoState.players.P1.freeMoveUsed = true;
+dashMovementUndoState.players.P1.hand = [{ instanceId: 'dash-undo-cost', cardId: 'attack-2' }];
+const dashUndoStarted = applyGameCommand(dashMovementUndoState, { type: 'dash', playerId: 'P1' });
+const dashUndoPaid = dashUndoStarted.ok ? applyGameCommand(dashUndoStarted.state, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'dash-undo-cost' }) : dashUndoStarted;
+const dashUndoMoved = dashUndoPaid.ok ? applyGameCommand(dashUndoPaid.state, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } }) : dashUndoPaid;
+assert.equal(dashUndoMoved.ok, true);
+if (dashUndoMoved.ok) {
+  const dashMovementUndone = applyGameCommand(dashUndoMoved.state, { type: 'cancel-movement', playerId: 'P1' });
+  assert.equal(dashMovementUndone.ok, true, 'Dash movement can be reverted before its movement is exhausted.');
+  if (dashMovementUndone.ok) {
+    assert.equal(dashMovementUndone.state.phase, 'dashing');
+    assert.deepEqual(dashMovementUndone.state.players.P1.position, { x: 2, y: 2 });
+    assert.equal(dashMovementUndone.state.players.P1.movementRemaining, 2, 'Dash rollback restores all additional movement to its pre-movement amount.');
+  }
+}
 
 const gamblerCombatState = createInitialState() as any;
 gamblerCombatState.objects = [];
@@ -3195,18 +3533,34 @@ if (johnPhaseOneChoice.ok) {
 }
 john.movementRemaining = 3;
 john.stoicShell = true;
+john.stoicShellStacks = 2;
 dealDamage(johnState, john, 2);
 assert.equal(john.hp, 12);
 assert.equal(john.spiritForm, true);
 assert.equal(john.attackRange, 1, 'Spirit Form gives John Christ melee Attack Range 1.');
 assert.equal(john.movementRemaining, 1, 'Entering Spirit Form caps unspent movement at 1.');
 assert.equal(john.stoicShell, false, 'HP Damage removes Stoic Shell.');
+assert.equal(john.stoicShellStacks, 0, 'HP Damage removes every Stoic Shell Stack at once.');
 johnState.objects = [];
 john.position = { x: 2, y: 2 };
 johnState.players.P2.position = { x: 4, y: 2 };
 john.hand = [{ instanceId: 'spirit-range-test', cardId: 'attack-2' }];
 assert.equal(applyGameCommand(johnState, { type: 'attack', playerId: 'P1', cardInstanceId: 'spirit-range-test', targetId: 'P2' }).ok, false, 'Spirit Form cannot attack a target two Squares away.');
-const johnSpiritEnd = applyGameCommand(johnState, { type: 'end-turn', playerId: 'P1' });
+johnState.players.P2.position = { x: 7, y: 7 };
+johnState.objects = [{ id: 'spirit-column', name: 'Arena Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+john.movementRemaining = 1;
+const spiritOntoColumn = applyGameCommand(johnState, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(spiritOntoColumn.ok, true, 'Spirit Form can move through Wall Objects such as Arena Columns.');
+if (!spiritOntoColumn.ok) throw new Error(spiritOntoColumn.error);
+assert.equal(spiritOntoColumn.state.players.P1.movementRemaining, 1, 'Entering an Object-occupied Square in Spirit Form refunds the spent MOV.');
+assert.equal(spiritOntoColumn.state.players.P1.spiritObjectUnderfoot, 'spirit-column');
+assert.equal(applyGameCommand(spiritOntoColumn.state, { type: 'end-turn', playerId: 'P1' }).ok, false, 'Spirit Form cannot end its turn while sharing a Square with an Object.');
+const spiritPastColumn = applyGameCommand(spiritOntoColumn.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 2 } });
+assert.equal(spiritPastColumn.ok, true, 'Spirit Form can continue beyond an occupied Object Square.');
+if (!spiritPastColumn.ok) throw new Error(spiritPastColumn.error);
+assert.equal(spiritPastColumn.state.players.P1.movementRemaining, 0);
+assert.equal(spiritPastColumn.state.players.P1.spiritObjectUnderfoot, null);
+const johnSpiritEnd = applyGameCommand(spiritPastColumn.state, { type: 'end-turn', playerId: 'P1' });
 assert.equal(johnSpiritEnd.ok, true);
 if (johnSpiritEnd.ok) {
   assert.equal(johnSpiritEnd.state.players.P1.spiritForm, false);
@@ -3224,14 +3578,75 @@ assert.equal(johnEnteredEnemy.ok, true);
 if (johnEnteredEnemy.ok) {
   assert.equal(johnEnteredEnemy.state.players.P1.movementRemaining, 1, 'Entering an enemy Square refunds its spent Movement.');
   assert.equal(johnEnteredEnemy.state.players.P1.spiritEnemyUnderfoot, 'P2');
+  assert.equal(johnEnteredEnemy.state.players.P2.spiritSiphonedMovement, 1, 'The first Spirit Form crossing siphons 1 MOV from that enemy.');
+  assert.equal(effectiveMoveRange(johnEnteredEnemy.state.players.P2), 1, 'The siphoned enemy has -1 MOV until the end of their turn.');
+  assert.deepEqual(johnEnteredEnemy.state.players.P1.spiritSiphonedEnemyIds, ['P2'], 'John tracks enemies already siphoned this turn.');
   assert.equal(applyGameCommand(johnEnteredEnemy.state, { type: 'end-turn', playerId: 'P1' }).ok, false, 'Spirit Form cannot end its turn on an occupied Square.');
   const johnLeftEnemy = applyGameCommand(johnEnteredEnemy.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 2 } });
   assert.equal(johnLeftEnemy.ok, true);
   if (johnLeftEnemy.ok) {
     assert.equal(johnLeftEnemy.state.players.P1.movementRemaining, 0);
     assert.equal(johnLeftEnemy.state.players.P1.spiritEnemyUnderfoot, null);
+    johnLeftEnemy.state.players.P1.movementRemaining = 1;
+    const johnCrossedSameEnemyAgain = applyGameCommand(johnLeftEnemy.state, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } });
+    assert.equal(johnCrossedSameEnemyAgain.ok, true);
+    if (johnCrossedSameEnemyAgain.ok) assert.equal(johnCrossedSameEnemyAgain.state.players.P2.spiritSiphonedMovement, 1, 'Spirit Form can siphon each enemy only once per turn.');
   }
 }
+
+const siphonExpiryState = createHotseatTestState(true, 'dummy', 2, 'john-christ');
+siphonExpiryState.players.P1.spiritSiphonedMovement = 1;
+assert.equal(effectiveMoveRange(siphonExpiryState.players.P1), 1);
+const siphonExpired = applyGameCommand(siphonExpiryState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(siphonExpired.ok, true);
+if (siphonExpired.ok) {
+  assert.equal(siphonExpired.state.players.P1.spiritSiphonedMovement, 0, 'The siphoned MOV penalty expires when the affected character ends their turn.');
+  assert.equal(effectiveMoveRange(siphonExpired.state.players.P1), 2);
+}
+
+const cumulativeSpiritState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+cumulativeSpiritState.objects = [{ id: 'cumulative-box-one', name: 'Wooden Box', kind: 'wooden-box', hp: 1, maxHp: 1, position: { x: 4, y: 2 } }];
+cumulativeSpiritState.players.P1.position = { x: 2, y: 2 };
+cumulativeSpiritState.players.P2.position = { x: 7, y: 7 };
+cumulativeSpiritState.players.P1.spiritForm = true;
+cumulativeSpiritState.players.P1.attackRange = 1;
+cumulativeSpiritState.players.P1.hand = [{ instanceId: 'cumulative-pinned', cardId: 'pinned', revealedToOpponent: true }, { instanceId: 'cumulative-attack-one', cardId: 'attack-2' }];
+cumulativeSpiritState.players.P1.pinnedStacks = 1;
+const cumulativeFreeMove = applyGameCommand(cumulativeSpiritState, { type: 'free-move', playerId: 'P1' });
+assert.equal(cumulativeFreeMove.ok, true);
+if (!cumulativeFreeMove.ok) throw new Error(cumulativeFreeMove.error);
+assert.equal(cumulativeFreeMove.state.players.P1.movementRemaining, 1, 'Spirit Form has at most 1 immediately spendable MOV.');
+assert.equal(cumulativeFreeMove.state.players.P1.johnCumulativeMovementRemaining, 2, 'Pinned reduces John\'s cumulative movement from 3 to 2 before affecting Spirit movement.');
+const cumulativeSpiritMove = applyGameCommand(cumulativeFreeMove.state, { type: 'move', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(cumulativeSpiritMove.ok, true);
+if (!cumulativeSpiritMove.ok) throw new Error(cumulativeSpiritMove.error);
+assert.equal(cumulativeSpiritMove.state.players.P1.spiritMovementDepleted, true);
+removeCard(cumulativeSpiritMove.state.players.P1, 'cumulative-pinned');
+assert.equal(cumulativeSpiritMove.state.players.P1.johnCumulativeMovementRemaining, 3, 'Removing Pinned restores the cumulative pool before Spirit Form movement is settled.');
+const cumulativeFirstExit = applyGameCommand(cumulativeSpiritMove.state, { type: 'attack', playerId: 'P1', cardInstanceId: 'cumulative-attack-one', targetId: 'cumulative-box-one', targetKind: 'object' });
+assert.equal(cumulativeFirstExit.ok, true);
+if (!cumulativeFirstExit.ok) throw new Error(cumulativeFirstExit.error);
+assert.equal(cumulativeFirstExit.state.players.P1.spiritForm, false);
+assert.equal(cumulativeFirstExit.state.players.P1.movementRemaining, 2, 'A fully depleted Spirit Form charges exactly 1 against John\'s cumulative movement when the Form ends.');
+
+const exhaustedCumulativeState = cumulativeFirstExit.state;
+exhaustedCumulativeState.players.P1.johnCumulativeMovementRemaining = 1;
+exhaustedCumulativeState.players.P1.movementRemaining = 1;
+exhaustedCumulativeState.players.P1.actionsRemaining = 1;
+exhaustedCumulativeState.players.P1.hand = [{ instanceId: 'cumulative-attack-two', cardId: 'attack-2' }];
+exhaustedCumulativeState.objects = [{ id: 'cumulative-box-two', name: 'Wooden Box', kind: 'wooden-box', hp: 1, maxHp: 1, position: { x: 5, y: 2 } }];
+dealDamage(exhaustedCumulativeState, exhaustedCumulativeState.players.P1, 1, false, 'P2');
+assert.equal(exhaustedCumulativeState.players.P1.movementRemaining, 1, 'Entering Spirit Form grants 1 MOV independently of the remaining cumulative pool.');
+const exhaustedSpiritMove = applyGameCommand(exhaustedCumulativeState, { type: 'move', playerId: 'P1', to: { x: 4, y: 2 } });
+assert.equal(exhaustedSpiritMove.ok, true);
+if (!exhaustedSpiritMove.ok) throw new Error(exhaustedSpiritMove.error);
+const exhaustedSpiritExit = applyGameCommand(exhaustedSpiritMove.state, { type: 'attack', playerId: 'P1', cardInstanceId: 'cumulative-attack-two', targetId: 'cumulative-box-two', targetKind: 'object' });
+assert.equal(exhaustedSpiritExit.ok, true);
+if (!exhaustedSpiritExit.ok) throw new Error(exhaustedSpiritExit.error);
+assert.equal(exhaustedSpiritExit.state.players.P1.johnCumulativeMovementRemaining, 0);
+assert.equal(exhaustedSpiritExit.state.players.P1.movementRemaining, 0, 'Repeated form changes cannot restore depleted cumulative movement to normal John.');
+dealDamage(exhaustedSpiritExit.state, exhaustedSpiritExit.state.players.P1, 1, false, 'P2');
+assert.equal(exhaustedSpiritExit.state.players.P1.movementRemaining, 0, 'A second Spirit Form entry in the same turn grants 0 MOV after its earlier MOV and John\'s full cumulative pool were spent.');
 
 const fearJusticeState = createHotseatTestState(true, 'john-christ', 3, 'dummy');
 fearJusticeState.phase = 'active';
@@ -3284,8 +3699,8 @@ if (innerPeacePlayed.ok) {
   const innerPeaceChoice = applyGameCommand(innerPeacePlayed.state, { type: 'inner-peace-status-choice', playerId: 'P1', cardInstanceId: 'inner-peace-pinned' });
   assert.equal(innerPeaceChoice.ok, true);
   if (innerPeaceChoice.ok) {
-    assert.equal(innerPeaceChoice.state.players.P1.hand.some((card) => card.cardId === 'pinned' || card.cardId === 'headache'), false, 'Inner Peace removes the chosen Hand Status and one additional random Hand Status at level 2.');
-    assert.equal(innerPeaceChoice.state.players.P1.deck.some((card) => card.cardId === 'burning'), true, 'Level 2 prefers a remaining Hand Status before Deck and Discard Status Cards.');
+    assert.equal(innerPeaceChoice.state.players.P1.hand.some((card) => card.cardId === 'pinned' || card.cardId === 'headache'), false, 'Inner Peace removes the chosen negative Hand Status and one additional random negative Hand Status at level 2.');
+    assert.equal(innerPeaceChoice.state.players.P1.deck.some((card) => card.cardId === 'burning'), true, 'Level 2 prefers a remaining negative Hand Status before Deck and Discard Status Cards.');
     assert.equal(innerPeaceChoice.state.players.P1.hand.some((card) => card.cardId === 'blessing-faith' && card.revealedToOpponent), true, 'Inner Peace level 3 immediately creates revealed Blessing: Faith.');
     assert.equal(innerPeaceChoice.state.players.P1.stoicShell, true, 'Perk-created Blessing: Faith immediately grants Stoic Shell.');
   }
@@ -3299,8 +3714,22 @@ innerPeaceNoHandState.players.P1.spellEcho = [null, { instanceId: 'inner-peace-l
 const innerPeaceNoHandPlayed = applyGameCommand(innerPeaceNoHandState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
 assert.equal(innerPeaceNoHandPlayed.ok, true);
 if (innerPeaceNoHandPlayed.ok) {
-  assert.equal(innerPeaceNoHandPlayed.state.players.P1.deck.some((card) => card.cardId === 'burning'), false, 'Without a Hand Status, Inner Peace level 2 removes one random Status from Deck first.');
-  assert.equal(innerPeaceNoHandPlayed.state.players.P1.discard.some((card) => card.cardId === 'exhaust'), true, 'Inner Peace removes only one Level 2 Status and leaves lower-priority Discard Status Cards untouched.');
+  assert.equal(innerPeaceNoHandPlayed.state.players.P1.deck.some((card) => card.cardId === 'burning'), false, 'Without a negative Hand Status, Inner Peace level 2 removes one random negative Status from Deck first.');
+  assert.equal(innerPeaceNoHandPlayed.state.players.P1.discard.some((card) => card.cardId === 'exhaust'), true, 'Inner Peace removes only one Level 2 negative Status and leaves lower-priority Discard Status Cards untouched.');
+}
+
+const innerPeacePositiveOnlyState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+innerPeacePositiveOnlyState.players.P1.hand = [{ instanceId: 'protected-faith', cardId: 'blessing-faith', revealedToOpponent: true }];
+innerPeacePositiveOnlyState.players.P1.deck = [{ instanceId: 'protected-light', cardId: 'blessing-light', revealedToOpponent: true }];
+innerPeacePositiveOnlyState.players.P1.discard = [{ instanceId: 'protected-shield', cardId: 'blessing-shield', revealedToOpponent: true }];
+innerPeacePositiveOnlyState.players.P1.spellEcho = [null, { instanceId: 'inner-peace-positive-only', cardId: 'inner-peace' }, null];
+const innerPeacePositiveOnlyPlayed = applyGameCommand(innerPeacePositiveOnlyState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(innerPeacePositiveOnlyPlayed.ok, true);
+if (innerPeacePositiveOnlyPlayed.ok) {
+  assert.equal(innerPeacePositiveOnlyPlayed.state.phase, 'active', 'Inner Peace does not open a forced choice when no negative Status exists in Hand.');
+  assert.deepEqual(innerPeacePositiveOnlyPlayed.state.players.P1.hand.map((card) => card.cardId), ['blessing-faith'], 'Inner Peace protects positive Status Cards in Hand.');
+  assert.deepEqual(innerPeacePositiveOnlyPlayed.state.players.P1.deck.map((card) => card.cardId), ['blessing-light'], 'Inner Peace protects positive Status Cards in Deck.');
+  assert.deepEqual(innerPeacePositiveOnlyPlayed.state.players.P1.discard.map((card) => card.cardId), ['blessing-shield'], 'Inner Peace protects positive Status Cards in Discard.');
 }
 
 const mindBlastState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
@@ -3324,10 +3753,30 @@ if (mindBlastPlayed.ok) {
     if (mindBlastDiscarded.ok) {
       assert.equal(mindBlastDiscarded.state.players.P2.hand.length, 0, 'Mind Blast level 1 discards the target-selected Card.');
       assert.equal(mindBlastDiscarded.state.players.P2.hp, hpBefore - 1, 'Mind Blast level 2 deals 1 Damage after the discard.');
-      assert.equal(mindBlastDiscarded.state.players.P2.deck.at(-1)?.cardId, 'exhaust', "Mind Blast level 3 puts Exhaust on top of the target's Deck.");
-      assert.equal(mindBlastDiscarded.state.players.P2.knownTopCardId, 'exhaust', 'The Exhaust added on top is tracked as the known top Card.');
+      assert.deepEqual(mindBlastDiscarded.state.players.P2.deck.slice(-2).map((card) => card.cardId), ['headache', 'headache'], "Mind Blast level 3 puts 2 Headache Cards on top of the target's Deck.");
+      assert.equal(mindBlastDiscarded.state.players.P2.deck.slice(-2).every((card) => card.revealedToOpponent), true, 'Both generated Headache Cards are revealed Status Cards.');
+      assert.equal(mindBlastDiscarded.state.players.P2.knownTopCardId, 'headache', 'The Headache added on top is tracked as the known top Card.');
       assert.equal(mindBlastDiscarded.state.phase, 'active');
     }
+  }
+}
+
+const forcedDiscardImpossibleState = createHotseatTestState(true, 'john-christ', 2, 'orkk');
+forcedDiscardImpossibleState.objects = [];
+forcedDiscardImpossibleState.players.P1.position = { x: 2, y: 2 };
+forcedDiscardImpossibleState.players.P2.position = { x: 4, y: 2 };
+forcedDiscardImpossibleState.players.P1.spellEcho = [{ instanceId: 'forced-discard-mind-blast', cardId: 'mind-blast' }, null, null];
+forcedDiscardImpossibleState.players.P2.hand = [{ instanceId: 'forced-discard-headache', cardId: 'headache' }];
+const forcedDiscardMindBlast = applyGameCommand(forcedDiscardImpossibleState, { type: 'use-echo-perk', playerId: 'P1', position: 1 });
+assert.equal(forcedDiscardMindBlast.ok, true);
+if (forcedDiscardMindBlast.ok) {
+  const forcedDiscardTarget = applyGameCommand(forcedDiscardMindBlast.state, { type: 'arcane-missle-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(forcedDiscardTarget.ok, true);
+  if (forcedDiscardTarget.ok) {
+    assert.equal(forcedDiscardTarget.state.players.P2.hp, 24, 'Failure to satisfy an enemy Card\'s forced discard does not deal defeat or Damage.');
+    assert.equal(forcedDiscardTarget.state.players.P2.hand[0]?.cardId, 'headache', 'A non-discardable Card remains in Hand when an enemy forced-discard effect has no legal target.');
+    assert.equal(forcedDiscardTarget.state.phase, 'active', 'Enemy forced-discard effects resolve without ending the match when no legal Card exists.');
+    assert.equal(forcedDiscardTarget.state.winner, null);
   }
 }
 
@@ -3397,6 +3846,23 @@ const guardianMortalAttack = applyGameCommand(guardianLevelOneState, { type: 'at
 assert.equal(guardianMortalAttack.ok, true);
 if (guardianMortalAttack.ok) assert.equal(guardianMortalAttack.state.objects.some((object) => object.id === 'guardian-mortal'), false, 'Level 1 Guardian is destroyed by a direct Attack Card.');
 
+const guardianPerkProtectionState = createHotseatTestState(true, 'john-christ', 2, 'dummy') as any;
+guardianPerkProtectionState.objects = [{ id: 'guardian-protection', name: 'Spirit Guardian', kind: 'spirit-guardian', hp: 1, maxHp: 1, position: { x: 3, y: 2 }, ownerId: 'P1', guardianLevel: 1 }];
+guardianPerkProtectionState.players.P1.position = { x: 2, y: 2 };
+guardianPerkProtectionState.players.P1.hp = 14;
+guardianPerkProtectionState.currentGuardianPerkActionId = 1;
+const firstGuardianHit = dealDamage(guardianPerkProtectionState, guardianPerkProtectionState.players.P1, 2, false, 'P2', 'perk');
+assert.equal(firstGuardianHit, 1, 'An adjacent Guardian blocks 1 Perk Damage during an Action.');
+const secondGuardianHit = dealDamage(guardianPerkProtectionState, guardianPerkProtectionState.players.P1, 2, false, 'P2', 'perk');
+assert.equal(secondGuardianHit, 2, 'The Guardian blocks only 1 Perk Damage across all hits from the same Action.');
+guardianPerkProtectionState.currentGuardianPerkActionId = 2;
+const nextGuardianActionHit = dealDamage(guardianPerkProtectionState, guardianPerkProtectionState.players.P1, 2, false, 'P2', 'perk');
+assert.equal(nextGuardianActionHit, 1, 'A new Perk Action refreshes the Guardian\'s 1 Damage block.');
+guardianPerkProtectionState.currentGuardianPerkActionId = 3;
+guardianPerkProtectionState.players.P1.position = { x: 5, y: 2 };
+const pushedOutsideGuardianHit = dealDamage(guardianPerkProtectionState, guardianPerkProtectionState.players.P1, 2, true, 'P2', 'perk');
+assert.equal(pushedOutsideGuardianHit, 2, 'Perk collision Damage is fully applied if John was moved outside Guardian adjacency before Damage resolves.');
+
 const guardianAttackRemovalState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
 guardianAttackRemovalState.objects = [{ id: 'guardian-owned', name: 'Spirit Guardian', kind: 'spirit-guardian', hp: 999, maxHp: 999, position: { x: 2, y: 3 }, ownerId: 'P1', guardianLevel: 3 }];
 guardianAttackRemovalState.players.P1.position = { x: 2, y: 2 };
@@ -3404,7 +3870,7 @@ guardianAttackRemovalState.players.P2.position = { x: 3, y: 2 };
 guardianAttackRemovalState.players.P1.hand = [{ instanceId: 'guardian-owner-attack', cardId: 'attack-2' }];
 const guardianOwnerAttack = applyGameCommand(guardianAttackRemovalState, { type: 'attack', playerId: 'P1', cardInstanceId: 'guardian-owner-attack', targetId: 'P2' });
 assert.equal(guardianOwnerAttack.ok, true);
-if (guardianOwnerAttack.ok) assert.equal(guardianOwnerAttack.state.objects.some((object) => object.kind === 'spirit-guardian'), false, 'John removes his Guardian when he uses an Attack Card.');
+if (guardianOwnerAttack.ok) assert.equal(guardianOwnerAttack.state.objects.some((object) => object.kind === 'spirit-guardian'), true, 'John keeps his Guardian when he uses an Attack Card.');
 
 const guardianTurnExpiryState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
 guardianTurnExpiryState.activePlayerId = 'P2';
@@ -3761,7 +4227,8 @@ if (repentAttack.ok) {
     if (repentAckTwo.ok) {
       assert.equal(repentAckTwo.state.players.P1.hp, 1, 'Repent! deals 1 HP Damage to John after combat.');
       assert.equal(repentAckTwo.state.players.P1.spiritForm, true, 'Surviving HP Damage from Repent! makes John enter Spirit Form.');
-      assert.equal(repentAckTwo.state.players.P2.hp, 18, 'The adjacent target takes combat Damage and 1 additional Repent! Damage.');
+      assert.equal(repentAckTwo.state.players.P2.hp, 17, 'The adjacent target takes combat Damage and 2 additional Repent! Damage.');
+      assert.equal(repentAckTwo.state.spellProjectiles.some((event) => event.style === 'holy-fire' && event.targetId === 'P2'), true, 'Repent! emits Holy Fire under each affected adjacent enemy.');
     }
   }
 }
@@ -3799,8 +4266,72 @@ if (blessingDiscarded.ok) {
   assert.equal(blessingDiscarded.state.players.P1.discard.some((card) => card.instanceId === 'discarded-light-blessing'), false, 'Discarding Blessing: Light Removes it instead of placing it in Discard.');
 }
 
+const blessingFaithCombatState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+blessingFaithCombatState.objects = [];
+blessingFaithCombatState.players.P1.position = { x: 2, y: 2 };
+blessingFaithCombatState.players.P2.position = { x: 3, y: 2 };
+blessingFaithCombatState.players.P1.hand = [
+  { instanceId: 'faith-attack', cardId: 'attack-3' },
+  { instanceId: 'combat-faith', cardId: 'blessing-faith', revealedToOpponent: true },
+];
+blessingFaithCombatState.players.P2.hand = [{ instanceId: 'faith-thorns', cardId: 'thorns' }];
+const faithAttack = applyGameCommand(blessingFaithCombatState, { type: 'attack', playerId: 'P1', cardInstanceId: 'faith-attack', targetId: 'P2' });
+assert.equal(faithAttack.ok, true);
+if (faithAttack.ok) {
+  const faithDefense = applyGameCommand(faithAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'faith-thorns' });
+  assert.equal(faithDefense.ok, true);
+  if (faithDefense.ok) {
+    assert.equal(faithDefense.state.phase, 'choosing-blessing-faith', 'A held Blessing: Faith is offered during combat.');
+    const faithApplied = applyGameCommand(faithDefense.state, { type: 'blessing-faith-decision', playerId: 'P1', use: true });
+    assert.equal(faithApplied.ok, true);
+    if (faithApplied.ok) {
+      assert.equal(faithApplied.state.players.P1.hp, 14, 'Blessing: Faith negates Thorns effect Damage to the attacker.');
+      assert.equal(faithApplied.state.players.P2.hp, 20, 'Blessing: Faith negates combat Damage to the defender.');
+      assert.equal(faithApplied.state.players.P1.hand.some((card) => card.cardId === 'blessing-faith'), false, 'Blessing: Faith is Removed after use.');
+    }
+  }
+}
+
+const blessingFaithExpiryState = createHotseatTestState(true, 'magician', 2, 'john-christ');
+blessingFaithExpiryState.players.P1.hand = [];
+blessingFaithExpiryState.players.P2.hand = [{ instanceId: 'expiring-faith', cardId: 'blessing-faith', revealedToOpponent: true }];
+const blessingFaithExpired = applyGameCommand(blessingFaithExpiryState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(blessingFaithExpired.ok, true);
+if (blessingFaithExpired.ok) assert.equal(blessingFaithExpired.state.players.P2.hand.some((card) => card.cardId === 'blessing-faith'), false, 'Unused Blessing: Faith is Removed at the beginning of its holder’s turn.');
+
+const blessingShieldStatusState = createHotseatTestState(true, 'dummy', 2, 'john-christ');
+blessingShieldStatusState.objects = [];
+blessingShieldStatusState.players.P1.position = { x: 2, y: 2 };
+blessingShieldStatusState.players.P2.position = { x: 3, y: 2 };
+blessingShieldStatusState.players.P1.hand = [{ instanceId: 'shield-enforce', cardId: 'enforce' }];
+blessingShieldStatusState.players.P2.hand = [
+  { instanceId: 'shield-defense', cardId: 'defend-1' },
+  { instanceId: 'status-shield', cardId: 'blessing-shield', revealedToOpponent: true },
+];
+const shieldStatusAttack = applyGameCommand(blessingShieldStatusState, { type: 'attack', playerId: 'P1', cardInstanceId: 'shield-enforce', targetId: 'P2' });
+assert.equal(shieldStatusAttack.ok, true);
+if (shieldStatusAttack.ok) {
+  const shieldStatusDefense = applyGameCommand(shieldStatusAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'shield-defense' });
+  assert.equal(shieldStatusDefense.ok, true);
+  if (shieldStatusDefense.ok) {
+    const shieldStatusApplied = applyGameCommand(shieldStatusDefense.state, { type: 'blessing-shield-decision', playerId: 'P2', use: true });
+    assert.equal(shieldStatusApplied.ok, true);
+    if (shieldStatusApplied.ok) {
+      const shieldAckOne = applyGameCommand(shieldStatusApplied.state, { type: 'ack-combat', playerId: 'P1' });
+      const shieldAckTwo = shieldAckOne.ok ? applyGameCommand(shieldAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : shieldAckOne;
+      assert.equal(shieldAckTwo.ok, true);
+      if (shieldAckTwo.ok) {
+        assert.equal(shieldAckTwo.state.players.P2.hand.some((card) => card.cardId === 'panic'), false, 'Blessing: Shield automatically blocks the first negative Status applied during combat.');
+        assert.equal(shieldAckTwo.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Blessing: Shield blocks exactly one Status, so Enforce still applies its second Status.');
+        assert.equal(shieldAckTwo.state.players.P2.hand.some((card) => card.cardId === 'blessing-shield'), false, 'A used Blessing: Shield is Removed from the holder\'s Deck.');
+      }
+    }
+  }
+}
+
 const blessingIds = ['blessing-light', 'blessing-prayer', 'blessing-might', 'blessing-shield', 'blessing-swiftness', 'blessing-faith'] as const;
 for (const [index, blessingId] of blessingIds.entries()) {
+  assert.doesNotMatch(cardDefinition({ instanceId: `blessing-text-${index}`, cardId: blessingId }).effectText ?? '', /remove(?:d)?\s+(?:after|on|when)/i, `${blessingId} relies on the default Blessing removal rule instead of repeating it.`);
   const overstack = createHotseatTestState(true, 'john-christ', 2, 'dummy');
   overstack.phase = 'choosing-end-discard';
   overstack.players.P1.spiritForm = true;
@@ -3829,12 +4360,36 @@ blessingDashState.players.P1.freeMoveUsed = true;
 blessingDashState.players.P1.spiritForm = true;
 blessingDashState.players.P1.hand = [{ instanceId: 'dash-blessing', cardId: 'blessing-light', revealedToOpponent: true }];
 const blessingDashStarted = applyGameCommand(blessingDashState, { type: 'dash', playerId: 'P1' });
-assert.equal(blessingDashStarted.ok, false, 'A Blessing cannot be used as the Dash payment, including during Spirit Form.');
+assert.equal(blessingDashStarted.ok, false, 'Dash cannot be selected when only a Blessing is available as payment, including in Spirit Form.');
+
+const mixedBlessingDashState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+mixedBlessingDashState.players.P1.freeMoveUsed = true;
+mixedBlessingDashState.players.P1.hand = [{ instanceId: 'mixed-dash-blessing', cardId: 'blessing-light', revealedToOpponent: true }, { instanceId: 'mixed-dash-cost', cardId: 'cleanse' }];
+const mixedBlessingDash = applyGameCommand(mixedBlessingDashState, { type: 'dash', playerId: 'P1' });
+assert.equal(mixedBlessingDash.ok, true);
+if (mixedBlessingDash.ok) {
+  assert.equal(applyGameCommand(mixedBlessingDash.state, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'mixed-dash-blessing' }).ok, false, 'A Blessing cannot pay for Dash when another eligible Card exists.');
+  assert.equal(applyGameCommand(mixedBlessingDash.state, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'mixed-dash-cost' }).ok, true, 'A non-Blessing Card can still pay for Dash.');
+}
+
+const spiritBlessedGuardState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+spiritBlessedGuardState.players.P1.freeMoveUsed = true;
+spiritBlessedGuardState.players.P1.spiritForm = true;
+spiritBlessedGuardState.players.P1.hand = [{ instanceId: 'guard-blessed-card', cardId: 'blessed-light' }];
+spiritBlessedGuardState.players.P1.deck = [{ instanceId: 'guard-draw', cardId: 'attack-2' }];
+const spiritBlessedGuard = applyGameCommand(spiritBlessedGuardState, { type: 'guard', playerId: 'P1' });
+assert.equal(spiritBlessedGuard.ok, true);
+if (spiritBlessedGuard.ok) {
+  const spiritBlessedDiscarded = applyGameCommand(spiritBlessedGuard.state, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'guard-blessed-card' });
+  assert.equal(spiritBlessedDiscarded.ok, true, 'John can discard a Card containing Bless for Guard while in Spirit Form.');
+  if (spiritBlessedDiscarded.ok) assert.equal(spiritBlessedDiscarded.state.players.P1.discard.some((card) => card.instanceId === 'guard-blessed-card'), true, 'A normal Blessed Card enters Discard when used for Guard.');
+}
 
 const blessedPrayerState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
 blessedPrayerState.players.P1.hand = [{ instanceId: 'blessed-prayer-test', cardId: 'blessed-prayer' }];
 blessedPrayerState.players.P1.deck = [{ instanceId: 'prayer-draw', cardId: 'attack-2' }];
 blessedPrayerState.players.P1.movementRemaining = 1;
+blessedPrayerState.players.P1.johnCumulativeMovementRemaining = 1;
 const blessedPrayerPlayed = applyGameCommand(blessedPrayerState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'blessed-prayer-test', destination: 'direct' });
 assert.equal(blessedPrayerPlayed.ok, true);
 if (blessedPrayerPlayed.ok) {
@@ -3846,6 +4401,7 @@ if (blessedPrayerPlayed.ok) {
   assert.equal(prayerUsed.ok, true);
   if (prayerUsed.ok) {
     assert.equal(prayerUsed.state.players.P1.movementRemaining, 0, 'Blessing: Prayer costs 1 MOV.');
+    assert.equal(prayerUsed.state.players.P1.johnCumulativeMovementRemaining, 0, 'Blessing: Prayer also spends 1 from John\'s cumulative MOV so form changes cannot restore it.');
     assert.equal(prayerUsed.state.players.P1.hand.some((card) => card.cardId === 'blessing-prayer'), false, 'Blessing: Prayer is Removed after use.');
     assert.equal(prayerUsed.state.players.P1.hand.some((card) => card.instanceId === 'prayer-draw'), true, 'Blessing: Prayer draws 1 Card.');
   }
@@ -3877,13 +4433,30 @@ const stoicHealState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
 stoicHealState.activePlayerId = 'P2';
 stoicHealState.players.P1.hp = 10;
 stoicHealState.players.P1.stoicShell = true;
+stoicHealState.players.P1.stoicShellStacks = 1;
 const stoicHealTurn = applyGameCommand(stoicHealState, { type: 'end-turn', playerId: 'P2' });
 assert.equal(stoicHealTurn.ok, true);
 if (stoicHealTurn.ok) {
   assert.equal(stoicHealTurn.state.activePlayerId, 'P1');
-  assert.equal(stoicHealTurn.state.players.P1.hp, 11);
-  assert.equal(stoicHealTurn.state.players.P1.stoicShell, false);
+  assert.equal(stoicHealTurn.state.players.P1.hp, 12);
+  assert.equal(stoicHealTurn.state.players.P1.stoicShellStacks, 2, 'An intact Stoic Shell gains one Stack at the beginning of John\'s turn.');
+  assert.equal(stoicHealTurn.state.players.P1.stoicShellHealAmount, 2, 'Stoic Shell restores 1 HP per accumulated Stack.');
+  assert.equal(stoicHealTurn.state.players.P1.stoicShell, true, 'Stoic Shell remains after restoring HP and can only be removed by HP Damage.');
   assert.equal(stoicHealTurn.state.players.P1.stoicShellHealedTurn, stoicHealTurn.state.turn, 'Stoic Shell healing emits a turn-scoped visual/message event.');
+}
+
+const fullHealthStoicState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+fullHealthStoicState.activePlayerId = 'P2';
+fullHealthStoicState.players.P1.hp = fullHealthStoicState.players.P1.maxHp;
+fullHealthStoicState.players.P1.stoicShell = true;
+fullHealthStoicState.players.P1.stoicShellStacks = 3;
+const fullHealthStoicTurn = applyGameCommand(fullHealthStoicState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(fullHealthStoicTurn.ok, true);
+if (fullHealthStoicTurn.ok) {
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellStacks, 3, 'Stoic Shell does not gain another Stack while John is already at maximum HP.');
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShell, true, 'Stoic Shell and its existing Stacks remain intact at maximum HP.');
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellHealAmount, 0);
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellHealedTurn, null, 'No healing animation or message is emitted at maximum HP.');
 }
 
 assert.equal(THE_TRENCH_ARENA.name, 'The Trench');
@@ -3891,6 +4464,9 @@ assert.deepEqual(THE_TRENCH_ARENA.pillars, ['A3', 'A6', 'H3', 'H6']);
 assert.deepEqual(THE_TRENCH_ARENA.bases.P1, ['D1', 'E1']);
 assert.deepEqual(THE_TRENCH_ARENA.bases.P2, ['D8', 'E8']);
 assert.deepEqual(THE_TRENCH_ARENA.slideSquares, ['C2', 'F2', 'C4', 'F4', 'C5', 'F5', 'C7', 'F7']);
+assert.deepEqual(THE_TRENCH_ARENA.trenchSquares, ['C4', 'D4', 'E4', 'F4', 'C5', 'D5', 'E5', 'F5']);
+assert.deepEqual(THE_TRENCH_ARENA.adjacentHighgroundOnlyTargets, ['B3', 'G3', 'B6', 'G6']);
+for (const label of ['B3', 'G3', 'B6', 'G6']) assert.equal(THE_TRENCH_ARENA.highgroundProtected.includes(label), true, `${label} is Highground Protected.`);
 assert.equal(arenaForPlayerCount(2).id, 'nagrand', 'Nagrand remains the default 1v1 arena for online and legacy setup flows.');
 assert.deepEqual(randomTrenchBoxSpawns(() => 0), ['C3', 'C6', 'B3', 'G6'], 'The minimum random rolls use C3, C6, B3, and the opposite G6 Square.');
 assert.deepEqual(randomTrenchBoxSpawns(() => .999999), ['F3', 'F6', 'G3', 'B6'], 'The maximum random rolls use F3, F6, G3, and the opposite B6 Square.');
@@ -3911,6 +4487,26 @@ assert.equal(ordinarySlideEntry.ok, true);
 if (ordinarySlideEntry.ok) assert.deepEqual(ordinarySlideEntry.state.players.P1.position, { x: 3, y: 3 }, 'Entering a Slide Square from non-High Ground causes no automatic movement.');
 assert.equal(isForbiddenSlideAscent(trenchSlopeState, { x: 3, y: 1 }, { x: 3, y: 2 }), true, 'C2 Slide cannot move or be pushed upward onto C3 High Ground.');
 assert.equal(isForbiddenSlideAscent(trenchSlopeState, { x: 3, y: 3 }, { x: 3, y: 2 }), true, 'C4 Slide cannot move or be pushed upward onto C3 High Ground.');
+assert.equal(isForbiddenSlideAscent(trenchSlopeState, { x: 4, y: 3 }, { x: 4, y: 2 }), true, 'D4 Trench cannot move or be pushed directly onto D3 High Ground.');
+assert.equal(isForbiddenSlideAscent(trenchSlopeState, { x: 4, y: 4 }, { x: 3, y: 4 }), false, 'A Trench Square may move to another non-High-Ground Square.');
+assert.equal(canAttackTargetSquare(trenchSlopeState, { x: 3, y: 2 }, { x: 2, y: 2 }), true, 'B3 can be attacked from adjacent C3 High Ground.');
+assert.equal(canAttackTargetSquare(trenchSlopeState, { x: 4, y: 2 }, { x: 2, y: 2 }), false, 'B3 cannot be attacked from a non-adjacent High Ground Square.');
+assert.equal(canAttackTargetSquare(trenchSlopeState, { x: 2, y: 3 }, { x: 2, y: 2 }), true, 'B3 can be attacked normally from Low Ground; Highground Protection only restricts attacks originating on High Ground.');
+assert.equal(canAttackTargetSquare(trenchSlopeState, { x: 2, y: 1 }, { x: 3, y: 1 }), true, 'Ordinary Highground Protection Squares keep standard targeting from Low Ground.');
+
+const trenchPushState = createTrenchTestState(true, 'shinobi', 'dummy');
+trenchPushState.objects = [];
+trenchPushState.players.P1.position = { x: 3, y: 4 }; // C5, behind the pushed target
+trenchPushState.players.P2.position = { x: 3, y: 3 }; // C4 Trench
+trenchPushState.phase = 'choosing-force-throw-target';
+trenchPushState.forceThrow = { casterId: 'P1', level: 3, distance: 3, targetRange: 2, targetKind: null, targetId: null, undo: null };
+const trenchPushTarget = applyGameCommand(trenchPushState, { type: 'force-throw-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
+assert.equal(trenchPushTarget.ok, true);
+if (trenchPushTarget.ok) {
+  const trenchPushResolved = applyGameCommand(trenchPushTarget.state, { type: 'force-throw-direction', playerId: 'P1', to: { x: 3, y: 2 } });
+  assert.equal(trenchPushResolved.ok, true);
+  if (trenchPushResolved.ok) assert.deepEqual(trenchPushResolved.state.players.P2.position, { x: 3, y: 3 }, 'A push cannot move a character directly from C4 Trench onto C3 High Ground.');
+}
 
 const occupiedSlideEntryState = createTrenchTestState(true, 'john-christ', 'dummy');
 occupiedSlideEntryState.objects = [];

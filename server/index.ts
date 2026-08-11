@@ -1,23 +1,26 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
-import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, GameCommandSchema, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
-import { arenaForPlayerCount } from '../shared/arenas.ts';
+import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, GameCommandSchema, resolveMultiplayerCombatStack, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { arenaForPlayerCount, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
 type GameFormat = 'duel' | 'ffa';
-type JoinOptions = { password?: string; format?: GameFormat };
+type JoinOptions = { password?: string; format?: GameFormat; arena?: ArenaId };
 
 class DuelRoom extends Room {
   maxClients = 3;
   private game: GameState | null = null;
   private password = '';
   private format: GameFormat = 'duel';
+  private arena: ArenaId = 'nagrand';
   private seats = new Map<string, PlayerId>();
   private characters: Partial<Record<PlayerId, CharacterId>> = {};
+  private combatStackSelections = new Map<PlayerId, string[]>();
 
   onCreate(options: JoinOptions) {
     this.password = String(options.password ?? '');
     this.format = options.format === 'ffa' ? 'ffa' : 'duel';
+    this.arena = this.format === 'duel' && options.arena === 'trench' ? 'trench' : this.format === 'ffa' ? 'lordaeron' : 'nagrand';
     this.maxClients = this.format === 'ffa' ? 3 : 2;
     this.setPrivate(true);
     this.onMessage('command', (client, raw) => this.handleCommand(client, raw));
@@ -47,6 +50,25 @@ class DuelRoom extends Room {
 
   private handleCommand(client: Client, raw: unknown) {
     const seat = this.seats.get(client.sessionId);
+    if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'combat-stack-submit') {
+      if (!this.game || !seat || this.game.phase !== 'choosing-combat-stack' || !this.game.pendingAttack || ![this.game.pendingAttack.attackerId, this.game.pendingAttack.defenderId].includes(seat)) return client.send('error', 'No Combat Stack selection is available.');
+      if (this.combatStackSelections.has(seat)) return client.send('error', 'Your Combat Stack selection is already locked.');
+      const cardInstanceIds = (raw as { cardInstanceIds?: unknown }).cardInstanceIds;
+      if (!Array.isArray(cardInstanceIds) || cardInstanceIds.some((id) => typeof id !== 'string')) return client.send('error', 'Invalid Combat Stack selection.');
+      if (new Set(cardInstanceIds).size > 1) return client.send('error', 'You may apply only one Combat Card per combat.');
+      this.combatStackSelections.set(seat, [...new Set(cardInstanceIds)]);
+      const combatants = [this.game.pendingAttack.attackerId, this.game.pendingAttack.defenderId];
+      this.broadcast('combat-stack-status', { submittedPlayerIds: combatants.filter((id) => this.combatStackSelections.has(id)) });
+      if (combatants.every((id) => this.combatStackSelections.has(id))) {
+        const selections = Object.fromEntries(combatants.map((id) => [id, this.combatStackSelections.get(id)!]));
+        this.combatStackSelections.clear();
+        const result = resolveMultiplayerCombatStack(this.game, selections);
+        if (!result.ok) return this.broadcast('error', result.error);
+        this.game = result.state;
+        this.broadcastState();
+      }
+      return;
+    }
     const parsed = GameCommandSchema.safeParse(raw);
     if (!this.game) return client.send('error', 'The battle has not started yet.');
     if (!seat || !parsed.success || parsed.data.playerId !== seat) {
@@ -59,6 +81,13 @@ class DuelRoom extends Room {
       return;
     }
     this.game = result.state;
+    if (this.game.phase === 'choosing-combat-stack') {
+      this.combatStackSelections.clear();
+      const automaticSelections = (this.game as GameState & { combatStackSelections?: Partial<Record<PlayerId, string[]>> }).combatStackSelections ?? {};
+      for (const [playerId, selection] of Object.entries(automaticSelections) as [PlayerId, string[]][]) this.combatStackSelections.set(playerId, selection);
+      const combatants = [this.game.pendingAttack!.attackerId, this.game.pendingAttack!.defenderId];
+      this.broadcast('combat-stack-status', { submittedPlayerIds: combatants.filter((id) => this.combatStackSelections.has(id)) });
+    }
     this.broadcastState();
   }
 
@@ -79,14 +108,14 @@ class DuelRoom extends Room {
     if (requiredSeats.length === requiredPlayerCount && requiredSeats.every((id) => Boolean(this.characters[id]))) {
       this.game = this.format === 'ffa'
         ? createLordaeronMultiplayerState(this.characters as Record<PlayerId, CharacterId>)
-        : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>);
+        : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>, this.arena === 'trench' ? 'trench' : 'nagrand');
       this.broadcastState();
     }
   }
 
   private broadcastLobby() {
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
-    const arena = arenaForPlayerCount(requiredPlayerCount);
+    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
     this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
   }
 
@@ -94,7 +123,7 @@ class DuelRoom extends Room {
     const seat = this.seats.get(client.sessionId);
     if (seat) client.send('seat', seat);
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
-    const arena = arenaForPlayerCount(requiredPlayerCount);
+    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
     client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
     if (this.game) client.send('state', this.game);
   }

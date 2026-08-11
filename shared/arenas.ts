@@ -16,7 +16,9 @@ export type ArenaDefinition = {
   }>;
   highground: readonly string[];
   highgroundProtected: readonly string[];
+  adjacentHighgroundOnlyTargets?: readonly string[];
   slideSquares?: readonly string[];
+  trenchSquares?: readonly string[];
   drawSquares: readonly string[];
   bases: Readonly<Record<ArenaPlayerSlot, readonly string[]>>;
   startingSquares: Readonly<Partial<Record<ArenaPlayerSlot, string>>>;
@@ -86,8 +88,10 @@ export const THE_TRENCH_ARENA: ArenaDefinition = {
   pillars: ['A3', 'A6', 'H3', 'H6'],
   boxes: [],
   highground: ['C3', 'D3', 'E3', 'F3', 'C6', 'D6', 'E6', 'F6'],
-  highgroundProtected: ['C2', 'D2', 'E2', 'F2', 'C7', 'D7', 'E7', 'F7'],
+  highgroundProtected: ['C2', 'D2', 'E2', 'F2', 'B3', 'G3', 'B6', 'G6', 'C7', 'D7', 'E7', 'F7'],
+  adjacentHighgroundOnlyTargets: ['B3', 'G3', 'B6', 'G6'],
   slideSquares: ['C2', 'F2', 'C4', 'F4', 'C5', 'F5', 'C7', 'F7'],
+  trenchSquares: ['C4', 'D4', 'E4', 'F4', 'C5', 'D5', 'E5', 'F5'],
   drawSquares: ['A4', 'A5', 'H4', 'H5'],
   bases: { P1: ['D1', 'E1'], P2: ['D8', 'E8'], P3: [] },
   startingSquares: { P1: 'D1', P2: 'E8' },
