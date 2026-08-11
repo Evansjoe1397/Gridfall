@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gridfall Blender"
+  short_description: "Safe Blender workflows for Gridfall scenes"
+  default_prompt: "Use $gridfall-blender to inspect or modify the current Gridfall Blender scene safely."

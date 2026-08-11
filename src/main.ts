@@ -1,6 +1,8 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
 import { LORDAERON_ARENA, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaDefinition, type ArenaId } from '../shared/arenas.ts';
@@ -125,6 +127,11 @@ let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
+type WizardPowerVisualIntent =
+  | { kind: 'cast'; playerId: PlayerId; target: THREE.Vector3; hold: boolean; targetKind?: 'player' | 'object'; targetId?: string }
+  | { kind: 'resolve'; playerId: PlayerId }
+  | { kind: 'cancel'; playerId: PlayerId };
+let pendingOnlineWizardPowerVisualIntent: WizardPowerVisualIntent | null = null;
 selection.subscribe(() => renderUI());
 
 const lobby = byId('lobby');
@@ -406,13 +413,16 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
         fittedArenaKey = '';
       }
       selection.send({ type: 'CLEAR' });
+      const powerVisualIntent = pendingOnlineWizardPowerVisualIntent;
+      pendingOnlineWizardPowerVisualIntent = null;
       lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
+      if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
       requestAnimationFrame(() => {
         resize();
         if (shouldFitCamera) fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
       });
     });
-    room.onMessage('error', (message: string) => notify(message));
+    room.onMessage('error', (message: string) => { pendingOnlineWizardPowerVisualIntent = null; notify(message); });
     room.onMessage('notice', (message: string) => notify(message));
     room.send('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
@@ -558,9 +568,36 @@ function hudSeatPlayerIds(): PlayerId[] {
   return [perspectivePlayerId, ...playerIds.filter((id) => id !== perspectivePlayerId)];
 }
 
+function wizardPowerVisualIntentForCommand(state: GameState, command: GameCommand): WizardPowerVisualIntent | null {
+  const caster = state.players[command.playerId];
+  if (!caster || caster.character !== 'magician') return null;
+  const playerTarget = (targetId: PlayerId) => state.players[targetId]?.position;
+  const objectTarget = (targetId: string) => state.objects.find((object) => object.id === targetId)?.position;
+  switch (command.type) {
+    case 'magic-hand-target': {
+      const targetCell = command.targetKind === 'player' ? playerTarget(command.targetId as PlayerId) : objectTarget(command.targetId);
+      return targetCell ? { kind: 'cast', playerId: command.playerId, target: worldPosition(targetCell), hold: true, targetKind: command.targetKind, targetId: command.targetId } : null;
+    }
+    case 'magic-hand-direction':
+      return { kind: 'resolve', playerId: command.playerId };
+    case 'cancel-targeting':
+      return { kind: 'cancel', playerId: command.playerId };
+    case 'arcane-missle-target':
+    case 'chain-lightning-target':
+    case 'fireball-target': {
+      const targetCell = playerTarget(command.targetId);
+      return targetCell ? { kind: 'cast', playerId: command.playerId, target: worldPosition(targetCell), hold: false, targetKind: 'player', targetId: command.targetId } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 function dispatch(command: GameCommand) {
+  const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
+    pendingOnlineWizardPowerVisualIntent = powerVisualIntent;
     room.send('command', command);
     return;
   }
@@ -569,6 +606,7 @@ function dispatch(command: GameCommand) {
   gameState = result.state;
   selection.send({ type: 'CLEAR' });
   renderAll();
+  if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
 }
 
 function renderAll() {
@@ -1781,7 +1819,7 @@ const lastObjectVisualCells = new Map<string, string>();
 const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
-const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; boomerang?: boolean }[] = [];
+const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean }[] = [];
 const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
@@ -1791,6 +1829,8 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[] }>();
+const characterMovementDirection = new THREE.Vector3();
+const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
 const questFlagModels = new Map<string, THREE.Group>();
 let questFlagVisualKey = '';
 let boardVisualKey = '';
@@ -1855,6 +1895,7 @@ renderer.setAnimationLoop((time) => {
   if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
   updateCharacterMovement(time);
+  updateWizardLiftedTargets(time);
   updateObjectMovement(time);
   updateSpellProjectiles(time);
   updateStoicShellHealAnimations(time);
@@ -1863,7 +1904,9 @@ renderer.setAnimationLoop((time) => {
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
     const moving = movementAnimations.has(id);
-    body.position.y = moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    updateWizardAnimation(group, moving, deltaSeconds);
+    const isWizard = group.userData.character === 'magician';
+    body.position.y = isWizard ? 0 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const shellAura = group.getObjectByName('StoicShellAura');
     if (shellAura?.visible) {
       const pulse = 1 + Math.sin(time * 0.0045) * 0.055;
@@ -1968,7 +2011,7 @@ function syncSpellProjectiles() {
       const mesh = new THREE.Mesh(boomerang ? new THREE.TorusGeometry(0.22, 0.055, 10, 24, Math.PI * 1.45) : new THREE.SphereGeometry(0.12, 16, 12), material);
       const light = new THREE.PointLight(boomerang ? 0xffb84f : 0xb14cff, 2.4, 3); mesh.add(light);
       mesh.position.copy(points[0]); scene.add(mesh);
-      spellProjectileAnimations.push({ mesh, points, startedAt: performance.now(), duration: boomerang ? 1050 : Math.max(900, (points.length - 1) * 480), delay: index * 280, boomerang });
+      spellProjectileAnimations.push({ mesh, points, startedAt: performance.now(), duration: boomerang ? 1050 : Math.max(900, (points.length - 1) * 480), delay: index * 280, casterId: event.casterId, boomerang });
     }
   }
 }
@@ -2016,8 +2059,15 @@ function updateCharacterMovement(time: number) {
     if (!group) return;
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-    moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased);
-    group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
+    if (group.userData.character === 'magician' && hasMovementDirection) {
+      const { x: dx, z: dz } = characterMovementDirection;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) {
+        // The imported wizard faces local +Z, so point that axis along the current route segment.
+        group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
+    if (group.userData.character !== 'magician') group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
     body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
@@ -2028,9 +2078,39 @@ function updateCharacterMovement(time: number) {
   });
 }
 
+function wizardTargetGroup(kind: 'player' | 'object', id: string) {
+  return kind === 'player' ? dummyGroups.get(id as PlayerId) : objectGroups.get(id);
+}
+
+function liftWizardPowerTarget(playerId: PlayerId, kind: 'player' | 'object', id: string) {
+  const target = wizardTargetGroup(kind, id);
+  if (!target) return;
+  wizardLiftedTargets.set(playerId, { kind, id, baseY: target.position.y });
+}
+
+function releaseWizardPowerTarget(playerId: PlayerId) {
+  const lifted = wizardLiftedTargets.get(playerId);
+  if (!lifted) return;
+  const target = wizardTargetGroup(lifted.kind, lifted.id);
+  if (target) target.position.y = lifted.baseY;
+  wizardLiftedTargets.delete(playerId);
+}
+
+function updateWizardLiftedTargets(time: number) {
+  wizardLiftedTargets.forEach((lifted, playerId) => {
+    const target = wizardTargetGroup(lifted.kind, lifted.id);
+    if (!target) {
+      wizardLiftedTargets.delete(playerId);
+      return;
+    }
+    target.position.y = lifted.baseY + 0.3 + Math.sin(time * 0.004) * 0.035;
+  });
+}
+
 function updateCharacterFacing(deltaSeconds: number) {
   dummyGroups.forEach((group, playerId) => {
     if (group.userData.facingSide !== 'negative-z') return;
+    if (movementAnimations.has(playerId)) return;
     let nearestEnemy: THREE.Group | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
     dummyGroups.forEach((candidate, candidateId) => {
@@ -2094,18 +2174,20 @@ function updateObjectMovement(time: number) {
   });
 }
 
-function moveAlongAnimationRoute(position: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, path: THREE.Vector3[] | undefined, progress: number) {
+function moveAlongAnimationRoute(position: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, path: THREE.Vector3[] | undefined, progress: number, direction?: THREE.Vector3) {
   const validPoint = (point: THREE.Vector3 | undefined): point is THREE.Vector3 => Boolean(point) && Number.isFinite(point!.x) && Number.isFinite(point!.y) && Number.isFinite(point!.z);
   const route = [from, ...(path ?? []).filter(validPoint)];
   if (!validPoint(route[route.length - 1]) || !route[route.length - 1].equals(to)) route.push(to);
   const safeProgress = Number.isFinite(progress) ? THREE.MathUtils.clamp(progress, 0, 1) : 1;
   if (route.length < 2 || !validPoint(route[0]) || !validPoint(route[1])) {
     position.copy(validPoint(to) ? to : from);
-    return;
+    return false;
   }
   const scaled = safeProgress * (route.length - 1);
   const segment = Math.min(route.length - 2, Math.max(0, Math.floor(scaled)));
   position.lerpVectors(route[segment], route[segment + 1], THREE.MathUtils.clamp(scaled - segment, 0, 1));
+  direction?.subVectors(route[segment + 1], route[segment]);
+  return true;
 }
 
 function updateCameraMovement(deltaSeconds: number) {
@@ -2375,8 +2457,8 @@ function createDaOrkk(playerColor = 0xff5d68) {
 }
 
 function createLongHatLogan(playerColor = 0x169bd3) {
-  const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
-  root.userData.facingSide = 'negative-z';
+  const root = new THREE.Group(); const body = new THREE.Group(); body.name = 'LongHatLoganBody'; root.add(body);
+  root.userData.facingSide = 'positive-z';
   const robe = new THREE.MeshStandardMaterial({ color: 0x182354, roughness: 0.72, metalness: 0.16 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x8f79c7, roughness: 0.58 });
   const skin = new THREE.MeshStandardMaterial({ color: 0xc79a78, roughness: 0.74 });
@@ -2392,15 +2474,211 @@ function createLongHatLogan(playerColor = 0x169bd3) {
   const arm = add(new THREE.CapsuleGeometry(0.08, 0.48, 6, 10), robe, [0.38, 1.15, 0]); arm.rotation.z = 0.48;
   const wand = add(new THREE.CylinderGeometry(0.035, 0.045, 0.86, 12), wood, [0.62, 1.43, -0.03]); wand.rotation.z = -0.42;
   add(new THREE.OctahedronGeometry(0.11, 1), sapphire, [0.8, 1.82, -0.03]);
-  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-  ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  root.userData.player = true;
   const manaAura = new THREE.Group(); manaAura.name = 'ManaOrbAura'; root.add(manaAura);
   for (let index = 0; index < 3; index++) {
     const orb = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), new THREE.MeshStandardMaterial({ color: 0x69d4ff, emissive: 0x168fe8, emissiveIntensity: 4.2, roughness: 0.08, transparent: true, opacity: 0.96 }));
     orb.name = `ManaOrb${index + 1}`; orb.visible = false; orb.userData.orbIndex = index; randomizeManaOrbit(orb); manaAura.add(orb);
   }
+  attachLongHatLoganModel(root, body);
   return root;
+}
+
+type WizardAnimationName = 'Idle' | 'Walk' | 'Power';
+const WIZARD_ORB_ORBIT_SCALE = 0.72;
+type WizardPowerRuntime = {
+  phase: 'playing' | 'holding' | 'resolving';
+  holdAtEnd: boolean;
+  liftStarted?: boolean;
+  targetKind?: 'player' | 'object';
+  targetId?: string;
+  resolvedAt?: number;
+};
+type WizardAnimationState = {
+  mixer: THREE.AnimationMixer;
+  actions: Record<WizardAnimationName, THREE.AnimationAction>;
+  current: WizardAnimationName;
+  power?: WizardPowerRuntime;
+};
+
+let longHatLoganAsset: ReturnType<GLTFLoader['loadAsync']> | null = null;
+
+function loadLongHatLoganAsset() {
+  return longHatLoganAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/long-hat-logan.glb?v=20260811-4`);
+}
+
+function disposeTemporaryCharacterBody(body: THREE.Group) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  body.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    geometries.add(child.geometry);
+    const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    childMaterials.forEach((material) => materials.add(material));
+  });
+  body.clear();
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => material.dispose());
+}
+
+async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
+  try {
+    const asset = await loadLongHatLoganAsset();
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = 'LongHatLoganImportedModel';
+    model.scale.setScalar(1.1);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.material = Array.isArray(child.material)
+        ? child.material.map((material) => material.clone())
+        : child.material.clone();
+    });
+    disposeTemporaryCharacterBody(body);
+    body.add(model);
+    root.getObjectByName('ManaOrbAura')?.removeFromParent();
+
+    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip])) as Partial<Record<WizardAnimationName, THREE.AnimationClip>>;
+    if (!clips.Idle || !clips.Walk || !clips.Power) throw new Error('Wizard GLB must contain Idle, Walk, and Power clips.');
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {
+      Idle: mixer.clipAction(clips.Idle),
+      Walk: mixer.clipAction(clips.Walk),
+      Power: mixer.clipAction(clips.Power),
+    };
+    actions.Walk.timeScale = 1.8;
+    actions.Power.setLoop(THREE.LoopOnce, 1);
+    actions.Power.clampWhenFinished = true;
+    actions.Idle.play();
+    root.userData.wizardAnimation = { mixer, actions, current: 'Idle' } satisfies WizardAnimationState;
+    model.getObjectByName('Wizard_Native_LeftHand')!.visible = true;
+    model.getObjectByName('Wizard_Power_LeftHand_Controller')!.visible = false;
+
+    for (let index = 1; index <= 3; index++) {
+      const orbRoot = model.getObjectByName(`Wizard_Orb_0${index}_Root`)!;
+      orbRoot.position.x *= WIZARD_ORB_ORBIT_SCALE;
+      orbRoot.position.z *= WIZARD_ORB_ORBIT_SCALE;
+      orbRoot.visible = false;
+    }
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    if (playerId && gameState.players[playerId]) syncManaOrbVisual(root, gameState.players[playerId]);
+    root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
+    const pendingPowerIntent = root.userData.pendingWizardPowerVisualIntent as WizardPowerVisualIntent | undefined;
+    if (pendingPowerIntent) {
+      delete root.userData.pendingWizardPowerVisualIntent;
+      applyWizardPowerVisualIntent(pendingPowerIntent);
+    }
+  } catch (error) {
+    console.error('Failed to load Long Hat Logan model; keeping procedural fallback.', error);
+  }
+}
+
+function setWizardPowerHand(group: THREE.Group, powerVisible: boolean) {
+  const nativeHand = group.getObjectByName('Wizard_Native_LeftHand');
+  const powerHand = group.getObjectByName('Wizard_Power_LeftHand_Controller');
+  if (nativeHand) nativeHand.visible = !powerVisible;
+  if (powerHand) powerHand.visible = powerVisible;
+}
+
+function finishWizardPowerAnimation(group: THREE.Group, state: WizardAnimationState) {
+  const playerId = group.userData.playerId as PlayerId | undefined;
+  if (playerId) releaseWizardPowerTarget(playerId);
+  state.actions.Power.paused = false;
+  state.actions.Power.fadeOut(0.14);
+  state.actions.Idle.reset().fadeIn(0.14).play();
+  setWizardPowerHand(group, false);
+  state.current = 'Idle';
+  state.power = undefined;
+}
+
+function wizardPowerEffectFinished(power: WizardPowerRuntime, playerId: PlayerId) {
+  if (!power.resolvedAt || performance.now() - power.resolvedAt < 120) return false;
+  if (spellProjectileAnimations.some((animation) => animation.casterId === playerId)) return false;
+  if (movementAnimations.has(playerId)) return false;
+  if (power.targetKind === 'object' && power.targetId && objectMovementAnimations.has(power.targetId)) return false;
+  if (power.targetKind === 'player' && power.targetId && movementAnimations.has(power.targetId as PlayerId)) return false;
+  return true;
+}
+
+function applyWizardPowerVisualIntent(intent: WizardPowerVisualIntent) {
+  const group = dummyGroups.get(intent.playerId);
+  if (!group) return;
+  const state = group.userData.wizardAnimation as WizardAnimationState | undefined;
+  if (intent.kind === 'cancel') {
+    delete group.userData.pendingWizardPowerVisualIntent;
+    releaseWizardPowerTarget(intent.playerId);
+    setWizardPowerHand(group, false);
+    if (state?.power) finishWizardPowerAnimation(group, state);
+    return;
+  }
+  if (intent.kind === 'resolve') {
+    releaseWizardPowerTarget(intent.playerId);
+    if (state?.power) {
+      state.power.phase = 'resolving';
+      state.power.resolvedAt = performance.now();
+    }
+    return;
+  }
+  const dx = intent.target.x - group.position.x;
+  const dz = intent.target.z - group.position.z;
+  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = Math.atan2(dx, dz);
+  if (!state) {
+    group.userData.pendingWizardPowerVisualIntent = intent;
+    return;
+  }
+  if (state.power) finishWizardPowerAnimation(group, state);
+  state.actions[state.current].fadeOut(0.14);
+  state.actions.Power.paused = false;
+  state.actions.Power.reset().fadeIn(0.14).play();
+  setWizardPowerHand(group, true);
+  state.current = 'Power';
+  state.power = {
+    phase: intent.hold ? 'playing' : 'resolving',
+    holdAtEnd: intent.hold,
+    targetKind: intent.targetKind,
+    targetId: intent.targetId,
+    resolvedAt: intent.hold ? undefined : performance.now(),
+  };
+}
+
+function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds: number) {
+  const state = group.userData.wizardAnimation as WizardAnimationState | undefined;
+  if (!state) return;
+  if (state.power) {
+    if (state.power.targetKind && state.power.targetId) {
+      const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
+      if (target) {
+        const dx = target.position.x - group.position.x;
+        const dz = target.position.z - group.position.z;
+        if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
+    state.mixer.update(deltaSeconds);
+    const powerDuration = state.actions.Power.getClip().duration;
+    if (state.power.holdAtEnd && !state.power.liftStarted && state.actions.Power.time >= powerDuration * 0.45) {
+      const playerId = group.userData.playerId as PlayerId | undefined;
+      if (playerId && state.power.targetKind && state.power.targetId) {
+        liftWizardPowerTarget(playerId, state.power.targetKind, state.power.targetId);
+        state.power.liftStarted = true;
+      }
+    }
+    const reachedFinalFrame = state.actions.Power.time >= powerDuration - 1 / 60;
+    const playerId = group.userData.playerId as PlayerId | undefined;
+    if (reachedFinalFrame) {
+      if (state.power.phase === 'playing' && state.power.holdAtEnd) state.power.phase = 'holding';
+      else if (state.power.phase === 'playing' || (state.power.phase === 'resolving' && playerId && wizardPowerEffectFinished(state.power, playerId))) finishWizardPowerAnimation(group, state);
+    }
+    return;
+  }
+  const next: WizardAnimationName = moving ? 'Walk' : 'Idle';
+  if (state.current !== next) {
+    state.actions[state.current].fadeOut(0.14);
+    state.actions[next].reset().fadeIn(0.14).play();
+    state.current = next;
+  }
+  state.mixer.update(deltaSeconds);
 }
 
 function createJohnChrist(playerColor = 0x169bd3) {
@@ -2449,10 +2727,16 @@ function randomizeManaOrbit(orb: THREE.Object3D) {
 }
 
 function syncManaOrbVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
+  const importedOrbs = [1, 2, 3].map((index) => group.getObjectByName(`Wizard_Orb_0${index}_Root`));
+  if (importedOrbs.every((orb): orb is THREE.Object3D => Boolean(orb))) {
+    const visibleCount = player.character === 'magician' ? player.manaPoints : 0;
+    importedOrbs.forEach((orb, index) => { orb.visible = index < visibleCount; });
+    return;
+  }
   const aura = group.getObjectByName('ManaOrbAura') as THREE.Group | undefined;
   if (!aura) return;
   const consumeOrbs = player.character === 'magician' && player.manaMode === 'consume' && player.id === gameState.activePlayerId;
-  const visibleCount = consumeOrbs ? 3 : player.character === 'magician' ? player.manaPoints : 0;
+  const visibleCount = player.character === 'magician' ? player.manaPoints : 0;
   const previousCount = Number(aura.userData.visibleCount ?? 0);
   const countChanged = previousCount !== visibleCount;
   aura.children.forEach((child, index) => {
@@ -2703,6 +2987,24 @@ function worldPosition(cell: Cell) {
   return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? 0.54 : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
+function faceWizardTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
+  let nearestPosition: THREE.Vector3 | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  (Object.keys(gameState.players) as PlayerId[]).forEach((candidateId) => {
+    if (candidateId === playerId) return;
+    const candidatePosition = worldPosition(gameState.players[candidateId].position);
+    const distance = group.position.distanceToSquared(candidatePosition);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestPosition = candidatePosition;
+    }
+  });
+  if (!nearestPosition) return;
+  const dx = nearestPosition.x - group.position.x;
+  const dz = nearestPosition.z - group.position.z;
+  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = Math.atan2(dx, dz);
+}
+
 function syncBoard() {
   if (boardVisualKey !== boardGeometryKey()) rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
   (Object.keys(gameState.players) as PlayerId[]).forEach((id) => {
@@ -2723,6 +3025,7 @@ function syncBoard() {
     const previousKey = lastVisualCells.get(id);
     if (!previousKey) {
       group.position.copy(target);
+      if (character === 'magician') faceWizardTowardNearestOpponent(group, id);
     } else if (previousKey !== targetKey) {
       const from = group.position.clone();
       from.y = target.y;

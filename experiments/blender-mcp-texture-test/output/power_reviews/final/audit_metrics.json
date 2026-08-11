@@ -1,0 +1,284 @@
+{
+  "blend": "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\gridfall_wizard_power_working.blend",
+  "actions": {
+    "rig": "Wizard_Power",
+    "hand": "Wizard_Power_LeftHand_Action",
+    "orbs": "Wizard_Power_Orbs",
+    "loop": false,
+    "frame_range": [
+      1,
+      52
+    ]
+  },
+  "metrics": {
+    "1": {
+      "shoulder": [
+        0.1717827022075653,
+        -0.021697428077459335,
+        1.3120580911636353
+      ],
+      "elbow": [
+        0.20615677535533905,
+        -0.015530467964708805,
+        1.0724401473999023
+      ],
+      "wrist_bone": [
+        0.2362195998430252,
+        -0.12962085008621216,
+        0.8650387525558472
+      ],
+      "wrist_pivot": [
+        0.3176635205745697,
+        -0.13937869668006897,
+        0.9467519521713257
+      ],
+      "finger_axis": [
+        -0.013116654939949512,
+        -0.5645580887794495,
+        -0.8252890706062317
+      ],
+      "palmar_normal": [
+        -0.9983050227165222,
+        0.05419646203517914,
+        -0.02120787464082241
+      ],
+      "wrist_boundary_distance": 0.001094218197891056,
+      "max_face_relative_drift": 0.0
+    },
+    "15": {
+      "shoulder": [
+        0.17109614610671997,
+        -0.018790418282151222,
+        1.3082196712493896
+      ],
+      "elbow": [
+        0.2766358256340027,
+        -0.16130216419696808,
+        1.1433312892913818
+      ],
+      "wrist_bone": [
+        0.2578814923763275,
+        -0.3854440450668335,
+        1.0636794567108154
+      ],
+      "wrist_pivot": [
+        0.33662158250808716,
+        -0.3612233102321625,
+        1.1450347900390625
+      ],
+      "finger_axis": [
+        -0.23506762087345123,
+        -0.9340915679931641,
+        -0.2687305510044098
+      ],
+      "palmar_normal": [
+        -0.9308456182479858,
+        0.29592397809028625,
+        -0.2143724262714386
+      ],
+      "wrist_boundary_distance": 0.0010941893146382345,
+      "max_face_relative_drift": 1.6547167535508283e-07
+    },
+    "24": {
+      "shoulder": [
+        0.17044313251972198,
+        -0.01649855263531208,
+        1.305068850517273
+      ],
+      "elbow": [
+        0.2959810793399811,
+        -0.22306939959526062,
+        1.2907474040985107
+      ],
+      "wrist_bone": [
+        0.3005034625530243,
+        -0.46155107021331787,
+        1.2842799425125122
+      ],
+      "wrist_pivot": [
+        0.3833077549934387,
+        -0.4054330587387085,
+        1.3425862789154053
+      ],
+      "finger_axis": [
+        -0.1288309097290039,
+        -0.9901137351989746,
+        0.05547376349568367
+      ],
+      "palmar_normal": [
+        -0.9807434678077698,
+        0.11893238127231598,
+        -0.1549108326435089
+      ],
+      "wrist_boundary_distance": 0.001094198237058929,
+      "max_face_relative_drift": 2.384203980840272e-07
+    },
+    "31": {
+      "shoulder": [
+        0.17044313251972198,
+        -0.01649855263531208,
+        1.305068850517273
+      ],
+      "elbow": [
+        0.2959810793399811,
+        -0.22306939959526062,
+        1.2907474040985107
+      ],
+      "wrist_bone": [
+        0.3005034625530243,
+        -0.46155107021331787,
+        1.2842799425125122
+      ],
+      "wrist_pivot": [
+        0.3833077549934387,
+        -0.4054329991340637,
+        1.3425862789154053
+      ],
+      "finger_axis": [
+        -1.4590098089684034e-06,
+        0.0,
+        1.0
+      ],
+      "palmar_normal": [
+        -3.9866733914095676e-07,
+        -1.0,
+        -5.816595577586015e-13
+      ],
+      "wrist_boundary_distance": 0.0010941551243395125,
+      "max_face_relative_drift": 2.384203980840272e-07
+    },
+    "38": {
+      "shoulder": [
+        0.17044313251972198,
+        -0.01649855263531208,
+        1.305068850517273
+      ],
+      "elbow": [
+        0.2959810793399811,
+        -0.22306939959526062,
+        1.2907474040985107
+      ],
+      "wrist_bone": [
+        0.3005034625530243,
+        -0.46155107021331787,
+        1.2842799425125122
+      ],
+      "wrist_pivot": [
+        0.3833077549934387,
+        -0.4054329991340637,
+        1.3425862789154053
+      ],
+      "finger_axis": [
+        -1.4590098089684034e-06,
+        0.0,
+        1.0
+      ],
+      "palmar_normal": [
+        -3.9866733914095676e-07,
+        -1.0,
+        -5.816595577586015e-13
+      ],
+      "wrist_boundary_distance": 0.0010941551243395125,
+      "max_face_relative_drift": 2.384203980840272e-07
+    },
+    "45": {
+      "shoulder": [
+        0.17109614610671997,
+        -0.018790418282151222,
+        1.3082196712493896
+      ],
+      "elbow": [
+        0.2766358256340027,
+        -0.16130216419696808,
+        1.1433312892913818
+      ],
+      "wrist_bone": [
+        0.2578814923763275,
+        -0.3854440450668335,
+        1.0636794567108154
+      ],
+      "wrist_pivot": [
+        0.33662158250808716,
+        -0.3612232804298401,
+        1.1450347900390625
+      ],
+      "finger_axis": [
+        0.19161617755889893,
+        -0.8600708246231079,
+        0.47282272577285767
+      ],
+      "palmar_normal": [
+        -0.6872130632400513,
+        -0.4615214169025421,
+        -0.5610134601593018
+      ],
+      "wrist_boundary_distance": 0.0010941797622425684,
+      "max_face_relative_drift": 1.6547167535508283e-07
+    },
+    "52": {
+      "shoulder": [
+        0.1717827022075653,
+        -0.021697428077459335,
+        1.3120580911636353
+      ],
+      "elbow": [
+        0.20615677535533905,
+        -0.015530467964708805,
+        1.0724401473999023
+      ],
+      "wrist_bone": [
+        0.2362195998430252,
+        -0.12962085008621216,
+        0.8650387525558472
+      ],
+      "wrist_pivot": [
+        0.3176635205745697,
+        -0.13937869668006897,
+        0.9467519521713257
+      ],
+      "finger_axis": [
+        -0.013116654939949512,
+        -0.5645580887794495,
+        -0.8252890706062317
+      ],
+      "palmar_normal": [
+        -0.9983050227165222,
+        0.05419646203517914,
+        -0.02120787464082241
+      ],
+      "wrist_boundary_distance": 0.001094218197891056,
+      "max_face_relative_drift": 0.0
+    }
+  },
+  "compatibility": {
+    "idle": {
+      "frame": 1,
+      "render": "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\compat_idle_f01.png"
+    },
+    "walk": {
+      "frame": 17,
+      "render": "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\compat_walk_f17.png"
+    },
+    "attack": {
+      "frame": 26,
+      "render": "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\compat_attack_f26.png"
+    }
+  },
+  "renders": [
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f01.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f15.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f24.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f31.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f38.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f45.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\front_f52.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\side_f24.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\side_f31.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\side_f38.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\side_f45.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\hand_close_f24.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\hand_close_f31.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\hand_close_f38.png",
+    "C:\\Users\\artur\\OneDrive\\Documents\\Gridfall\\experiments\\blender-mcp-texture-test\\output\\power_reviews\\final\\tactical_f38.png"
+  ]
+}

@@ -5,7 +5,11 @@ dist/
 .env
 .env.*
 !.env.example
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/gridfall-blender/
+!.agents/skills/gridfall-blender/**
 .vscode/
 .idea/
 .DS_Store
