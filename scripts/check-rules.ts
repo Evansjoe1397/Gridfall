@@ -1670,7 +1670,10 @@ shieldBashState.players.P2.position = { x: 3, y: 2 };
 shieldBashState.players.P1.shieldEquipped = false;
 shieldBashState.players.P1.rageStacks = 0;
 shieldBashState.players.P2.hand = [];
-shieldBashState.objects = [{ id: 'shield-bash-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 1, y: 0 } }];
+shieldBashState.objects = [
+  { id: 'shield-bash-far-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 8, y: 7 } },
+  { id: 'shield-bash-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 1, y: 0 } },
+];
 const shieldBashCard = ensureCardInHand(shieldBashState, 'P1', 'shield-bash');
 const shieldBashAttack = applyCommand(shieldBashState, { type: 'attack', playerId: 'P1', cardInstanceId: shieldBashCard.instanceId, targetId: 'P2' });
 assert.equal(shieldBashAttack.ok, true);
@@ -1683,6 +1686,7 @@ if (shieldBashAttack.ok) {
     assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 3, 'Shield Bash deals its combat Damage and 3 more when the recalled Shield passes through the enemy.');
     assert.equal(shieldBashResult.state.players.P1.shieldEquipped, true, 'Shield Bash equips the recalled Shield after combat.');
     assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-shield'), false);
+    assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-far-shield'), true, 'Shield Bash recalls the nearest Shield and leaves farther Shields on the Board.');
     const shieldBashAnimation = shieldBashResult.state.objectPushAnimations.find((event) => event.objectId === 'shield-bash-shield');
     assert.equal(shieldBashAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Shield Bash animates through the occupied enemy Square.');
     assert.equal(shieldBashAnimation?.equipPlayerId, 'P1');
@@ -2851,7 +2855,10 @@ arcaneShieldUnequipped.players.P2.position = { x: 4, y: 3 };
 arcaneShieldUnequipped.players.P2.shieldEquipped = false;
 arcaneShieldUnequipped.players.P1.hand = [{ instanceId: 'arcane-rage-attack', cardId: 'attack-2' }];
 arcaneShieldUnequipped.players.P2.hand = [{ instanceId: 'arcane-rage-defense', cardId: 'arcane-shield' }];
-arcaneShieldUnequipped.objects = [{ id: 'arcane-existing-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } }];
+arcaneShieldUnequipped.objects = [
+  { id: 'arcane-far-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 8, y: 7 } },
+  { id: 'arcane-existing-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } },
+];
 const attackUnequippedArcaneShield = applyCommand(arcaneShieldUnequipped, { type: 'attack', playerId: 'P1', cardInstanceId: 'arcane-rage-attack', targetId: 'P2' });
 assert.equal(attackUnequippedArcaneShield.ok, true);
 if (attackUnequippedArcaneShield.ok) {
@@ -2863,6 +2870,7 @@ if (attackUnequippedArcaneShield.ok) {
     assert.equal(defendUnequippedArcaneShield.state.players.P2.rageStacks, 0, 'Arcane Shield no longer generates Rage when the Shield began unequipped.');
     assert.equal(defendUnequippedArcaneShield.state.players.P2.shieldEquipped, true, 'Arcane Shield recalls and equips an unequipped Shield.');
     assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-existing-shield'), false, 'The recalled Shield is removed from the Board.');
+    assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-far-shield'), true, 'Arcane Shield recalls the nearest Shield and preserves farther Shields.');
     const arcaneAnimation = defendUnequippedArcaneShield.state.objectPushAnimations.find((event) => event.objectId === 'arcane-existing-shield');
     assert.equal(arcaneAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Arcane Shield animation passes through the enemy-occupied Square.');
     assert.equal(arcaneAnimation?.equipPlayerId, 'P2');
@@ -2914,7 +2922,10 @@ manaBaryerRecall.players.P2.position = { x: 4, y: 3 };
 manaBaryerRecall.players.P2.shieldEquipped = false;
 manaBaryerRecall.players.P1.hand = [{ instanceId: 'mana-recall-attack', cardId: 'attack-3' }];
 manaBaryerRecall.players.P2.hand = [{ instanceId: 'mana-recall-defense', cardId: 'mana-baryer' }];
-manaBaryerRecall.objects = [{ id: 'mana-recall-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } }];
+manaBaryerRecall.objects = [
+  { id: 'mana-far-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 8, y: 7 } },
+  { id: 'mana-recall-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } },
+];
 const attackManaRecall = applyCommand(manaBaryerRecall, { type: 'attack', playerId: 'P1', cardInstanceId: 'mana-recall-attack', targetId: 'P2' });
 assert.equal(attackManaRecall.ok, true);
 if (attackManaRecall.ok) {
@@ -2925,6 +2936,7 @@ if (attackManaRecall.ok) {
     assert.equal(defendManaRecall.state.players.P1.hp, 18, 'Mana Baryer deals 2 damage when its recall path crosses the attacker.');
     assert.equal(defendManaRecall.state.players.P2.shieldEquipped, true);
     assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-recall-shield'), false);
+    assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-far-shield'), true, 'Mana Baryer recalls the nearest Shield and preserves farther Shields.');
     const manaAnimation = defendManaRecall.state.objectPushAnimations.find((event) => event.objectId === 'mana-recall-shield');
     assert.equal(manaAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Mana Baryer animation retains the walkable path through the enemy Square.');
     assert.equal(manaAnimation?.equipPlayerId, 'P2');
@@ -3039,8 +3051,8 @@ if (beginCreate.ok) {
   const createdShield = applyCommand(beginCreate.state, { type: 'arm-da-wiz-choice', playerId: 'P2', choice: 'create' });
   assert.equal(createdShield.ok, true);
   if (createdShield.ok) {
-    assert.equal(createdShield.state.players.P2.shieldEquipped, true, 'Arm da Wiz creates and equips a replacement when the old Shield is unreachable.');
-    assert.equal(createdShield.state.objects.some((object) => object.kind === 'orkk-shield' && object.ownerId === 'P2'), false, 'Creating a Shield removes the old Shield copy from the Board.');
+    assert.equal(createdShield.state.players.P2.shieldEquipped, true, 'Arm da Wiz creates and equips a new Shield when the old Shield is unreachable.');
+    assert.equal(createdShield.state.objects.some((object) => object.id === 'out-of-range-shield'), true, 'Creating a Shield keeps every old Shield on the Board.');
   }
 }
 
@@ -3049,7 +3061,10 @@ armRecall.activePlayerId = 'P2';
 armRecall.players.P2.shieldEquipped = false;
 armRecall.players.P2.position = { x: 8, y: 7 };
 armRecall.players.P1.position = { x: 2, y: 1 };
-armRecall.objects = [{ id: 'recall-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } }];
+armRecall.objects = [
+  { id: 'recall-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 1, y: 0 } },
+  { id: 'unselected-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 7, y: 0 } },
+];
 const armRecallCard = ensureCardInHand(armRecall, 'P2', 'arm-da-wiz');
 const beginRecall = applyCommand(armRecall, { type: 'play-perk', playerId: 'P2', cardInstanceId: armRecallCard.instanceId, destination: 'direct' });
 assert.equal(beginRecall.ok, true);
@@ -3063,6 +3078,7 @@ if (beginRecall.ok) {
       assert.equal(recalled.state.players.P1.hp, 20, 'Level 1 Shield recall passes through enemies without damage.');
       assert.equal(recalled.state.players.P2.shieldEquipped, true);
       assert.equal(recalled.state.objects.some((object) => object.id === 'recall-shield'), false);
+      assert.equal(recalled.state.objects.some((object) => object.id === 'unselected-shield'), true, 'Arm da Wiz removes only the selected Shield and keeps all unselected Shields on the Board.');
       const recallAnimation = recalled.state.objectPushAnimations.find((event) => event.objectId === 'recall-shield');
       assert.equal(recallAnimation?.removeOnComplete, true);
       assert.equal(recallAnimation?.path?.length, 7, 'Level 1 recalls the Shield globally and preserves the full route for animation.');
@@ -3114,6 +3130,30 @@ if (beginEnemyExtendedRecall.ok) {
       const extendedAnimation = recalledWithExtension.state.objectPushAnimations.find((event) => event.objectId === 'enemy-extended-shield');
       assert.equal(extendedAnimation?.path?.length, 4, 'Shield Recall may extend the minimum three-step route by exactly 1 Square to cross an enemy.');
       assert.deepEqual(extendedAnimation?.path?.[0], { x: 1, y: 2 }, 'The extended Recall route passes through the otherwise avoidable enemy Square.');
+    }
+  }
+}
+
+const turningRecallPull = createInitialState();
+turningRecallPull.activePlayerId = 'P2';
+turningRecallPull.players.P2.shieldEquipped = false;
+turningRecallPull.players.P2.position = { x: 2, y: 3 };
+turningRecallPull.players.P1.position = { x: 4, y: 3 };
+turningRecallPull.objects = [
+  { id: 'turning-recall-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P2', hp: 999, maxHp: 999, position: { x: 5, y: 3 } },
+  { id: 'direct-pull-blocker', name: 'Wall', hp: 999, maxHp: 999, position: { x: 3, y: 3 } },
+];
+const turningRecallCard = ensureCardInHand(turningRecallPull, 'P2', 'arm-da-wiz');
+const beginTurningRecall = applyCommand(turningRecallPull, { type: 'play-perk', playerId: 'P2', cardInstanceId: turningRecallCard.instanceId, destination: 'direct' });
+assert.equal(beginTurningRecall.ok, true);
+if (beginTurningRecall.ok) {
+  const chooseTurningRecall = applyCommand(beginTurningRecall.state, { type: 'arm-da-wiz-choice', playerId: 'P2', choice: 'recall' });
+  assert.equal(chooseTurningRecall.ok, true);
+  if (chooseTurningRecall.ok) {
+    const resolvedTurningRecall = applyCommand(chooseTurningRecall.state, { type: 'arm-da-wiz-target', playerId: 'P2', objectId: 'turning-recall-shield' });
+    assert.equal(resolvedTurningRecall.ok, true);
+    if (resolvedTurningRecall.ok) {
+      assert.deepEqual(resolvedTurningRecall.state.players.P1.position, { x: 4, y: 3 }, 'A crossed enemy does not follow a turning Shield route diagonally when its direct Square toward Da Orkk is blocked.');
     }
   }
 }

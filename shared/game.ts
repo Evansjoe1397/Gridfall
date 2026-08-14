@@ -155,7 +155,7 @@ export const CARDS: readonly Card[] = [
   { id: 'swiftform', name: 'Swiftform', kind: 'perk', value: 1, levelEffects: ['Gain +1 MOV until your next turn. Can move through enemies', 'Gain +2 MOV instead', 'Apply 1 -MOV stack when moving through each enemy. Gain Lightsaber status at the end of the turn'] },
   { id: 'mind-tricks', name: 'Mind Tricks', kind: 'perk', value: 1, levelEffects: ['Shinobi may reveal 1 Card; then each enemy discards 1 Card', 'May reveal up to 2 Cards; then each enemy discards up to 2 Cards', "Shuffle a Headache Card into each enemy's Deck"] },
   { id: 'arkane-arow', name: 'ARKANE AROW', kind: 'perk', value: 1, levelEffects: ['Target a Square within Range 3 and throw your Shield at it. Deal 1 Damage if it collides with an enemy', '+1 Damage and throw Range', "Push an enemy 1 Square on collision. Deal 1 additional Damage if the enemy cannot be pushed"] },
-  { id: 'arm-da-wiz', name: 'Arm da Wiz', kind: 'perk', value: 1, levelEffects: ['Recall the Shield from anywhere on the Gaming Board or create a new one. Equip the Shield. Pull each enemy passed through 1 Square toward Da Orkk', 'Deal 1 Damage if the Shield passes through an enemy during the Recall', 'Gain 1 Rage Stack and +2 Rage Stacks for each crossed enemy'] },
+  { id: 'arm-da-wiz', name: 'Arm da Wiz', kind: 'perk', value: 1, levelEffects: ['Recall a chosen Shield from anywhere on the Gaming Board or create a new one without removing existing Shields. Equip the Shield. Pull each enemy passed through 1 Square toward Da Orkk', 'Deal 1 Damage if the Shield passes through an enemy during the Recall', 'Gain 1 Rage Stack and +2 Rage Stacks for each crossed enemy'] },
   { id: 'encourage', name: 'EncouRAGE', kind: 'perk', value: 1, levelEffects: ['Draw a Card from your Deck', 'Gain 1 Rage stack', 'Also draw 1 random Card from your Discard'] },
   { id: 'kyk', name: 'Kyk', kind: 'perk', value: 1, levelEffects: ['Push an adjacent Object or enemy 3 Squares. Enemy collisions deal 1 Damage; remaining movement transfers to the collided target when possible', 'Increase the push distance by 1 Square', 'Deal 3 Damage on collision, but destroy the pushed Object'] },
   { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 2 Rage Stacks to heal 1 HP', '+1 HP', 'Add Exhaust Card to each adjacent enemy Hand. Remove all negative Status Cards'] },
@@ -163,13 +163,13 @@ export const CARDS: readonly Card[] = [
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped before combat; otherwise, drop the Shield and draw a Card after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "After combat, add an Exhaust Status Card to the enemy's Hand and force them to discard 1 Defend Card." },
   { id: 'chip-cast', name: 'Chip-cast', kind: 'attack', value: 2, effectText: "Add 1 Headache per Rage Stack to the enemy's Discard. Then shuffle all Exhaust and Headache Cards into that enemy's Deck." },
-  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the Shield if it is unequipped. Deal 3 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
+  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the nearest Shield if one is unequipped. Deal 3 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
   { id: 'knee-blast', name: 'Knee Blast', kind: 'attack', value: 3, effectText: "After combat, push the enemy X Squares, where X is the number of Rage Stacks. Add 1 Headache Card to the enemy's Hand if they collide with anything." },
   { id: 'da-blokk', name: 'Da Blokk', kind: 'defend', value: 1, effectText: 'Cancel the Attack Card effect. Generate 2 Rage Stacks if Da Orkk receives Damage in this combat.' },
   { id: 'double', name: 'Double!', kind: 'defend', value: 1, effectText: "Double all Rage received during this combat and for the remainder of the attacking Player's turn." },
-  { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Recall the Shield if it is unequipped. Deal 2 Damage to an enemy if the Shield goes through them while Recalled.' },
+  { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Recall the nearest Shield if one is unequipped. Deal 2 Damage to an enemy if the Shield goes through them while Recalled.' },
   { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat, add 1 Headache Card per Rage Stack to the attacking enemy's Discard Deck." },
-  { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall Shield and deal 2 Damage to any enemy it passes through.' },
+  { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the nearest Shield and deal 2 Damage to any enemy it passes through.' },
   { id: 'pinned', name: 'Pinned', kind: 'status', value: 1, effectText: "While this Card is in your Hand, decrease your Character's movement Range by 1. Remove 1 Pinned Card at the end of your turn, except a Pinned Card gained during that same turn. Cannot be discarded due to overstacking." },
   { id: 'headache', name: 'Headache', kind: 'status', value: 0, effectText: 'This Card does nothing except fill your Hand. Can be Removed as an Action. Cannot be Discarded.', cannotBeDiscarded: true, canRemoveAsAction: true },
   { id: 'exhaust', name: 'Exhaust', kind: 'status', value: 0, effectText: 'Your Cards have -1 Attack and Defend Value. Can be Discarded normally. Can be Removed by attaching it to a played Attack or Defend Card during combat for -3 Value.', canDiscardForHandLimit: true },
@@ -946,9 +946,9 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
       player.rageStacks += 1;
       state.log.unshift(`Shield Bash generated 1 Rage after attacking an Object with the Shield equipped (${player.rageStacks} total).`);
     } else {
-      const shield = state.objects.find((entry) => entry.kind === 'orkk-shield' && entry.ownerId === player.id);
-      if (shield) {
-        const path = armDaWizPath(state, shield, player.position, 16);
+      const recall = nearestRecallableOrkkShield(state, player.id, player.position, 16);
+      if (recall) {
+        const { shield, path } = recall;
         if (path.length > 0) {
           const recallAnimationId = `${state.turn}-shield-bash-object-${state.objectPushAnimations.length}`;
           const crossedEnemyIds = new Set<PlayerId>();
@@ -2871,9 +2871,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (!attackEffectsCancelled && pending.cardId === 'shield-bash' && !pending.shieldEquippedAtStart) {
     const orkk = state.players[pending.attackerId];
-    const shield = state.objects.find((entry) => entry.kind === 'orkk-shield' && entry.ownerId === orkk.id);
-    if (shield) {
-      const path = armDaWizPath(state, shield, orkk.position, 16);
+    const recall = nearestRecallableOrkkShield(state, orkk.id, orkk.position, 16);
+    if (recall) {
+      const { shield, path } = recall;
       if (path.length > 0) {
         const recallAnimationId = `${state.turn}-shield-bash-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
@@ -2913,9 +2913,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     }
   }
   if (defenseCardId === 'arcane-shield' && !shieldEquippedAtDefenseStart && !defenseEffectsCancelled) {
-    const shield = state.objects.find((entry) => entry.kind === 'orkk-shield' && entry.ownerId === defender.id);
-    if (shield) {
-      const path = armDaWizPath(state, shield, defender.position, 16);
+    const recall = nearestRecallableOrkkShield(state, defender.id, defender.position, 16);
+    if (recall) {
+      const { shield, path } = recall;
       if (path.length > 0) {
         const recallAnimationId = `${state.turn}-arcane-shield-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
@@ -2946,9 +2946,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(`CountaSpell added ${headacheCount} Headache Card${headacheCount === 1 ? '' : 's'} to ${attacker.name}'s Discard Deck after combat.`);
   }
   if (defenseCardId === 'mana-baryer' && !shieldEquippedAtDefenseStart && !defenseEffectsCancelled) {
-    const shield = state.objects.find((entry) => entry.kind === 'orkk-shield' && entry.ownerId === defender.id);
-    if (shield) {
-      const path = armDaWizPath(state, shield, defender.position, 16);
+    const recall = nearestRecallableOrkkShield(state, defender.id, defender.position, 16);
+    if (recall) {
+      const { shield, path } = recall;
       if (path.length > 0) {
         const recallAnimationId = `${state.turn}-mana-baryer-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
@@ -3834,6 +3834,16 @@ function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, ran
   return shortestDestination?.path ?? [];
 }
 
+function nearestRecallableOrkkShield(state: GameState, ownerId: PlayerId, orkkCell: Cell, range: number): { shield: BoardObject; path: Cell[] } | null {
+  return state.objects
+    .filter((entry) => entry.kind === 'orkk-shield' && entry.ownerId === ownerId)
+    .map((shield) => ({ shield, path: armDaWizPath(state, shield, orkkCell, range) }))
+    .filter((entry) => entry.path.length > 0)
+    .sort((a, b) => distance(a.shield.position, orkkCell) - distance(b.shield.position, orkkCell)
+      || a.path.length - b.path.length
+      || a.shield.id.localeCompare(b.shield.id))[0] ?? null;
+}
+
 function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, orkkId: PlayerId, path: Cell[], sourceName: string, triggerAnimationId?: string): void {
   const orkk = state.players[orkkId];
   const passes: { enemyId: PlayerId; pathIndex: number }[] = [];
@@ -3844,9 +3854,11 @@ function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, ork
   }
   for (const pass of passes.sort((a, b) => b.pathIndex - a.pathIndex)) {
     const enemy = state.players[pass.enemyId];
-    const destination = path[pass.pathIndex + 1];
-    const blocked = !destination
-      || (destination.x === orkk.position.x && destination.y === orkk.position.y)
+    const destination = {
+      x: enemy.position.x + Math.sign(orkk.position.x - enemy.position.x),
+      y: enemy.position.y + Math.sign(orkk.position.y - enemy.position.y),
+    };
+    const blocked = (destination.x === orkk.position.x && destination.y === orkk.position.y)
       || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
       || state.objects.some((entry) => entry.id !== shield.id && entry.position.x === destination.x && entry.position.y === destination.y);
     if (blocked) {
@@ -3867,15 +3879,13 @@ function resolveArmDaWizChoice(state: GameState, playerId: PlayerId, choice: 're
   if (state.phase !== 'choosing-arm-da-wiz-choice' || !arm || arm.casterId !== playerId) return fail(state, 'Arm da Wiz is not waiting for this choice.');
   if (choice === 'create') {
     if (!arm.canCreate) return fail(state, 'A new Shield cannot be created right now.');
-    const removedShields = state.objects.filter((entry) => entry.kind === 'orkk-shield' && entry.ownerId === playerId).length;
-    state.objects = state.objects.filter((entry) => entry.kind !== 'orkk-shield' || entry.ownerId !== playerId);
     state.players[playerId].shieldEquipped = true;
     if (arm.level >= 3) {
       state.players[playerId].rageStacks += 1;
       state.log.unshift(`Arm da Wiz generated 1 Rage Stack (${state.players[playerId].rageStacks} total).`);
     }
     state.armDaWiz = null; state.phase = 'active';
-    state.log.unshift(`${state.players[playerId].name} created and instantly equipped a new Iron Shield${removedShields > 0 ? `, removing ${removedShields} previous Shield Wall${removedShields === 1 ? '' : 's'} from the Board` : ''}.`);
+    state.log.unshift(`${state.players[playerId].name} created and instantly equipped a new Iron Shield. Existing Shields remain on the Board.`);
     return ok(state);
   }
   if (!arm.canRecall) return fail(state, 'There is no Shield on the Board with a valid recall path.');
@@ -3926,7 +3936,7 @@ function resolveArmDaWizTarget(state: GameState, playerId: PlayerId, objectId: s
     removeOnComplete: true,
     equipPlayerId: playerId,
   });
-  state.objects = state.objects.filter((entry) => entry.kind !== 'orkk-shield' || entry.ownerId !== playerId);
+  state.objects = state.objects.filter((entry) => entry.id !== shield.id);
   orkk.shieldEquipped = true;
   state.log.unshift(`${orkk.name} recalled and equipped his Shield.`);
   if (arm.level >= 3) {
