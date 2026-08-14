@@ -2928,6 +2928,8 @@ if (attackManaRecall.ok) {
     const manaAnimation = defendManaRecall.state.objectPushAnimations.find((event) => event.objectId === 'mana-recall-shield');
     assert.equal(manaAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Mana Baryer animation retains the walkable path through the enemy Square.');
     assert.equal(manaAnimation?.equipPlayerId, 'P2');
+    const manaDamageAnimation = defendManaRecall.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P1');
+    assert.equal(manaDamageAnimation?.damage?.triggerAnimationId, manaAnimation?.id, 'Mana Baryer damage waits until the recalled Shield reaches the crossed enemy.');
   }
 }
 

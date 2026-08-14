@@ -106,7 +106,16 @@ app.innerHTML = `
     <div class="toast" id="toast"></div>
   </main>`;
 
+const ORKK_TEST_STARTING_RAGE = 8;
+
+function applyOrkkTestStartingRage(state: GameState) {
+  Object.values(state.players).forEach((player) => {
+    if (player.character === 'orkk') player.rageStacks = ORKK_TEST_STARTING_RAGE;
+  });
+}
+
 let gameState = createInitialState();
+applyOrkkTestStartingRage(gameState);
 let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
@@ -367,6 +376,7 @@ function startHotseat(character: SelectableCharacter, format: GameFormat, oppone
   gameState = format === 'duel' && arena === 'trench'
     ? createTrenchTestState(false, character, opponentCharacter)
     : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  applyOrkkTestStartingRage(gameState);
   (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
   const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
@@ -1834,6 +1844,7 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
@@ -1946,6 +1957,7 @@ renderer.setAnimationLoop((time) => {
       if (light) light.intensity = 2.8 + Math.sin(time * 0.006) * 0.7;
     }
     updateManaOrbAnimation(group, time);
+    if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
   });
   updateDamageVisuals(time);
   renderer.render(scene, camera);
@@ -2703,6 +2715,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     });
     disposeTemporaryCharacterBody(body);
     body.add(model);
+    installOrkkRageCoreGlow(root, model);
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
     const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID'];
     if (required.some((name) => !clips[name])) throw new Error(`Da Orkk GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
@@ -2747,6 +2760,9 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     yawFreeIdleEuler.y = 0;
     shieldIdleSocketLocalQuaternion.setFromEuler(yawFreeIdleEuler);
     root.userData.orkkAnimation = { mixer, actions, current: initial, shieldThrowReleaseMs: clips.DaOrkh_Shield_Throw.duration * 1000, shieldIdleSocketLocalQuaternion } satisfies OrkkAnimationState;
+    objectGroups.forEach((shieldGroup, objectId) => {
+      if (shieldGroup.userData.ownerId === playerId && !objectMovementAnimations.has(objectId)) settleOrkkShieldAtRest(shieldGroup);
+    });
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
     const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'BoxAttack' | undefined;
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
@@ -2768,8 +2784,17 @@ function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' |
   const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!group) return;
   if (!state) { group.userData.pendingOrkkAnimation = name; return; }
-  playOrkkAnimation(group, name, 0.08);
-  state.oneShotUntil = performance.now() + state.actions[name].getClip().duration * 1000 / state.actions[name].getEffectiveTimeScale();
+  const action = state.actions[name];
+  if (state.current === name) {
+    action.stop();
+    action.reset().fadeIn(0.08).play();
+  } else {
+    playOrkkAnimation(group, name, 0.08);
+  }
+  action.paused = false;
+  action.enabled = true;
+  const effectiveTimeScale = Math.max(Math.abs(action.getEffectiveTimeScale()), Math.abs(action.timeScale), 0.001);
+  state.oneShotUntil = performance.now() + action.getClip().duration * 1000 / effectiveTimeScale;
 }
 
 function applyOrkkVisualIntent(intent: OrkkVisualIntent) {
@@ -2787,7 +2812,7 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
   const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!state) return;
   state.mixer.update(deltaSeconds);
-  if (state.oneShotUntil && performance.now() < state.oneShotUntil) return;
+  if (state.oneShotUntil && Number.isFinite(state.oneShotUntil) && performance.now() < state.oneShotUntil) return;
   state.oneShotUntil = undefined;
   if (moving) {
     const movement = movementAnimations.get(playerId);
@@ -2831,10 +2856,155 @@ function createLongHatLogan(playerColor = 0x169bd3) {
 }
 
 function loadDaOrkhAsset() {
-  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260814-1`).then((asset) => {
+  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260814-2`).then((asset) => {
     daOrkhAsset = asset;
     asset.scene.updateWorldMatrix(true, true);
     return asset;
+  });
+}
+
+function getOrkkRageGlowTexture() {
+  if (orkkRageGlowTexture) return orkkRageGlowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to create Da Orkk Rage glow texture.');
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255, 245, 224, 1)');
+  gradient.addColorStop(0.14, 'rgba(255, 92, 42, 0.95)');
+  gradient.addColorStop(0.42, 'rgba(255, 16, 4, 0.48)');
+  gradient.addColorStop(1, 'rgba(160, 0, 0, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  orkkRageGlowTexture = new THREE.CanvasTexture(canvas);
+  orkkRageGlowTexture.colorSpace = THREE.SRGBColorSpace;
+  return orkkRageGlowTexture;
+}
+
+function installOrkkRageCoreGlow(root: THREE.Group, model: THREE.Group) {
+  const socket = model.getObjectByName('Scepter_Core_Socket');
+  if (!socket || socket.getObjectByName('OrkkRageCoreEffect')) return;
+  root.updateWorldMatrix(true, true);
+  const socketWorldScale = socket.getWorldScale(new THREE.Vector3());
+  const effect = new THREE.Group();
+  effect.name = 'OrkkRageCoreEffect';
+  effect.userData.strength = 0;
+  effect.userData.inverseWorldScale = new THREE.Vector3(
+    1 / Math.max(socketWorldScale.x, 0.0001),
+    1 / Math.max(socketWorldScale.y, 0.0001),
+    1 / Math.max(socketWorldScale.z, 0.0001),
+  );
+
+  const shellMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff1804,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  });
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16), shellMaterial);
+  shell.name = 'OrkkRageCoreShell';
+  shell.renderOrder = 7;
+  const inverseScale = effect.userData.inverseWorldScale as THREE.Vector3;
+  shell.userData.baseScale = new THREE.Vector3(0.38 * inverseScale.x, 0.32 * inverseScale.y, 0.32 * inverseScale.z);
+  shell.scale.copy(shell.userData.baseScale as THREE.Vector3);
+  effect.add(shell);
+
+  const auraMaterial = new THREE.SpriteMaterial({
+    map: getOrkkRageGlowTexture(),
+    color: 0xff2408,
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  });
+  const glow = new THREE.Sprite(auraMaterial);
+  glow.name = 'OrkkRageCoreGlow';
+  glow.renderOrder = 8;
+  glow.userData.baseScale = new THREE.Vector3(
+    0.52 * inverseScale.x,
+    0.52 * inverseScale.y,
+    1,
+  );
+  glow.scale.copy(glow.userData.baseScale as THREE.Vector3);
+  effect.add(glow);
+
+  for (let index = 0; index < 7; index++) {
+    const particle = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: getOrkkRageGlowTexture(),
+      color: index % 2 === 0 ? 0xff2a06 : 0xff6a12,
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    }));
+    particle.name = `OrkkRageCoreParticle${index + 1}`;
+    particle.renderOrder = 9;
+    particle.userData.phase = index / 7;
+    particle.userData.speed = 0.72 + (index % 3) * 0.16;
+    particle.userData.worldSize = 0.075 + (index % 3) * 0.018;
+    effect.add(particle);
+  }
+
+  effect.visible = false;
+  const light = new THREE.PointLight(0xff2408, 0, 2.2, 2);
+  light.name = 'OrkkRageCoreLight';
+  effect.add(light);
+  socket.add(effect);
+  const playerId = root.userData.playerId as PlayerId | undefined;
+  updateOrkkRageCoreGlow(root, playerId ? gameState.players[playerId]?.rageStacks ?? 0 : 0);
+}
+
+function updateOrkkRageCoreGlow(root: THREE.Group, rageStacks: number) {
+  const cappedRage = THREE.MathUtils.clamp(rageStacks, 0, 8);
+  const strength = cappedRage / 8;
+  const effect = root.getObjectByName('OrkkRageCoreEffect') as THREE.Group | undefined;
+  const glow = root.getObjectByName('OrkkRageCoreGlow') as THREE.Sprite | undefined;
+  const shell = root.getObjectByName('OrkkRageCoreShell') as THREE.Mesh | undefined;
+  const light = root.getObjectByName('OrkkRageCoreLight') as THREE.PointLight | undefined;
+  if (effect) {
+    effect.visible = cappedRage > 0;
+    effect.userData.strength = strength;
+  }
+  if (glow) {
+    const material = glow.material as THREE.SpriteMaterial;
+    material.opacity = cappedRage > 0 ? 0.08 + strength * 0.3 : 0;
+  }
+  if (shell) (shell.material as THREE.MeshBasicMaterial).opacity = cappedRage > 0 ? 0.2 + strength * 0.62 : 0;
+  if (light) light.intensity = cappedRage > 0 ? 0.7 + strength * 5.3 : 0;
+}
+
+function updateOrkkRageCoreAnimation(root: THREE.Group, time: number) {
+  const effect = root.getObjectByName('OrkkRageCoreEffect') as THREE.Group | undefined;
+  if (!effect?.visible) return;
+  const strength = effect.userData.strength as number;
+  const inverseScale = effect.userData.inverseWorldScale as THREE.Vector3;
+  const pulse = 1 + Math.sin(time * 0.009) * (0.035 + strength * 0.055);
+  const shell = effect.getObjectByName('OrkkRageCoreShell') as THREE.Mesh | undefined;
+  const glow = effect.getObjectByName('OrkkRageCoreGlow') as THREE.Sprite | undefined;
+  if (shell) shell.scale.copy(shell.userData.baseScale as THREE.Vector3).multiplyScalar((0.82 + strength * 0.22) * pulse);
+  if (glow) glow.scale.copy(glow.userData.baseScale as THREE.Vector3).multiplyScalar((0.72 + strength * 0.4) * pulse);
+  effect.children.forEach((child) => {
+    if (!(child instanceof THREE.Sprite) || child === glow) return;
+    const phase = child.userData.phase as number;
+    const speed = child.userData.speed as number;
+    const cycle = (time * 0.00055 * speed + phase) % 1;
+    const angle = phase * Math.PI * 2 + time * 0.0012 * speed;
+    const radius = 0.11 + Math.sin(cycle * Math.PI) * 0.055;
+    child.position.set(
+      Math.cos(angle) * radius * inverseScale.x,
+      (cycle - 0.42) * 0.22 * inverseScale.y,
+      Math.sin(angle) * radius * inverseScale.z,
+    );
+    const worldSize = (child.userData.worldSize as number) * (0.55 + strength * 0.75) * Math.sin(cycle * Math.PI);
+    child.scale.set(worldSize * inverseScale.x, worldSize * inverseScale.y, 1);
+    (child.material as THREE.SpriteMaterial).opacity = (0.16 + strength * 0.6) * Math.sin(cycle * Math.PI);
   });
 }
 
@@ -2880,6 +3050,29 @@ function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTF
   socket.getWorldScale(root.scale);
   root.scale.multiplyScalar(1.6);
   root.userData.importedOrkkShield = true;
+  settleOrkkShieldAtRest(root);
+}
+
+function settleOrkkShieldAtRest(root: THREE.Group, ownerId?: PlayerId, target?: THREE.Vector3) {
+  if (ownerId) root.userData.ownerId = ownerId;
+  if (target) root.userData.restingTarget = target.clone();
+  const restingTarget = root.userData.restingTarget as THREE.Vector3 | undefined;
+  const shieldOwnerId = root.userData.ownerId as PlayerId | undefined;
+  const owner = shieldOwnerId ? dummyGroups.get(shieldOwnerId) : undefined;
+  const state = owner?.userData.orkkAnimation as OrkkAnimationState | undefined;
+  if (!restingTarget || !owner || !state) return;
+  owner.updateWorldMatrix(true, true);
+  const idleWorldQuaternion = owner.getWorldQuaternion(new THREE.Quaternion()).multiply(state.shieldIdleSocketLocalQuaternion);
+  root.position.copy(restingTarget);
+  root.quaternion.copy(idleWorldQuaternion);
+  root.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  const visibleCenter = bounds.getCenter(new THREE.Vector3());
+  if (Number.isFinite(visibleCenter.x) && Number.isFinite(visibleCenter.z)) {
+    root.position.x += restingTarget.x - visibleCenter.x;
+    root.position.z += restingTarget.z - visibleCenter.z;
+  }
+  if (Number.isFinite(bounds.min.y)) root.position.y += restingTarget.y - bounds.min.y + 0.025;
 }
 
 function createOrkkShieldObject() {
@@ -3502,6 +3695,7 @@ function syncBoard() {
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
+    updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
     syncManaConsumeAnimation(id, group);
     group.traverse((child) => { child.userData.playerId = id; });
@@ -3517,7 +3711,10 @@ function syncBoard() {
     const target = worldPosition(object.position);
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
-    if (!previousKey) group.position.copy(target);
+    if (!previousKey) {
+      if (object.kind === 'orkk-shield') settleOrkkShieldAtRest(group, object.ownerId, target);
+      else group.position.copy(target);
+    }
     else if (previousKey !== targetKey) {
       const from = group.position.clone(); from.y = target.y;
       const travelSquares = Math.max(1, distanceFromWorld(from, target));
@@ -3567,7 +3764,7 @@ function syncBoard() {
       playOrkkOneShot(event.attackAnimationPlayerId, 'BoxAttack');
       return;
     }
-    const isOrkkRecall = (event.id.includes('-arm-da-wiz-') || event.id.includes('-arcane-shield-') || event.id.includes('-shield-bash-')) && Boolean(event.removeOnComplete && event.equipPlayerId);
+    const isOrkkRecall = (event.id.includes('-arm-da-wiz-') || event.id.includes('-arcane-shield-') || event.id.includes('-shield-bash-') || event.id.includes('-mana-baryer-')) && Boolean(event.removeOnComplete && event.equipPlayerId);
     const recallOrkkGroup = isOrkkRecall && event.equipPlayerId ? dummyGroups.get(event.equipPlayerId) : undefined;
     if (recallOrkkGroup) {
       const approachCell = event.path && event.path.length > 1 ? event.path[event.path.length - 2] : event.from;

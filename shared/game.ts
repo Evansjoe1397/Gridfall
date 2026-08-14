@@ -2950,16 +2950,23 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (shield) {
       const path = armDaWizPath(state, shield, defender.position, 16);
       if (path.length > 0) {
+        const recallAnimationId = `${state.turn}-mana-baryer-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
-        for (const cell of path) {
+        for (const [pathIndex, cell] of path.entries()) {
           const enemy = Object.values(state.players).find((entry) => entry.id !== defender.id && entry.position.x === cell.x && entry.position.y === cell.y);
           if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
           crossedEnemyIds.add(enemy.id);
-          dealCombatCardEffectDamage(state, enemy, 2, defender.id, 'defense');
+          const damageAnimationStart = state.objectPushAnimations.length;
+          dealCombatCardEffectDamage(state, enemy, 2, defender.id, 'defense', true);
+          for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+            if (!event.damage?.collision) continue;
+            event.damage.triggerAnimationId = recallAnimationId;
+            event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
+          }
           state.log.unshift(`Mana Baryer's Shield passed through ${enemy.name} and dealt 2 damage.`);
         }
-        pullEnemiesAlongShieldRecall(state, shield, defender.id, path, 'Mana Baryer');
-        state.objectPushAnimations.push({ id: `${state.turn}-mana-baryer-${state.objectPushAnimations.length}`, objectId: shield.id, from: { ...shield.position }, to: { ...defender.position }, dx: Math.sign(defender.position.x - shield.position.x), dy: Math.sign(defender.position.y - shield.position.y), collided: crossedEnemyIds.size > 0, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: defender.id });
+        pullEnemiesAlongShieldRecall(state, shield, defender.id, path, 'Mana Baryer', recallAnimationId);
+        state.objectPushAnimations.push({ id: recallAnimationId, objectId: shield.id, from: { ...shield.position }, to: { ...defender.position }, dx: Math.sign(defender.position.x - shield.position.x), dy: Math.sign(defender.position.y - shield.position.y), collided: false, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: defender.id });
         state.objects = state.objects.filter((entry) => entry.id !== shield.id);
         defender.shieldEquipped = true;
         state.log.unshift(`Mana Baryer recalled and equipped ${defender.name}'s Shield after combat.`);
