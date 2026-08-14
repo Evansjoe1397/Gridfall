@@ -132,6 +132,8 @@ type WizardPowerVisualIntent =
   | { kind: 'resolve'; playerId: PlayerId }
   | { kind: 'cancel'; playerId: PlayerId };
 let pendingOnlineWizardPowerVisualIntent: WizardPowerVisualIntent | null = null;
+type OrkkVisualIntent = { playerId: PlayerId; animation: 'Encourage' | 'ShieldThrow'; target?: THREE.Vector3 };
+let pendingOnlineOrkkVisualIntent: OrkkVisualIntent | null = null;
 selection.subscribe(() => renderUI());
 
 const lobby = byId('lobby');
@@ -415,6 +417,9 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       selection.send({ type: 'CLEAR' });
       const powerVisualIntent = pendingOnlineWizardPowerVisualIntent;
       pendingOnlineWizardPowerVisualIntent = null;
+      const orkkVisualIntent = pendingOnlineOrkkVisualIntent;
+      pendingOnlineOrkkVisualIntent = null;
+      if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
       lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
       if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
       requestAnimationFrame(() => {
@@ -422,7 +427,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
         if (shouldFitCamera) fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
       });
     });
-    room.onMessage('error', (message: string) => { pendingOnlineWizardPowerVisualIntent = null; notify(message); });
+    room.onMessage('error', (message: string) => { pendingOnlineWizardPowerVisualIntent = null; pendingOnlineOrkkVisualIntent = null; notify(message); });
     room.onMessage('notice', (message: string) => notify(message));
     room.send('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
@@ -593,11 +598,26 @@ function wizardPowerVisualIntentForCommand(state: GameState, command: GameComman
   }
 }
 
+function orkkVisualIntentForCommand(state: GameState, command: GameCommand): OrkkVisualIntent | null {
+  const player = state.players[command.playerId];
+  if (!player || player.character !== 'orkk') return null;
+  if (command.type === 'arkane-arow-target') return { playerId: command.playerId, animation: 'ShieldThrow', target: worldPosition(command.to) };
+  if (command.type !== 'play-perk' && command.type !== 'use-echo-perk') return null;
+  const card = command.type === 'play-perk'
+    ? player.hand.find((entry) => entry.instanceId === command.cardInstanceId)
+    : player.spellEcho[command.position - 1];
+  return card?.cardId === 'encourage' || card?.cardId === 'consume-rage'
+    ? { playerId: command.playerId, animation: 'Encourage' }
+    : null;
+}
+
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
+  const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
     pendingOnlineWizardPowerVisualIntent = powerVisualIntent;
+    pendingOnlineOrkkVisualIntent = orkkVisualIntent;
     room.send('command', command);
     return;
   }
@@ -605,6 +625,7 @@ function dispatch(command: GameCommand) {
   if (!result.ok) return notify(result.error);
   gameState = result.state;
   selection.send({ type: 'CLEAR' });
+  if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
 }
@@ -1811,12 +1832,17 @@ floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
+let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const objectGroups = new Map<string, THREE.Group>();
 const lastObjectVisualCells = new Map<string, string>();
-const objectMovementAnimations = new Map<string, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean }>();
+type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
+const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
+const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
+const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean }[] = [];
@@ -1829,6 +1855,8 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[] }>();
+type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; triggerRouteProgress?: number };
+const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
 const questFlagModels = new Map<string, THREE.Group>();
@@ -1897,6 +1925,7 @@ renderer.setAnimationLoop((time) => {
   updateCharacterMovement(time);
   updateWizardLiftedTargets(time);
   updateObjectMovement(time);
+  updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
@@ -1905,8 +1934,9 @@ renderer.setAnimationLoop((time) => {
     const body = group.children[0];
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
-    const isWizard = group.userData.character === 'magician';
-    body.position.y = isWizard ? 0 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    if (group.userData.character === 'orkk') updateOrkkAnimation(group, id, moving, deltaSeconds);
+    const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation);
+    body.position.y = usesImportedAnimation ? 0 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const shellAura = group.getObjectByName('StoicShellAura');
     if (shellAura?.visible) {
       const pulse = 1 + Math.sin(time * 0.0045) * 0.055;
@@ -1932,6 +1962,18 @@ function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolea
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
   damageNumbers.push({ sprite, startedAt: performance.now(), origin });
   if (collision) impactAnimations.set(playerId, performance.now());
+}
+
+function spawnHealingVisual(playerId: PlayerId, amount: number) {
+  const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  context.font = "900 76px 'Barlow Condensed', Arial"; context.textAlign = 'center'; context.textBaseline = 'middle';
+  context.lineWidth = 12; context.strokeStyle = 'rgba(0,35,12,.95)'; context.strokeText(`+${amount}`, 128, 66);
+  context.fillStyle = '#62f58b'; context.fillText(`+${amount}`, 128, 66);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
+  const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone(); origin.y += 2.25;
+  sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
+  damageNumbers.push({ sprite, startedAt: performance.now(), origin });
 }
 
 function spawnTeleportSquareVisual(cell: Cell) {
@@ -2060,22 +2102,31 @@ function updateCharacterMovement(time: number) {
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
-    if (group.userData.character === 'magician' && hasMovementDirection) {
+    if (group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) {
-        // The imported wizard faces local +Z, so point that axis along the current route segment.
-        group.rotation.y = Math.atan2(dx, dz);
+        group.rotation.y = characterFacingRotation(group, dx, dz);
       }
     }
-    if (group.userData.character !== 'magician') group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    if (group.userData.character !== 'magician' && !group.userData.orkkAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!group.userData.orkkAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
       movementAnimations.delete(playerId);
     }
   });
+}
+
+function startImpactTriggeredCharacterMovement(animationId: string, startedAt: number, routeProgress = 1) {
+  const queued = impactTriggeredCharacterMovements.get(animationId);
+  if (!queued) return;
+  const ready = queued.filter((movement) => (movement.triggerRouteProgress ?? 1) <= routeProgress);
+  ready.forEach((movement) => movementAnimations.set(movement.playerId, { ...movement, startedAt }));
+  const pending = queued.filter((movement) => !ready.includes(movement));
+  if (pending.length > 0) impactTriggeredCharacterMovements.set(animationId, pending);
+  else impactTriggeredCharacterMovements.delete(animationId);
 }
 
 function wizardTargetGroup(kind: 'player' | 'object', id: string) {
@@ -2109,8 +2160,17 @@ function updateWizardLiftedTargets(time: number) {
 
 function updateCharacterFacing(deltaSeconds: number) {
   dummyGroups.forEach((group, playerId) => {
-    if (group.userData.facingSide !== 'negative-z') return;
+    if (!group.userData.facingSide) return;
     if (movementAnimations.has(playerId)) return;
+    const orkkAnimation = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
+    const shieldStillFlying = [...objectMovementAnimations.keys()].some((objectId) => {
+      const object = objectGroups.get(objectId);
+      const animation = objectMovementAnimations.get(objectId);
+      return (object?.userData.ownerId === playerId || animation?.equipPlayerId === playerId)
+        && Boolean(animation?.releaseSource || animation?.equipPlayerId);
+    });
+    if (shieldStillFlying) return;
     let nearestEnemy: THREE.Group | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
     dummyGroups.forEach((candidate, candidateId) => {
@@ -2125,8 +2185,7 @@ function updateCharacterFacing(deltaSeconds: number) {
     const dx = nearestEnemy.position.x - group.position.x;
     const dz = nearestEnemy.position.z - group.position.z;
     if (Math.abs(dx) + Math.abs(dz) < 0.001) return;
-    // Da Orkk's tusks/face point down local -Z, so turn that side toward the enemy.
-    const desiredRotation = Math.atan2(dx, dz) + Math.PI;
+    const desiredRotation = characterFacingRotation(group, dx, dz);
     const angleDelta = Math.atan2(Math.sin(desiredRotation - group.rotation.y), Math.cos(desiredRotation - group.rotation.y));
     group.rotation.y += angleDelta * Math.min(1, deltaSeconds * 10);
   });
@@ -2136,30 +2195,188 @@ function updateObjectMovement(time: number) {
   objectMovementAnimations.forEach((animation, objectId) => {
     const group = objectGroups.get(objectId);
     if (!group) { objectMovementAnimations.delete(objectId); return; }
-    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    const elapsed = time - animation.startedAt - (animation.delay ?? 0);
+    if (elapsed < 0) { group.visible = !animation.releaseSource; return; }
+    if (!animation.released && animation.releaseSource) {
+      animation.releaseSource.updateWorldMatrix(true, false);
+      animation.releaseSource.getWorldPosition(animation.from);
+      animation.releaseQuaternion = animation.releaseSource.getWorldQuaternion(new THREE.Quaternion());
+      animation.releaseSource.getWorldScale(group.scale);
+      animation.baseScale = group.scale.clone();
+      // Keep the visible shield centered on the destination cell. Its root is a
+      // hand socket, so using the cell center for the root makes the mesh stop short.
+      group.position.set(0, 0, 0);
+      group.quaternion.copy(animation.releaseQuaternion);
+      group.updateWorldMatrix(true, true);
+      const flightBounds = new THREE.Box3().setFromObject(group);
+      const flightCenterOffset = flightBounds.getCenter(new THREE.Vector3());
+      animation.visibleCenterLocal = flightCenterOffset.clone().applyQuaternion(animation.releaseQuaternion.clone().invert());
+      animation.visibleCenterFrom = animation.from.clone().add(flightCenterOffset);
+      animation.visibleCenterTo = new THREE.Vector3(animation.to.x, animation.visibleCenterFrom.y, animation.to.z);
+      if (animation.idleQuaternion) {
+        // Measure only the final vertical clearance, then restore the exact
+        // release pose. The measured value is later applied as an independent
+        // translation and never participates in the rotation calculation.
+        group.position.set(0, 0, 0);
+        group.quaternion.copy(animation.idleQuaternion);
+        group.updateWorldMatrix(true, true);
+        const idleBoundsAtZero = new THREE.Box3().setFromObject(group);
+        const finalCenterOffsetY = animation.visibleCenterLocal.clone().applyQuaternion(animation.idleQuaternion).y;
+        const undroppedFinalRootY = animation.visibleCenterFrom.y - finalCenterOffsetY;
+        const groundedFinalRootY = animation.to.y - idleBoundsAtZero.min.y + 0.025;
+        animation.dropDistance = Math.max(0, undroppedFinalRootY - groundedFinalRootY);
+        if (animation.collided && animation.collisionAt) {
+          const impactDirection = animation.collisionAt.clone().sub(animation.visibleCenterFrom);
+          impactDirection.y = 0;
+          if (impactDirection.lengthSq() > 0.0001) impactDirection.normalize();
+          const impactCenter = animation.collisionAt.clone();
+          impactCenter.y = animation.visibleCenterFrom.y;
+          if (animation.collisionTargetKind === 'object' && animation.collisionTargetId) {
+            const targetGroup = objectGroups.get(animation.collisionTargetId);
+            if (targetGroup && impactDirection.lengthSq() > 0.0001) {
+              targetGroup.updateWorldMatrix(true, true);
+              const targetBounds = new THREE.Box3().setFromObject(targetGroup);
+              const rayOrigin = animation.visibleCenterFrom.clone();
+              rayOrigin.y = targetBounds.getCenter(new THREE.Vector3()).y;
+              const surfaceHit = new THREE.Ray(rayOrigin, impactDirection).intersectBox(targetBounds, new THREE.Vector3());
+              if (surfaceHit) {
+                const idleSize = idleBoundsAtZero.getSize(new THREE.Vector3());
+                const shieldRadius = Math.abs(impactDirection.x) * idleSize.x * 0.5 + Math.abs(impactDirection.z) * idleSize.z * 0.5;
+                impactCenter.x = surfaceHit.x - impactDirection.x * (shieldRadius + 0.025);
+                impactCenter.z = surfaceHit.z - impactDirection.z * (shieldRadius + 0.025);
+              }
+            }
+          }
+          animation.collisionVisibleCenter = impactCenter;
+        }
+        group.position.set(0, 0, 0);
+        group.quaternion.copy(animation.releaseQuaternion);
+        group.updateWorldMatrix(true, true);
+      }
+      animation.flightTo = new THREE.Vector3(animation.to.x - flightCenterOffset.x, animation.from.y, animation.to.z - flightCenterOffset.z);
+      group.position.copy(animation.from);
+      group.quaternion.copy(animation.releaseQuaternion);
+      group.visible = true;
+      animation.released = true;
+      const ownerId = group.userData.ownerId as PlayerId | undefined;
+      const equipped = ownerId ? dummyGroups.get(ownerId)?.getObjectByName('EquippedShield') : undefined;
+      if (equipped) equipped.visible = false;
+    }
+    const isReleasedShield = Boolean(animation.releaseQuaternion && animation.flightTo);
+    const flightProgress = Math.min(1, elapsed / animation.duration);
+    if (isReleasedShield && animation.collided && flightProgress >= 1 && !animation.impactTriggered) {
+      animation.impactTriggered = true;
+      if (animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time);
+      animation.impactDamage?.forEach((damage) => {
+        damage.triggered = true;
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+      });
+      if (animation.collisionTargetKind === 'object' && animation.collisionTargetId) {
+        const targetObject = gameState.objects.find((object) => object.id === animation.collisionTargetId);
+        const targetGroup = objectGroups.get(animation.collisionTargetId);
+        if (targetObject?.kind === 'wooden-box' && targetGroup) {
+          objectImpactAnimations.set(animation.collisionTargetId, {
+            startedAt: time,
+            origin: targetGroup.position.clone(),
+            quaternion: targetGroup.quaternion.clone(),
+          });
+        }
+      }
+    }
+    const progress = isReleasedShield ? flightProgress : Math.min(1, elapsed / animation.duration);
     const travelProgress = animation.collided ? Math.min(1, progress / 0.72) : progress;
     const eased = 1 - Math.pow(1 - travelProgress, 3);
+    if (animation.preserveQuaternion && animation.impactDamage) {
+      animation.impactDamage.forEach((damage) => {
+        if (damage.triggered || damage.triggerRouteProgress === undefined || eased < damage.triggerRouteProgress) return;
+        damage.triggered = true;
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+      });
+    }
+    if (animation.preserveQuaternion && animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time, eased);
     if (animation.parachute) group.position.lerpVectors(animation.from, animation.to, 1 - Math.pow(1 - progress, 2));
+    else if (isReleasedShield) {
+      if (animation.idleQuaternion && animation.visibleCenterLocal && animation.visibleCenterFrom && animation.visibleCenterTo) {
+        group.quaternion.copy(animation.releaseQuaternion!).slerp(animation.idleQuaternion, flightProgress);
+        const flightEaseOut = 1 - Math.pow(1 - flightProgress, 3);
+        const flightDestination = animation.collided && animation.collisionVisibleCenter
+          ? animation.collisionVisibleCenter
+          : animation.visibleCenterTo;
+        const desiredCenter = animation.visibleCenterFrom.clone().lerp(flightDestination, flightEaseOut);
+        const rotatedCenterOffset = animation.visibleCenterLocal.clone().applyQuaternion(group.quaternion);
+        group.position.copy(desiredCenter.sub(rotatedCenterOffset));
+        group.position.y -= (animation.dropDistance ?? 0) * flightEaseOut;
+      } else {
+        const flightEaseOut = 1 - Math.pow(1 - flightProgress, 3);
+        group.position.lerpVectors(animation.from, animation.flightTo!, flightEaseOut);
+        group.quaternion.copy(animation.releaseQuaternion!);
+      }
+    }
     else moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased);
-    if (animation.collided && progress > 0.72) {
+    if (!animation.releaseQuaternion && animation.collided && progress > 0.72) {
       const bounceProgress = (progress - 0.72) / 0.28;
       const recoil = Math.sin(bounceProgress * Math.PI) * 0.38;
       group.position.x += animation.dx * 1.92 * recoil;
       group.position.z += animation.dy * 1.92 * recoil;
     }
-    if (!animation.parachute) {
+    if (!animation.parachute && !animation.releaseQuaternion && !animation.preserveQuaternion) {
       group.position.y += Math.sin(progress * Math.PI) * 0.85;
       group.rotation.x = Math.sin(progress * Math.PI) * 0.32;
       group.rotation.z = Math.sin(progress * Math.PI * 2) * 0.18;
-    } else group.rotation.y += 0.012;
+    } else if (animation.preserveQuaternion) {
+      group.quaternion.copy(animation.preserveQuaternion);
+      if (animation.targetQuaternion) group.quaternion.slerp(animation.targetQuaternion, eased);
+      group.position.y += Math.sin(progress * Math.PI) * 0.28;
+    } else if (animation.parachute) group.rotation.y += 0.012;
     if (animation.destroy) {
       const collapse = Math.max(.04, 1 - Math.pow(progress, 1.35));
       group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(collapse);
       group.rotation.y = progress * Math.PI * 3;
     }
-    if (progress >= 1) {
-      group.position.copy(animation.to);
-      group.rotation.set(0, 0, 0);
+    const collisionBounceDuration = isReleasedShield && animation.collided ? (animation.collisionBounceDuration ?? 230) : 0;
+    const collisionBounceElapsed = elapsed - animation.duration;
+    const collisionBounceProgress = collisionBounceDuration > 0 ? THREE.MathUtils.clamp(collisionBounceElapsed / collisionBounceDuration, 0, 1) : 1;
+    if (isReleasedShield && animation.collided && flightProgress >= 1 && collisionBounceProgress < 1 && animation.visibleCenterLocal && animation.visibleCenterTo) {
+      group.quaternion.copy(animation.idleQuaternion ?? animation.releaseQuaternion!);
+      const bounceEaseOut = 1 - Math.pow(1 - collisionBounceProgress, 3);
+      const impactCenter = (animation.collisionVisibleCenter ?? animation.visibleCenterTo).clone();
+      impactCenter.y -= animation.dropDistance ?? 0;
+      const landingCenter = animation.visibleCenterTo.clone();
+      landingCenter.y -= animation.dropDistance ?? 0;
+      const desiredCenter = impactCenter.clone().lerp(landingCenter, bounceEaseOut);
+      group.position.copy(desiredCenter.sub(animation.visibleCenterLocal.clone().applyQuaternion(group.quaternion)));
+    }
+    const landingShakeDuration = isReleasedShield && !animation.collided ? (animation.landingShakeDuration ?? 320) : 0;
+    const landingShakeElapsed = elapsed - animation.duration;
+    const landingShakeProgress = landingShakeDuration > 0 ? THREE.MathUtils.clamp(landingShakeElapsed / landingShakeDuration, 0, 1) : 1;
+    const completed = progress >= 1 && landingShakeProgress >= 1 && collisionBounceProgress >= 1;
+    if (isReleasedShield && !animation.collided && progress >= 1 && landingShakeProgress < 1) {
+      const decay = 1 - landingShakeProgress;
+      const shakeAngle = Math.sin(landingShakeProgress * Math.PI * 8) * 0.055 * decay;
+      group.quaternion.copy(animation.idleQuaternion ?? animation.releaseQuaternion!).multiply(
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), shakeAngle),
+      );
+      if (animation.visibleCenterTo && animation.visibleCenterLocal) {
+        group.position.copy(animation.visibleCenterTo).sub(animation.visibleCenterLocal.clone().applyQuaternion(group.quaternion));
+        group.position.y -= animation.dropDistance ?? 0;
+      }
+      const amplitude = 0.09 * decay;
+      group.position.x += Math.sin(landingShakeProgress * Math.PI * 8) * amplitude;
+      group.position.z += Math.sin(landingShakeProgress * Math.PI * 10 + Math.PI / 3) * amplitude * 0.7;
+    }
+    if (completed) {
+      animation.impactDamage?.forEach((damage) => {
+        if (damage.triggered) return;
+        damage.triggered = true;
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+      });
+      if (isReleasedShield && animation.visibleCenterTo && animation.visibleCenterLocal) {
+        group.quaternion.copy(animation.idleQuaternion ?? animation.releaseQuaternion!);
+        group.position.copy(animation.visibleCenterTo).sub(animation.visibleCenterLocal.clone().applyQuaternion(group.quaternion));
+        group.position.y -= animation.dropDistance ?? 0;
+      } else group.position.copy(animation.flightTo ?? animation.to);
+      group.visible = true;
+      if (!animation.releaseQuaternion && !animation.preserveQuaternion) group.rotation.set(0, 0, 0);
       const parachute = group.getObjectByName('RespawnParachute');
       if (parachute) group.remove(parachute);
       objectMovementAnimations.delete(objectId);
@@ -2419,7 +2636,7 @@ function createSpiritGuardian(level: number) {
   return root;
 }
 
-function createOrkkShieldObject() {
+function createProceduralOrkkShieldObject() {
   const root = new THREE.Group();
   const iron = new THREE.MeshStandardMaterial({ color: 0x555b5b, roughness: 0.34, metalness: 0.88 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x202525, roughness: 0.48, metalness: 0.8 });
@@ -2436,7 +2653,7 @@ function createOrkkShieldObject() {
 
 function createDaOrkk(playerColor = 0xff5d68) {
   const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
-  root.userData.facingSide = 'negative-z';
+  root.userData.facingSide = 'positive-z';
   const skin = new THREE.MeshStandardMaterial({ color: 0x477f3b, roughness: 0.75 });
   const iron = new THREE.MeshStandardMaterial({ color: 0x51595a, roughness: 0.35, metalness: 0.86 });
   const wood = new THREE.MeshStandardMaterial({ color: 0x70431f, roughness: 0.9 });
@@ -2450,10 +2667,139 @@ function createDaOrkk(playerColor = 0xff5d68) {
   const club = add(new THREE.CylinderGeometry(0.13, 0.19, 1.45, 10), wood, [0.58, 1.15, 0]); club.rotation.z = -0.38;
   const clubHead = add(new THREE.CylinderGeometry(0.25, 0.34, 0.62, 9), wood, [0.81, 1.8, 0]); clubHead.rotation.z = -0.38;
   const equippedShield = createOrkkShieldObject(); equippedShield.name = 'EquippedShield'; equippedShield.scale.setScalar(0.82); equippedShield.position.set(-0.65, 0.12, -0.05); equippedShield.rotation.y = -0.25; body.add(equippedShield);
-  add(new THREE.CylinderGeometry(0.58, 0.68, 0.12, 32), accent, [0, 0.1, 0], root);
+  add(new THREE.CylinderGeometry(0.58, 0.68, 0.12, 32), accent, [0, 0.1, 0]);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  attachDaOrkhModel(root, body);
   return root;
+}
+
+type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'BoxAttack';
+const ORKK_BASE_ATTACK_FPS = 24;
+const ORKK_BASE_ATTACK_END_FRAME = 45;
+const ORKK_BASE_ATTACK_IMPACT_FRAME = 23;
+const ORKK_BASE_ATTACK_TIME_SCALE = 1.4;
+type OrkkAnimationState = {
+  mixer: THREE.AnimationMixer;
+  actions: Record<OrkkAnimationName, THREE.AnimationAction>;
+  current: OrkkAnimationName;
+  oneShotUntil?: number;
+  shieldThrowReleaseMs: number;
+  shieldIdleSocketLocalQuaternion: THREE.Quaternion;
+};
+
+async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
+  try {
+    const asset = await loadDaOrkhAsset();
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = 'DaOrkhImportedModel';
+    model.scale.setScalar(1.6);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.material = Array.isArray(child.material) ? child.material.map((material) => material.clone()) : child.material.clone();
+    });
+    disposeTemporaryCharacterBody(body);
+    body.add(model);
+    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
+    const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID'];
+    if (required.some((name) => !clips[name])) throw new Error(`Da Orkk GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
+    // One board square needs only the first step cycle, not the full multi-step source clip.
+    const casualWalkOneSquare = THREE.AnimationUtils.subclip(clips.DaOrkh_Casual_Walk, 'DaOrkh_Casual_Walk_One_Square', 0, 33, 24);
+    const baseAttack = THREE.AnimationUtils.subclip(
+      clips.DaOrkh_Base_UUID,
+      'DaOrkh_Base_UUID_45_Frames',
+      0,
+      ORKK_BASE_ATTACK_END_FRAME,
+      ORKK_BASE_ATTACK_FPS,
+    );
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {
+      IdleWithShield: mixer.clipAction(clips.DaOrkh_Idle_With_Shield),
+      IdleNoShield: mixer.clipAction(clips.DaOrkh_Idle_No_Shield),
+      CasualWalk: mixer.clipAction(casualWalkOneSquare),
+      Walking: mixer.clipAction(clips.DaOrkh_Walking),
+      Running: mixer.clipAction(clips.DaOrkh_Running),
+      Encourage: mixer.clipAction(clips.DaOrkh_Skill_01),
+      ShieldThrow: mixer.clipAction(clips.DaOrkh_Shield_Throw),
+      BoxAttack: mixer.clipAction(baseAttack),
+    };
+    actions.Encourage.setLoop(THREE.LoopOnce, 1); actions.Encourage.clampWhenFinished = true;
+    actions.ShieldThrow.setLoop(THREE.LoopOnce, 1); actions.ShieldThrow.clampWhenFinished = true;
+    actions.BoxAttack.setLoop(THREE.LoopOnce, 1); actions.BoxAttack.clampWhenFinished = true;
+    actions.BoxAttack.timeScale = ORKK_BASE_ATTACK_TIME_SCALE;
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    const shieldEquipped = playerId ? gameState.players[playerId]?.shieldEquipped !== false : true;
+    const initial = shieldEquipped ? 'IdleWithShield' : 'IdleNoShield';
+    actions[initial].play();
+    mixer.update(0);
+    const equippedShield = model.getObjectByName('Ironbound_Obelisk');
+    if (equippedShield) { equippedShield.name = 'EquippedShield'; equippedShield.visible = shieldEquipped; }
+    root.updateWorldMatrix(true, true);
+    const releaseSocket = model.getObjectByName('Shield_Release_Socket');
+    const rootWorldQuaternion = root.getWorldQuaternion(new THREE.Quaternion());
+    const shieldIdleSocketLocalQuaternion = releaseSocket
+      ? rootWorldQuaternion.invert().multiply(releaseSocket.getWorldQuaternion(new THREE.Quaternion()))
+      : new THREE.Quaternion();
+    const yawFreeIdleEuler = new THREE.Euler().setFromQuaternion(shieldIdleSocketLocalQuaternion, 'YXZ');
+    yawFreeIdleEuler.y = 0;
+    shieldIdleSocketLocalQuaternion.setFromEuler(yawFreeIdleEuler);
+    root.userData.orkkAnimation = { mixer, actions, current: initial, shieldThrowReleaseMs: clips.DaOrkh_Shield_Throw.duration * 1000, shieldIdleSocketLocalQuaternion } satisfies OrkkAnimationState;
+    root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
+    const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'BoxAttack' | undefined;
+    if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
+  } catch (error) {
+    console.error('Failed to load Da Orkk model; keeping procedural fallback.', error);
+  }
+}
+
+function playOrkkAnimation(group: THREE.Group, name: OrkkAnimationName, fade = 0.12) {
+  const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+  if (!state || state.current === name) return;
+  state.actions[state.current].fadeOut(fade);
+  state.actions[name].reset().fadeIn(fade).play();
+  state.current = name;
+}
+
+function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' | 'BoxAttack') {
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
+  if (!group) return;
+  if (!state) { group.userData.pendingOrkkAnimation = name; return; }
+  playOrkkAnimation(group, name, 0.08);
+  state.oneShotUntil = performance.now() + state.actions[name].getClip().duration * 1000 / state.actions[name].getEffectiveTimeScale();
+}
+
+function applyOrkkVisualIntent(intent: OrkkVisualIntent) {
+  const group = dummyGroups.get(intent.playerId);
+  if (!group) return;
+  if (intent.target) {
+    const dx = intent.target.x - group.position.x;
+    const dz = intent.target.z - group.position.z;
+    if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+  }
+  playOrkkOneShot(intent.playerId, intent.animation);
+}
+
+function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boolean, deltaSeconds: number) {
+  const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+  if (!state) return;
+  state.mixer.update(deltaSeconds);
+  if (state.oneShotUntil && performance.now() < state.oneShotUntil) return;
+  state.oneShotUntil = undefined;
+  if (moving) {
+    const movement = movementAnimations.get(playerId);
+    const squares = movement?.path?.length ?? 1;
+    const movementName = squares >= 3 ? 'Running' : squares === 2 ? 'Walking' : 'CasualWalk';
+    if (movement) state.actions[movementName].timeScale = state.actions[movementName].getClip().duration / (movement.duration / 1000);
+    playOrkkAnimation(group, movementName);
+  } else {
+    const equippedShield = group.getObjectByName('EquippedShield');
+    const visiblyEquipped = gameState.players[playerId].shieldEquipped && equippedShield?.visible !== false;
+    playOrkkAnimation(group, visiblyEquipped ? 'IdleWithShield' : 'IdleNoShield');
+  }
 }
 
 function createLongHatLogan(playerColor = 0x169bd3) {
@@ -2481,6 +2827,66 @@ function createLongHatLogan(playerColor = 0x169bd3) {
     orb.name = `ManaOrb${index + 1}`; orb.visible = false; orb.userData.orbIndex = index; randomizeManaOrbit(orb); manaAura.add(orb);
   }
   attachLongHatLoganModel(root, body);
+  return root;
+}
+
+function loadDaOrkhAsset() {
+  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh.glb?v=20260813-1`).then((asset) => {
+    daOrkhAsset = asset;
+    asset.scene.updateWorldMatrix(true, true);
+    return asset;
+  });
+}
+
+function updateObjectImpactAnimations(time: number) {
+  objectImpactAnimations.forEach((animation, objectId) => {
+    const group = objectGroups.get(objectId);
+    if (!group) { objectImpactAnimations.delete(objectId); return; }
+    const progress = (time - animation.startedAt) / 300;
+    if (progress >= 1) {
+      group.position.copy(animation.origin);
+      group.quaternion.copy(animation.quaternion);
+      objectImpactAnimations.delete(objectId);
+      return;
+    }
+    const decay = 1 - progress;
+    group.position.copy(animation.origin);
+    group.position.x += Math.sin(progress * Math.PI * 10) * 0.065 * decay;
+    group.position.z += Math.sin(progress * Math.PI * 12 + Math.PI / 3) * 0.045 * decay;
+    group.quaternion.copy(animation.quaternion).multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.sin(progress * Math.PI * 8) * 0.035 * decay),
+    );
+  });
+}
+
+function characterFacingRotation(group: THREE.Group, dx: number, dz: number) {
+  return Math.atan2(dx, dz) + (group.userData.facingSide === 'negative-z' ? Math.PI : 0);
+}
+
+function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) {
+  if (root.userData.importedOrkkShield) return;
+  const source = asset.scene.getObjectByName('Ironbound_Obelisk');
+  const socket = asset.scene.getObjectByName('Shield_Release_Socket');
+  if (!(source instanceof THREE.Mesh) || !socket) return;
+  root.clear();
+  const mesh = new THREE.Mesh(source.geometry, Array.isArray(source.material) ? source.material.map((material) => material.clone()) : source.material.clone());
+  mesh.name = 'Ironbound_Obelisk_Mesh';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  source.updateWorldMatrix(true, false);
+  socket.updateWorldMatrix(true, false);
+  socket.matrixWorld.clone().invert().multiply(source.matrixWorld).decompose(mesh.position, mesh.quaternion, mesh.scale);
+  root.add(mesh);
+  socket.getWorldScale(root.scale);
+  root.scale.multiplyScalar(1.6);
+  root.userData.importedOrkkShield = true;
+}
+
+function createOrkkShieldObject() {
+  const root = createProceduralOrkkShieldObject();
+  const install = (asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) => installImportedShield(root, asset);
+  if (daOrkhAsset) install(daOrkhAsset);
+  else loadDaOrkhAsset().then(install).catch((error) => console.error('Failed to load Da Orkk shield model.', error));
   return root;
 }
 
@@ -3026,7 +3432,7 @@ function worldPosition(cell: Cell) {
   return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? 0.54 : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
-function faceWizardTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
+function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
   let nearestPosition: THREE.Vector3 | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
   (Object.keys(gameState.players) as PlayerId[]).forEach((candidateId) => {
@@ -3041,7 +3447,7 @@ function faceWizardTowardNearestOpponent(group: THREE.Group, playerId: PlayerId)
   if (!nearestPosition) return;
   const dx = nearestPosition.x - group.position.x;
   const dz = nearestPosition.z - group.position.z;
-  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = Math.atan2(dx, dz);
+  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
 }
 
 function syncBoard() {
@@ -3064,7 +3470,7 @@ function syncBoard() {
     const previousKey = lastVisualCells.get(id);
     if (!previousKey) {
       group.position.copy(target);
-      if (character === 'magician') faceWizardTowardNearestOpponent(group, id);
+      faceCharacterTowardNearestOpponent(group, id);
     } else if (previousKey !== targetKey) {
       const from = group.position.clone();
       from.y = target.y;
@@ -3078,12 +3484,21 @@ function syncBoard() {
       const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
       const visualPath = walkingPath.map(worldPosition);
       const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
-      movementAnimations.set(id, { from, to: target.clone(), startedAt: performance.now(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined });
+      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined };
+      if (recordedMovement?.triggerAnimationId) {
+        const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
+        queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
+        impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
+      }
+      else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
     }
     lastVisualCells.set(id, targetKey);
     const equippedShield = group.getObjectByName('EquippedShield');
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
-    if (equippedShield) equippedShield.visible = gameState.players[id].shieldEquipped && !recallInFlight;
+    const throwInFlight = gameState.objectPushAnimations.some((event) => event.id.includes('-arkane-arow-')
+      && gameState.objects.some((object) => object.id === event.objectId && object.ownerId === id)
+      && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
+    if (equippedShield) equippedShield.visible = (gameState.players[id].shieldEquipped && !recallInFlight) || throwInFlight;
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
@@ -3098,6 +3513,7 @@ function syncBoard() {
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : createWoodenBox(); objectGroups.set(object.id, group); scene.add(group); }
+    if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
     const target = worldPosition(object.position);
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
@@ -3112,9 +3528,17 @@ function syncBoard() {
   });
   gameState.objectPushAnimations.forEach((event) => {
     if (processedObjectPushAnimations.has(event.id)) return;
+    if (event.healing) {
+      processedObjectPushAnimations.add(event.id);
+      spawnHealingVisual(event.healing.playerId, event.healing.amount);
+      return;
+    }
     if (event.damage) {
       processedObjectPushAnimations.add(event.id);
-      spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision);
+      const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, triggerRouteProgress: event.damage.triggerRouteProgress };
+      if (event.damage.triggerAnimationId) {
+        pendingDamageVisuals.set(event.damage.triggerAnimationId, [...(pendingDamageVisuals.get(event.damage.triggerAnimationId) ?? []), pendingDamage]);
+      } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision);
       return;
     }
     if (event.teleport) {
@@ -3128,18 +3552,83 @@ function syncBoard() {
       return;
     }
     let group = objectGroups.get(event.objectId);
-    if (!group && event.removeOnComplete && event.equipPlayerId) { group = createOrkkShieldObject(); objectGroups.set(event.objectId, group); scene.add(group); }
+    const reconstructedRecallShield = !group && event.removeOnComplete && event.equipPlayerId;
+    if (reconstructedRecallShield) { group = createOrkkShieldObject(); objectGroups.set(event.objectId, group); scene.add(group); }
     if (!group) return;
     processedObjectPushAnimations.add(event.id);
-    const from = worldPosition(event.from); const to = worldPosition(event.to);
+    const logicalFrom = worldPosition(event.from); const logicalTo = worldPosition(event.to);
+    if (event.attackAnimationPlayerId && !event.destroy) {
+      const attacker = dummyGroups.get(event.attackAnimationPlayerId);
+      if (attacker) {
+        const dx = logicalFrom.x - attacker.position.x;
+        const dz = logicalFrom.z - attacker.position.z;
+        if (Math.abs(dx) + Math.abs(dz) > 0.0001) attacker.rotation.y = characterFacingRotation(attacker, dx, dz);
+      }
+      playOrkkOneShot(event.attackAnimationPlayerId, 'BoxAttack');
+      return;
+    }
+    const isOrkkRecall = (event.id.includes('-arm-da-wiz-') || event.id.includes('-arcane-shield-') || event.id.includes('-shield-bash-')) && Boolean(event.removeOnComplete && event.equipPlayerId);
+    const recallOrkkGroup = isOrkkRecall && event.equipPlayerId ? dummyGroups.get(event.equipPlayerId) : undefined;
+    if (recallOrkkGroup) {
+      const approachCell = event.path && event.path.length > 1 ? event.path[event.path.length - 2] : event.from;
+      const approach = worldPosition(approachCell);
+      const dx = approach.x - recallOrkkGroup.position.x;
+      const dz = approach.z - recallOrkkGroup.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) recallOrkkGroup.rotation.y = characterFacingRotation(recallOrkkGroup, dx, dz);
+      recallOrkkGroup.updateWorldMatrix(true, true);
+    }
+    // A thrown Shield's root is offset from its logical cell so that the visible
+    // mesh rests on the floor. Preserve that offset during Recall; snapping the
+    // root back to the cell center can put the mesh beside or below the Board.
+    const from = isOrkkRecall && !reconstructedRecallShield ? group.position.clone() : logicalFrom.clone();
+    const recallRootOffset = from.clone().sub(logicalFrom);
+    let to = isOrkkRecall ? logicalTo.clone().add(recallRootOffset) : logicalTo.clone();
+    const recallSocket = isOrkkRecall && event.equipPlayerId
+      ? recallOrkkGroup?.getObjectByName('Shield_Release_Socket')
+      : undefined;
+    let recallTargetQuaternion: THREE.Quaternion | undefined;
+    if (recallSocket) {
+      recallSocket.updateWorldMatrix(true, false);
+      to = recallSocket.getWorldPosition(new THREE.Vector3());
+      recallTargetQuaternion = recallSocket.getWorldQuaternion(new THREE.Quaternion());
+    }
     if (event.parachute) {
       from.y += 12;
       const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.05, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xf2d28b, roughness: .82, side: THREE.DoubleSide }));
       canopy.name = 'RespawnParachute'; canopy.position.y = 2.2; canopy.scale.y = .55; group.add(canopy);
     }
     group.position.copy(from);
-    const travelSquares = Math.max(1, distance(event.from, event.to));
-    objectMovementAnimations.set(event.objectId, { from, to, startedAt: performance.now(), duration: event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190, collided: event.collided, dx: event.dx, dy: event.dy, path: event.path?.map(worldPosition), removeOnComplete: event.removeOnComplete, destroy: event.destroy, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute });
+    group.visible = true;
+    if (isOrkkRecall && event.equipPlayerId) group.userData.ownerId = event.equipPlayerId;
+    const visualDestination = event.collided && event.collisionAt ? event.collisionAt : event.to;
+    const travelSquares = Math.max(1, distance(event.from, visualDestination));
+    const ownerId = (group.userData.ownerId ?? event.equipPlayerId) as PlayerId | undefined;
+    const orkkState = ownerId ? dummyGroups.get(ownerId)?.userData.orkkAnimation as OrkkAnimationState | undefined : undefined;
+    const orkkGroup = ownerId ? dummyGroups.get(ownerId) : undefined;
+    const shieldThrow = event.id.includes('-arkane-arow-') ? orkkGroup?.getObjectByName('Shield_Release_Socket') : undefined;
+    const idleWorldQuaternion = shieldThrow && orkkState && orkkGroup
+      ? orkkGroup.getWorldQuaternion(new THREE.Quaternion()).multiply(orkkState.shieldIdleSocketLocalQuaternion)
+      : undefined;
+    const boxAttacker = event.attackAnimationPlayerId ? dummyGroups.get(event.attackAnimationPlayerId) : undefined;
+    let boxAttackDelay = 0;
+    if (boxAttacker && event.destroy && event.attackAnimationPlayerId) {
+      const dx = logicalFrom.x - boxAttacker.position.x;
+      const dz = logicalFrom.z - boxAttacker.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) boxAttacker.rotation.y = characterFacingRotation(boxAttacker, dx, dz);
+      playOrkkOneShot(event.attackAnimationPlayerId, 'BoxAttack');
+      // Base UUID keeps playing after impact. Only the Box destruction visual
+      // begins at source frame 23 (the clip is authored at 24 fps).
+      boxAttackDelay = (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
+    }
+    const duration = shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
+    const impactDamage = pendingDamageVisuals.get(event.id);
+    pendingDamageVisuals.delete(event.id);
+    const visualPath = event.path?.map((cell) => {
+      if (isOrkkRecall && cell.x === event.to.x && cell.y === event.to.y) return to.clone();
+      const point = worldPosition(cell);
+      return isOrkkRecall ? point.add(recallRootOffset) : point;
+    });
+    objectMovementAnimations.set(event.objectId, { animationId: event.id, from, to, startedAt: performance.now(), delay: shieldThrow ? (orkkState?.shieldThrowReleaseMs ?? 1000) + 16 : isOrkkRecall ? 180 : boxAttackDelay, duration, collided: event.collided, dx: event.dx, dy: event.dy, path: visualPath, collisionAt: event.collisionAt ? worldPosition(event.collisionAt) : undefined, collisionTargetKind: event.collisionTargetKind, collisionTargetId: event.collisionTargetId, impactDamage, preserveQuaternion: isOrkkRecall ? group.quaternion.clone() : undefined, targetQuaternion: recallTargetQuaternion, removeOnComplete: event.removeOnComplete, destroy: event.destroy, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute, releaseSource: shieldThrow, idleQuaternion: idleWorldQuaternion, landingShakeDuration: shieldThrow && !event.collided ? 320 : 0, collisionBounceDuration: shieldThrow && event.collided ? 230 : 0 });
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();

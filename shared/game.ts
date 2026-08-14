@@ -216,14 +216,14 @@ export type PlayerState = {
   rageStacks: number; shieldEquipped: boolean; rageGainLocked: boolean; doubleRageUntilEnemyTurnEnd: boolean;
   manaPoints: number; manaMode: 'generate' | 'consume'; manaConsumeEventId: string | null; arcaneBoltAttackBonus: number; damagedDuringEnemyTurn: boolean;
   spiritForm: boolean; spiritEnemyUnderfoot: PlayerId | null; spiritObjectUnderfoot: string | null; spiritSiphonedEnemyIds: PlayerId[]; spiritSiphonedMovement: number; johnCumulativeMovementRemaining: number; spiritMovementDepleted: boolean; spiritMovementSpentThisTurn: boolean; stoicShell: boolean; stoicShellStacks: number; queuedBlessingCardIds: CardTypeId[]; stoicShellHealedTurn: number | null; stoicShellHealEventId: string | null; stoicShellHealAmount: number;
-  visualMovement?: { from: Cell; path: Cell[] };
+  visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number };
   matchStats?: MatchStats;
 };
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number };
 export type CombatModifier = { value: number; source: string };
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; resurrectionNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: boolean; combatStackDefenderBanner?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; removeOnComplete?: boolean; destroy?: boolean; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; attackAnimationPlayerId?: PlayerId; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' };
 export type GamePhase = 'active' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: boolean }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[] }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
@@ -562,6 +562,7 @@ function healPlayer(state: GameState, player: PlayerState, amount: number): numb
   if (healed > 0) {
     const damageState = state as GameState & { damageLog?: DamageLogEntry[] };
     (damageState.damageLog ??= []).push({ eventType: 'healing', turn: state.turn, targetId: player.id, sourceId: player.id, sourceKind: 'perk', amount: healed, hpAfter: player.hp, collision: false });
+    state.objectPushAnimations.push({ id: `${state.turn}-healing-${player.id}-${state.objectPushAnimations.length}`, objectId: '', from: { ...player.position }, to: { ...player.position }, dx: 0, dy: 0, collided: false, healing: { playerId: player.id, amount: healed } });
   }
   return healed;
 }
@@ -868,6 +869,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   const object = state.objects.find((entry) => entry.id === objectId);
   if (!object || (isWallObject(object) && object.kind !== 'spirit-guardian')) return fail(state, 'Only non-Wall Objects and Spirit Guardians can be attacked.');
   const card = cardDefinition(instance);
+  const objectAnimationStart = state.objectPushAnimations.length;
   const shieldEquippedAtStart = player.shieldEquipped;
   if (distance(player.position, object.position) > effectiveAttackRange(state, player)) return fail(state, 'Object is outside the attack range.');
   if (!hasLineOfSight(state, player.position, object.position)) return fail(state, 'A Wall Object blocks line of sight to that Object.');
@@ -948,15 +950,22 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
       if (shield) {
         const path = armDaWizPath(state, shield, player.position, 16);
         if (path.length > 0) {
+          const recallAnimationId = `${state.turn}-shield-bash-object-${state.objectPushAnimations.length}`;
           const crossedEnemyIds = new Set<PlayerId>();
-          for (const cell of path) {
+          for (const [pathIndex, cell] of path.entries()) {
             const enemy = Object.values(state.players).find((entry) => entry.id !== player.id && entry.position.x === cell.x && entry.position.y === cell.y);
             if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
             crossedEnemyIds.add(enemy.id);
+            const damageAnimationStart = state.objectPushAnimations.length;
             dealDamage(state, enemy, 3, true, player.id, 'attack');
+            for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+              if (!event.damage?.collision) continue;
+              event.damage.triggerAnimationId = recallAnimationId;
+              event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
+            }
           }
-          pullEnemiesAlongShieldRecall(state, shield, player.id, path, 'Shield Bash');
-          state.objectPushAnimations.push({ id: `${state.turn}-shield-bash-object-${state.objectPushAnimations.length}`, objectId: shield.id, from: { ...shield.position }, to: { ...player.position }, dx: Math.sign(player.position.x - shield.position.x), dy: Math.sign(player.position.y - shield.position.y), collided: crossedEnemyIds.size > 0, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: player.id });
+          pullEnemiesAlongShieldRecall(state, shield, player.id, path, 'Shield Bash', recallAnimationId);
+          state.objectPushAnimations.push({ id: recallAnimationId, objectId: shield.id, from: { ...shield.position }, to: { ...player.position }, dx: Math.sign(player.position.x - shield.position.x), dy: Math.sign(player.position.y - shield.position.y), collided: false, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: player.id });
           state.objects = state.objects.filter((entry) => entry.id !== shield.id);
           player.shieldEquipped = true;
           state.log.unshift(`Shield Bash recalled and equipped ${player.name}'s Shield after attacking an Object.`);
@@ -980,6 +989,20 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.log.unshift('Dance Through: Obi Wan Shinobi may move 1 Square up to 3 times after attacking the Object.');
   }
   if (player.character === 'john-christ' && player.spiritForm) exitSpiritForm(state, player, 'after using an Attack Card');
+  if (player.character === 'orkk' && object.kind === 'wooden-box') {
+    const destruction = state.objectPushAnimations.slice(objectAnimationStart).find((event) => event.objectId === object.id && event.destroy);
+    if (destruction) destruction.attackAnimationPlayerId = player.id;
+    else state.objectPushAnimations.push({
+      id: `${state.turn}-orkk-box-attack-${object.id}-${state.objectPushAnimations.length}`,
+      objectId: object.id,
+      from: { ...object.position },
+      to: { ...object.position },
+      dx: 0,
+      dy: 0,
+      collided: false,
+      attackAnimationPlayerId: player.id,
+    });
+  }
   state.log.unshift(`${player.name} attacked ${object.name} with ${card.name} at resolved Value ${attackValue}${highGroundBonus ? ', including +1 High Ground' : ''}.`);
   return ok(state);
 }
@@ -2852,16 +2875,23 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (shield) {
       const path = armDaWizPath(state, shield, orkk.position, 16);
       if (path.length > 0) {
+        const recallAnimationId = `${state.turn}-shield-bash-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
-        for (const cell of path) {
+        for (const [pathIndex, cell] of path.entries()) {
           const enemy = Object.values(state.players).find((entry) => entry.id !== orkk.id && entry.position.x === cell.x && entry.position.y === cell.y);
           if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
           crossedEnemyIds.add(enemy.id);
+          const damageAnimationStart = state.objectPushAnimations.length;
           dealCombatCardEffectDamage(state, enemy, 3, orkk.id, 'attack', true);
+          for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+            if (!event.damage?.collision) continue;
+            event.damage.triggerAnimationId = recallAnimationId;
+            event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
+          }
           state.log.unshift(`Shield Bash's Shield passed through ${enemy.name} and dealt 3 damage.`);
         }
-        pullEnemiesAlongShieldRecall(state, shield, orkk.id, path, 'Shield Bash');
-        state.objectPushAnimations.push({ id: `${state.turn}-shield-bash-${state.objectPushAnimations.length}`, objectId: shield.id, from: { ...shield.position }, to: { ...orkk.position }, dx: Math.sign(orkk.position.x - shield.position.x), dy: Math.sign(orkk.position.y - shield.position.y), collided: crossedEnemyIds.size > 0, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: orkk.id });
+        pullEnemiesAlongShieldRecall(state, shield, orkk.id, path, 'Shield Bash', recallAnimationId);
+        state.objectPushAnimations.push({ id: recallAnimationId, objectId: shield.id, from: { ...shield.position }, to: { ...orkk.position }, dx: Math.sign(orkk.position.x - shield.position.x), dy: Math.sign(orkk.position.y - shield.position.y), collided: false, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: orkk.id });
         state.objects = state.objects.filter((entry) => entry.id !== shield.id);
         orkk.shieldEquipped = true;
         state.log.unshift(`Shield Bash recalled and equipped ${orkk.name}'s Shield after combat.`);
@@ -2887,16 +2917,22 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (shield) {
       const path = armDaWizPath(state, shield, defender.position, 16);
       if (path.length > 0) {
+        const recallAnimationId = `${state.turn}-arcane-shield-${state.objectPushAnimations.length}`;
         const crossedEnemyIds = new Set<PlayerId>();
-        for (const cell of path) {
+        for (const [pathIndex, cell] of path.entries()) {
           const enemy = Object.values(state.players).find((entry) => entry.id !== defender.id && entry.position.x === cell.x && entry.position.y === cell.y);
           if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
           crossedEnemyIds.add(enemy.id);
-          dealCombatCardEffectDamage(state, enemy, 2, defender.id, 'defense');
+          const damageAnimationStart = state.objectPushAnimations.length;
+          dealCombatCardEffectDamage(state, enemy, 2, defender.id, 'defense', true);
+          for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+            if (!event.damage?.collision) continue;
+            event.damage.triggerAnimationId = recallAnimationId;
+            event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
+          }
           state.log.unshift(`Arcane Shield passed through ${enemy.name}'s occupied Square and dealt 2 Damage.`);
         }
-        pullEnemiesAlongShieldRecall(state, shield, defender.id, path, 'Arcane Shield');
-        state.objectPushAnimations.push({ id: `${state.turn}-arcane-shield-${state.objectPushAnimations.length}`, objectId: shield.id, from: { ...shield.position }, to: { ...defender.position }, dx: Math.sign(defender.position.x - shield.position.x), dy: Math.sign(defender.position.y - shield.position.y), collided: crossedEnemyIds.size > 0, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: defender.id });
+        state.objectPushAnimations.push({ id: recallAnimationId, objectId: shield.id, from: { ...shield.position }, to: { ...defender.position }, dx: Math.sign(defender.position.x - shield.position.x), dy: Math.sign(defender.position.y - shield.position.y), collided: false, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: defender.id });
         state.objects = state.objects.filter((entry) => entry.id !== shield.id);
         defender.shieldEquipped = true;
         state.log.unshift(`Arcane Shield recalled and equipped ${defender.name}'s Shield after combat.`);
@@ -3726,9 +3762,15 @@ export function arkaneArowPath(state: GameState, caster: PlayerState, target: Ce
 
 function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
-  type RecallRoute = { cell: Cell; path: Cell[]; enemiesCrossed: number };
+  type RecallRoute = { cell: Cell; path: Cell[]; enemiesCrossed: number; turns: number; lineDeviation: number };
   const enemyAt = (cell: Cell) => Object.values(state.players).some((entry) => entry.id !== shield.ownerId && entry.position.x === cell.x && entry.position.y === cell.y);
-  let frontier: RecallRoute[] = [{ cell: { ...shield.position }, path: [], enemiesCrossed: 0 }];
+  const lineX = orkkCell.x - shield.position.x;
+  const lineY = orkkCell.y - shield.position.y;
+  const deviationFromDirectLine = (cell: Cell) => Math.abs(lineX * (cell.y - shield.position.y) - lineY * (cell.x - shield.position.x));
+  const isBetterRoute = (candidate: RecallRoute, existing: RecallRoute) => candidate.enemiesCrossed > existing.enemiesCrossed
+    || (candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns < existing.turns)
+    || (candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns === existing.turns && candidate.lineDeviation < existing.lineDeviation);
+  let frontier: RecallRoute[] = [{ cell: { ...shield.position }, path: [], enemiesCrossed: 0, turns: 0, lineDeviation: 0 }];
   let shortestDestination: RecallRoute | null = null;
   let shortestDistance = 0;
   // Keep a separate best route to each Square at every exact depth. A global
@@ -3751,17 +3793,27 @@ function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, ran
         const blockedByObject = state.objects.some((entry) => entry.id !== shield.id && entry.position.x === next.x && entry.position.y === next.y);
         if (blockedByObject && !isOrkk) continue;
         if ((next.x === shield.position.x && next.y === shield.position.y) || current.path.some((cell) => cell.x === next.x && cell.y === next.y)) continue;
-        const nextKey = key(next);
+        const previousCell = current.path.length > 1 ? current.path[current.path.length - 2] : shield.position;
+        const previousDx = Math.sign(current.cell.x - previousCell.x);
+        const previousDy = Math.sign(current.cell.y - previousCell.y);
+        const nextDx = Math.sign(next.x - current.cell.x);
+        const nextDy = Math.sign(next.y - current.cell.y);
+        const nextKey = `${key(next)}:${nextDx},${nextDy}`;
+        const changedDirection = current.path.length > 0 && (previousDx !== nextDx || previousDy !== nextDy);
         const candidate: RecallRoute = {
           cell: next,
           path: [...current.path, next],
           enemiesCrossed: current.enemiesCrossed + Number(enemyAt(next)),
+          turns: current.turns + Number(changedDirection),
+          lineDeviation: current.lineDeviation + deviationFromDirectLine(next),
         };
         const existing = nextFrontier.get(nextKey);
-        if (!existing || candidate.enemiesCrossed > existing.enemiesCrossed) nextFrontier.set(nextKey, candidate);
+        if (!existing || isBetterRoute(candidate, existing)) nextFrontier.set(nextKey, candidate);
       }
     }
-    const destination = nextFrontier.get(key(orkkCell));
+    const destination = [...nextFrontier.values()]
+      .filter((route) => route.cell.x === orkkCell.x && route.cell.y === orkkCell.y)
+      .reduce<RecallRoute | null>((best, route) => !best || isBetterRoute(route, best) ? route : best, null);
     if (destination && !shortestDestination) {
       if (step > range && destination.enemiesCrossed === 0) return [];
       shortestDestination = destination;
@@ -3775,7 +3827,7 @@ function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, ran
   return shortestDestination?.path ?? [];
 }
 
-function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, orkkId: PlayerId, path: Cell[], sourceName: string): void {
+function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, orkkId: PlayerId, path: Cell[], sourceName: string, triggerAnimationId?: string): void {
   const orkk = state.players[orkkId];
   const passes: { enemyId: PlayerId; pathIndex: number }[] = [];
   for (const [pathIndex, cell] of path.entries()) {
@@ -3794,9 +3846,11 @@ function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, ork
       state.log.unshift(`${sourceName} could not pull ${enemy.name} closer because the next Square toward ${orkk.name} was blocked.`);
       continue;
     }
+    const from = { ...enemy.position };
     recordQuestMovement(state, enemy.id, 1, false, destination);
     enemy.position = { ...destination };
     markCharacterMoved(enemy, 'enemy-ability');
+    if (triggerAnimationId) enemy.visualMovement = { from, path: [{ ...destination }], triggerAnimationId, triggerRouteProgress: (pass.pathIndex + 1) / path.length };
     state.log.unshift(`${sourceName} pulled ${enemy.name} 1 Square toward ${orkk.name}, to ${cellLabel(destination)}.`);
   }
 }
@@ -3831,6 +3885,7 @@ function resolveArmDaWizTarget(state: GameState, playerId: PlayerId, objectId: s
   const orkk = state.players[playerId];
   const path = armDaWizPath(state, shield, orkk.position, arm.range);
   if (path.length === 0) return fail(state, 'That Shield has no valid recall path to Da Orkk.');
+  const recallAnimationId = `${state.turn}-arm-da-wiz-${shield.id}-${state.objectPushAnimations.length}`;
   // Arm da Wiz is resolved entirely from board occupancy: an enemy is affected
   // when any Square in the Shield's calculated recall path contains that enemy.
   // No mesh, animation, timing, or physics collision is consulted.
@@ -3841,13 +3896,19 @@ function resolveArmDaWizTarget(state: GameState, playerId: PlayerId, objectId: s
     shieldPasses.push({ enemyId: enemy.id, pathIndex });
     if (arm.level >= 2) {
       const damage = 1 + meleeHighGroundDamageBonus(state, orkk, enemy.position, shield.position);
+      const damageAnimationStart = state.objectPushAnimations.length;
       dealDamage(state, enemy, damage, true, playerId, 'perk');
+      for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+        if (!event.damage?.collision) continue;
+        event.damage.triggerAnimationId = recallAnimationId;
+        event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
+      }
       state.log.unshift(`Arm da Wiz's Shield passed through ${enemy.name}'s occupied Square and dealt ${damage} damage${damage > 1 ? ' including +1 from High Ground' : ''}.`);
     }
   }
   pullEnemiesAlongShieldRecall(state, shield, playerId, path, 'Arm da Wiz');
   state.objectPushAnimations.push({
-    id: `${state.turn}-arm-da-wiz-${state.objectPushAnimations.length}`,
+    id: recallAnimationId,
     objectId: shield.id,
     from: { ...shield.position },
     to: { ...orkk.position },
@@ -3884,6 +3945,9 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
   const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
   const obstacle = state.objects.find((entry) => entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
   const collision = Boolean(enemy || obstacle);
+  const shieldId = `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`;
+  const shieldAnimationId = `${state.turn}-arkane-arow-${shieldId}`;
+  const damageAnimationStart = state.objectPushAnimations.length;
   const previous = travelledPath.length > 1 ? travelledPath[travelledPath.length - 2] : caster.position;
   const isClear = (cell: Cell) => !Object.values(state.players).some((entry) => entry.position.x === cell.x && entry.position.y === cell.y)
     && !state.objects.some((entry) => entry.position.x === cell.x && entry.position.y === cell.y);
@@ -3916,7 +3980,10 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
       const blocked = !inBounds || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
         || state.objects.some((entry) => entry.position.x === destination.x && entry.position.y === destination.y);
       if (!blocked) {
-        recordQuestMovement(state, enemy.id, 1, false, destination); enemy.position = destination; markCharacterMoved(enemy, 'enemy-ability'); pushed = true;
+        const pushFrom = { ...enemy.position };
+        recordQuestMovement(state, enemy.id, 1, false, destination); enemy.position = destination; markCharacterMoved(enemy, 'enemy-ability');
+        enemy.visualMovement = { from: pushFrom, path: [{ ...destination }], triggerAnimationId: shieldAnimationId };
+        pushed = true;
         state.log.unshift(`ARKANE AROW pushed ${enemy.name} to ${cellLabel(destination)}.`);
       } else {
         dealDamage(state, enemy, 1, true, playerId, 'perk');
@@ -3924,11 +3991,25 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
       }
     }
   } else if (obstacle) state.log.unshift(`ARKANE AROW collided with ${obstacle.name}.`);
+  for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
+    if (event.damage?.collision) event.damage.triggerAnimationId = shieldAnimationId;
+  }
   caster.shieldEquipped = false;
-  const shieldId = `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`;
   state.objects.push({ id: shieldId, name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: playerId, hp: 999, maxHp: 999, position: { ...shieldLanding } });
   const animationPath = collision ? travelledPath.slice(0, -1) : travelledPath;
-  state.objectPushAnimations.push({ id: `${state.turn}-arkane-arow-${state.objectPushAnimations.length}`, objectId: shieldId, from: { ...caster.position }, to: { ...shieldLanding }, dx: Math.sign(collisionCell.x - previous.x), dy: Math.sign(collisionCell.y - previous.y), collided: collision, path: animationPath.map((cell) => ({ ...cell })) });
+  state.objectPushAnimations.push({
+    id: shieldAnimationId,
+    objectId: shieldId,
+    from: { ...caster.position },
+    to: { ...shieldLanding },
+    dx: Math.sign(collisionCell.x - previous.x),
+    dy: Math.sign(collisionCell.y - previous.y),
+    collided: collision,
+    path: animationPath.map((cell) => ({ ...cell })),
+    collisionAt: collision ? { ...collisionCell } : undefined,
+    collisionTargetKind: enemy ? 'player' : obstacle ? 'object' : undefined,
+    collisionTargetId: enemy?.id ?? obstacle?.id,
+  });
   state.arkaneArow = null; state.phase = 'active';
   state.log.unshift(collision ? `Da Orkk's Shield Wall stopped at ${cellLabel(shieldLanding)}, adjacent to the collision at ${cellLabel(collisionCell)}${enemy && pushed ? ', after pushing the enemy away' : ''}.` : `Da Orkk's Shield Wall now stands at ${cellLabel(shieldLanding)}.`);
   return ok(state);

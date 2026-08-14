@@ -1381,6 +1381,7 @@ if (consumedOne.ok) {
   assert.equal(consumedOne.state.players.P1.hp, 24, 'Consume Rage level 1 heals 1 HP.');
   assert.equal(consumedOne.state.players.P1.rageStacks, 1, 'Consume Rage level 1 consumes 2 Rage.');
   assert.deepEqual((consumedOne.state as any).damageLog?.at(-1), { eventType: 'healing', turn: 1, targetId: 'P1', sourceId: 'P1', sourceKind: 'perk', amount: 1, hpAfter: 24, collision: false }, 'Restored HP is recorded as a distinct healing entry in the Damage Log.');
+  assert.equal(consumedOne.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 1), true, 'Consume Rage emits a +1 healing visual event.');
 }
 
 const consumeTwo = createGameInitialState();
@@ -1393,6 +1394,7 @@ assert.equal(consumedTwo.ok, true);
 if (consumedTwo.ok) {
   assert.equal(consumedTwo.state.players.P1.hp, 24, 'Consume Rage level 2 heals 2 HP total.');
   assert.equal(consumedTwo.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes 2 Rage.');
+  assert.equal(consumedTwo.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 2), true, 'Consume Rage emits a +2 healing visual event.');
 }
 
 const consumeInsufficient = createGameInitialState();
@@ -1404,6 +1406,7 @@ assert.equal(consumedInsufficient.ok, true, 'Consume Rage may still be cast with
 if (consumedInsufficient.ok) {
   assert.equal(consumedInsufficient.state.players.P1.hp, 22, 'Insufficient Rage provides no healing.');
   assert.equal(consumedInsufficient.state.players.P1.rageStacks, 1, 'Insufficient Rage is not consumed.');
+  assert.equal(consumedInsufficient.state.objectPushAnimations.some((event) => event.healing), false, 'Failed Consume Rage emits no healing visual.');
   assert.equal(consumedInsufficient.state.players.P1.discard.some((card) => card.cardId === 'consume-rage'), true, 'The cast Perk is still discarded normally.');
 }
 
@@ -1514,6 +1517,11 @@ if (beginDirectShield.ok) {
   if (resolveDirectShield.ok) {
     assert.deepEqual(resolveDirectShield.state.objects.find((object) => object.kind === 'orkk-shield')?.position, { x: 4, y: 2 }, 'A D4-to-B4 throw collides at B4 and stops directly behind it at C4.');
     assert.equal(resolveDirectShield.state.objectPushAnimations.some((event) => event.damage?.playerId === 'P2' && event.damage.collision && event.damage.amount === 1), true, 'High Ground no longer increases direct Perk or Object collision Damage.');
+    const collisionAnimation = resolveDirectShield.state.objectPushAnimations.find((event) => event.id.includes('-arkane-arow-'))!;
+    assert.deepEqual(collisionAnimation.collisionAt, { x: 4, y: 1 }, 'The Shield animation records the actual collision Square separately from its landing Square.');
+    assert.equal(collisionAnimation.collisionTargetKind, 'player');
+    assert.equal(collisionAnimation.collisionTargetId, 'P2');
+    assert.equal(resolveDirectShield.state.objectPushAnimations.some((event) => event.damage?.triggerAnimationId === collisionAnimation.id), true, 'Collision Damage waits for the matching Shield impact animation.');
   }
 }
 
@@ -1678,6 +1686,10 @@ if (shieldBashAttack.ok) {
     const shieldBashAnimation = shieldBashResult.state.objectPushAnimations.find((event) => event.objectId === 'shield-bash-shield');
     assert.equal(shieldBashAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Shield Bash animates through the occupied enemy Square.');
     assert.equal(shieldBashAnimation?.equipPlayerId, 'P1');
+    assert.equal(shieldBashAnimation?.collided, false, 'Crossing an enemy during Shield Bash Recall does not turn the flight into a terminal collision bounce.');
+    const shieldBashDamage = shieldBashResult.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P2' && event.damage.amount === 3 && event.damage.collision);
+    assert.equal(shieldBashDamage?.damage?.triggerAnimationId, shieldBashAnimation?.id, 'Shield Bash damage waits for the returning Shield to cross the enemy.');
+    assert.equal(typeof shieldBashDamage?.damage?.triggerRouteProgress, 'number');
   }
 }
 
@@ -2854,6 +2866,10 @@ if (attackUnequippedArcaneShield.ok) {
     const arcaneAnimation = defendUnequippedArcaneShield.state.objectPushAnimations.find((event) => event.objectId === 'arcane-existing-shield');
     assert.equal(arcaneAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Arcane Shield animation passes through the enemy-occupied Square.');
     assert.equal(arcaneAnimation?.equipPlayerId, 'P2');
+    assert.deepEqual(defendUnequippedArcaneShield.state.players.P1.position, { x: 3, y: 2 }, 'Arcane Shield damages crossed enemies without pulling them.');
+    const arcaneShieldDamage = defendUnequippedArcaneShield.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P1' && event.damage.amount === 2);
+    assert.equal(arcaneShieldDamage?.damage?.triggerAnimationId, arcaneAnimation?.id, 'Arcane Shield damage waits for its recall animation to cross the enemy.');
+    assert.equal(typeof arcaneShieldDamage?.damage?.triggerRouteProgress, 'number');
   }
 }
 
@@ -2983,6 +2999,26 @@ if (useArkaneThree.ok) {
   }
 }
 
+const arkaneLevelThreePush = createInitialState();
+arkaneLevelThreePush.activePlayerId = 'P2';
+arkaneLevelThreePush.players.P2.position = { x: 4, y: 3 };
+arkaneLevelThreePush.players.P1.position = { x: 5, y: 3 };
+arkaneLevelThreePush.objects = [];
+arkaneLevelThreePush.players.P2.hand = [];
+arkaneLevelThreePush.players.P2.spellEcho[2] = { instanceId: 'arkane-level-three-push', cardId: 'arkane-arow' };
+const useArkaneThreePush = applyCommand(arkaneLevelThreePush, { type: 'use-echo-perk', playerId: 'P2', position: 3 });
+assert.equal(useArkaneThreePush.ok, true);
+if (useArkaneThreePush.ok) {
+  const pushedEnemy = applyCommand(useArkaneThreePush.state, { type: 'arkane-arow-target', playerId: 'P2', to: { x: 5, y: 3 } });
+  assert.equal(pushedEnemy.ok, true);
+  if (pushedEnemy.ok) {
+    const shieldAnimation = pushedEnemy.state.objectPushAnimations.find((event) => event.id.includes('-arkane-arow-') && event.objectId);
+    assert.deepEqual(pushedEnemy.state.players.P1.position, { x: 6, y: 3 });
+    assert.equal(pushedEnemy.state.players.P1.visualMovement?.triggerAnimationId, shieldAnimation?.id, 'Level 3 enemy movement waits for the Shield impact animation.');
+    assert.deepEqual(pushedEnemy.state.players.P1.visualMovement?.from, { x: 5, y: 3 });
+  }
+}
+
 const armCreate = createInitialState();
 armCreate.activePlayerId = 'P2';
 armCreate.players.P2.shieldEquipped = false;
@@ -3051,6 +3087,8 @@ if (beginEnemyPreferredRecall.ok) {
       const preferredAnimation = recalledThroughEnemy.state.objectPushAnimations.find((event) => event.objectId === 'enemy-preferred-shield');
       assert.equal(preferredAnimation?.path?.length, 3, 'Shield recall keeps the minimum three-step Chebyshev route.');
       assert.deepEqual(preferredAnimation?.path?.[0], { x: 2, y: 1 }, 'Among equal shortest routes, Shield recall prefers the enemy-occupied Square.');
+      assert.deepEqual(preferredAnimation?.path, [{ x: 2, y: 1 }, { x: 3, y: 2 }, { x: 4, y: 3 }], 'After crossing an enemy, Recall keeps the straight diagonal instead of introducing an equal-length zigzag.');
+      assert.deepEqual(recalledThroughEnemy.state.players.P1.position, { x: 3, y: 2 }, 'The crossed enemy follows the next Square of the straight Recall route.');
     }
   }
 }
@@ -3129,7 +3167,10 @@ if (beginArmTwo.ok) {
     if (recalledTwo.ok) {
       assert.equal(recalledTwo.state.players.P1.hp, 19, 'Level 2 deals exactly 1 damage when the Shield path passes through an enemy-occupied Square.');
       assert.deepEqual(recalledTwo.state.players.P1.position, { x: 3, y: 2 }, 'Every Shield recall pulls a passed enemy 1 Square along the route toward Da Orkk.');
-      assert.equal(recalledTwo.state.objectPushAnimations.some((event) => event.damage?.playerId === 'P1' && event.damage.collision && event.damage.amount === 1), true);
+      const recallAnimation = recalledTwo.state.objectPushAnimations.find((event) => event.objectId === 'recall-two')!;
+      const recallDamageAnimation = recalledTwo.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P1' && event.damage.collision && event.damage.amount === 1);
+      assert.equal(recallDamageAnimation?.damage?.triggerAnimationId, recallAnimation.id, 'Arm da Wiz Damage waits for the matching Recall animation.');
+      assert.equal((recallDamageAnimation?.damage?.triggerRouteProgress ?? 0) > 0 && (recallDamageAnimation?.damage?.triggerRouteProgress ?? 0) < 1, true, 'Arm da Wiz Damage is timed to the crossed enemy Square rather than either end of the Recall.');
     }
   }
 }
@@ -3246,6 +3287,14 @@ if (attackedObject.ok) {
     assert.equal(respawnRound.state.objectPushAnimations.some((event) => event.objectId === replacement?.id && event.parachute), true, 'Replacement Boxes spawn with a parachute descent event.');
   }
 }
+
+const orkkBoxAttackState = createHotseatTestState(true, 'orkk', 2);
+orkkBoxAttackState.players.P1.position = { x: 1, y: 3 };
+orkkBoxAttackState.objects = [{ id: 'orkk-animation-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 3 } }];
+orkkBoxAttackState.players.P1.hand = [{ instanceId: 'orkk-box-attack', cardId: 'attack-2' }];
+const orkkBoxAttack = applyCommand(orkkBoxAttackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'orkk-box-attack', targetId: 'orkk-animation-box', targetKind: 'object' });
+assert.equal(orkkBoxAttack.ok, true);
+if (orkkBoxAttack.ok) assert.equal(orkkBoxAttack.state.objectPushAnimations.some((event) => event.objectId === 'orkk-animation-box' && event.destroy && event.attackAnimationPlayerId === 'P1'), true, 'An Orkk Attack delays the Box destruction visual until its Base UUID impact frame.');
 
 const arcaneBoltBoxState = createHotseatTestState(true, 'magician', 2, 'dummy');
 arcaneBoltBoxState.objects = [{ id: 'arcane-bolt-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 3 } }];
