@@ -1,5 +1,6 @@
 node_modules/
 dist/
+experiments/
 tmp/
 *.log
 *.local

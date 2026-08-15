@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, orkkActionEventForCommand, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, orkkActionEventForCommand, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 // Most historical rule checks focus on the final resolved card state. Preserve
 // their concise form while production now holds after-combat effects until both
@@ -1207,6 +1207,35 @@ if (movementAroundOccupiedSquares.ok) {
   assert.equal(movementAroundOccupiedSquares.state.players.P1.movementRemaining, 2, 'Open diagonal corners shorten the valid route without entering occupied Squares.');
 }
 
+const shortestMovementState = createGameInitialState();
+shortestMovementState.players.P1.position = { x: 2, y: 2 };
+shortestMovementState.players.P2.position = { x: 8, y: 7 };
+shortestMovementState.objects = [];
+const diagonalStepCount = (origin: { x: number; y: number }, path: { x: number; y: number }[]) => path.reduce(
+  (count, cell, index) => count + Number(cell.x !== (index === 0 ? origin.x : path[index - 1].x) && cell.y !== (index === 0 ? origin.y : path[index - 1].y)),
+  0,
+);
+const straightShortestRoute = movementPath(shortestMovementState, shortestMovementState.players.P1, { x: 2, y: 0 });
+assert.deepEqual(straightShortestRoute, [{ x: 2, y: 1 }, { x: 2, y: 0 }], 'Among equal two-step routes, movement chooses the straight route with no diagonal steps.');
+const offsetShortestRoute = movementPath(shortestMovementState, shortestMovementState.players.P1, { x: 3, y: 0 });
+assert.equal(offsetShortestRoute.length, 2, 'An offset destination still uses the minimum number of movement steps.');
+assert.equal(diagonalStepCount(shortestMovementState.players.P1.position, offsetShortestRoute), 1, 'Equivalent shortest offset routes may differ, but use the same minimum diagonal count.');
+const diagonalShortestRoute = movementPath(shortestMovementState, shortestMovementState.players.P1, { x: 4, y: 0 });
+assert.equal(diagonalShortestRoute.length, 2, 'A fully diagonal destination remains reachable in two movement steps.');
+assert.equal(diagonalStepCount(shortestMovementState.players.P1.position, diagonalShortestRoute), 2, 'Diagonal steps remain valid when every minimum-length route requires them.');
+
+const shortestShieldRecallState = createGameInitialState();
+shortestShieldRecallState.players.P1.position = { x: 4, y: 5 };
+shortestShieldRecallState.players.P2.position = { x: 8, y: 7 };
+shortestShieldRecallState.objects = [
+  { id: 'shortest-route-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 1 } },
+  { id: 'shortest-route-blocker', name: 'Wall', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 4, y: 2 } },
+];
+const shortestRouteShield = shortestShieldRecallState.objects[0];
+const shortestShieldRoute = armDaWizPath(shortestShieldRecallState, shortestRouteShield, shortestShieldRecallState.players.P1.position, 16);
+assert.equal(shortestShieldRoute.length, 4, 'Shield Recall minimizes movement steps before considering any tie-breaker.');
+assert.equal(diagonalStepCount(shortestRouteShield.position, shortestShieldRoute), 2, 'Among equal-length Shield Recall routes, the route with fewer diagonal steps wins.');
+
 const blockedMovementState = createGameInitialState();
 blockedMovementState.activePlayerId = 'P1';
 blockedMovementState.players.P1.position = { x: 1, y: 1 };
@@ -1408,7 +1437,7 @@ const consumedOne = applyCommand(consumeOne, { type: 'play-perk', playerId: 'P1'
 assert.equal(consumedOne.ok, true);
 if (consumedOne.ok) {
   assert.equal(consumedOne.state.players.P1.hp, 24, 'Consume Rage level 1 heals 1 HP.');
-  assert.equal(consumedOne.state.players.P1.rageStacks, 1, 'Consume Rage level 1 consumes 2 Rage.');
+  assert.equal(consumedOne.state.players.P1.rageStacks, 2, 'Consume Rage level 1 consumes 1 Rage.');
   assert.deepEqual((consumedOne.state as any).damageLog?.at(-1), { eventType: 'healing', turn: 1, targetId: 'P1', sourceId: 'P1', sourceKind: 'perk', amount: 1, hpAfter: 24, collision: false }, 'Restored HP is recorded as a distinct healing entry in the Damage Log.');
   assert.equal(consumedOne.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 1), true, 'Consume Rage emits a +1 healing visual event.');
 }
@@ -1422,19 +1451,19 @@ const consumedTwo = applyCommand(consumeTwo, { type: 'use-echo-perk', playerId: 
 assert.equal(consumedTwo.ok, true);
 if (consumedTwo.ok) {
   assert.equal(consumedTwo.state.players.P1.hp, 24, 'Consume Rage level 2 heals 2 HP total.');
-  assert.equal(consumedTwo.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes 2 Rage.');
+  assert.equal(consumedTwo.state.players.P1.rageStacks, 1, 'Consume Rage level 2 consumes 1 Rage.');
   assert.equal(consumedTwo.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 2), true, 'Consume Rage emits a +2 healing visual event.');
 }
 
 const consumeInsufficient = createGameInitialState();
 consumeInsufficient.players.P1.hp = 22;
-consumeInsufficient.players.P1.rageStacks = 1;
+consumeInsufficient.players.P1.rageStacks = 0;
 const insufficientCard = consumeInsufficient.players.P1.hand.find((card) => card.cardId === 'consume-rage')!;
 const consumedInsufficient = applyCommand(consumeInsufficient, { type: 'play-perk', playerId: 'P1', cardInstanceId: insufficientCard.instanceId, destination: 'direct' });
 assert.equal(consumedInsufficient.ok, true, 'Consume Rage may still be cast without enough Rage.');
 if (consumedInsufficient.ok) {
   assert.equal(consumedInsufficient.state.players.P1.hp, 22, 'Insufficient Rage provides no healing.');
-  assert.equal(consumedInsufficient.state.players.P1.rageStacks, 1, 'Insufficient Rage is not consumed.');
+  assert.equal(consumedInsufficient.state.players.P1.rageStacks, 0, 'Insufficient Rage is not consumed.');
   assert.equal(consumedInsufficient.state.objectPushAnimations.some((event) => event.healing), false, 'Failed Consume Rage emits no healing visual.');
   assert.equal(consumedInsufficient.state.players.P1.discard.some((card) => card.cardId === 'consume-rage'), true, 'The cast Perk is still discarded normally.');
 }
@@ -1457,7 +1486,7 @@ const consumedThree = applyCommand(consumeThree, { type: 'use-echo-perk', player
 assert.equal(consumedThree.ok, true);
 if (consumedThree.ok) {
   assert.equal(consumedThree.state.players.P1.hp, 24, 'Consume Rage level 3 includes the level 2 +1 HP bonus.');
-  assert.equal(consumedThree.state.players.P1.rageStacks, 0);
+  assert.equal(consumedThree.state.players.P1.rageStacks, 1, 'Consume Rage level 3 consumes 1 Rage.');
   assert.equal(consumedThree.state.players.P2.hand.some((card) => card.cardId === 'exhaust'), true, 'Consume Rage level 3 adds Exhaust to adjacent enemies.');
   assert.equal(consumedThree.state.players.P1.hand.some((card) => ['pinned', 'headache', 'exhaust', 'burning'].includes(card.cardId)), false, 'Consume Rage level 3 removes every negative Status Card, including Burning.');
   assert.equal(consumedThree.state.players.P1.pinnedStacks, 0);
@@ -1715,7 +1744,7 @@ if (shieldBashAttack.ok) {
     assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 2, 'Shield Bash deals its combat Damage and 2 more when the recalled Shield passes through the enemy.');
     assert.equal(shieldBashResult.state.players.P1.shieldEquipped, true, 'Shield Bash equips the recalled Shield after combat.');
     assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-shield'), false);
-    assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-far-shield'), true, 'Shield Bash recalls the nearest Shield and leaves farther Shields on the Board.');
+    assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-far-shield'), true, 'When optimal routes cross equal enemy counts, Shield Bash recalls the nearest Shield.');
     const shieldBashAnimation = shieldBashResult.state.objectPushAnimations.find((event) => event.objectId === 'shield-bash-shield');
     assert.equal(shieldBashAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Shield Bash animates through the occupied enemy Square.');
     assert.equal(shieldBashAnimation?.equipPlayerId, 'P1');
@@ -1723,6 +1752,27 @@ if (shieldBashAttack.ok) {
     const shieldBashDamage = shieldBashResult.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P2' && event.damage.amount === 2 && event.damage.collision);
     assert.equal(shieldBashDamage?.damage?.triggerAnimationId, shieldBashAnimation?.id, 'Shield Bash damage waits for the returning Shield to cross the enemy.');
     assert.equal(typeof shieldBashDamage?.damage?.triggerRouteProgress, 'number');
+  }
+}
+
+const enemyPriorityShieldBashState = createGameInitialState();
+enemyPriorityShieldBashState.players.P1.position = { x: 4, y: 3 };
+enemyPriorityShieldBashState.players.P2.position = { x: 3, y: 2 };
+enemyPriorityShieldBashState.players.P1.shieldEquipped = false;
+enemyPriorityShieldBashState.players.P2.hand = [];
+enemyPriorityShieldBashState.objects = [
+  { id: 'closer-empty-route-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 1 } },
+  { id: 'farther-enemy-route-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 1, y: 1 } },
+];
+const enemyPriorityShieldBashCard = ensureCardInHand(enemyPriorityShieldBashState, 'P1', 'shield-bash');
+const enemyPriorityShieldBashAttack = applyCommand(enemyPriorityShieldBashState, { type: 'attack', playerId: 'P1', cardInstanceId: enemyPriorityShieldBashCard.instanceId, targetId: 'P2' });
+assert.equal(enemyPriorityShieldBashAttack.ok, true);
+if (enemyPriorityShieldBashAttack.ok) {
+  const enemyPriorityShieldBashResult = applyCommand(enemyPriorityShieldBashAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(enemyPriorityShieldBashResult.ok, true);
+  if (enemyPriorityShieldBashResult.ok) {
+    assert.equal(enemyPriorityShieldBashResult.state.objects.some((object) => object.id === 'farther-enemy-route-shield'), false, 'Automatic Shield Recall prioritizes the Shield whose optimal route crosses more enemies.');
+    assert.equal(enemyPriorityShieldBashResult.state.objects.some((object) => object.id === 'closer-empty-route-shield'), true, 'A closer Shield remains on the Board when a farther Shield crosses more enemies.');
   }
 }
 
@@ -2899,7 +2949,7 @@ if (attackUnequippedArcaneShield.ok) {
     assert.equal(defendUnequippedArcaneShield.state.players.P2.rageStacks, 0, 'Arcane Shield no longer generates Rage when the Shield began unequipped.');
     assert.equal(defendUnequippedArcaneShield.state.players.P2.shieldEquipped, true, 'Arcane Shield recalls and equips an unequipped Shield.');
     assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-existing-shield'), false, 'The recalled Shield is removed from the Board.');
-    assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-far-shield'), true, 'Arcane Shield recalls the nearest Shield and preserves farther Shields.');
+    assert.equal(defendUnequippedArcaneShield.state.objects.some((object) => object.id === 'arcane-far-shield'), true, 'When optimal routes cross equal enemy counts, Arcane Shield recalls the nearest Shield.');
     const arcaneAnimation = defendUnequippedArcaneShield.state.objectPushAnimations.find((event) => event.objectId === 'arcane-existing-shield');
     assert.equal(arcaneAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Arcane Shield animation passes through the enemy-occupied Square.');
     assert.equal(arcaneAnimation?.equipPlayerId, 'P2');
@@ -2965,7 +3015,7 @@ if (attackManaRecall.ok) {
     assert.equal(defendManaRecall.state.players.P1.hp, 18, 'Mana Baryer deals 2 damage when its recall path crosses the attacker.');
     assert.equal(defendManaRecall.state.players.P2.shieldEquipped, true);
     assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-recall-shield'), false);
-    assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-far-shield'), true, 'Mana Baryer recalls the nearest Shield and preserves farther Shields.');
+    assert.equal(defendManaRecall.state.objects.some((object) => object.id === 'mana-far-shield'), true, 'When optimal routes cross equal enemy counts, Mana Baryer recalls the nearest Shield.');
     const manaAnimation = defendManaRecall.state.objectPushAnimations.find((event) => event.objectId === 'mana-recall-shield');
     assert.equal(manaAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Mana Baryer animation retains the walkable path through the enemy Square.');
     assert.equal(manaAnimation?.equipPlayerId, 'P2');
@@ -3157,8 +3207,9 @@ if (beginEnemyExtendedRecall.ok) {
     assert.equal(recalledWithExtension.ok, true);
     if (recalledWithExtension.ok) {
       const extendedAnimation = recalledWithExtension.state.objectPushAnimations.find((event) => event.objectId === 'enemy-extended-shield');
-      assert.equal(extendedAnimation?.path?.length, 4, 'Shield Recall may extend the minimum three-step route by exactly 1 Square to cross an enemy.');
-      assert.deepEqual(extendedAnimation?.path?.[0], { x: 1, y: 2 }, 'The extended Recall route passes through the otherwise avoidable enemy Square.');
+      assert.equal(extendedAnimation?.path?.length, 3, 'Shield Recall never extends the minimum route by 1 Square solely to cross an enemy.');
+      assert.equal(extendedAnimation?.path?.some((cell) => cell.x === 1 && cell.y === 2), false, 'An enemy outside every shortest route does not influence Shield Recall.');
+      assert.equal(shieldRecallEnemyCount(recalledWithExtension.state, 'P2', extendedAnimation?.path ?? []), 0, 'Only enemies on the chosen shortest route count as crossed.');
     }
   }
 }

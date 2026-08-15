@@ -128,15 +128,16 @@ in `src/main.ts`. Regression tests cover both equipped and unequipped branches.
 
 - Cardinal and diagonal moves both cost exactly one step.
 - A Shield always takes a minimum-length legal route.
-- Among routes with the same minimum length, it prefers the route crossing the
-  greatest number of enemy-occupied Squares.
-- It never adds steps solely to hit an enemy.
+- Among routes with the same minimum length, it first prefers fewer diagonal
+  steps and then the route crossing the greatest number of enemy-occupied Squares.
+- It never adds steps or diagonal movement solely to hit an enemy.
 - Board Objects still block intermediate recall Squares.
 
-This path helper is shared by Arm da Wiz, Shield Bash, and Mana Baryer recalls,
-so the preference applies to all Shield recall effects. Damage remains specific
-to the card that initiated the recall; the one-Square pull is the general recall
-effect.
+This path helper is shared by Arm da Wiz, Shield Bash, Arcane Shield, and Mana
+Baryer recalls, so the preference applies to all Shield recall effects. Automatic
+recalls choose the Shield whose optimal route crosses the most enemies, using the
+nearest Shield only as a tie-breaker. Damage remains specific to the card that
+initiated the recall; the one-Square pull is the general recall effect.
 
 ## Important Current Rules
 

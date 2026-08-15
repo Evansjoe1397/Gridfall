@@ -158,18 +158,18 @@ export const CARDS: readonly Card[] = [
   { id: 'arm-da-wiz', name: 'Arm da Wiz', kind: 'perk', value: 1, levelEffects: ['Recall a chosen Shield from anywhere on the Gaming Board or create a new one without removing existing Shields. Equip the Shield. Pull each enemy passed through 1 Square toward Da Orkk', 'Deal 1 Damage if the Shield passes through an enemy during the Recall', 'Gain 1 Rage Stack and +2 Rage Stacks for each crossed enemy'] },
   { id: 'encourage', name: 'EncouRAGE', kind: 'perk', value: 1, levelEffects: ['Draw a Card from your Deck', 'Gain 1 Rage stack', 'Also draw 1 random Card from your Discard'] },
   { id: 'kyk', name: 'Kyk', kind: 'perk', value: 1, levelEffects: ['Push an adjacent Object or enemy 3 Squares. Enemy collisions deal 1 Damage; remaining movement transfers to the collided target when possible', 'Increase the push distance by 1 Square', 'Deal 3 Damage on collision, but destroy the pushed Object'] },
-  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 2 Rage Stacks to heal 1 HP', '+1 HP', 'Add Exhaust Card to each adjacent enemy Hand. Remove all negative Status Cards'] },
+  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 1 Rage Stack to heal 1 HP', '+1 HP', 'Add Exhaust Card to each adjacent enemy Hand. Remove all negative Status Cards'] },
   { id: 'fistbolt', name: 'Fistbolt', kind: 'attack', value: 2, effectText: 'If Da Orkk has no Rage, generate 1 Rage Stack before combat. Generate 1 Rage Stack after combat.' },
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped before combat; otherwise, drop the Shield and draw a Card after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "After combat, add an Exhaust Status Card to the enemy's Hand and force them to discard 1 Defend Card." },
   { id: 'chip-cast', name: 'Chip-cast', kind: 'attack', value: 2, effectText: "Add 1 Headache per Rage Stack to the enemy's Discard. Then shuffle all Exhaust and Headache Cards into that enemy's Deck." },
-  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the nearest Shield if one is unequipped. Deal 2 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
+  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'If a Shield is unequipped, Recall and equip the one whose optimal route crosses the most enemies; break ties by choosing the nearest. Deal 2 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
   { id: 'knee-blast', name: 'Knee Blast', kind: 'attack', value: 3, effectText: "After combat, push the enemy X Squares, where X is the number of Rage Stacks. Add 1 Headache Card to the enemy's Hand if they collide with anything." },
   { id: 'da-blokk', name: 'Da Blokk', kind: 'defend', value: 1, effectText: 'Cancel the Attack Card effect. Generate 2 Rage Stacks if Da Orkk receives Damage in this combat.' },
   { id: 'double', name: 'Double!', kind: 'defend', value: 1, effectText: "Double all Rage received during this combat and for the remainder of the attacking Player's turn." },
-  { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Recall the nearest Shield if one is unequipped. Deal 2 Damage to an enemy if the Shield goes through them while Recalled.' },
+  { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'If a Shield is unequipped, Recall the one whose optimal route crosses the most enemies; break ties by choosing the nearest. Deal 2 Damage to an enemy if the Shield goes through them while Recalled.' },
   { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat, add 1 Headache Card per Rage Stack to the attacking enemy's Discard Deck." },
-  { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the nearest Shield and deal 2 Damage to any enemy it passes through.' },
+  { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the Shield whose optimal route crosses the most enemies, breaking ties by choosing the nearest, and deal 2 Damage to any enemy it passes through.' },
   { id: 'pinned', name: 'Pinned', kind: 'status', value: 1, effectText: "While this Card is in your Hand, decrease your Character's movement Range by 1. Remove 1 Pinned Card at the end of your turn, except a Pinned Card gained during that same turn. Cannot be discarded due to overstacking." },
   { id: 'headache', name: 'Headache', kind: 'status', value: 0, effectText: 'This Card does nothing except fill your Hand. Can be Removed as an Action. Cannot be Discarded.', cannotBeDiscarded: true, canRemoveAsAction: true },
   { id: 'exhaust', name: 'Exhaust', kind: 'status', value: 0, effectText: 'Your Cards have -1 Attack and Defend Value. Can be Discarded normally. Can be Removed by attaching it to a played Attack or Defend Card during combat for -3 Value.', canDiscardForHandLimit: true },
@@ -879,22 +879,35 @@ export function diagonalMovementBlockedByObject(state: GameState, from: Cell, to
 }
 export function movementPath(state: GameState, player: PlayerState, destination: Cell): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
-  const queue: { cell: Cell; path: Cell[] }[] = [{ cell: player.position, path: [] }];
-  const visited = new Set([key(player.position)]);
+  type MovementRoute = { cell: Cell; path: Cell[]; diagonalSteps: number };
+  const queue: MovementRoute[] = [{ cell: player.position, path: [], diagonalSteps: 0 }];
+  const bestRouteTo = new Map<string, { steps: number; diagonalSteps: number }>([
+    [key(player.position), { steps: 0, diagonalSteps: 0 }],
+  ]);
   while (queue.length) {
+    // Movement still costs one point per Square. Diagonal steps are only a
+    // secondary tie-breaker between routes with the same movement cost.
+    queue.sort((a, b) => a.path.length - b.path.length || a.diagonalSteps - b.diagonalSteps);
     const current = queue.shift()!;
+    const currentBest = bestRouteTo.get(key(current.cell));
+    if (!currentBest || currentBest.steps !== current.path.length || currentBest.diagonalSteps !== current.diagonalSteps) continue;
     if (current.cell.x === destination.x && current.cell.y === destination.y) return current.path;
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
       if (!dx && !dy) continue;
       const next = { x: current.cell.x + dx, y: current.cell.y + dy };
-      if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state) || visited.has(key(next))) continue;
+      if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state)) continue;
       if (isForbiddenSlideAscent(state, current.cell, next)) continue;
       if (!player.spiritForm && diagonalMovementBlockedByObject(state, current.cell, next)) continue;
       if (!player.spiritForm && state.objects.some((object) => object.position.x === next.x && object.position.y === next.y)) continue;
       const enemyOccupiesNext = Object.values(state.players).some((candidate) => candidate.hp > 0 && candidate.id !== player.id && candidate.position.x === next.x && candidate.position.y === next.y);
       if (enemyOccupiesNext && (isHighGroundSlideEntry(state, current.cell, next) || (!player.swiftformCanPassEnemies && !player.spiritForm))) continue;
       if (isHighGroundSlideEntry(state, current.cell, next) && (next.x !== destination.x || next.y !== destination.y)) continue;
-      visited.add(key(next)); queue.push({ cell: next, path: [...current.path, next] });
+      const steps = current.path.length + 1;
+      const diagonalSteps = current.diagonalSteps + Number(dx !== 0 && dy !== 0);
+      const knownRoute = bestRouteTo.get(key(next));
+      if (knownRoute && (knownRoute.steps < steps || (knownRoute.steps === steps && knownRoute.diagonalSteps <= diagonalSteps))) continue;
+      bestRouteTo.set(key(next), { steps, diagonalSteps });
+      queue.push({ cell: next, path: [...current.path, next], diagonalSteps });
     }
   }
   return [];
@@ -1979,7 +1992,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'consume-rage') {
-    const rageCost = 2;
+    const rageCost = 1;
     if (player.rageStacks >= rageCost) {
       player.rageStacks -= rageCost;
       const healed = healPlayer(state, player, level >= 2 ? 2 : 1);
@@ -3808,25 +3821,26 @@ export function arkaneArowPath(state: GameState, caster: PlayerState, target: Ce
   return [];
 }
 
-function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
+export function shieldRecallEnemyCount(state: GameState, ownerId: PlayerId, path: Cell[]): number {
+  return Object.values(state.players).filter((player) => player.id !== ownerId
+    && path.some((cell) => cell.x === player.position.x && cell.y === player.position.y)).length;
+}
+
+export function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
-  type RecallRoute = { cell: Cell; path: Cell[]; enemiesCrossed: number; turns: number; lineDeviation: number };
+  type RecallRoute = { cell: Cell; path: Cell[]; diagonalSteps: number; enemiesCrossed: number; turns: number; lineDeviation: number };
   const enemyAt = (cell: Cell) => Object.values(state.players).some((entry) => entry.id !== shield.ownerId && entry.position.x === cell.x && entry.position.y === cell.y);
   const lineX = orkkCell.x - shield.position.x;
   const lineY = orkkCell.y - shield.position.y;
   const deviationFromDirectLine = (cell: Cell) => Math.abs(lineX * (cell.y - shield.position.y) - lineY * (cell.x - shield.position.x));
-  const isBetterRoute = (candidate: RecallRoute, existing: RecallRoute) => candidate.enemiesCrossed > existing.enemiesCrossed
-    || (candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns < existing.turns)
-    || (candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns === existing.turns && candidate.lineDeviation < existing.lineDeviation);
-  let frontier: RecallRoute[] = [{ cell: { ...shield.position }, path: [], enemiesCrossed: 0, turns: 0, lineDeviation: 0 }];
-  let shortestDestination: RecallRoute | null = null;
-  let shortestDistance = 0;
-  // Keep a separate best route to each Square at every exact depth. A global
-  // visited set would erase the deliberate one-step detours that Recall is
-  // allowed to take through an enemy. Once the first destination route is
-  // found, inspect the complete next layer and prefer it only when it crosses
-  // more enemies than the best shortest route.
-  for (let step = 1; step <= range + 1 && frontier.length > 0; step++) {
+  const isBetterRoute = (candidate: RecallRoute, existing: RecallRoute) => candidate.diagonalSteps < existing.diagonalSteps
+    || (candidate.diagonalSteps === existing.diagonalSteps && candidate.enemiesCrossed > existing.enemiesCrossed)
+    || (candidate.diagonalSteps === existing.diagonalSteps && candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns < existing.turns)
+    || (candidate.diagonalSteps === existing.diagonalSteps && candidate.enemiesCrossed === existing.enemiesCrossed && candidate.turns === existing.turns && candidate.lineDeviation < existing.lineDeviation);
+  let frontier: RecallRoute[] = [{ cell: { ...shield.position }, path: [], diagonalSteps: 0, enemiesCrossed: 0, turns: 0, lineDeviation: 0 }];
+  // Each frontier is one exact movement distance. The first destination layer
+  // is therefore shortest; within it, prefer fewer diagonals, then more enemies.
+  for (let step = 1; step <= range && frontier.length > 0; step++) {
     const nextFrontier = new Map<string, RecallRoute>();
     for (const current of frontier) {
       const neighbors: Cell[] = [];
@@ -3851,6 +3865,7 @@ function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, ran
         const candidate: RecallRoute = {
           cell: next,
           path: [...current.path, next],
+          diagonalSteps: current.diagonalSteps + Number(nextDx !== 0 && nextDy !== 0),
           enemiesCrossed: current.enemiesCrossed + Number(enemyAt(next)),
           turns: current.turns + Number(changedDirection),
           lineDeviation: current.lineDeviation + deviationFromDirectLine(next),
@@ -3862,25 +3877,22 @@ function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, ran
     const destination = [...nextFrontier.values()]
       .filter((route) => route.cell.x === orkkCell.x && route.cell.y === orkkCell.y)
       .reduce<RecallRoute | null>((best, route) => !best || isBetterRoute(route, best) ? route : best, null);
-    if (destination && !shortestDestination) {
-      if (step > range && destination.enemiesCrossed === 0) return [];
-      shortestDestination = destination;
-      shortestDistance = step;
-    } else if (destination && shortestDestination && step === shortestDistance + 1) {
-      if (destination.enemiesCrossed > shortestDestination.enemiesCrossed) return destination.path;
-    }
-    if (shortestDestination && step >= shortestDistance + 1) return shortestDestination.path;
+    if (destination) return destination.path;
     frontier = [...nextFrontier.values()];
   }
-  return shortestDestination?.path ?? [];
+  return [];
 }
 
 function nearestRecallableOrkkShield(state: GameState, ownerId: PlayerId, orkkCell: Cell, range: number): { shield: BoardObject; path: Cell[] } | null {
   return state.objects
     .filter((entry) => entry.kind === 'orkk-shield' && entry.ownerId === ownerId)
-    .map((shield) => ({ shield, path: armDaWizPath(state, shield, orkkCell, range) }))
+    .map((shield) => {
+      const path = armDaWizPath(state, shield, orkkCell, range);
+      return { shield, path, enemiesCrossed: shieldRecallEnemyCount(state, ownerId, path) };
+    })
     .filter((entry) => entry.path.length > 0)
-    .sort((a, b) => distance(a.shield.position, orkkCell) - distance(b.shield.position, orkkCell)
+    .sort((a, b) => b.enemiesCrossed - a.enemiesCrossed
+      || distance(a.shield.position, orkkCell) - distance(b.shield.position, orkkCell)
       || a.path.length - b.path.length
       || a.shield.id.localeCompare(b.shield.id))[0] ?? null;
 }
