@@ -163,7 +163,7 @@ export const CARDS: readonly Card[] = [
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped before combat; otherwise, drop the Shield and draw a Card after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "After combat, add an Exhaust Status Card to the enemy's Hand and force them to discard 1 Defend Card." },
   { id: 'chip-cast', name: 'Chip-cast', kind: 'attack', value: 2, effectText: "Add 1 Headache per Rage Stack to the enemy's Discard. Then shuffle all Exhaust and Headache Cards into that enemy's Deck." },
-  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the nearest Shield if one is unequipped. Deal 3 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
+  { id: 'shield-bash', name: 'Shield Bash', kind: 'attack', value: 2, effectText: 'Recall and equip the nearest Shield if one is unequipped. Deal 2 Damage if the Shield passes through an enemy while being Recalled. Otherwise, generate 1 Rage Stack after combat.' },
   { id: 'knee-blast', name: 'Knee Blast', kind: 'attack', value: 3, effectText: "After combat, push the enemy X Squares, where X is the number of Rage Stacks. Add 1 Headache Card to the enemy's Hand if they collide with anything." },
   { id: 'da-blokk', name: 'Da Blokk', kind: 'defend', value: 1, effectText: 'Cancel the Attack Card effect. Generate 2 Rage Stacks if Da Orkk receives Damage in this combat.' },
   { id: 'double', name: 'Double!', kind: 'defend', value: 1, effectText: "Double all Rage received during this combat and for the remainder of the attacking Player's turn." },
@@ -232,6 +232,46 @@ export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; ta
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number };
 export type GameState = { boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
 export type CommandResult = { ok: true; state: GameState } | { ok: false; state: GameState; error: string };
+export type OrkkActionEvent =
+  | { playerId: PlayerId; action: 'perk-used'; cardId: 'encourage' | 'consume-rage' }
+  | { playerId: PlayerId; action: 'shield-thrown'; target: Cell };
+export type WizardActionEvent =
+  | { playerId: PlayerId; action: 'spell-targeted'; spell: 'magic-hand' | 'arcane-missle' | 'chain-lightning' | 'fireball'; target: Cell; hold: boolean; targetKind?: 'player' | 'object'; targetId?: string }
+  | { playerId: PlayerId; action: 'spell-resolved'; spell: 'magic-hand' }
+  | { playerId: PlayerId; action: 'targeting-cancelled'; spell: 'magic-hand' };
+
+export function orkkActionEventForCommand(state: GameState, command: GameCommand): OrkkActionEvent | null {
+  const player = state.players[command.playerId];
+  if (!player || player.character !== 'orkk') return null;
+  if (command.type === 'arkane-arow-target') return { playerId: command.playerId, action: 'shield-thrown', target: { ...command.to } };
+  if (command.type !== 'play-perk' && command.type !== 'use-echo-perk') return null;
+  const card = command.type === 'play-perk'
+    ? player.hand.find((entry) => entry.instanceId === command.cardInstanceId)
+    : player.spellEcho[command.position - 1];
+  return card?.cardId === 'encourage' || card?.cardId === 'consume-rage'
+    ? { playerId: command.playerId, action: 'perk-used', cardId: card.cardId }
+    : null;
+}
+
+export function wizardActionEventForCommand(state: GameState, command: GameCommand): WizardActionEvent | null {
+  const player = state.players[command.playerId];
+  if (!player || player.character !== 'magician') return null;
+  const playerTarget = (targetId: PlayerId) => state.players[targetId]?.position;
+  const objectTarget = (targetId: string) => state.objects.find((object) => object.id === targetId)?.position;
+  if (command.type === 'magic-hand-target') {
+    const target = command.targetKind === 'player' ? playerTarget(command.targetId as PlayerId) : objectTarget(command.targetId);
+    return target ? { playerId: command.playerId, action: 'spell-targeted', spell: 'magic-hand', target: { ...target }, hold: true, targetKind: command.targetKind, targetId: command.targetId } : null;
+  }
+  if (command.type === 'magic-hand-direction') return { playerId: command.playerId, action: 'spell-resolved', spell: 'magic-hand' };
+  if (command.type === 'cancel-targeting' && state.magicHand?.casterId === command.playerId) return { playerId: command.playerId, action: 'targeting-cancelled', spell: 'magic-hand' };
+  if (command.type === 'arcane-missle-target' || command.type === 'chain-lightning-target' || command.type === 'fireball-target') {
+    const target = playerTarget(command.targetId);
+    if (!target) return null;
+    const spell = command.type === 'arcane-missle-target' ? 'arcane-missle' : command.type === 'chain-lightning-target' ? 'chain-lightning' : 'fireball';
+    return { playerId: command.playerId, action: 'spell-targeted', spell, target: { ...target }, hold: false, targetKind: 'player', targetId: command.targetId };
+  }
+  return null;
+}
 
 let instanceSequence = 0;
 const discardBaselineByCommand = new WeakMap<GameState, Partial<Record<PlayerId, Set<string>>>>();
@@ -958,7 +998,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
             if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
             crossedEnemyIds.add(enemy.id);
             const damageAnimationStart = state.objectPushAnimations.length;
-            dealDamage(state, enemy, 3, true, player.id, 'attack');
+            dealDamage(state, enemy, 2, true, player.id, 'attack');
             for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
               if (!event.damage?.collision) continue;
               event.damage.triggerAnimationId = recallAnimationId;
@@ -2883,13 +2923,13 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
           if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
           crossedEnemyIds.add(enemy.id);
           const damageAnimationStart = state.objectPushAnimations.length;
-          dealCombatCardEffectDamage(state, enemy, 3, orkk.id, 'attack', true);
+          dealCombatCardEffectDamage(state, enemy, 2, orkk.id, 'attack', true);
           for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
             if (!event.damage?.collision) continue;
             event.damage.triggerAnimationId = recallAnimationId;
             event.damage.triggerRouteProgress = (pathIndex + 1) / path.length;
           }
-          state.log.unshift(`Shield Bash's Shield passed through ${enemy.name} and dealt 3 damage.`);
+          state.log.unshift(`Shield Bash's Shield passed through ${enemy.name} and dealt 2 damage.`);
         }
         pullEnemiesAlongShieldRecall(state, shield, orkk.id, path, 'Shield Bash', recallAnimationId);
         state.objectPushAnimations.push({ id: recallAnimationId, objectId: shield.id, from: { ...shield.position }, to: { ...orkk.position }, dx: Math.sign(orkk.position.x - shield.position.x), dy: Math.sign(orkk.position.y - shield.position.y), collided: false, path: path.map((cell) => ({ ...cell })), removeOnComplete: true, equipPlayerId: orkk.id });

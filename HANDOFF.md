@@ -109,7 +109,7 @@ Current card:
 
 - Attack Value: 2.
 - If the Shield was unequipped at combat start, recall and equip it.
-- Each enemy crossed by the recalled Shield receives 3 Damage.
+- Each enemy crossed by the recalled Shield receives 2 Damage.
 - The general Shield-recall pull remains active: crossed enemies are pulled one
   Square toward Da Orkk when legal.
 - If the Shield was already equipped at combat start, generate 1 Rage after all

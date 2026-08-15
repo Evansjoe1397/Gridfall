@@ -31,13 +31,17 @@ import {
   isForbiddenSlideAscent,
   isCardRevealedToOpponents,
   movementPath,
+  orkkActionEventForCommand,
   kykDirectionAllowed,
   pinnedCount,
   spiritGuardianEnemyPenalty,
+  wizardActionEventForCommand,
   type CardTypeId,
   type Cell,
   type GameCommand,
   type GameState,
+  type OrkkActionEvent,
+  type WizardActionEvent,
   type PlayerId,
 } from '../shared/game.ts';
 
@@ -401,6 +405,12 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
     room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
+    room.onMessage('orkk-action', (event: OrkkActionEvent) => {
+      pendingOnlineOrkkVisualIntent = orkkVisualIntentForAction(event);
+    });
+    room.onMessage('wizard-action', (event: WizardActionEvent) => {
+      pendingOnlineWizardPowerVisualIntent = wizardPowerVisualIntentForAction(event);
+    });
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const arenaChanged = gameState.boardSize !== state.boardSize;
@@ -574,41 +584,25 @@ function hudSeatPlayerIds(): PlayerId[] {
 }
 
 function wizardPowerVisualIntentForCommand(state: GameState, command: GameCommand): WizardPowerVisualIntent | null {
-  const caster = state.players[command.playerId];
-  if (!caster || caster.character !== 'magician') return null;
-  const playerTarget = (targetId: PlayerId) => state.players[targetId]?.position;
-  const objectTarget = (targetId: string) => state.objects.find((object) => object.id === targetId)?.position;
-  switch (command.type) {
-    case 'magic-hand-target': {
-      const targetCell = command.targetKind === 'player' ? playerTarget(command.targetId as PlayerId) : objectTarget(command.targetId);
-      return targetCell ? { kind: 'cast', playerId: command.playerId, target: worldPosition(targetCell), hold: true, targetKind: command.targetKind, targetId: command.targetId } : null;
-    }
-    case 'magic-hand-direction':
-      return { kind: 'resolve', playerId: command.playerId };
-    case 'cancel-targeting':
-      return { kind: 'cancel', playerId: command.playerId };
-    case 'arcane-missle-target':
-    case 'chain-lightning-target':
-    case 'fireball-target': {
-      const targetCell = playerTarget(command.targetId);
-      return targetCell ? { kind: 'cast', playerId: command.playerId, target: worldPosition(targetCell), hold: false, targetKind: 'player', targetId: command.targetId } : null;
-    }
-    default:
-      return null;
-  }
+  const event = wizardActionEventForCommand(state, command);
+  return event ? wizardPowerVisualIntentForAction(event) : null;
+}
+
+function wizardPowerVisualIntentForAction(event: WizardActionEvent): WizardPowerVisualIntent {
+  if (event.action === 'spell-resolved') return { kind: 'resolve', playerId: event.playerId };
+  if (event.action === 'targeting-cancelled') return { kind: 'cancel', playerId: event.playerId };
+  return { kind: 'cast', playerId: event.playerId, target: worldPosition(event.target), hold: event.hold, targetKind: event.targetKind, targetId: event.targetId };
 }
 
 function orkkVisualIntentForCommand(state: GameState, command: GameCommand): OrkkVisualIntent | null {
-  const player = state.players[command.playerId];
-  if (!player || player.character !== 'orkk') return null;
-  if (command.type === 'arkane-arow-target') return { playerId: command.playerId, animation: 'ShieldThrow', target: worldPosition(command.to) };
-  if (command.type !== 'play-perk' && command.type !== 'use-echo-perk') return null;
-  const card = command.type === 'play-perk'
-    ? player.hand.find((entry) => entry.instanceId === command.cardInstanceId)
-    : player.spellEcho[command.position - 1];
-  return card?.cardId === 'encourage' || card?.cardId === 'consume-rage'
-    ? { playerId: command.playerId, animation: 'Encourage' }
-    : null;
+  const event = orkkActionEventForCommand(state, command);
+  return event ? orkkVisualIntentForAction(event) : null;
+}
+
+function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
+  return event.action === 'shield-thrown'
+    ? { playerId: event.playerId, animation: 'ShieldThrow', target: worldPosition(event.target) }
+    : { playerId: event.playerId, animation: 'Encourage' };
 }
 
 function dispatch(command: GameCommand) {
@@ -616,8 +610,6 @@ function dispatch(command: GameCommand) {
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
-    pendingOnlineWizardPowerVisualIntent = powerVisualIntent;
-    pendingOnlineOrkkVisualIntent = orkkVisualIntent;
     room.send('command', command);
     return;
   }
@@ -1000,7 +992,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   fistbolt: { en: 'A dependable opener when Orkk has no Rage: it creates 1 stack before comparison and immediately converts it into +1 ATT for this Attack.', ru: 'Надёжное начало при отсутствии Rage: карта создаёт 1 стек до сравнения и сразу превращает его в +1 ATT для этой Атаки.' },
   'chain-punchin': { en: 'A utility Attack for changing Shield state. Attack while unequipped to gain an extra Action and continue a combo; while equipped, use it when you deliberately want the Shield dropped as an obstacle.', ru: 'Утилитарная Атака для смены состояния Щита. Без Щита получайте дополнительное Действие и продолжайте комбинацию; со Щитом используйте, когда хотите намеренно сбросить его как препятствие.' },
   'teef-strike': { en: 'Use early to seed Exhaust into the enemy Hand. The ongoing -1 ATT/DEF makes every later combat easier even if this low-value Attack does little direct damage.', ru: 'Используйте рано, чтобы добавить Exhaust в Руку врага. Постоянный штраф -1 ATT/DEF облегчит все будущие бои, даже если эта слабая Атака нанесёт мало прямого урона.' },
-  'shield-bash': { en: 'If the Shield is unequipped, recall and equip the nearest one; every enemy crossed takes 3 Damage and is pulled 1 Square toward Orkk by the general Shield recall rule. If it was already equipped when combat began, gain 1 Rage after all combat effects resolve.', ru: 'Если Щит снят, верните и экипируйте ближайший; каждый пересечённый враг получает 3 урона и притягивается на 1 клетку к Оркку по общему правилу возврата Щита. Если Щит был экипирован в начале боя, получите 1 Rage после разрешения всех эффектов боя.' },
+  'shield-bash': { en: 'If the Shield is unequipped, recall and equip the nearest one; every enemy crossed takes 2 Damage and is pulled 1 Square toward Orkk by the general Shield recall rule. If it was already equipped when combat began, gain 1 Rage after all combat effects resolve.', ru: 'Если Щит снят, верните и экипируйте ближайший; каждый пересечённый враг получает 2 урона и притягивается на 1 клетку к Оркку по общему правилу возврата Щита. Если Щит был экипирован в начале боя, получите 1 Rage после разрешения всех эффектов боя.' },
   'knee-blast': { en: 'A strong Attack that converts Rage into displacement. Line up the target with an Object, Player, wall, or board edge so an interrupted push also adds Headache to their Hand.', ru: 'Сильная Атака, превращающая Rage в перемещение. Выстройте цель напротив Объекта, Игрока, стены или края поля, чтобы прерванный толчок также добавил Headache в её Руку.' },
   'da-blokk': { en: 'Use against an Attack with a dangerous printed effect. If damage still breaks through, the 2 Rage gained fuels a powerful counterattack on Orkk’s next turn.', ru: 'Используйте против Атаки с опасным собственным эффектом. Если урон всё же пройдёт, полученные 2 Rage подготовят мощную контратаку в следующий ход Оркка.' },
   double: { en: 'Best early in an enemy turn when several damage instances may follow. It doubles Rage gained for the rest of that turn, setting up a large Rage-powered Attack.', ru: 'Лучше использовать в начале хода врага, когда ожидается несколько случаев урона. Карта удваивает получаемый Rage до конца хода и готовит мощную Rage-Атаку.' },

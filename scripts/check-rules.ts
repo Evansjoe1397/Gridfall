@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, orkkActionEventForCommand, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 // Most historical rule checks focus on the final resolved card state. Preserve
 // their concise form while production now holds after-combat effects until both
@@ -626,7 +626,13 @@ assert.equal(lordReady.phase, 'choosing-base-placement');
 assert.equal(lordReady.players.P1.hand.length, lordOpeningOrder[1] === 'P1' ? 4 : 3);
 assert.equal(lordReady.players.P1.deck.length, lordOpeningOrder[1] === 'P1' ? 6 : 7);
 assert.equal(lordReady.players.P1.hand.some((card: any) => card.cardId === 'preparation'), true);
-assert.equal(lordReady.players.P1.deck.at(-1)?.cardId, 'mana-barrage');
+assert.equal(
+  lordOpeningOrder[1] === 'P1'
+    ? lordReady.players.P1.hand.some((card: any) => card.cardId === 'mana-barrage')
+    : lordReady.players.P1.deck.at(-1)?.cardId === 'mana-barrage',
+  true,
+  'The selected Focus Card stays on top unless P1 goes second and immediately draws it into Hand.',
+);
 const deploymentOrder = lordReady.lordaeronPlacement!.order;
 const firstPlacement = applyCommand(lordReady, { type: 'place-character', playerId: deploymentOrder[0], to: { x: 2, y: 6 } });
 assert.equal(firstPlacement.ok, true);
@@ -899,9 +905,19 @@ const magicCard = magicHandTest.players.P1.hand.find((card) => card.cardId === '
 const startMagic = applyCommand(magicHandTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: magicCard.instanceId, destination: 'direct' });
 assert.equal(startMagic.ok, true);
 if (startMagic.ok) {
+  assert.deepEqual(
+    wizardActionEventForCommand(startMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'magic-box' }),
+    { playerId: 'P1', action: 'spell-targeted', spell: 'magic-hand', target: { x: 2, y: 0 }, hold: true, targetKind: 'object', targetId: 'magic-box' },
+    'An accepted online Magic Hand target produces a semantic Wizard action event for every client.',
+  );
   const targetMagic = applyCommand(startMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'magic-box' });
   assert.equal(targetMagic.ok, true);
   if (targetMagic.ok) {
+    assert.deepEqual(
+      wizardActionEventForCommand(targetMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 5, y: 0 } }),
+      { playerId: 'P1', action: 'spell-resolved', spell: 'magic-hand' },
+      'Resolving Magic Hand produces a semantic completion event so every client releases the held Power pose.',
+    );
     const resolveMagic = applyCommand(targetMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 0 } });
     assert.equal(resolveMagic.ok, true);
     if (resolveMagic.ok) {
@@ -1356,6 +1372,16 @@ assert.equal(occupiedBoxTeleport.ok, false, 'The test Box cannot teleport onto a
 const encourageOne = createGameInitialState();
 encourageOne.players.P1.deck = [{ instanceId: 'encourage-deck-draw', cardId: 'attack-2' }];
 const encourageCard = encourageOne.players.P1.hand.find((card) => card.cardId === 'encourage')!;
+assert.deepEqual(
+  orkkActionEventForCommand(encourageOne, { type: 'play-perk', playerId: 'P1', cardInstanceId: encourageCard.instanceId, destination: 'direct' }),
+  { playerId: 'P1', action: 'perk-used', cardId: 'encourage' },
+  'An accepted online Encourage command produces a semantic Orkk action event without exposing an animation name.',
+);
+assert.deepEqual(
+  orkkActionEventForCommand(encourageOne, { type: 'arkane-arow-target', playerId: 'P1', to: { x: 4, y: 3 } }),
+  { playerId: 'P1', action: 'shield-thrown', target: { x: 4, y: 3 } },
+  'An accepted online Arcane Throw command produces a semantic Shield action event for every client.',
+);
 const playedEncourage = applyCommand(encourageOne, { type: 'play-perk', playerId: 'P1', cardInstanceId: encourageCard.instanceId, destination: 'direct' });
 assert.equal(playedEncourage.ok, true);
 if (playedEncourage.ok) assert.equal(playedEncourage.state.players.P1.hand.some((card) => card.instanceId === 'encourage-deck-draw'), true, 'EncouRAGE level 1 draws from Deck.');
@@ -1686,7 +1712,7 @@ if (shieldBashAttack.ok) {
   const shieldBashResult = applyCommand(shieldBashAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(shieldBashResult.ok, true);
   if (shieldBashResult.ok) {
-    assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 3, 'Shield Bash deals its combat Damage and 3 more when the recalled Shield passes through the enemy.');
+    assert.equal(shieldBashResult.state.players.P2.hp, shieldBashTargetHp - shieldBashCombatDamage - 2, 'Shield Bash deals its combat Damage and 2 more when the recalled Shield passes through the enemy.');
     assert.equal(shieldBashResult.state.players.P1.shieldEquipped, true, 'Shield Bash equips the recalled Shield after combat.');
     assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-shield'), false);
     assert.equal(shieldBashResult.state.objects.some((object) => object.id === 'shield-bash-far-shield'), true, 'Shield Bash recalls the nearest Shield and leaves farther Shields on the Board.');
@@ -1694,7 +1720,7 @@ if (shieldBashAttack.ok) {
     assert.equal(shieldBashAnimation?.path?.some((cell) => cell.x === 3 && cell.y === 2), true, 'Shield Bash animates through the occupied enemy Square.');
     assert.equal(shieldBashAnimation?.equipPlayerId, 'P1');
     assert.equal(shieldBashAnimation?.collided, false, 'Crossing an enemy during Shield Bash Recall does not turn the flight into a terminal collision bounce.');
-    const shieldBashDamage = shieldBashResult.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P2' && event.damage.amount === 3 && event.damage.collision);
+    const shieldBashDamage = shieldBashResult.state.objectPushAnimations.find((event) => event.damage?.playerId === 'P2' && event.damage.amount === 2 && event.damage.collision);
     assert.equal(shieldBashDamage?.damage?.triggerAnimationId, shieldBashAnimation?.id, 'Shield Bash damage waits for the returning Shield to cross the enemy.');
     assert.equal(typeof shieldBashDamage?.damage?.triggerRouteProgress, 'number');
   }

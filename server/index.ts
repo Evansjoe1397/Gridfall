@@ -1,7 +1,7 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
-import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, GameCommandSchema, resolveMultiplayerCombatStack, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, GameCommandSchema, orkkActionEventForCommand, resolveMultiplayerCombatStack, wizardActionEventForCommand, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
 type GameFormat = 'duel' | 'ffa';
@@ -75,12 +75,16 @@ class DuelRoom extends Room {
       client.send('error', 'Rejected invalid or unauthorized command.');
       return;
     }
+    const orkkActionEvent = orkkActionEventForCommand(this.game, parsed.data);
+    const wizardActionEvent = wizardActionEventForCommand(this.game, parsed.data);
     const result = applyCommand(this.game, parsed.data);
     if (!result.ok) {
       client.send('error', result.error);
       return;
     }
     this.game = result.state;
+    if (orkkActionEvent) this.broadcast('orkk-action', orkkActionEvent);
+    if (wizardActionEvent) this.broadcast('wizard-action', wizardActionEvent);
     if (this.game.phase === 'choosing-combat-stack') {
       this.combatStackSelections.clear();
       const automaticSelections = (this.game as GameState & { combatStackSelections?: Partial<Record<PlayerId, string[]>> }).combatStackSelections ?? {};
