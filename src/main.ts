@@ -1855,8 +1855,8 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[] }>();
-type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; triggerRouteProgress?: number };
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; forced?: boolean }>();
+type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
@@ -1935,7 +1935,8 @@ renderer.setAnimationLoop((time) => {
     const body = group.children[0];
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
-    if (group.userData.character === 'orkk') updateOrkkAnimation(group, id, moving, deltaSeconds);
+    const forcedMovement = movementAnimations.get(id)?.forced === true;
+    if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation);
     body.position.y = usesImportedAnimation ? 0 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const shellAura = group.getObjectByName('StoicShellAura');
@@ -2104,7 +2105,7 @@ function updateCharacterMovement(time: number) {
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
-    if (group.userData.facingSide && hasMovementDirection) {
+    if (!animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) {
         group.rotation.y = characterFacingRotation(group, dx, dz);
@@ -3667,13 +3668,14 @@ function syncBoard() {
       const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
       const visualPath = walkingPath.map(worldPosition);
       const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
-      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined };
+      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined, forced: gameState.players[id].visualMovementCause === 'enemy-ability' };
       if (recordedMovement?.triggerAnimationId) {
         const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
         queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
         impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
       }
       else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
+      delete gameState.players[id].visualMovementCause;
     }
     lastVisualCells.set(id, targetKey);
     const equippedShield = group.getObjectByName('EquippedShield');

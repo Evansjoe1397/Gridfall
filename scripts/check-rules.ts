@@ -44,7 +44,10 @@ if (arcaneBarrierAttack.ok) {
       if (duplicateAck.ok) assert.deepEqual(duplicateAck.state.combatReveal?.acknowledged, ['P1'], 'One player cannot confirm combat twice for both players.');
       const secondAck = applyGameCommand(firstAck.state, { type: 'ack-combat', playerId: 'P2' });
       assert.equal(secondAck.ok, true);
-      if (secondAck.ok) assert.deepEqual(secondAck.state.players.P1.position, { x: 1, y: 2 }, 'Arcane Barrier pushes the adjacent attacker directly away from Logan after both acknowledgements.');
+      if (secondAck.ok) {
+        assert.deepEqual(secondAck.state.players.P1.position, { x: 1, y: 2 }, 'Arcane Barrier pushes the adjacent attacker directly away from Logan after both acknowledgements.');
+        assert.equal(secondAck.state.players.P1.visualMovementCause, 'enemy-ability', 'Arcane Barrier marks its forced movement so imported characters do not play walking animations.');
+      }
     }
   }
 }
