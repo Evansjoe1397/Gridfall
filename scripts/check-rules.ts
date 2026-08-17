@@ -1451,8 +1451,21 @@ const consumedTwo = applyCommand(consumeTwo, { type: 'use-echo-perk', playerId: 
 assert.equal(consumedTwo.ok, true);
 if (consumedTwo.ok) {
   assert.equal(consumedTwo.state.players.P1.hp, 24, 'Consume Rage level 2 heals 2 HP total.');
-  assert.equal(consumedTwo.state.players.P1.rageStacks, 1, 'Consume Rage level 2 consumes 1 Rage.');
+  assert.equal(consumedTwo.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes 2 Rage to heal 2 HP.');
   assert.equal(consumedTwo.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 2), true, 'Consume Rage emits a +2 healing visual event.');
+}
+
+const consumeTwoPartial = createGameInitialState();
+consumeTwoPartial.players.P1.hp = 22;
+consumeTwoPartial.players.P1.rageStacks = 1;
+consumeTwoPartial.players.P1.hand = [];
+consumeTwoPartial.players.P1.spellEcho[1] = { instanceId: 'consume-two-partial', cardId: 'consume-rage' };
+const consumedTwoPartial = applyCommand(consumeTwoPartial, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(consumedTwoPartial.ok, true);
+if (consumedTwoPartial.ok) {
+  assert.equal(consumedTwoPartial.state.players.P1.hp, 23, 'Consume Rage level 2 heals 1 HP when only 1 Rage is available.');
+  assert.equal(consumedTwoPartial.state.players.P1.rageStacks, 0, 'Consume Rage level 2 consumes the single available Rage.');
+  assert.equal(consumedTwoPartial.state.objectPushAnimations.some((event) => event.healing?.playerId === 'P1' && event.healing.amount === 1), true, 'Partial Consume Rage emits a +1 healing visual event.');
 }
 
 const consumeInsufficient = createGameInitialState();
@@ -1486,7 +1499,7 @@ const consumedThree = applyCommand(consumeThree, { type: 'use-echo-perk', player
 assert.equal(consumedThree.ok, true);
 if (consumedThree.ok) {
   assert.equal(consumedThree.state.players.P1.hp, 24, 'Consume Rage level 3 includes the level 2 +1 HP bonus.');
-  assert.equal(consumedThree.state.players.P1.rageStacks, 1, 'Consume Rage level 3 consumes 1 Rage.');
+  assert.equal(consumedThree.state.players.P1.rageStacks, 0, 'Consume Rage level 3 consumes 2 Rage to heal 2 HP.');
   assert.equal(consumedThree.state.players.P2.hand.some((card) => card.cardId === 'exhaust'), true, 'Consume Rage level 3 adds Exhaust to adjacent enemies.');
   assert.equal(consumedThree.state.players.P1.hand.some((card) => ['pinned', 'headache', 'exhaust', 'burning'].includes(card.cardId)), false, 'Consume Rage level 3 removes every negative Status Card, including Burning.');
   assert.equal(consumedThree.state.players.P1.pinnedStacks, 0);

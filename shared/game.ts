@@ -158,7 +158,7 @@ export const CARDS: readonly Card[] = [
   { id: 'arm-da-wiz', name: 'Arm da Wiz', kind: 'perk', value: 1, levelEffects: ['Recall a chosen Shield from anywhere on the Gaming Board or create a new one without removing existing Shields. Equip the Shield. Pull each enemy passed through 1 Square toward Da Orkk', 'Deal 1 Damage if the Shield passes through an enemy during the Recall', 'Gain 1 Rage Stack and +2 Rage Stacks for each crossed enemy'] },
   { id: 'encourage', name: 'EncouRAGE', kind: 'perk', value: 1, levelEffects: ['Draw a Card from your Deck', 'Gain 1 Rage stack', 'Also draw 1 random Card from your Discard'] },
   { id: 'kyk', name: 'Kyk', kind: 'perk', value: 1, levelEffects: ['Push an adjacent Object or enemy 3 Squares. Enemy collisions deal 1 Damage; remaining movement transfers to the collided target when possible', 'Increase the push distance by 1 Square', 'Deal 3 Damage on collision, but destroy the pushed Object'] },
-  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 1 Rage Stack to heal 1 HP', '+1 HP', 'Add Exhaust Card to each adjacent enemy Hand. Remove all negative Status Cards'] },
+  { id: 'consume-rage', name: 'Consume Rage', kind: 'perk', value: 1, levelEffects: ['Consume 1 Rage Stack to heal 1 HP', 'Consume 1 additional Rage Stack to heal 1 additional HP', 'Add Exhaust Card to each adjacent enemy Hand. Remove all negative Status Cards'] },
   { id: 'fistbolt', name: 'Fistbolt', kind: 'attack', value: 2, effectText: 'If Da Orkk has no Rage, generate 1 Rage Stack before combat. Generate 1 Rage Stack after combat.' },
   { id: 'chain-punchin', name: 'Chain Punchin', kind: 'attack', value: 1, effectText: 'Generate an extra Action if the Shield was not equipped before combat; otherwise, drop the Shield and draw a Card after combat.' },
   { id: 'teef-strike', name: 'Teef Strike', kind: 'attack', value: 1, effectText: "After combat, add an Exhaust Status Card to the enemy's Hand and force them to discard 1 Defend Card." },
@@ -1992,12 +1992,13 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'consume-rage') {
-    const rageCost = 1;
-    if (player.rageStacks >= rageCost) {
-      player.rageStacks -= rageCost;
-      const healed = healPlayer(state, player, level >= 2 ? 2 : 1);
-      state.log.unshift(`Consume Rage removed ${rageCost} Rage and healed ${player.name} for ${healed} HP.`);
-    } else state.log.unshift(`Consume Rage could not heal ${player.name}: ${rageCost} Rage stacks were required.`);
+    const maxRageCost = level >= 2 ? 2 : 1;
+    const rageSpent = Math.min(player.rageStacks, maxRageCost);
+    if (rageSpent > 0) {
+      player.rageStacks -= rageSpent;
+      const healed = healPlayer(state, player, rageSpent);
+      state.log.unshift(`Consume Rage removed ${rageSpent} Rage and healed ${player.name} for ${healed} HP.`);
+    } else state.log.unshift(`Consume Rage could not heal ${player.name}: 1 Rage stack was required.`);
     if (level >= 3) {
       const adjacentEnemies = Object.values(state.players).filter((entry) => entry.id !== player.id && distance(entry.position, player.position) === 1);
       adjacentEnemies.forEach((enemy) => enemy.hand.push({ instanceId: `${enemy.id}-status-${++instanceSequence}`, cardId: 'exhaust', revealedToOpponent: true }));
