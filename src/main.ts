@@ -11,6 +11,7 @@ import {
   CARDS,
   ACTION_QUEST_POOL,
   STARTING_DECKS,
+  activeWrecknaPhylactery,
   applicableCombatCardInstanceIds,
   applyCommand,
   armDaWizPath,
@@ -117,7 +118,7 @@ let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
 type GameFormat = 'duel' | 'ffa';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, SelectableCharacter>>; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
 let combatStackSelectionKey = '';
@@ -274,7 +275,8 @@ function isWaitingForResolvedCardTarget() {
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
-  return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-wreckna-phylactery') return true;
+  return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
 }
 
 function isWaitingForSelectedCardTarget() {
@@ -314,7 +316,8 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   }));
 }
 
-type SelectableCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ';
+type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ';
+type SelectableCharacter = OnlineCharacter | 'wreckna';
 type HotseatOpponent = SelectableCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench';
 const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
@@ -322,6 +325,7 @@ const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: num
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
+  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. The Lich is immortal while any Phylactery exists. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
 };
 function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
@@ -349,7 +353,7 @@ function showOnlineArenaSelect() {
 function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
   const panel = byId('onlineWaiting');
   const arenaName = format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as SelectableCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character, arena);
@@ -361,7 +365,7 @@ function showHotseatOpponentSelect(playerCharacter: SelectableCharacter, arena: 
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
   const arenaName = arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
   panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as SelectableCharacter, arena)));
   panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel', arena));
@@ -551,7 +555,10 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-force-pull-target') return gameState.forcePull!.casterId;
   if (gameState.phase === 'choosing-arkane-arow-target') return gameState.arkaneArow!.casterId;
-  if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
+  if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-wreckna-phylactery') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
   if (gameState.phase === 'choosing-blink-teleport') return gameState.pendingAttack!.defenderId;
@@ -643,7 +650,7 @@ function renderUI() {
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
   showTurnAnnouncement(actor);
-  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : 'TRAINING DUMMY';
+  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'wreckna' ? 'THE LICH' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
   byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${effectiveAttackRange(gameState, actor)}</b></span>`;
   const knownTopCard = actor.knownTopCardId ? cardDefinition({ instanceId: '', cardId: actor.knownTopCardId }) : null;
@@ -683,7 +690,9 @@ function renderUI() {
   if (gameState.phase === 'choosing-kyk-direction') prompt.textContent = 'KYK: select a highlighted legal push direction · Escape to cancel';
   if (gameState.phase === 'choosing-arkane-arow-target') prompt.textContent = `ARKANE AROW: select a highlighted Square within Range ${gameState.arkaneArow!.range} · Escape to cancel`;
   if (gameState.phase === 'choosing-arm-da-wiz-choice') prompt.textContent = 'Arm da Wiz: choose Recall or Create Shield · Escape to cancel';
+  if (gameState.phase === 'choosing-arm-da-wiz-create-payment') prompt.textContent = 'Arm da Wiz: spend 1 HP or 1 Rage Stack to create Shield · Escape to cancel';
   if (gameState.phase === 'choosing-arm-da-wiz-target') prompt.textContent = 'Arm da Wiz: select your Shield anywhere on the Board · Escape to cancel';
+  if (gameState.phase === 'choosing-test-phylactery-target') prompt.textContent = 'Test Phylactery: select any Object except a Column · Escape to cancel';
   if (gameState.phase === 'choosing-mind-tricks-discard') prompt.textContent = `Mind Tricks: reveal up to ${gameState.mindTricks!.maxDiscards} card${gameState.mindTricks!.maxDiscards === 1 ? '' : 's'} · Escape cancels before the first reveal`;
   if (gameState.phase === 'choosing-mind-tricks-enemy-discard') prompt.textContent = `Mind Tricks: discard ${gameState.mindTricks!.enemyDiscardsRemaining} card${gameState.mindTricks!.enemyDiscardsRemaining === 1 ? '' : 's'}`;
   if (gameState.phase === 'choosing-preparation-teleport') prompt.textContent = 'Preparation: select a visible Object to swap places with · Escape to cancel';
@@ -819,6 +828,12 @@ function characterTraitHtml(ru: boolean) {
       status: ru
         ? `Сейчас: ${player.manaPoints}/3 Mana · режим ${player.manaMode === 'consume' ? 'Consume' : 'Generate'}.`
         : `Current state: ${player.manaPoints}/3 Mana · ${player.manaMode === 'consume' ? 'Consume' : 'Generate'} mode.`,
+    },
+    wreckna: {
+      trait: 'Phylactery · Entombed',
+      description: ru ? 'Наполняйте Объекты бессмертной душой Врекны и усиливайте карты в зависимости от типа Филактерии. Лич бессмертен, пока существует хотя бы одна Филактерия.' : 'Infuse Objects with Wreckna’s undead Soul and increase Card power depending on the Phylactery type. The Lich is immortal while at least one Phylactery exists.',
+      detail: ru ? 'Entombed: потратьте 2 MOV, чтобы войти в Гробницу. Восстановите 1 HP, если начинаете ход внутри Гробницы.' : 'Entombed: Spend 2 MOV to enter a Tomb. Restore 1 Hit Point when beginning a turn inside a Tomb.',
+      status: player.wrecknaInsideTombId ? (ru ? 'Текущий статус: внутри Гробницы.' : 'Current state: inside a Tomb.') : (ru ? 'Текущий статус: левитирует на поле.' : 'Current state: levitating on the Board.'),
     },
     'john-christ': {
       trait: 'Possessed',
@@ -1052,6 +1067,7 @@ function renderCharacterTraits() {
   else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
   else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div></div>`;
   else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div></div>`;
+  else if (playerTwo.character === 'wreckna') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>Infuse Objects to empower Cards. Wreckna is immortal while at least one Phylactery exists.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
   else byId('characterTraitPanelP2').innerHTML = '';
   if (player.character === 'shinobi') {
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
@@ -1071,6 +1087,10 @@ function renderCharacterTraits() {
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div>${shell}</div>`;
     return;
   }
+  if (player.character === 'wreckna') {
+    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>Infuse Objects to empower Cards. Wreckna is immortal while at least one Phylactery exists.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
+    return;
+  }
   byId('characterTraitPanel').innerHTML = '';
 }
 
@@ -1083,6 +1103,11 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const burning = player.hand.filter((card) => card.cardId === 'burning').length;
     const panic = player.hand.filter((card) => card.cardId === 'panic').length;
     const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang');
+    const phylacteryIcons = player.character === 'wreckna' ? ([
+      ['might', 'M', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
+      ['wisdom', 'W', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
+      ['ritual', 'R', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
+    ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${icon}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
     const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
     const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">×2<span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">🦵<i></i><b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
@@ -1094,6 +1119,10 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
     const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
     const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">➜<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
+    const hexBonus = player.hexMovementBonus ?? 0;
+    const hexPenalty = player.hexMovementPenalty ?? 0;
+    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">HEX<b>+${hexBonus}</b><span class="status-tooltip"><strong>Hex · Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV. Hex also applied the stolen MOV, which can pay for Phylactery of Might. Each point expires at the end of its target's next turn.</span></div>` : '';
+    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">HEX<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Hex · Movement Stolen</strong>Maximum MOV is reduced by ${hexPenalty} until the end of this character's next turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
@@ -1107,7 +1136,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${flagIcon}${spiritIcon}${spiritSiphonIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1257,10 +1286,41 @@ function renderFlurryModal() {
 
 function renderArmDaWizModal() {
   const modal = byId('armDaWizModal');
+  const wrecknaState = gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; availableTypes: ('might' | 'wisdom' | 'ritual')[] } | null };
+  if ((gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') && wrecknaState.wrecknaWisdom && canLocalAct(wrecknaState.wrecknaWisdom.playerId)) {
+    const player = gameState.players[wrecknaState.wrecknaWisdom.playerId];
+    modal.classList.remove('hidden');
+    if (gameState.phase === 'wreckna-wisdom-offer') {
+      modal.innerHTML = `<div class="choice-dialog"><span>PHYLACTERY POWER</span><h2>Of Wisdom</h2><p>Draw 1 Card, then discard 1 Card before choosing a Defend Card.</p><div class="choice-cards"><button id="useWrecknaWisdom"><strong>Use Of Wisdom</strong><small>Draw 1, then discard 1</small></button></div><button class="choice-decline" id="declineWrecknaWisdom">Continue without using</button></div>`;
+      modal.querySelector('#useWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: true }));
+      modal.querySelector('#declineWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: false }));
+    } else {
+      const discardable = player.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
+      modal.innerHTML = `<div class="choice-dialog"><span>PHYLACTERY POWER</span><h2>Discard 1 Card</h2><p>Complete Of Wisdom before choosing a Defend Card.</p><div class="choice-cards">${discardable.map((card) => `<button data-wisdom-discard="${card.instanceId}"><strong>${escapeHtml(cardDefinition(card).name)}</strong><small>Discard</small></button>`).join('')}</div></div>`;
+      modal.querySelectorAll<HTMLButtonElement>('[data-wisdom-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-discard', playerId: player.id, cardInstanceId: button.dataset.wisdomDiscard! })));
+    }
+    return;
+  }
+  if (gameState.phase === 'choosing-wreckna-phylactery' && wrecknaState.wrecknaPhylacteryChoice && canLocalAct(wrecknaState.wrecknaPhylacteryChoice.casterId)) {
+    const choice = wrecknaState.wrecknaPhylacteryChoice;
+    const copy = { might: ['Of Might', 'Spend 1 MOV for +1 Attack Value as a Combat Power.'], wisdom: ['Of Wisdom', 'Draw 1 Card and discard 1 before choosing a Defend Card.'], ritual: ['Of Ritual', 'Ignore HP or Tomb sacrifices when creating future Phylacteries.'] } as const;
+    modal.classList.remove('hidden');
+    modal.innerHTML = `<div class="choice-dialog"><span>INFUSE OBJECT</span><h2>Choose Phylactery Type</h2><p>Only currently inactive types are available.</p><div class="choice-cards">${choice.availableTypes.map((type) => `<button data-phylactery-type="${type}"><strong>${copy[type][0]}</strong><small>${copy[type][1]}</small></button>`).join('')}</div></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-phylactery-type]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-phylactery-choice', playerId: choice.casterId, phylacteryType: button.dataset.phylacteryType as 'might' | 'wisdom' | 'ritual' })));
+    return;
+  }
   const arm = gameState.armDaWiz;
-  const visible = (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(arm) && canLocalAct(arm!.casterId);
+  const visible = (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(arm) && canLocalAct(arm!.casterId);
   modal.classList.toggle('hidden', !visible);
   if (!visible || !arm) { modal.innerHTML = ''; return; }
+  if (gameState.phase === 'choosing-arm-da-wiz-create-payment') {
+    const player = gameState.players[arm.casterId];
+    modal.innerHTML = `<div class="choice-dialog"><span>SHIELD CREATION</span><h2>Choose Payment</h2><p>Spend 1 HP or 1 Rage Stack to create and instantly equip a new Iron Shield.</p><div class="choice-cards"><button id="armWizPayHp" ${player.hp < 1 ? 'disabled' : ''}><strong>Use 1 HP</strong><small>${player.hp} HP available</small></button><button id="armWizPayRage" ${player.rageStacks < 1 ? 'disabled' : ''}><strong>Use 1 Rage Stack</strong><small>${player.rageStacks} Rage Stack${player.rageStacks === 1 ? '' : 's'} available</small></button></div><button class="choice-decline" id="armWizCancel">Cancel Perk</button></div>`;
+    modal.querySelector<HTMLButtonElement>('#armWizPayHp')?.addEventListener('click', () => dispatch({ type: 'arm-da-wiz-create-payment', playerId: arm.casterId, payment: 'hp' }));
+    modal.querySelector<HTMLButtonElement>('#armWizPayRage')?.addEventListener('click', () => dispatch({ type: 'arm-da-wiz-create-payment', playerId: arm.casterId, payment: 'rage' }));
+    modal.querySelector<HTMLButtonElement>('#armWizCancel')!.addEventListener('click', () => dispatch({ type: 'cancel-targeting', playerId: arm.casterId }));
+    return;
+  }
   if (gameState.phase === 'choosing-arm-da-wiz-target') {
     const shields = gameState.objects.filter((object) => object.kind === 'orkk-shield' && object.ownerId === arm.casterId);
     modal.innerHTML = `<div class="choice-dialog"><span>PERK TARGETING</span><h2>Recall a Shield</h2><p>Select an Iron Shield anywhere on the Board to recall and equip. Enemy-occupied Squares do not block its route.</p><div class="choice-cards">${shields.map((shield) => {
@@ -1440,6 +1500,7 @@ function renderCombatReveal() {
     const attacker = combatSeat === pending.attackerId;
     const applicableIds = new Set(applicableCombatCardInstanceIds(gameState, combatSeat));
     const applicable = player.hand.filter((instance) => applicableIds.has(instance.instanceId));
+    const mightAvailable = combatSeat === pending.attackerId && player.character === 'wreckna' && player.movementRemaining > 0 && Boolean(activeWrecknaPhylactery(gameState, player.id, 'might'));
     if (applicable.length === 0 && localCombatSelections[combatSeat] !== undefined) { modal.classList.add('hidden'); modal.innerHTML = ''; return; }
     const submitted = submittedIds.includes(combatSeat);
     const opponentId = combatSeat === pending.attackerId ? pending.defenderId : pending.attackerId;
@@ -1470,7 +1531,9 @@ function renderCombatReveal() {
       const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>USE ${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Choose exactly one Combat Card, or use none</h3>${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>DO NOT USE ANYTHING</strong><small>Keep every Combat Card in Hand. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
+    const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Choose exactly one Combat Power or Combat Card, or use none</h3>${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>DO NOT USE ANYTHING</strong><small>Keep every Combat Card in Hand. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
+    modal.querySelector<HTMLButtonElement>('#usePhylacteryMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'wreckna-might-choice', playerId: combatSeat, use: true }));
     modal.querySelectorAll<HTMLButtonElement>('[data-combat-stack-card]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
       if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
       else dispatch({ type: 'combat-stack-choice', playerId: combatSeat, cardInstanceId: button.dataset.combatStackCard! });
@@ -1935,7 +1998,17 @@ renderer.setAnimationLoop((time) => {
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation);
-    body.position.y = usesImportedAnimation ? 0 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    const lichAura = group.getObjectByName('WrecknaLevitationAura');
+    if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
+    if (group.userData.character === 'wreckna') {
+      const pulse = 1 + Math.sin(time * 0.006) * 0.18;
+      const mightLight = group.getObjectByName('WrecknaMightLight') as THREE.PointLight | undefined;
+      if (mightLight?.visible) mightLight.intensity = 3.8 * pulse;
+      const mantle = group.getObjectByName('WrecknaRitualMantle');
+      if (mantle?.visible) { mantle.rotation.y = Math.sin(time * 0.0018) * 0.035; const mantleLight = mantle.getObjectByName('WrecknaMantleLight') as THREE.PointLight | undefined; if (mantleLight) mantleLight.intensity = 3.2 * pulse; }
+      for (const eyeName of ['WrecknaEyeLeft', 'WrecknaEyeRight']) { const eye = group.getObjectByName(eyeName) as THREE.Mesh | undefined; const material = eye?.material as THREE.MeshStandardMaterial | undefined; if (material?.emissiveIntensity && material.emissiveIntensity > 1) material.emissiveIntensity = 5.2 * pulse; }
+    }
     const shellAura = group.getObjectByName('StoicShellAura');
     if (shellAura?.visible) {
       const pulse = 1 + Math.sin(time * 0.0045) * 0.055;
@@ -1946,6 +2019,10 @@ renderer.setAnimationLoop((time) => {
     }
     updateManaOrbAnimation(group, time);
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
+  });
+  objectGroups.forEach((group) => {
+    const aura = group.getObjectByName('PhylacteryAura');
+    if (aura) { aura.rotation.z = time * 0.0008; aura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
   });
   updateDamageVisuals(time);
   renderer.render(scene, camera);
@@ -2332,6 +2409,13 @@ function updateObjectMovement(time: number) {
       const collapse = Math.max(.04, 1 - Math.pow(progress, 1.35));
       group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(collapse);
       group.rotation.y = progress * Math.PI * 3;
+      group.children.filter((child) => child.name === 'TombDebris').forEach((debris) => {
+        const velocity = debris.userData.velocity as THREE.Vector3;
+        const origin = debris.userData.origin as THREE.Vector3;
+        debris.position.copy(origin).addScaledVector(velocity, progress);
+        debris.position.y += Math.sin(progress * Math.PI) * Number(debris.userData.arc ?? 0.8);
+        debris.rotation.x += 0.16; debris.rotation.z += 0.12;
+      });
     }
     const collisionBounceDuration = isReleasedShield && animation.collided ? (animation.collisionBounceDuration ?? 230) : 0;
     const collisionBounceElapsed = elapsed - animation.duration;
@@ -3307,6 +3391,106 @@ function updateWizardOrbitalAnimation(state: WizardAnimationState, deltaSeconds:
   );
 }
 
+function createWreckna(playerColor = 0x169bd3) {
+  const root = new THREE.Group();
+  const body = new THREE.Group(); body.name = 'WrecknaBody'; root.add(body);
+  root.userData.facingSide = 'negative-z';
+  const bone = new THREE.MeshStandardMaterial({ color: 0xd7decc, roughness: 0.78 });
+  const boneDark = new THREE.MeshStandardMaterial({ color: 0x718077, roughness: 0.82 });
+  const armor = new THREE.MeshStandardMaterial({ color: 0x172836, roughness: 0.42, metalness: 0.72 });
+  const crown = new THREE.MeshStandardMaterial({ color: 0x607887, emissive: 0x173b52, emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.86 });
+  const frost = new THREE.MeshStandardMaterial({ color: 0x6d93a3, emissive: 0x17445d, emissiveIntensity: 0.45, roughness: 0.2 });
+  const robe = new THREE.MeshStandardMaterial({ color: 0x151329, emissive: 0x171342, emissiveIntensity: 0.35, roughness: 0.88 });
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
+    const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = true; parent.add(mesh); return mesh;
+  };
+  const spectralTail = add(new THREE.ConeGeometry(0.48, 1.18, 18, 1, true), robe, [0, 0.83, 0]);
+  spectralTail.rotation.y = Math.PI;
+  add(new THREE.CapsuleGeometry(0.27, 0.62, 6, 14), armor, [0, 1.42, 0]);
+  for (const side of [-1, 1]) {
+    const shoulder = add(new THREE.ConeGeometry(0.25, 0.62, 5), armor, [side * 0.43, 1.58, 0]);
+    shoulder.rotation.z = side * -Math.PI / 2; shoulder.rotation.y = Math.PI / 2;
+    const upperArm = add(new THREE.CapsuleGeometry(0.07, 0.43, 5, 9), side > 0 ? boneDark.clone() : boneDark, [side * 0.49, 1.2, 0]);
+    upperArm.name = side > 0 ? 'WrecknaRightArm' : 'WrecknaLeftArm';
+    upperArm.rotation.z = side * 0.24;
+    const hand = add(new THREE.SphereGeometry(0.105, 12, 9), side > 0 ? bone.clone() : bone, [side * 0.56, 0.91, -0.02]);
+    hand.name = side > 0 ? 'WrecknaRightHand' : 'WrecknaLeftHand';
+  }
+  const mightLight = new THREE.PointLight(0xff2638, 3.8, 2.5); mightLight.name = 'WrecknaMightLight'; mightLight.position.set(0.55, 1.13, -0.04); mightLight.visible = false; body.add(mightLight);
+  const skull = add(new THREE.SphereGeometry(0.25, 20, 15), bone, [0, 1.98, 0]); skull.scale.set(0.82, 1, 0.78);
+  const jaw = add(new THREE.BoxGeometry(0.27, 0.16, 0.2), boneDark, [0, 1.79, -0.035]); jaw.rotation.x = -0.08;
+  for (const side of [-1, 1]) {
+    const eye = add(new THREE.SphereGeometry(0.052, 12, 8), frost, [side * 0.085, 2.01, -0.205]); eye.name = side < 0 ? 'WrecknaEyeLeft' : 'WrecknaEyeRight'; eye.scale.z = 0.55;
+    const cheek = add(new THREE.ConeGeometry(0.045, 0.22, 6), boneDark, [side * 0.14, 1.87, -0.16]); cheek.rotation.z = side * 0.24;
+  }
+  const crownBand = add(new THREE.CylinderGeometry(0.24, 0.27, 0.12, 10), crown, [0, 2.19, 0]);
+  crownBand.rotation.y = Math.PI / 10;
+  for (let index = 0; index < 7; index++) {
+    const angle = index / 7 * Math.PI * 2;
+    const spike = add(new THREE.ConeGeometry(0.045, 0.43, 5), crown, [Math.sin(angle) * 0.21, 2.4, Math.cos(angle) * 0.21]);
+    spike.rotation.z = Math.sin(angle) * 0.18; spike.rotation.x = -Math.cos(angle) * 0.18;
+  }
+  const mantle = new THREE.Group(); mantle.name = 'WrecknaRitualMantle'; mantle.visible = false; body.add(mantle);
+  const mantleGold = new THREE.MeshStandardMaterial({ color: 0xe0b94b, emissive: 0xb66a12, emissiveIntensity: 2.1, roughness: 0.3, metalness: 0.72 });
+  const collar = add(new THREE.TorusGeometry(0.39, 0.09, 8, 24, Math.PI), mantleGold, [0, 1.62, 0.08], mantle); collar.rotation.x = Math.PI / 2; collar.rotation.z = Math.PI / 2;
+  for (const side of [-1, 1]) {
+    const mantlePlate = add(new THREE.ConeGeometry(0.23, 0.78, 5), mantleGold, [side * 0.39, 1.5, 0.12], mantle);
+    mantlePlate.rotation.z = side * -0.48; mantlePlate.rotation.x = -0.2;
+  }
+  const cape = add(new THREE.ConeGeometry(0.48, 1.16, 10, 1, true, 0, Math.PI), mantleGold, [0, 1.03, 0.2], mantle); cape.rotation.y = Math.PI / 2;
+  const mantleLight = new THREE.PointLight(0xffc94d, 3.2, 4); mantleLight.name = 'WrecknaMantleLight'; mantleLight.position.set(0, 1.5, 0.18); mantle.add(mantleLight);
+  const aura = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.025, 8, 42), new THREE.MeshBasicMaterial({ color: 0x65ccff, transparent: true, opacity: 0.58 }));
+  aura.name = 'WrecknaLevitationAura'; aura.rotation.x = Math.PI / 2; aura.position.y = 0.31; body.add(aura);
+  const light = new THREE.PointLight(0x4fc8ff, 2.4, 4); light.position.set(0, 1.55, -0.2); body.add(light);
+  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0x72dcff, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+  ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  return root;
+}
+
+function syncWrecknaPhylacteryVisuals(group: THREE.Group, playerId: PlayerId) {
+  if (group.userData.character !== 'wreckna') return;
+  const might = Boolean(activeWrecknaPhylactery(gameState, playerId, 'might'));
+  const wisdom = Boolean(activeWrecknaPhylactery(gameState, playerId, 'wisdom'));
+  const ritual = Boolean(activeWrecknaPhylactery(gameState, playerId, 'ritual'));
+  for (const name of ['WrecknaRightArm', 'WrecknaRightHand']) {
+    const mesh = group.getObjectByName(name) as THREE.Mesh | undefined;
+    const material = mesh?.material as THREE.MeshStandardMaterial | undefined;
+    if (!material) continue;
+    material.color.setHex(might ? 0xd92c36 : name.endsWith('Hand') ? 0xd7decc : 0x718077);
+    material.emissive.setHex(might ? 0xff1828 : 0x000000);
+    material.emissiveIntensity = might ? 2.8 : 0;
+  }
+  const mightLight = group.getObjectByName('WrecknaMightLight') as THREE.PointLight | undefined;
+  if (mightLight) mightLight.visible = might;
+  for (const name of ['WrecknaEyeLeft', 'WrecknaEyeRight']) {
+    const eye = group.getObjectByName(name) as THREE.Mesh | undefined;
+    const material = eye?.material as THREE.MeshStandardMaterial | undefined;
+    if (!material) continue;
+    material.color.setHex(wisdom ? 0xaeeeff : 0x6d93a3);
+    material.emissive.setHex(wisdom ? 0x26bfff : 0x17445d);
+    material.emissiveIntensity = wisdom ? 5.2 : 0.45;
+    eye!.scale.setScalar(wisdom ? 1.18 : 1);
+    eye!.scale.z *= 0.55;
+  }
+  const mantle = group.getObjectByName('WrecknaRitualMantle');
+  if (mantle) mantle.visible = ritual;
+}
+
+function createWrecknaTomb() {
+  const root = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ color: 0x59636b, roughness: 0.94 });
+  const darkStone = new THREE.MeshStandardMaterial({ color: 0x303840, roughness: 0.98 });
+  const bone = new THREE.MeshStandardMaterial({ color: 0xc5cbbd, roughness: 0.86 });
+  const coffin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.05, 0.48), stone); coffin.position.y = 1.13; coffin.castShadow = true; coffin.receiveShadow = true; root.add(coffin);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(0.98, 1.78, 0.14), darkStone); lid.position.set(0, 1.12, -0.29); lid.castShadow = true; root.add(lid);
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.42, 5), stone); crown.position.y = 2.34; crown.rotation.y = Math.PI; crown.castShadow = true; root.add(crown);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), bone); skull.position.set(0, 1.45, -0.39); skull.scale.set(0.85, 1, 0.62); skull.castShadow = true; root.add(skull);
+  for (const side of [-1, 1]) { const boneBar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 7), bone); boneBar.position.set(0, 0.92, -0.39); boneBar.rotation.z = side * 0.78; root.add(boneBar); }
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.2, 0.74), darkStone); base.position.y = 0.11; base.castShadow = true; root.add(base);
+  return root;
+}
+
 function createJohnChrist(playerColor = 0x169bd3) {
   const root = new THREE.Group(); const body = new THREE.Group(); body.name = 'JohnBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
@@ -3639,11 +3823,12 @@ function syncBoard() {
     if (!group || group.userData.character !== character) {
       if (group) scene.remove(group);
       const color = id === 'P1' ? 0x169bd3 : id === 'P2' ? 0xff5d68 : 0xa06cff;
-      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : createDummy(color);
+      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'wreckna' ? createWreckna(color) : createDummy(color);
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
-    group.visible = gameState.phase !== 'choosing-base-placement' || Boolean(placementState()?.claims[id]);
+    const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
+    group.visible = !entombed && (gameState.phase !== 'choosing-base-placement' || Boolean(placementState()?.claims[id]));
     if (!group) return;
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
@@ -3686,6 +3871,7 @@ function syncBoard() {
     updateStoicShellAura(group, gameState.players[id].stoicShell);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
+    syncWrecknaPhylacteryVisuals(group, id);
     syncManaConsumeAnimation(id, group);
     group.traverse((child) => { child.userData.playerId = id; });
   });
@@ -3695,8 +3881,14 @@ function syncBoard() {
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
-    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : createWoodenBox(); objectGroups.set(object.id, group); scene.add(group); }
+    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
+    let phylacteryAura = group.getObjectByName('PhylacteryAura') as THREE.Mesh | undefined;
+    if (object.phylacteryType && !phylacteryAura) {
+      const colors = { might: 0xff5d68, wisdom: 0x65cfff, ritual: 0xb178ff };
+      phylacteryAura = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: colors[object.phylacteryType], transparent: true, opacity: 0.82 }));
+      phylacteryAura.name = 'PhylacteryAura'; phylacteryAura.rotation.x = Math.PI / 2; phylacteryAura.position.y = 0.18; group.add(phylacteryAura);
+    } else if (!object.phylacteryType && phylacteryAura) group.remove(phylacteryAura);
     const target = worldPosition(object.position);
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
@@ -3741,6 +3933,15 @@ function syncBoard() {
     const reconstructedRecallShield = !group && event.removeOnComplete && event.equipPlayerId;
     if (reconstructedRecallShield) { group = createOrkkShieldObject(); objectGroups.set(event.objectId, group); scene.add(group); }
     if (!group) return;
+    if (event.destroy && group.userData.objectKind === 'tomb' && !group.userData.debrisPrepared) {
+      group.userData.debrisPrepared = true;
+      const stone = new THREE.MeshStandardMaterial({ color: 0x59636b, roughness: 0.96 });
+      const bone = new THREE.MeshStandardMaterial({ color: 0xc5cbbd, roughness: 0.88 });
+      for (let index = 0; index < 14; index++) {
+        const debris = new THREE.Mesh(index % 4 === 0 ? new THREE.CylinderGeometry(0.025, 0.04, 0.34, 6) : new THREE.BoxGeometry(0.12 + Math.random() * 0.2, 0.1 + Math.random() * 0.18, 0.1 + Math.random() * 0.2), index % 4 === 0 ? bone : stone);
+        debris.name = 'TombDebris'; debris.position.set((Math.random() - 0.5) * 0.7, 0.3 + Math.random() * 1.7, (Math.random() - 0.5) * 0.35); debris.userData.origin = debris.position.clone(); debris.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 2.4, -0.25 - Math.random() * 0.55, (Math.random() - 0.5) * 2.4); debris.userData.arc = 0.45 + Math.random() * 0.8; debris.castShadow = true; group.add(debris);
+      }
+    }
     processedObjectPushAnimations.add(event.id);
     const logicalFrom = worldPosition(event.from); const logicalTo = worldPosition(event.to);
     if (event.attackAnimationPlayerId && !event.destroy) {
@@ -3998,7 +4199,8 @@ function highlightCells() {
     const regularDistance = regularPath.length;
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
     const spiritPassSquare = (occupiedByPlayer || occupiedByObject) && actor.spiritForm && regularDistance <= actor.movementRemaining;
-    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare) && regularDistance >= 1 && regularDistance <= actor.movementRemaining;
+    const wrecknaTombEntry = actor.character === 'wreckna' && objectOnCell?.kind === 'tomb' && distance(actor.position, cell) === 1 && actor.movementRemaining >= 2;
+    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare) && regularDistance >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining);
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;
@@ -4060,8 +4262,9 @@ function highlightCells() {
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
       && distance(gameState.players[fireball!.casterId].position, cell) <= 3 && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
+    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
-    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || kykTargetValid;
+    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || kykTargetValid;
     const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
     material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
@@ -4077,6 +4280,8 @@ function updateTargetHighlights(time: number) {
   const pull = gameState.forcePull;
   const canPullTarget = gameState.phase === 'choosing-force-pull-target' && Boolean(pull) && canLocalAct(pull!.casterId);
   const canArmTarget = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && canLocalAct(gameState.armDaWiz!.casterId);
+  const testPhylactery = (gameState as GameState & { testPhylactery?: { casterId: PlayerId } | null }).testPhylactery;
+  const canTestPhylacteryTarget = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylactery) && canLocalAct(testPhylactery!.casterId);
   const canKykTarget = gameState.phase === 'choosing-kyk-target' && Boolean(gameState.forceThrow) && canLocalAct(gameState.forceThrow!.casterId);
   const arcane = gameState.arcaneMissle;
   const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
@@ -4108,15 +4313,16 @@ function updateTargetHighlights(time: number) {
   objectGroups.forEach((group, objectId) => {
     const object = gameState.objects.find((entry) => entry.id === objectId);
     const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
+    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian';
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
     const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[magic!.casterId].position) <= gameState.players[magic!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, object!.position);
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validShield || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validShield || validKykObject || validMagicObject ? 0.55 : 0;
+      child.material.emissive.set(validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
-  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget ? 'crosshair' : 'grab';
+  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget ? 'crosshair' : 'grab';
 }
 
 function onBoardClick(event: PointerEvent) {
@@ -4187,6 +4393,10 @@ function onBoardClick(event: PointerEvent) {
   } else if (gameState.phase === 'choosing-arm-da-wiz-target') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     if (objectHit) dispatch({ type: 'arm-da-wiz-target', playerId: gameState.armDaWiz!.casterId, objectId: objectHit });
+  } else if (gameState.phase === 'choosing-test-phylactery-target') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const pending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId } | null }).testPhylactery;
+    if (objectHit && pending) dispatch({ type: 'test-phylactery-target', playerId: pending.casterId, objectId: objectHit });
   } else if (gameState.phase === 'choosing-kyk-target') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;

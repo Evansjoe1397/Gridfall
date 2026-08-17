@@ -53,6 +53,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .character-select-trait-icon { position: relative; display: inline-grid; place-items: center; min-width: 28px; height: 24px; color: #84cfff; font-size: 15px; outline: none; cursor: help; }
 .character-select-trait-tooltip { position: absolute; left: 50%; bottom: calc(100% + 9px); z-index: 30; width: 260px; padding: 10px 12px; border: 1px solid #4f776c; background: rgba(3,12,10,.98); color: #c9ded8; font-size: 10px; line-height: 1.45; letter-spacing: 0; text-align: left; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 5px); transition: .14s; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
 .character-select-trait-tooltip > b { display: block; margin-bottom: 4px; color: white; font-size: 11px; }
+.phylactery-status { border-color: #647684; color: #9ba8af; background: rgba(25,31,38,.82); filter: grayscale(1); opacity: .55; }
+.phylactery-status.active { border-color: #75d8ff; color: #d8f7ff; background: radial-gradient(circle at 35% 30%, rgba(87,207,255,.48), rgba(20,49,73,.94)); box-shadow: 0 0 14px rgba(77,199,255,.55); filter: none; opacity: 1; }
 .character-select-trait-icon:hover .character-select-trait-tooltip, .character-select-trait-icon:focus .character-select-trait-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .lobby-back-button { margin-top: 4px; padding: 10px 18px; border: 1px solid #3a6d60; background: transparent; color: #9fc7bc; cursor: pointer; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
 .lobby-back-button:hover { border-color: var(--cyan); color: #eafff9; }
