@@ -1831,7 +1831,7 @@ shizzleWallTest.objects = [{ id: 'shizzle-shield', name: "Da Orkk's Iron Shield"
 const shizzleWallCard = shizzleWallTest.players.P1.hand.find((card) => card.cardId === 'shizzle')!;
 const startWallShizzle = applyCommand(shizzleWallTest, { type: 'play-perk', playerId: 'P1', cardInstanceId: shizzleWallCard.instanceId, destination: 'direct' });
 assert.equal(startWallShizzle.ok, true);
-if (startWallShizzle.ok) assert.equal(applyCommand(startWallShizzle.state, { type: 'shizzle-destination', playerId: 'P1', to: { x: 3, y: 0 } }).ok, false, 'Shizzle must not pass through Da Orkk Shield Wall Objects.');
+if (startWallShizzle.ok) assert.equal(applyCommand(startWallShizzle.state, { type: 'shizzle-destination', playerId: 'P1', to: { x: 3, y: 0 } }).ok, true, 'Shizzle may pass through Da Orkk Shield Wall Objects.');
 const shizzleColumnState = createHotseatTestState(true);
 shizzleColumnState.players.P1.position = { x: 1, y: 0 };
 shizzleColumnState.players.P2.position = { x: 5, y: 0 };

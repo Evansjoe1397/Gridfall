@@ -168,7 +168,7 @@ export const CARDS: readonly Card[] = [
   { id: 'arcane-missle', name: 'Arcane Missile', kind: 'perk', value: 1, levelEffects: ['Deal 1 Damage to an enemy within Range 3 and line of sight', 'Can maneuver around obstacles within Range 3', 'Global Range'], effectText: 'Consume: +2 Damage.' },
   { id: 'chain-lightning', name: 'Chain Lightning', kind: 'perk', value: 1, levelEffects: ['Deal 1 Damage to an enemy in Range, then bounce to a random adjacent enemy or Object, dealing 1 Damage or destroying the Object', 'Bounce Range is 2, with line of sight calculated from the previous target', 'Bounce 2 times'], effectText: 'Consume: Bounce 4 times.' },
   { id: 'magic-hand', name: 'Magic Hand', kind: 'perk', value: 1, levelEffects: ['Throw an Object 3 Squares within Range 5', 'Global Range', 'Can push enemies; global push distance'], effectText: 'Consume: Gain 1 Action.' },
-  { id: 'shizzle', name: 'Shizzle', kind: 'perk', value: 1, levelEffects: ['Dash in a direct line for up to 2 Squares; may pass through enemies, Objects, and Columns', 'Deal 1 Damage to each enemy passed through', 'Increase the maximum Dash distance by 1 Square, up to 3'], effectText: 'Consume: Complete the 2-Square Dash one Square at a time in any direction (3 Squares at Level 3). May pass through Columns, but not other Wall Objects, and must finish on an empty Square.' },
+  { id: 'shizzle', name: 'Shizzle', kind: 'perk', value: 1, levelEffects: ['Dash in a direct line for up to 2 Squares; may pass through all characters and board Objects', 'Deal 1 Damage to each enemy passed through', 'Increase the maximum Dash distance by 1 Square, up to 3'], effectText: 'Consume: Complete the 2-Square Dash one Square at a time in any direction (3 Squares at Level 3). May pass through all characters and board Objects, but must finish on an empty Square.' },
   { id: 'arcane-bolt', name: 'Arcane Bolt', kind: 'attack', value: 2, effectText: 'Gain +1 ATT until the end of the turn.', consumeText: 'Consume: Gain +2 ATT until the end of the turn instead.' },
   { id: 'snowball-effect', name: 'Snowball Effect', kind: 'attack', value: 1, effectText: "Return this card to Logan's Hand.", consumeText: 'Consume: After combat, draw 1 Card, then discard 1 Card.' },
   { id: 'mana-blast', name: 'Mana Blast', kind: 'attack', value: 1, effectText: 'The target may discard 1 Card. Gain 1 Mana Point if they refuse.', consumeText: 'Consume: +2 ATT. Gain 3 MP if the target refuses to discard.' },
@@ -5405,9 +5405,6 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   const automaticSlideIndex = path.findIndex((cell, index) => isHighGroundSlideEntry(state, index === 0 ? player.position : path[index - 1], cell));
   if (automaticSlideIndex >= 0 && automaticSlideIndex < path.length - 1) return fail(state, 'Movement must stop when entering a Slide Square from High Ground so its automatic movement can resolve.');
   if (path.some((cell, index) => isForbiddenSlideAscent(state, index === 0 ? player.position : path[index - 1], cell))) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  if (path.some((cell, index) => isHighGroundSlideEntry(state, index === 0 ? player.position : path[index - 1], cell) && Object.values(state.players).some((candidate) => candidate.id !== player.id && candidate.hp > 0 && candidate.position.x === cell.x && candidate.position.y === cell.y))) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
-  if (path.some((cell, index) => diagonalMovementBlockedByObject(state, index === 0 ? player.position : path[index - 1], cell))) return fail(state, 'An adjacent Object blocks diagonal movement along that route.');
-  if (path.some((cell) => state.objects.some((object) => isWallObject(object) && object.kind !== 'wall-pillar' && object.position.x === cell.x && object.position.y === cell.y))) return fail(state, 'Shizzle cannot pass through Wall Objects other than Columns.');
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   if (Object.values(state.players).some((entry) => entry.id !== playerId && entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   const passedEnemies = shizzle.level >= 2 ? Object.values(state.players).filter((entry) => entry.id !== playerId && path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
@@ -5429,13 +5426,10 @@ function moveShizzle(state: GameState, player: PlayerState, to: Cell): CommandRe
   if (state.phase !== 'shizzle-move' || !shizzle || shizzle.casterId !== player.id) return fail(state, 'Shizzle Consume movement is not active.');
   if (distance(player.position, to) !== 1) return fail(state, 'Shizzle Consume moves exactly one Square at a time.');
   if (isForbiddenSlideAscent(state, player.position, to)) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  if (diagonalMovementBlockedByObject(state, player.position, to)) return fail(state, 'An adjacent Object blocks that diagonal movement.');
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
-  if (targetObject && isWallObject(targetObject) && targetObject.kind !== 'wall-pillar') return fail(state, 'Shizzle cannot move through a Wall Object other than a Column.');
   if (targetObject && shizzle.stepsRemaining <= 1) return fail(state, 'Shizzle must finish on an empty Square.');
   const targetEnemy = Object.values(state.players).find((entry) => entry.id !== player.id && entry.position.x === to.x && entry.position.y === to.y);
-  if (targetEnemy && isHighGroundSlideEntry(state, player.position, to)) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
   if (targetEnemy && shizzle.stepsRemaining <= 1) return fail(state, 'Shizzle must finish on an empty Square.');
   const passedEnemy = shizzle.enemyUnderfoot ? state.players[shizzle.enemyUnderfoot] : null;
   const enteredFrom = { ...player.position };
