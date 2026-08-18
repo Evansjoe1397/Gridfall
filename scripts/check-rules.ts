@@ -853,6 +853,12 @@ assert.deepEqual(
   'The Trench multiplayer duel uses its four Columns.',
 );
 assert.equal(multiplayerTrenchJohn.objects.filter((object) => object.kind === 'wooden-box').length, 4, 'The Trench multiplayer duel spawns four Boxes.');
+const multiplayerWreckna = createMultiplayerState({ P1: 'wreckna', P2: 'magician' });
+assert.equal(multiplayerWreckna.players.P1.character, 'wreckna', 'Wreckna is available in multiplayer duels.');
+assert.equal(multiplayerWreckna.players.P1.hand.length, 5, 'Wreckna retains her opening Hand instead of entering character deck setup in multiplayer.');
+assert.deepEqual((multiplayerWreckna as any).openingSetup?.pendingPlayerIds, ['P2'], 'Only non-Wreckna Players complete opening deck setup in multiplayer.');
+const multiplayerWrecknaFfa = createLordaeronMultiplayerState({ P1: 'wreckna', P2: 'wreckna', P3: 'wreckna' });
+assert.equal(multiplayerWrecknaFfa.phase, 'choosing-base-placement', 'An all-Wreckna multiplayer FFA advances directly to base placement.');
 const duelHotseat = createHotseatTestState(false, 'magician', 2);
 assert.equal(duelHotseat.boardSize, NAGRAND_ARENA.height, 'The 1v1 Test Room uses Nagrand Arena.');
 assert.deepEqual(Object.keys(duelHotseat.players).sort(), ['P1', 'P2'], 'The 1v1 Test Room has one selected Character and one Test Dummy.');

@@ -3,9 +3,9 @@ import { LORDAERON_ARENA, NAGRAND_ARENA, THE_TRENCH_ARENA, randomNagrandBoxSpawn
 
 export const PlayerIdSchema = z.enum(['P1', 'P2', 'P3']);
 export type PlayerId = z.infer<typeof PlayerIdSchema>;
-export const CharacterIdSchema = z.enum(['shinobi', 'orkk', 'magician', 'john-christ', 'spectre']);
+export const CharacterIdSchema = z.enum(['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna']);
 export type CharacterId = z.infer<typeof CharacterIdSchema>;
-export type HotseatCharacterId = CharacterId | 'wreckna';
+export type HotseatCharacterId = CharacterId;
 export const BOARD_SIZE = 8;
 export const CellSchema = z.object({ x: z.number().int().min(1).max(11), y: z.number().int().min(0).max(10) });
 export type Cell = z.infer<typeof CellSchema>;
@@ -424,7 +424,9 @@ export function createMultiplayerState(characters: Record<PlayerId, CharacterId>
   state.activePlayerId = Math.random() < 0.5 ? 'P1' : 'P2';
   (state as GameState & { roundFirstPlayerId?: PlayerId }).roundFirstPlayerId = state.activePlayerId;
   state.log = [`${state.players.P1.name} and ${state.players.P2.name} enter ${arena.name}.`, `${state.players[state.activePlayerId].name} won the opening turn roll.`];
-  beginOpeningSetup(state, ['P1', 'P2'], 'active');
+  const setupPlayers = (['P1', 'P2'] as PlayerId[]).filter((id) => state.players[id].character !== 'wreckna');
+  if (setupPlayers.length > 0) beginOpeningSetup(state, setupPlayers, 'active');
+  else announceActionQuest(state, 1);
   return state;
 }
 
@@ -984,7 +986,9 @@ export function createLordaeronMultiplayerState(characters: Record<PlayerId, Cha
   (state as GameStateWithRound).roundFirstPlayerId = order[0];
   state.lordaeronPlacement = { order, currentIndex: 0, availableBaseIds: ['P1', 'P2', 'P3'], claims: {} };
   state.log = ['Lordaeron Arena loaded for three-player Free For All.', `${state.players[order[0]].name} won the opening roll and chooses a base first.`];
-  beginOpeningSetup(state, ['P1', 'P2', 'P3'], 'placement');
+  const setupPlayers = (['P1', 'P2', 'P3'] as PlayerId[]).filter((id) => state.players[id].character !== 'wreckna');
+  if (setupPlayers.length > 0) beginOpeningSetup(state, setupPlayers, 'placement');
+  else state.phase = 'choosing-base-placement';
   return state;
 }
 

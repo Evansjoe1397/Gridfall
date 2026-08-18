@@ -87,7 +87,28 @@ app.innerHTML = `
       <div class="mode-grid">
         <button class="mode-card primary" id="hotseat"><span>LOCAL / INSTANT</span><strong>Hotseat duel</strong><small>Share this keyboard and pass control each turn.</small></button>
         <div class="mode-card online"><span>PRIVATE ROOM</span><strong>Multiplayer</strong><label>Room password<input id="password" maxlength="24" placeholder="optional secret" /></label><div><button id="createRoom">Create room</button><button id="joinRoom">Join by ID</button></div><input id="roomId" maxlength="24" placeholder="ROOM ID" /></div>
+        <button class="mode-card primary character-archive-card" id="openCharacterBrowser"><span>CHARACTER ARCHIVE</span><strong>Characters</strong><small>Browse every fighter, inspect their model, and read their Perks.</small></button>
       </div>
+      <section class="character-browser hidden" aria-labelledby="characterBrowserTitle">
+        <header class="character-browser-heading">
+          <div><p class="eyebrow">GAME GUIDE</p><h2 id="characterBrowserTitle">Character Archive</h2></div>
+          <p>Select a fighter, drag their model to rotate it, and browse every character Perk.</p>
+        </header>
+        <nav class="character-browser-tabs" id="characterBrowserTabs" aria-label="Available characters"></nav>
+        <div class="character-browser-layout">
+          <div class="character-preview-stage" id="characterPreviewStage">
+            <div class="character-preview-canvas" id="characterPreviewCanvas" aria-label="Rotatable character model"></div>
+            <span class="character-preview-hint">DRAG TO ROTATE · SCROLL TO ZOOM</span>
+          </div>
+          <article class="character-browser-profile" id="characterBrowserProfile"></article>
+          <section class="perk-browser" aria-labelledby="perkBrowserTitle">
+            <header><div><p class="eyebrow">CHARACTER LOADOUT</p><h3 id="perkBrowserTitle">Character Cards</h3></div><div class="perk-browser-controls"><button id="previousPerk" type="button" aria-label="Previous Card">←</button><span id="perkPosition"></span><button id="nextPerk" type="button" aria-label="Next Card">→</button></div></header>
+            <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button></nav>
+            <div class="perk-browser-track" id="perkBrowserTrack" tabindex="0"></div>
+          </section>
+        </div>
+        <button class="lobby-back-button character-browser-back" id="closeCharacterBrowser" type="button">Back to Main Menu</button>
+      </section>
       <div class="online-waiting hidden" id="onlineWaiting"></div>
     </section>
     <section class="game hidden" id="game">
@@ -171,6 +192,19 @@ interfaceObserver.observe(app, { childList: true, subtree: true, characterData: 
 document.querySelector('#hotseat')!.addEventListener('click', () => showFormatSelect('hotseat'));
 document.querySelector('#createRoom')!.addEventListener('click', () => showFormatSelect('online'));
 document.querySelector('#joinRoom')!.addEventListener('click', () => connectOnline('join'));
+document.querySelector('#openCharacterBrowser')!.addEventListener('click', () => {
+  document.querySelector('.lobby-copy')?.classList.add('hidden');
+  document.querySelector('.mode-grid')?.classList.add('hidden');
+  const browser = document.querySelector('.character-browser');
+  browser?.classList.remove('hidden');
+  browser?.scrollIntoView({ block: 'start' });
+});
+document.querySelector('#closeCharacterBrowser')!.addEventListener('click', () => {
+  document.querySelector('.character-browser')?.classList.add('hidden');
+  document.querySelector('.lobby-copy')?.classList.remove('hidden');
+  document.querySelector('.mode-grid')?.classList.remove('hidden');
+  lobby.scrollIntoView({ block: 'start' });
+});
 document.querySelector('#freeMoveButton')!.addEventListener('click', () => dispatch({ type: 'free-move', playerId: actingPlayer() }));
 document.querySelector('#activateConsumeButton')!.addEventListener('click', () => {
   const playerId = gameState.pendingManaChoice;
@@ -329,8 +363,8 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   }));
 }
 
-type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre';
-type SelectableCharacter = OnlineCharacter | 'wreckna';
+type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna';
+type SelectableCharacter = OnlineCharacter;
 type HotseatOpponent = SelectableCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench';
 const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
@@ -341,6 +375,12 @@ const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: num
   spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create one immobile replica. Spectre and the replica share Hand, Actions, HP, modifiers, and combat; either body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. The Lich is immortal while any Phylactery exists. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
 };
+const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna'];
+const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
+  shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
+  'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich',
+};
+const WRECKNA_ARCHIVE_CARD_IDS: CardTypeId[] = ['hex', 'tomb-block', 'test-phylactery'];
 function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
   return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ATT RANGE</small><small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small></span></button>`;
@@ -529,6 +569,7 @@ function renderOnlineLobby() {
       ${characterSelectButton('magician', 'data-character', !mayChoose)}
       ${characterSelectButton('john-christ', 'data-character', !mayChoose)}
       ${characterSelectButton('spectre', 'data-character', !mayChoose)}
+      ${characterSelectButton('wreckna', 'data-character', !mayChoose)}
     </div><small>Players may choose the same Character.</small>`;
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
@@ -631,9 +672,18 @@ function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
     : { playerId: event.playerId, animation: 'Encourage' };
 }
 
+type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
+
+function spectreVisualIntentForCommand(state: GameState, command: GameCommand): SpectreVisualIntent | null {
+  if (command.type !== 'play-perk') return null;
+  const card = state.players[command.playerId]?.hand.find((entry) => entry.instanceId === command.cardInstanceId);
+  return card?.cardId === 'fear' ? { playerId: command.playerId, animation: 'Fear' } : null;
+}
+
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
+  const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
     room.send('command', command);
@@ -646,6 +696,7 @@ function dispatch(command: GameCommand) {
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
+  if (spectreVisualIntent) applySpectreVisualIntent(spectreVisualIntent);
 }
 
 function renderAll() {
@@ -1963,6 +2014,7 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
@@ -1987,8 +2039,8 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; forced?: boolean; verticalOnly?: boolean }>();
-type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; forced?: boolean; triggerRouteProgress?: number };
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean }>();
+type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
@@ -2069,7 +2121,8 @@ renderer.setAnimationLoop((time) => {
     updateWizardAnimation(group, moving, deltaSeconds);
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
-    const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation);
+    if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
+    const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
@@ -2093,13 +2146,19 @@ renderer.setAnimationLoop((time) => {
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
   });
   objectGroups.forEach((group, objectId) => {
+    if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
     const aura = group.getObjectByName('PhylacteryAura');
     if (aura) { aura.rotation.z = time * 0.0008; aura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
     if (group.userData.spectreReplica && !objectMovementAnimations.has(objectId)) {
       const body = group.children[0];
-      if (body) body.position.y = Math.sin(time * 0.0035) * 0.08;
-      const pulse = 0.96 + Math.sin(time * 0.006) * 0.045;
-      group.scale.set(pulse, 1 + Math.sin(time * 0.005) * 0.035, pulse);
+      if (group.userData.spectreAnimation) {
+        if (body) body.position.y = 0;
+        group.scale.setScalar(1);
+      } else {
+        if (body) body.position.y = Math.sin(time * 0.0035) * 0.08;
+        const pulse = 0.96 + Math.sin(time * 0.006) * 0.045;
+        group.scale.set(pulse, 1 + Math.sin(time * 0.005) * 0.035, pulse);
+      }
     }
   });
   spectreShadowTrailGroup.children.forEach((child, index) => {
@@ -2273,9 +2332,9 @@ function updateCharacterMovement(time: number) {
         group.rotation.y = characterFacingRotation(group, dx, dz);
       }
     }
-    if (!animation.verticalOnly && group.userData.character !== 'magician' && !group.userData.orkkAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    if (!animation.verticalOnly && group.userData.character !== 'magician' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    if (!animation.verticalOnly && !group.userData.orkkAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!animation.verticalOnly && !group.userData.orkkAnimation && !group.userData.spectreAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
@@ -2329,6 +2388,8 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (movementAnimations.has(playerId)) return;
     const orkkAnimation = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
+    const spectreAnimation = group.userData.spectreAnimation as SpectreAnimationState | undefined;
+    if (spectreAnimation?.oneShot) return;
     const shieldStillFlying = [...objectMovementAnimations.keys()].some((objectId) => {
       const object = objectGroups.get(objectId);
       const animation = objectMovementAnimations.get(objectId);
@@ -3479,6 +3540,127 @@ function updateWizardOrbitalAnimation(state: WizardAnimationState, deltaSeconds:
   );
 }
 
+function loadSpectreAsset() {
+  return spectreAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/spectre-optimized.glb?v=20260818-2`);
+}
+
+type SpectreAnimationName = 'Idle' | 'Walk' | 'Run' | 'Fear' | 'Arise';
+type SpectreAnimationState = {
+  mixer: THREE.AnimationMixer;
+  actions: Record<SpectreAnimationName, THREE.AnimationAction>;
+  current: SpectreAnimationName;
+  oneShot?: 'Fear' | 'Arise';
+  idlePauseUntil?: number;
+};
+
+function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fade = 0.12) {
+  const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
+  if (!state) return;
+  const previous = state.actions[state.current];
+  const next = state.actions[name];
+  if (state.current !== name) previous.fadeOut(fade);
+  next.reset().fadeIn(fade).play();
+  state.current = name;
+  state.oneShot = name === 'Fear' || name === 'Arise' ? name : undefined;
+  state.idlePauseUntil = undefined;
+}
+
+function applySpectreVisualIntent(intent: SpectreVisualIntent) {
+  const group = dummyGroups.get(intent.playerId);
+  if (!group) return;
+  if (!group.userData.spectreAnimation) {
+    group.userData.pendingSpectreAnimation = intent.animation;
+    return;
+  }
+  playSpectreAnimation(group, intent.animation, 0.08);
+}
+
+function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefined, deltaSeconds: number) {
+  const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
+  if (!state) return;
+  state.mixer.update(deltaSeconds);
+  const currentAction = state.actions[state.current];
+  if (state.oneShot) {
+    if (currentAction.paused) playSpectreAnimation(group, 'Idle', 0.12);
+    return;
+  }
+  const movement = playerId ? movementAnimations.get(playerId) : undefined;
+  const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced);
+  if (locomoting && movement) {
+    const travelSquares = movement.travelSquares ?? movement.path?.length ?? 1;
+    const movementName: SpectreAnimationName = travelSquares >= 3 ? 'Run' : 'Walk';
+    state.actions[movementName].timeScale = state.actions[movementName].getClip().duration / (movement.duration / 1000);
+    if (state.current !== movementName) playSpectreAnimation(group, movementName);
+    return;
+  }
+  if (state.current === 'Walk' || state.current === 'Run') {
+    playSpectreAnimation(group, 'Idle');
+    return;
+  }
+  if (state.current !== 'Idle' || !currentAction.paused) return;
+  state.idlePauseUntil ??= performance.now() + 2000;
+  if (performance.now() >= state.idlePauseUntil) playSpectreAnimation(group, 'Idle', 0);
+}
+
+async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica: boolean) {
+  try {
+    const asset = await loadSpectreAsset();
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = 'SpectreImportedModel';
+    model.position.y = 0.16;
+    model.rotation.y = Math.PI;
+    model.scale.setScalar(1.18);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = !replica;
+      child.receiveShadow = true;
+      child.material = Array.isArray(child.material)
+        ? child.material.map((material) => material.clone())
+        : child.material.clone();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => {
+        if (!replica) return;
+        material.transparent = true;
+        material.opacity = 0.58;
+        material.depthWrite = false;
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.color.multiply(new THREE.Color(0x9b7cff));
+          material.emissive.set(0x47288f);
+          material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.65);
+        }
+        material.needsUpdate = true;
+      });
+    });
+    const persistentEffects = body.children.filter((child) => child.name === 'SpectreAura' || child instanceof THREE.PointLight);
+    persistentEffects.forEach((child) => child.removeFromParent());
+    disposeTemporaryCharacterBody(body);
+    persistentEffects.forEach((child) => body.add(child));
+    body.add(model);
+    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
+    const required = ['Alert', 'Arise', 'Casual_Walk', 'RunFast', 'Skill_01'];
+    if (required.some((name) => !clips[name])) throw new Error(`Spectre GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
+    const mixer = new THREE.AnimationMixer(model);
+    const actions: Record<SpectreAnimationName, THREE.AnimationAction> = {
+      Idle: mixer.clipAction(clips.Alert),
+      Walk: mixer.clipAction(clips.Casual_Walk),
+      Run: mixer.clipAction(clips.RunFast),
+      Fear: mixer.clipAction(clips.Skill_01),
+      Arise: mixer.clipAction(clips.Arise),
+    };
+    actions.Idle.setLoop(THREE.LoopOnce, 1); actions.Idle.clampWhenFinished = true;
+    actions.Fear.setLoop(THREE.LoopOnce, 1); actions.Fear.clampWhenFinished = true;
+    actions.Arise.setLoop(THREE.LoopOnce, 1); actions.Arise.clampWhenFinished = true;
+    root.userData.spectreAnimation = { mixer, actions, current: replica ? 'Arise' : 'Idle' } satisfies SpectreAnimationState;
+    const pending = root.userData.pendingSpectreAnimation as 'Fear' | undefined;
+    delete root.userData.pendingSpectreAnimation;
+    playSpectreAnimation(root, pending ?? (replica ? 'Arise' : 'Idle'), 0);
+    mixer.update(0);
+  } catch (error) {
+    console.error('Failed to load Spectre model; keeping procedural fallback.', error);
+  }
+}
+
 function createSpectre(playerColor = 0x169bd3, replica = false) {
   const root = new THREE.Group();
   const body = new THREE.Group(); body.name = replica ? 'SpectreReplicaBody' : 'SpectreBody'; root.add(body);
@@ -3507,6 +3689,7 @@ function createSpectre(playerColor = 0x169bd3, replica = false) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: replica ? 0xc79cff : 0x9b77ff, transparent: true, opacity: 0.92, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring);
   root.userData.player = !replica;
+  attachSpectreModel(root, body, replica);
   return root;
 }
 
@@ -3996,7 +4179,7 @@ function syncBoard() {
       const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
       const visualPath = walkingPath.map(worldPosition);
       const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
-      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined, forced: gameState.players[id].visualMovementCause === 'enemy-ability' };
+      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced: gameState.players[id].visualMovementCause === 'enemy-ability' };
       if (recordedMovement?.triggerAnimationId) {
         const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
         queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -4031,6 +4214,11 @@ function syncBoard() {
     let group = objectGroups.get(object.id);
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
+    if (object.kind === 'spectre-replica') {
+      group.userData.ownerId = object.ownerId;
+      const owner = object.ownerId ? dummyGroups.get(object.ownerId) : undefined;
+      if (!lastObjectVisualCells.has(object.id) && owner) group.rotation.y = owner.rotation.y;
+    }
     let phylacteryAura = group.getObjectByName('PhylacteryAura') as THREE.Mesh | undefined;
     if (object.phylacteryType && !phylacteryAura) {
       const colors = { might: 0xff5d68, wisdom: 0x65cfff, ritual: 0xb178ff };
@@ -4734,3 +4922,179 @@ function resize() {
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
   fitCameraToArena(visualBoardWidth(), visualBoardHeight());
 }
+
+let browserCharacter: SelectableCharacter = CHARACTER_BROWSER_ORDER[0];
+let browserPerkIndex = 0;
+let browserCardKind: 'attack' | 'defend' | 'perk' = 'attack';
+let characterPreviewRenderer: THREE.WebGLRenderer | null = null;
+let characterPreviewScene: THREE.Scene | null = null;
+let characterPreviewCamera: THREE.PerspectiveCamera | null = null;
+let characterPreviewControls: OrbitControls | null = null;
+let characterPreviewModel: THREE.Group | null = null;
+const characterPreviewModels = new Map<SelectableCharacter, THREE.Group>();
+
+function initializeCharacterBrowser() {
+  const tabs = byId('characterBrowserTabs');
+  tabs.innerHTML = CHARACTER_BROWSER_ORDER.map((character) => `<button type="button" data-browser-character="${character}">${escapeHtml(CHARACTER_SELECT_INFO[character].name)}</button>`).join('');
+  tabs.querySelectorAll<HTMLButtonElement>('[data-browser-character]').forEach((button) => button.addEventListener('click', () => selectBrowserCharacter(button.dataset.browserCharacter as SelectableCharacter)));
+  byId('characterCardCategories').querySelectorAll<HTMLButtonElement>('[data-browser-card-kind]').forEach((button) => button.addEventListener('click', () => {
+    browserCardKind = button.dataset.browserCardKind as typeof browserCardKind;
+    browserPerkIndex = 0;
+    renderCharacterBrowserCards();
+  }));
+  byId('previousPerk').addEventListener('click', () => showBrowserPerk(browserPerkIndex - 1));
+  byId('nextPerk').addEventListener('click', () => showBrowserPerk(browserPerkIndex + 1));
+  const perkTrack = byId('perkBrowserTrack');
+  perkTrack.addEventListener('scroll', () => {
+    const cards = perkTrack.querySelectorAll<HTMLElement>('.character-perk-card');
+    if (!cards.length) return;
+    const firstOffset = cards[0].offsetLeft;
+    const nearest = [...cards].reduce((best, card, index) => Math.abs(card.offsetLeft - firstOffset - perkTrack.scrollLeft) < Math.abs(cards[best].offsetLeft - firstOffset - perkTrack.scrollLeft) ? index : best, 0);
+    if (nearest !== browserPerkIndex) { browserPerkIndex = nearest; updatePerkBrowserControls(); }
+  }, { passive: true });
+  perkTrack.addEventListener('wheel', (event) => {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || perkTrack.scrollWidth <= perkTrack.clientWidth) return;
+    event.preventDefault();
+    perkTrack.scrollLeft += event.deltaY;
+  }, { passive: false });
+  setupCharacterPreview();
+  selectBrowserCharacter(browserCharacter);
+}
+
+function selectBrowserCharacter(character: SelectableCharacter) {
+  browserCharacter = character;
+  browserPerkIndex = 0;
+  browserCardKind = 'attack';
+  document.querySelectorAll<HTMLButtonElement>('[data-browser-character]').forEach((button) => {
+    const active = button.dataset.browserCharacter === character;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-current', active ? 'true' : 'false');
+  });
+  renderCharacterBrowserProfile();
+  renderCharacterBrowserCards();
+  showCharacterPreviewModel(character);
+}
+
+function renderCharacterBrowserProfile() {
+  const info = CHARACTER_SELECT_INFO[browserCharacter];
+  byId('characterBrowserProfile').innerHTML = `<span>${escapeHtml(CHARACTER_BROWSER_TITLES[browserCharacter])}</span><h3>${escapeHtml(info.name)}</h3><small>Playable character</small><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
+}
+
+function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
+  const ids = character === 'wreckna'
+    ? WRECKNA_ARCHIVE_CARD_IDS
+    : [...STARTING_DECKS[character].defaults, ...STARTING_DECKS[character].attackFocus, ...STARTING_DECKS[character].defendFocus, ...STARTING_DECKS[character].perkPhase];
+  const available = new Set<CardTypeId>(ids);
+  return CARDS.filter((card) => available.has(card.id) && card.kind === kind);
+}
+
+function renderCharacterBrowserCards() {
+  const cards = characterBrowserCards(browserCharacter, browserCardKind);
+  byId('characterCardCategories').querySelectorAll<HTMLButtonElement>('[data-browser-card-kind]').forEach((button) => button.classList.toggle('active', button.dataset.browserCardKind === browserCardKind));
+  byId('perkBrowserTrack').innerHTML = cards.map((card, index) => {
+    const levels = 'levelEffects' in card && card.levelEffects ? card.levelEffects : [];
+    const effectText = 'effectText' in card && card.effectText ? card.effectText : '';
+    const levelCopy = levels.length ? levels.map((description, level) => `<p><b>LV ${level + 1}</b><span>${escapeHtml(description)}</span></p>`).join('') : '<p class="character-perk-empty">This Perk has a single direct effect.</p>';
+    const typeCopy = card.kind === 'attack' ? 'ACTION · ATTACK CARD' : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : 'ACTION: PERK · ONCE PER TURN';
+    const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : 'PERK VALUE';
+    const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${escapeHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description">${escapeHtml(effectText || 'No additional effect.')}</p>`;
+    return `<article class="character-perk-card ${card.kind}" data-browser-perk="${index}"><span>${typeCopy}</span><h4>${escapeHtml(card.name)}</h4><small>${card.value} ${valueCopy}</small>${rules}</article>`;
+  }).join('');
+  byId('perkBrowserTrack').scrollLeft = 0;
+  updatePerkBrowserControls();
+}
+
+function showBrowserPerk(index: number) {
+  const track = byId('perkBrowserTrack');
+  const cards = track.querySelectorAll<HTMLElement>('.character-perk-card');
+  if (!cards.length) return;
+  browserPerkIndex = THREE.MathUtils.clamp(index, 0, cards.length - 1);
+  cards[browserPerkIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+  updatePerkBrowserControls();
+}
+
+function updatePerkBrowserControls() {
+  const count = characterBrowserCards(browserCharacter, browserCardKind).length;
+  (byId('previousPerk') as HTMLButtonElement).disabled = browserPerkIndex <= 0;
+  (byId('nextPerk') as HTMLButtonElement).disabled = browserPerkIndex >= count - 1;
+  byId('perkPosition').textContent = `${browserPerkIndex + 1} / ${count}`;
+}
+
+function setupCharacterPreview() {
+  const host = byId('characterPreviewCanvas');
+  characterPreviewScene = new THREE.Scene();
+  characterPreviewCamera = new THREE.PerspectiveCamera(34, 1, 0.1, 50);
+  characterPreviewCamera.position.set(0, 1.55, 5.4);
+  characterPreviewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  characterPreviewRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  characterPreviewRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  characterPreviewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  characterPreviewRenderer.toneMappingExposure = 1.08;
+  characterPreviewRenderer.shadowMap.enabled = true;
+  characterPreviewRenderer.shadowMap.type = THREE.PCFShadowMap;
+  host.appendChild(characterPreviewRenderer.domElement);
+  characterPreviewControls = new OrbitControls(characterPreviewCamera, characterPreviewRenderer.domElement);
+  characterPreviewControls.enableDamping = true;
+  characterPreviewControls.dampingFactor = 0.075;
+  characterPreviewControls.enablePan = false;
+  characterPreviewControls.minDistance = 3.2;
+  characterPreviewControls.maxDistance = 7.2;
+  characterPreviewControls.minPolarAngle = Math.PI * .28;
+  characterPreviewControls.maxPolarAngle = Math.PI * .58;
+  characterPreviewControls.target.set(0, 1.35, 0);
+  characterPreviewControls.update();
+  characterPreviewScene.add(new THREE.HemisphereLight(0xcfffee, 0x07100e, 2.4));
+  const key = new THREE.DirectionalLight(0xffffff, 4.2); key.position.set(3.5, 5, 4); key.castShadow = true; characterPreviewScene.add(key);
+  const rim = new THREE.DirectionalLight(0x50e5c2, 3.1); rim.position.set(-4, 2.8, -3); characterPreviewScene.add(rim);
+  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.32, .2, 48), new THREE.MeshStandardMaterial({ color: 0x10251f, metalness: .64, roughness: .34 }));
+  pedestal.position.y = -.11; pedestal.receiveShadow = true; characterPreviewScene.add(pedestal);
+  const glowRing = new THREE.Mesh(new THREE.RingGeometry(.8, 1.02, 64), new THREE.MeshBasicMaterial({ color: 0x72f6d7, transparent: true, opacity: .38, side: THREE.DoubleSide }));
+  glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = .002; characterPreviewScene.add(glowRing);
+  const resizePreview = () => {
+    if (!characterPreviewRenderer || !characterPreviewCamera) return;
+    const width = host.clientWidth; const height = host.clientHeight;
+    if (width < 1 || height < 1) return;
+    characterPreviewRenderer.setSize(width, height, false); characterPreviewCamera.aspect = width / height; characterPreviewCamera.updateProjectionMatrix();
+  };
+  new ResizeObserver(resizePreview).observe(host);
+  resizePreview();
+  let previousTime = performance.now();
+  characterPreviewRenderer.setAnimationLoop((time) => {
+    if (!characterPreviewRenderer || !characterPreviewScene || !characterPreviewCamera || !characterPreviewControls || document.querySelector('.character-browser')?.classList.contains('hidden')) { previousTime = time; return; }
+    const delta = Math.min((time - previousTime) / 1000, .05); previousTime = time;
+    characterPreviewControls.update();
+    const orkkState = characterPreviewModel?.userData.orkkAnimation as OrkkAnimationState | undefined;
+    const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
+    orkkState?.mixer.update(delta); wizardState?.mixer.update(delta);
+    if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
+    characterPreviewRenderer.render(characterPreviewScene, characterPreviewCamera);
+  });
+}
+
+function showCharacterPreviewModel(character: SelectableCharacter) {
+  if (!characterPreviewScene) return;
+  if (characterPreviewModel) characterPreviewScene.remove(characterPreviewModel);
+  let model = characterPreviewModels.get(character);
+  if (!model) {
+    model = character === 'shinobi' ? createObiWanShinobi(0x45c8ff)
+      : character === 'orkk' ? createDaOrkk(0xff5d68)
+        : character === 'magician' ? createLongHatLogan(0x9b7cff)
+          : character === 'john-christ' ? createJohnChrist(0xffd166)
+            : character === 'spectre' ? createSpectre(0xa06cff)
+              : createWreckna(0x72d8ff);
+    model.userData.character = character;
+    model.traverse((child) => { if (child.name === 'TargetRing') child.visible = false; });
+    characterPreviewModels.set(character, model);
+  }
+  characterPreviewModel = model;
+  model.position.set(0, 0, 0);
+  // The board camera views these roots from the opposite side; invert that
+  // game-facing convention so an archive preview starts face-forward.
+  model.rotation.set(0, model.userData.facingSide === 'positive-z' ? 0 : Math.PI, 0);
+  characterPreviewScene.add(model);
+  characterPreviewCamera?.position.set(0, 1.55, character === 'magician' ? 6.1 : 5.4);
+  characterPreviewControls?.target.set(0, character === 'magician' ? 1.55 : 1.35, 0);
+  characterPreviewControls?.update();
+}
+
+initializeCharacterBrowser();
