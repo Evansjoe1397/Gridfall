@@ -38,6 +38,7 @@ import {
   movementPath,
   movementCost,
   orkkActionEventForCommand,
+  phaseCardCandidates,
   kykDirectionAllowed,
   pinnedCount,
   shieldRecallEnemyCount,
@@ -322,7 +323,7 @@ function isWaitingForResolvedCardTarget() {
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
-  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-wreckna-phylactery') return true;
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
   return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
 }
 
@@ -373,14 +374,14 @@ const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: num
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create one immobile replica. Spectre and the replica share Hand, Actions, HP, modifiers, and combat; either body may originate melee Attacks, while positional effects use the body involved.' },
-  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. The Lich is immortal while any Phylactery exists. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
+  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna'];
 const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
   shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
   'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich',
 };
-const WRECKNA_ARCHIVE_CARD_IDS: CardTypeId[] = ['hex', 'tomb-block', 'test-phylactery'];
+const WRECKNA_ARCHIVE_CARD_IDS: CardTypeId[] = ['hex', 'shadow-barter', 'enfeeble', 'finger-of-death', 'drain-strength', 'brain-freeze', 'sacrifice', 'immortality', 'graveyard', 'lichdom', 'dakkoth', 'sap', 'necronomicon', 'decay'];
 function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
   return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ATT RANGE</small><small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small></span></button>`;
@@ -616,7 +617,17 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
   if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-wreckna-phylactery') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-immortality-phylactery') return (gameState as GameState & { immortality?: { playerId: PlayerId } }).immortality?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-lichdom-copy') return (gameState as GameState & { lichdom?: { casterId: PlayerId } }).lichdom?.casterId ?? gameState.activePlayerId;
+  if ((gameState.phase as string).startsWith('choosing-dakkoth-')) return (gameState as GameState & { dakkoth?: { casterId: PlayerId } }).dakkoth?.casterId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-sap-target') return (gameState as GameState & { sap?: { casterId: PlayerId } }).sap?.casterId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-necronomicon-tomb') return (gameState as GameState & { necronomicon?: { casterId: PlayerId } }).necronomicon?.casterId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-necronomicon-discard') return (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId }[] } }).necronomicon?.discardQueue[0]?.playerId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
+  if (gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
   if (gameState.phase === 'choosing-blink-teleport') return gameState.pendingAttack!.defenderId;
@@ -753,6 +764,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
   if (select.kind === 'attack' && actor.character === 'spectre') prompt.textContent = `Preferred attack origin: ${selectedSpectreAttackOrigin === 'replica' ? 'Replica' : 'Spectre'} · targets available to either body are highlighted`;
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
+  if (gameState.phase === 'wreckna-wisdom-discard') prompt.textContent = 'Phylactery of Wisdom: select 1 Card from Hand to discard before choosing a Defend Card';
   if (gameState.phase === 'choosing-end-discard' && actor.hand.length <= 5) prompt.textContent = 'Hand limit satisfied · discard more eligible cards or select End Turn';
   if (gameState.phase === 'choosing-force-throw-target') prompt.textContent = 'Force Throw: select a valid target · Escape to cancel';
   if (gameState.phase === 'choosing-force-throw-direction') prompt.textContent = 'Force Throw: select the linear push direction · Escape to cancel';
@@ -768,7 +780,27 @@ function renderUI() {
   if (gameState.phase === 'choosing-arm-da-wiz-choice') prompt.textContent = 'Arm da Wiz: choose Recall or Create Shield · Escape to cancel';
   if (gameState.phase === 'choosing-arm-da-wiz-create-payment') prompt.textContent = 'Arm da Wiz: spend 1 HP or 1 Rage Stack to create Shield · Escape to cancel';
   if (gameState.phase === 'choosing-arm-da-wiz-target') prompt.textContent = 'Arm da Wiz: select your Shield anywhere on the Board · Escape to cancel';
-  if (gameState.phase === 'choosing-test-phylactery-target') prompt.textContent = 'Test Phylactery: select any Object except a Column · Escape to cancel';
+  if (gameState.phase === 'choosing-test-phylactery-target') {
+    const sacrifice = Boolean((gameState as GameState & { testPhylactery?: { sacrificeEnemyId?: PlayerId } | null }).testPhylactery?.sacrificeEnemyId);
+    prompt.textContent = sacrifice ? `Sacrifice: select a non-Column Object within Range ${effectiveAttackRange(gameState, actor)}` : 'Test Phylactery: select any Object except a Column · Escape to cancel';
+  }
+  if (gameState.phase === 'choosing-immortality-phylactery') prompt.textContent = 'Immortality: choose an active Phylactery to sacrifice and teleport onto';
+  if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = 'Lichdom: select any Object except a Column · Escape to cancel';
+  if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
+  if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
+  if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') prompt.textContent = 'Dakkoth: select one of your Tombs to sacrifice';
+  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = 'Dakkoth: select another Object except a Column to create a Phylactery';
+  if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
+  if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = 'Necronomicon: select a Tomb to create a Phylactery · Escape to cancel';
+  if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
+    const pending = (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId; remaining: number }[] } }).necronomicon?.discardQueue[0];
+    if (pending) prompt.textContent = `${gameState.players[pending.playerId].name}: discard ${pending.remaining} Card${pending.remaining === 1 ? '' : 's'} for Necronomicon`;
+  }
+  if ((gameState.phase as string) === 'choosing-decay-target') prompt.textContent = `Decay: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
+  if ((gameState.phase as string) === 'choosing-decay-discard') {
+    const decay = (gameState as GameState & { decay?: { targetId?: PlayerId; remaining: number } }).decay;
+    if (decay?.targetId) prompt.textContent = `${gameState.players[decay.targetId].name}: discard ${decay.remaining} Card${decay.remaining === 1 ? '' : 's'} for Decay`;
+  }
   if (gameState.phase === 'choosing-mind-tricks-discard') prompt.textContent = `Mind Tricks: reveal up to ${gameState.mindTricks!.maxDiscards} card${gameState.mindTricks!.maxDiscards === 1 ? '' : 's'} · Escape cancels before the first reveal`;
   if (gameState.phase === 'choosing-mind-tricks-enemy-discard') prompt.textContent = `Mind Tricks: discard ${gameState.mindTricks!.enemyDiscardsRemaining} card${gameState.mindTricks!.enemyDiscardsRemaining === 1 ? '' : 's'}`;
   if (gameState.phase === 'choosing-preparation-teleport') prompt.textContent = 'Preparation: select a visible Object to swap places with · Escape to cancel';
@@ -778,6 +810,9 @@ function renderUI() {
   if (gameState.phase === 'choosing-preparation-discard') prompt.textContent = 'Preparation: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
+  if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
+  if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
+  if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
   if (gameState.phase === 'choosing-fireball-target') prompt.textContent = 'Fireball: select an enemy within Range 3 · Escape to cancel';
   if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 3 · Range 1 automatically uses an Action for 2 Damage · Range 2-3 is a Free Action for 1 Damage · Escape to cancel';
@@ -808,7 +843,9 @@ function renderUI() {
   const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || (!cardDefinition(card).cannotBeDiscarded && !cardDefinition(card).name.startsWith('Blessing:')));
   (byId('dashButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canPayForDash || !canLocalAct(actor.id);
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
-  if (((actor.movementRemaining > 0 && gameState.phase === 'active') || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
+  const currentTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
+  const hasFreeAdjacentTombMove = Boolean(currentTomb && gameState.objects.some((object) => object.kind === 'tomb' && object.id !== currentTomb.id && distance(object.position, currentTomb.position) === 1));
+  if (((gameState.phase === 'active' && (actor.movementRemaining > 0 || hasFreeAdjacentTombMove)) || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
   highlightCells();
   applyInterfaceLanguage();
 }
@@ -919,7 +956,7 @@ function characterTraitHtml(ru: boolean) {
     },
     wreckna: {
       trait: 'Phylactery · Entombed',
-      description: ru ? 'Наполняйте Объекты бессмертной душой Врекны и усиливайте карты в зависимости от типа Филактерии. Лич бессмертен, пока существует хотя бы одна Филактерия.' : 'Infuse Objects with Wreckna’s undead Soul and increase Card power depending on the Phylactery type. The Lich is immortal while at least one Phylactery exists.',
+      description: ru ? 'Наполняйте Объекты бессмертной душой Врекны и усиливайте карты в зависимости от типа Филактерии. Пока существует хотя бы одна Филактерия, урон не может снизить HP Врекны ниже 1, но атакующий получает полную статистику урона.' : 'Infuse Objects with Wreckna’s undead Soul and increase Card power depending on the Phylactery type. While at least one Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker receives full post-match Damage credit.',
       detail: ru ? 'Entombed: потратьте 2 MOV, чтобы войти в Гробницу. Восстановите 1 HP, если начинаете ход внутри Гробницы.' : 'Entombed: Spend 2 MOV to enter a Tomb. Restore 1 Hit Point when beginning a turn inside a Tomb.',
       status: player.wrecknaInsideTombId ? (ru ? 'Текущий статус: внутри Гробницы.' : 'Current state: inside a Tomb.') : (ru ? 'Текущий статус: левитирует на поле.' : 'Current state: levitating on the Board.'),
     },
@@ -1042,7 +1079,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
   'chain-lightning': { en: 'Best when enemies and destructible Objects are clustered. Higher levels extend and repeat bounces; Consume is strongest in a crowded area where repeated hits can revisit targets.', ru: 'Лучше всего работает в скоплении врагов и разрушаемых Объектов. Высокие уровни удлиняют и повторяют скачки; Consume особенно силён в толпе, где молния может повторно поражать цели.' },
   'magic-hand': { en: 'Throw an Object 3 Squares within Range 5. Level 2 targets globally; Level 3 may target enemies and pushes until the board edge or a collision. Remaining momentum transfers through collisions without dealing Damage. Consume refunds 1 Action.', ru: 'Бросьте Объект на 3 клетки в радиусе 5. Уровень 2 даёт глобальную дальность; уровень 3 позволяет выбирать врагов и толкает до края поля или столкновения. Оставшийся импульс передаётся дальше без урона. Consume возвращает 1 Действие.' },
-  shizzle: { en: 'Logan’s escape and reposition tool. Dash up to 2 Squares, increasing to 3 at Level 3. Pass through enemies and ordinary Objects such as wooden boxes, but Wall Objects—including pillars and Da Orkk’s Shield—block the route. Finish on an empty Square. Level 2 adds pass-through damage; Consume allows turns between one-Square steps.', ru: 'Инструмент побега и смены позиции Логана. Совершите рывок до 2 клеток или до 3 клеток на уровне 3. Проходите сквозь врагов и обычные Объекты, но Стенные Объекты — колонны и Щит Да Оркка — блокируют путь. Заканчивайте на пустой клетке. Уровень 2 добавляет урон при прохождении; Consume позволяет менять направление между шагами.' },
+  shizzle: { en: 'Logan’s escape and reposition tool. Dash up to 2 Squares, increasing to 3 at Level 3. Pass through enemies, ordinary Objects, and Columns. Other Wall Objects—including Da Orkk’s Shield and Tombs—still block the route. Finish on an empty Square. Level 2 adds pass-through damage; Consume allows turns between one-Square steps.', ru: 'Инструмент побега и смены позиции Логана. Совершите рывок до 2 клеток или до 3 клеток на уровне 3. Проходите сквозь врагов, обычные Объекты и Колонны. Другие Стенные Объекты, включая Щит Да Оркка и Гробницы, по-прежнему блокируют путь. Заканчивайте на пустой клетке. Уровень 2 добавляет урон при прохождении; Consume позволяет менять направление между шагами.' },
   'arcane-bolt': { en: 'Lead a multi-Attack turn with this card: its +1 ATT improves later Attacks until turn end. Consume upgrades that persistent bonus to +2 ATT instead.', ru: 'Начинайте этой картой ход с несколькими Атаками: +1 ATT усилит последующие Атаки до конца хода. Consume вместо этого повышает постоянный бонус до +2 ATT.' },
   'snowball-effect': { en: 'A repeatable low-value Attack that returns to Hand. Use it when you can spend multiple Actions or need a reliable future Attack; Consume also cycles one unwanted Card after combat.', ru: 'Повторяемая Атака малого значения, возвращающаяся в Руку. Используйте при нескольких Действиях или чтобы сохранить Атаку на будущее; Consume после боя также заменяет одну ненужную карту.' },
   'mana-blast': { en: 'Pressure the enemy’s Hand: they either discard or let Logan gain Mana. It is strongest when their Hand contains valuable Cards; Consume raises ATT and threatens 3 MP if they can legally refuse a discard.', ru: 'Давите на Руку врага: он либо сбрасывает карту, либо даёт Логану Ману. Особенно полезно против ценных карт; Consume повышает ATT и угрожает 3 MP при законном отказе от сброса.' },
@@ -1089,7 +1126,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'force-pull': { en: 'Pull an enemy into Attack Range, off a protected position, or toward a hazardous cluster; pull an Object to reshape cover. Level 3 also prepares Pinned synergies.', ru: 'Подтягивайте врага в Радиус Атаки, с защищённой позиции или к опасному скоплению; Объектом меняйте укрытия. Уровень 3 также готовит комбинации с Pinned.' },
   swiftform: { en: 'A mobility turn enabler. Use it before normal movement to gain distance and pass through enemies without ending on them. Level 3 Pins each crossed enemy once and restores Lightsaber at turn end.', ru: 'Основа мобильного хода. Используйте до обычного движения, чтобы увеличить дальность и проходить сквозь врагов, не заканчивая на них. Уровень 3 один раз накладывает Pinned на каждого пересечённого врага и возвращает Lightsaber.' },
   'mind-tricks': { en: 'Trade information for Hand disruption without losing the revealed Cards. Higher levels pressure every enemy more heavily; Level 3 also plants future draw disruption with Headache.', ru: 'Обменивайте информацию на разрушение Рук, не теряя показанные карты. Высокие уровни сильнее давят на всех врагов; уровень 3 также портит будущий добор картой Headache.' },
-  'arkane-arow': { en: 'Throw the equipped Shield to create a wall exactly where it best blocks movement or line of sight. Level 2 raises collision Damage to 2 and Range to 4; Level 3 also pushes and punishes a blocked push.', ru: 'Бросайте экипированный Щит, создавая стену там, где она лучше всего перекрывает движение или линию видимости. Уровень 2 повышает урон столкновения до 2 и дальность до 4; уровень 3 также толкает и наказывает за невозможный толчок.' },
+  'arkane-arow': { en: 'Throw the equipped Shield within Range 3 to create a destructible Heavy wall exactly where it best blocks movement or line of sight. Level 2 raises collision Damage to 2; Level 3 also pushes and punishes a blocked push.', ru: 'Бросайте экипированный Щит в пределах дальности 3, создавая разрушаемую Тяжёлую стену там, где она лучше всего перекрывает движение или линию видимости. Уровень 2 повышает урон столкновения до 2; уровень 3 также толкает и наказывает за невозможный толчок.' },
   'arm-da-wiz': { en: 'Recall a chosen unequipped Shield from anywhere on the Board or create a new one without removing existing Shields. A recall pulls crossed enemies 1 Square toward Orkk; Level 2 damages them, and Level 3 then damages enemies adjacent after equipping.', ru: 'Верните выбранный снятый Щит из любой точки поля или создайте новый, не удаляя прежние. Возврат притягивает пересечённых врагов на 1 клетку к Оркку; уровень 2 наносит им урон, а уровень 3 затем ранит соседних врагов после экипировки.' },
   encourage: { en: 'Da Orkk’s card-advantage engine. Keep it cycling in Spell Echo: draw now, add Rage at Level 2, and recover a useful random discard at Level 3.', ru: 'Двигатель преимущества по картам Да Оркка. Прокручивайте в Spell Echo: добор сейчас, Rage на 2-м уровне и возврат случайной полезной карты из Discard на 3-м.' },
   kyk: { en: 'Turn a nearby Object into a long-range projectile. Choose a line that ends in an enemy collision; Level 3 deals heavy damage but permanently destroys the projectile, so spend disposable Objects.', ru: 'Превращайте соседний Объект в дальний снаряд. Выбирайте линию, заканчивающуюся столкновением с врагом; уровень 3 наносит большой урон, но уничтожает снаряд, поэтому используйте расходные Объекты.' },
@@ -1155,8 +1192,8 @@ function renderCharacterTraits() {
   else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
   else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div></div>`;
   else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div></div>`;
+  else if (playerTwo.character === 'wreckna') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP. Attackers still receive full post-match Damage credit.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
   else if (playerTwo.character === 'spectre') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">◈<span class="trait-tooltip"><b>Replica</b>One immobile replica shares Spectre's Hand, Actions, HP, and combat. Either body can originate melee Attacks; positional rules use the involved body.</span></div></div>`;
-  else if (playerTwo.character === 'wreckna') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>Infuse Objects to empower Cards. Wreckna is immortal while at least one Phylactery exists.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
   else byId('characterTraitPanelP2').innerHTML = '';
   if (player.character === 'shinobi') {
     byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
@@ -1181,7 +1218,7 @@ function renderCharacterTraits() {
     return;
   }
   if (player.character === 'wreckna') {
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>Infuse Objects to empower Cards. Wreckna is immortal while at least one Phylactery exists.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
+    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP. Attackers still receive full post-match Damage credit.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
     return;
   }
   byId('characterTraitPanel').innerHTML = '';
@@ -1218,14 +1255,17 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
     const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
     const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">➜<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
-    const hexBonus = player.hexMovementBonus ?? 0;
+    const hexBonus = (player.hexMovementBonus ?? 0) + (player.decayMovementBonus ?? 0);
     const hexPenalty = player.hexMovementPenalty ?? 0;
-    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">HEX<b>+${hexBonus}</b><span class="status-tooltip"><strong>Hex · Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV. Hex also applied the stolen MOV, which can pay for Phylactery of Might. Each point expires at the end of its target's next turn.</span></div>` : '';
-    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">HEX<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Hex · Movement Stolen</strong>Maximum MOV is reduced by ${hexPenalty} until the end of this character's next turn.</span></div>` : '';
     const shadowMoveBonus = player.spectreShadowMoveBonus ?? 0;
     const shadowMovePenalty = player.spectreShadowMovePenalty ?? 0;
     const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">DAG<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Stolen Movement</strong>Spectre stole ${shadowMoveBonus} MOV from enemies hit by Shadow Dagger. Both maximum and unspent MOV increased until the end of this turn.</span></div>` : '';
     const shadowMovePenaltyIcon = shadowMovePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">DAG<b>-${shadowMovePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Movement Stolen</strong>Maximum and unspent MOV are reduced by ${shadowMovePenalty} until the end of Spectre's turn.</span></div>` : '';
+    const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">🧊<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
+    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">RNG<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
+    const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
+    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Drain Strength, or Decay. Decay's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
+    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Drain Strength, or Decay reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
@@ -1239,7 +1279,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${phylacteryIcons}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1256,12 +1296,50 @@ function renderHand() {
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
     return;
   }
+  if ((gameState.phase as string) === 'choosing-decay-discard') {
+    const decay = (gameState as GameState & { decay?: { targetId?: PlayerId; remaining: number } }).decay;
+    if (!decay?.targetId || viewerId !== decay.targetId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Decay.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.querySelectorAll<HTMLButtonElement>('[data-decay-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'decay-discard', playerId: viewerId, cardInstanceId: button.dataset.decayDiscard! })));
+    return;
+  }
+  if (gameState.phase === 'wreckna-wisdom-discard') {
+    const wisdom = (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null }).wrecknaWisdom;
+    if (!wisdom || viewerId !== wisdom.playerId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to discard for Phylactery of Wisdom.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => {
+      const card = cardDefinition(instance);
+      return `<button class="card ${cardVisualClass(card)}" data-wisdom-hand-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'PHYLACTERY OF WISDOM · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+    }).join('');
+    document.querySelectorAll<HTMLButtonElement>('[data-wisdom-hand-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-discard', playerId: viewerId, cardInstanceId: button.dataset.wisdomHandDiscard! })));
+    return;
+  }
+  if (gameState.phase === 'choosing-lichdom-copy') {
+    const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
+    if (!lichdom || viewerId !== lichdom.casterId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to choose a Card for Lichdom.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-lichdom-copy="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>LICHDOM · CREATE ONE-TIME COPY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.querySelectorAll<HTMLButtonElement>('[data-lichdom-copy]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'lichdom-copy-choice', playerId: viewerId, cardInstanceId: button.dataset.lichdomCopy! })));
+    return;
+  }
+  if (gameState.phase === 'choosing-shadow-barter-discard') {
+    const shadowBarter = (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } | null }).shadowBarter;
+    if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
+    return;
+  }
+  if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
+    const pending = (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId; remaining: number }[] } }).necronomicon?.discardQueue[0];
+    if (!pending || viewerId !== pending.playerId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for an enemy to discard for Necronomicon.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-necronomicon-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `NECRONOMICON · DISCARD ${pending.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.querySelectorAll<HTMLButtonElement>('[data-necronomicon-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'necronomicon-discard', playerId: viewerId, cardInstanceId: button.dataset.necronomiconDiscard! })));
+    return;
+  }
   if (gameState.phase === 'choosing-force-disarm-discard') {
     const requiredTarget = gameState.forceDisarm!.targetId;
     const requiredKind = gameState.forceDisarm!.cardKind ?? 'attack';
     const mindBlast = 'mindBlastLevel' in gameState.forceDisarm!;
     if (viewerId !== requiredTarget) {
-      byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredTarget].name)} to discard an Attack card.</div>`;
+      byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredTarget].name)} to discard a ${requiredKind === 'defend' ? 'Defend' : 'Attack'} card.</div>`;
       return;
     }
     if (mindBlast) {
@@ -1269,6 +1347,15 @@ function renderHand() {
       byId('hand').innerHTML = eligible.map((instance) => {
         const card = cardDefinition(instance);
         return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+      }).join('');
+      document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
+      return;
+    }
+    if ((gameState.forceDisarm as unknown as { source?: string }).source === 'drain-strength') {
+      const defenses = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded && cardDefinition(instance).kind === 'defend');
+      byId('hand').innerHTML = defenses.map((instance) => {
+        const card = cardDefinition(instance);
+        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
       }).join('');
       document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
       return;
@@ -1309,8 +1396,8 @@ function renderHand() {
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
-    const interactionCopy = mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
+    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
     return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
@@ -1406,26 +1493,36 @@ function renderFlurryModal() {
 
 function renderArmDaWizModal() {
   const modal = byId('armDaWizModal');
+  const immortality = (gameState as GameState & { immortality?: { playerId: PlayerId; objectIds: string[] } | null }).immortality;
+  if (gameState.phase === 'choosing-immortality-phylactery' && immortality && canLocalAct(immortality.playerId)) {
+    const choices = immortality.objectIds.map((objectId) => gameState.objects.find((object) => object.id === objectId)).filter((object): object is NonNullable<typeof object> => Boolean(object?.phylacteryType));
+    modal.classList.remove('hidden');
+    modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Immortality</h2><p>Choose an active Phylactery to sacrifice. Wreckna will teleport onto its Square.</p><div class="choice-cards">${choices.map((object) => `<button data-immortality-phylactery="${object.id}"><strong>Of ${object.phylacteryType![0].toUpperCase()}${object.phylacteryType!.slice(1)}</strong><small>Sacrifice ${escapeHtml(object.name)} at ${cellLabel(object.position)} and teleport there</small></button>`).join('')}</div></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-immortality-phylactery]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'immortality-phylactery-choice', playerId: immortality.playerId, objectId: button.dataset.immortalityPhylactery! })));
+    return;
+  }
+  const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
+  if (gameState.phase === 'shadow-barter-tomb-offer' && shadowBarter && canLocalAct(shadowBarter.attackerId)) {
+    modal.classList.remove('hidden');
+    modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Shadow Barter</h2><p>You may create a Tomb on an empty Square within Range 1.</p><div class="choice-cards"><button id="shadowBarterCreateTomb"><strong>Create Tomb</strong><small>Select an adjacent empty Square</small></button></div><button class="choice-decline" id="shadowBarterDeclineTomb">Do not create</button></div>`;
+    modal.querySelector('#shadowBarterCreateTomb')?.addEventListener('click', () => dispatch({ type: 'shadow-barter-tomb-choice', playerId: shadowBarter.attackerId, use: true }));
+    modal.querySelector('#shadowBarterDeclineTomb')?.addEventListener('click', () => dispatch({ type: 'shadow-barter-tomb-choice', playerId: shadowBarter.attackerId, use: false }));
+    return;
+  }
   const wrecknaState = gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; availableTypes: ('might' | 'wisdom' | 'ritual')[] } | null };
-  if ((gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') && wrecknaState.wrecknaWisdom && canLocalAct(wrecknaState.wrecknaWisdom.playerId)) {
+  if (gameState.phase === 'wreckna-wisdom-offer' && wrecknaState.wrecknaWisdom && canLocalAct(wrecknaState.wrecknaWisdom.playerId)) {
     const player = gameState.players[wrecknaState.wrecknaWisdom.playerId];
     modal.classList.remove('hidden');
-    if (gameState.phase === 'wreckna-wisdom-offer') {
-      modal.innerHTML = `<div class="choice-dialog"><span>PHYLACTERY POWER</span><h2>Of Wisdom</h2><p>Draw 1 Card, then discard 1 Card before choosing a Defend Card.</p><div class="choice-cards"><button id="useWrecknaWisdom"><strong>Use Of Wisdom</strong><small>Draw 1, then discard 1</small></button></div><button class="choice-decline" id="declineWrecknaWisdom">Continue without using</button></div>`;
-      modal.querySelector('#useWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: true }));
-      modal.querySelector('#declineWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: false }));
-    } else {
-      const discardable = player.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
-      modal.innerHTML = `<div class="choice-dialog"><span>PHYLACTERY POWER</span><h2>Discard 1 Card</h2><p>Complete Of Wisdom before choosing a Defend Card.</p><div class="choice-cards">${discardable.map((card) => `<button data-wisdom-discard="${card.instanceId}"><strong>${escapeHtml(cardDefinition(card).name)}</strong><small>Discard</small></button>`).join('')}</div></div>`;
-      modal.querySelectorAll<HTMLButtonElement>('[data-wisdom-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-discard', playerId: player.id, cardInstanceId: button.dataset.wisdomDiscard! })));
-    }
+    modal.innerHTML = `<div class="choice-dialog"><span>PHYLACTERY POWER</span><h2>Of Wisdom</h2><p>Draw 1 Card, then discard 1 Card before choosing a Defend Card.</p><div class="choice-cards"><button id="useWrecknaWisdom"><strong>Use Of Wisdom</strong><small>Draw 1, then discard 1</small></button></div><button class="choice-decline" id="declineWrecknaWisdom">Continue without using</button></div>`;
+    modal.querySelector('#useWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: true }));
+    modal.querySelector('#declineWrecknaWisdom')?.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-choice', playerId: player.id, use: false }));
     return;
   }
   if (gameState.phase === 'choosing-wreckna-phylactery' && wrecknaState.wrecknaPhylacteryChoice && canLocalAct(wrecknaState.wrecknaPhylacteryChoice.casterId)) {
     const choice = wrecknaState.wrecknaPhylacteryChoice;
     const copy = { might: ['Of Might', 'Spend 1 MOV for +1 Attack Value as a Combat Power.'], wisdom: ['Of Wisdom', 'Draw 1 Card and discard 1 before choosing a Defend Card.'], ritual: ['Of Ritual', 'Ignore HP or Tomb sacrifices when creating future Phylacteries.'] } as const;
     modal.classList.remove('hidden');
-    modal.innerHTML = `<div class="choice-dialog"><span>INFUSE OBJECT</span><h2>Choose Phylactery Type</h2><p>Only currently inactive types are available.</p><div class="choice-cards">${choice.availableTypes.map((type) => `<button data-phylactery-type="${type}"><strong>${copy[type][0]}</strong><small>${copy[type][1]}</small></button>`).join('')}</div></div>`;
+    modal.innerHTML = `<div class="choice-dialog"><span>INFUSE OBJECT</span><h2>Choose Phylactery Type</h2><p>Only currently inactive types are available. Wreckna can maintain no more than 2 active Phylacteries.</p><div class="choice-cards">${choice.availableTypes.map((type) => `<button data-phylactery-type="${type}"><strong>${copy[type][0]}</strong><small>${copy[type][1]}</small></button>`).join('')}</div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-phylactery-type]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-phylactery-choice', playerId: choice.casterId, phylacteryType: button.dataset.phylacteryType as 'might' | 'wisdom' | 'ritual' })));
     return;
   }
@@ -1486,7 +1583,7 @@ function renderFocusModal() {
     return;
   }
   const focus = opening.focusByPlayer[playerId]!;
-  const definition = STARTING_DECKS[player.character as 'shinobi' | 'orkk' | 'magician'];
+  const definition = STARTING_DECKS[player.character as keyof typeof STARTING_DECKS];
   const choices = focus === 'attack' ? definition.attackFocus : definition.defendFocus;
   modal.innerHTML = `<div class="choice-dialog"><span>${focus.toUpperCase()} FOCUS · CHOOSE TENTH CARD</span><h2>${escapeHtml(player.name)}</h2><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : 'DEFEND VALUE'; return `<button data-focus-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${valueLabel}</b><small>${escapeHtml(card.effectText ?? '')}</small></button>`; }).join('')}</div><button class="focus-back-button" id="backToFocusChoice" type="button">Back</button></div>`;
   modal.querySelectorAll<HTMLButtonElement>('[data-focus-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus-card', playerId, cardId: button.dataset.focusCard as any })));
@@ -1584,9 +1681,7 @@ function renderPhaseRewardModal() {
     });
     return;
   }
-  const definition = STARTING_DECKS[player.character as 'shinobi' | 'orkk' | 'magician'];
-  const initialFocus = extended.questPhases!.progression[playerId]?.initialFocus ?? 'attack';
-  const choices = reward.phase === 1 ? (initialFocus === 'attack' ? definition.defendFocus : definition.attackFocus) : definition.perkPhase;
+  const choices = phaseCardCandidates(gameState, playerId);
   phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} REWARD</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); return `<button data-phase-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${card.kind === 'attack' ? 'ATTACK' : card.kind === 'defend' ? 'DEFEND' : 'PERK'} VALUE</b><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? '')}</small></button>`; }).join('')}</div></div>`;
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
@@ -2132,6 +2227,11 @@ renderer.setAnimationLoop((time) => {
       if (mightLight?.visible) mightLight.intensity = 3.8 * pulse;
       const mantle = group.getObjectByName('WrecknaRitualMantle');
       if (mantle?.visible) { mantle.rotation.y = Math.sin(time * 0.0018) * 0.035; const mantleLight = mantle.getObjectByName('WrecknaMantleLight') as THREE.PointLight | undefined; if (mantleLight) mantleLight.intensity = 3.2 * pulse; }
+      const wisdomCrownLight = group.getObjectByName('WrecknaWisdomCrownLight') as THREE.PointLight | undefined;
+      if (wisdomCrownLight?.visible) wisdomCrownLight.intensity = 3.4 * pulse;
+      const crownBand = group.getObjectByName('WrecknaCrownBand') as THREE.Mesh | undefined;
+      const crownMaterial = crownBand?.material as THREE.MeshStandardMaterial | undefined;
+      if (crownMaterial && crownMaterial.emissiveIntensity > 1) crownMaterial.emissiveIntensity = 3.8 * pulse;
       for (const eyeName of ['WrecknaEyeLeft', 'WrecknaEyeRight']) { const eye = group.getObjectByName(eyeName) as THREE.Mesh | undefined; const material = eye?.material as THREE.MeshStandardMaterial | undefined; if (material?.emissiveIntensity && material.emissiveIntensity > 1) material.emissiveIntensity = 5.2 * pulse; }
     }
     const shellAura = group.getObjectByName('StoicShellAura');
@@ -3726,12 +3826,15 @@ function createWreckna(playerColor = 0x169bd3) {
     const cheek = add(new THREE.ConeGeometry(0.045, 0.22, 6), boneDark, [side * 0.14, 1.87, -0.16]); cheek.rotation.z = side * 0.24;
   }
   const crownBand = add(new THREE.CylinderGeometry(0.24, 0.27, 0.12, 10), crown, [0, 2.19, 0]);
+  crownBand.name = 'WrecknaCrownBand';
   crownBand.rotation.y = Math.PI / 10;
   for (let index = 0; index < 7; index++) {
     const angle = index / 7 * Math.PI * 2;
     const spike = add(new THREE.ConeGeometry(0.045, 0.43, 5), crown, [Math.sin(angle) * 0.21, 2.4, Math.cos(angle) * 0.21]);
+    spike.name = `WrecknaCrownSpike${index + 1}`;
     spike.rotation.z = Math.sin(angle) * 0.18; spike.rotation.x = -Math.cos(angle) * 0.18;
   }
+  const wisdomCrownLight = new THREE.PointLight(0x26bfff, 3.4, 2.8); wisdomCrownLight.name = 'WrecknaWisdomCrownLight'; wisdomCrownLight.position.set(0, 2.35, 0); wisdomCrownLight.visible = false; body.add(wisdomCrownLight);
   const mantle = new THREE.Group(); mantle.name = 'WrecknaRitualMantle'; mantle.visible = false; body.add(mantle);
   const mantleGold = new THREE.MeshStandardMaterial({ color: 0xe0b94b, emissive: 0xb66a12, emissiveIntensity: 2.1, roughness: 0.3, metalness: 0.72 });
   const collar = add(new THREE.TorusGeometry(0.39, 0.09, 8, 24, Math.PI), mantleGold, [0, 1.62, 0.08], mantle); collar.rotation.x = Math.PI / 2; collar.rotation.z = Math.PI / 2;
@@ -3775,6 +3878,15 @@ function syncWrecknaPhylacteryVisuals(group: THREE.Group, playerId: PlayerId) {
     eye!.scale.setScalar(wisdom ? 1.18 : 1);
     eye!.scale.z *= 0.55;
   }
+  const crownBand = group.getObjectByName('WrecknaCrownBand') as THREE.Mesh | undefined;
+  const crownMaterial = crownBand?.material as THREE.MeshStandardMaterial | undefined;
+  if (crownMaterial) {
+    crownMaterial.color.setHex(wisdom ? 0x8adfff : 0x607887);
+    crownMaterial.emissive.setHex(wisdom ? 0x26bfff : 0x173b52);
+    crownMaterial.emissiveIntensity = wisdom ? 3.8 : 0.55;
+  }
+  const wisdomCrownLight = group.getObjectByName('WrecknaWisdomCrownLight') as THREE.PointLight | undefined;
+  if (wisdomCrownLight) wisdomCrownLight.visible = wisdom;
   const mantle = group.getObjectByName('WrecknaRitualMantle');
   if (mantle) mantle.visible = ritual;
 }
@@ -4532,7 +4644,7 @@ function highlightCells() {
     const cell = mesh.userData.cell as Cell;
     const playerOnCell = Object.values(gameState.players).find((player) => player.position.x === cell.x && player.position.y === cell.y);
     const objectOnCell = gameState.objects.find((object) => object.position.x === cell.x && object.position.y === cell.y);
-    const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
+    const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
     const occupiedByPlayer = Boolean(playerOnCell && playerOnCell.id !== actor.id);
     const occupiedByObject = Boolean(objectOnCell);
     const occupiedByEnemy = occupiedByPlayer || occupiedByObject;
@@ -4540,16 +4652,18 @@ function highlightCells() {
     const diagonalBlocked = diagonalMovementBlockedByObject(gameState, actor.position, cell);
     const forbiddenSlideAscent = isForbiddenSlideAscent(gameState, actor.position, cell);
     const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
-    const shizzleWallBlocked = objectOnCell?.kind === 'wall-pillar' || objectOnCell?.kind === 'orkk-shield';
+    const shizzleWallBlocked = objectOnCell?.kind === 'orkk-shield' || objectOnCell?.kind === 'tomb' || objectOnCell?.kind === 'spirit-guardian';
     const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && !shizzleWallBlocked && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = movementCost(gameState, actor, regularPath);
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
     const spiritPassSquare = (occupiedByPlayer || occupiedByObject) && actor.spiritForm && regularDistance <= actor.movementRemaining;
-    const wrecknaTombEntry = actor.character === 'wreckna' && objectOnCell?.kind === 'tomb' && distance(actor.position, cell) === 1 && actor.movementRemaining >= 2;
     const shadowBoxDestination = actor.character === 'spectre' && objectOnCell?.kind === 'wooden-box' && regularPath.length > 0 && isSpectreShadowTrailCell(gameState, actor, cell);
     const shadowTransitDestination = actor.character === 'spectre' && isSpectreShadowTrailCell(gameState, actor, cell) && (occupiedByPlayer || Boolean(objectOnCell && objectOnCell.kind !== 'wooden-box'));
-    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining);
+    const currentWrecknaTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
+    const freeTombTransfer = actor.character === 'wreckna' && Boolean(currentWrecknaTomb) && objectOnCell?.kind === 'tomb' && objectOnCell.id !== currentWrecknaTomb!.id && distance(currentWrecknaTomb!.position, cell) === 1;
+    const wrecknaTombEntry = actor.character === 'wreckna' && objectOnCell?.kind === 'tomb' && distance(actor.position, cell) === 1 && (actor.movementRemaining >= 2 || freeTombTransfer);
+    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && (freeTombTransfer || (regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining)));
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;
@@ -4586,7 +4700,7 @@ function highlightCells() {
     const shizzlePath = shizzleLinear ? Array.from({ length: shizzleDistance }, (_, index) => ({ x: actor.position.x + Math.sign(shizzleDx) * (index + 1), y: actor.position.y + Math.sign(shizzleDy) * (index + 1) })) : [];
     const shizzleDiagonalBlocked = shizzlePath.some((pathCell, index) => diagonalMovementBlockedByObject(gameState, index === 0 ? actor.position : shizzlePath[index - 1], pathCell));
     const shizzleClimbsSlide = shizzlePath.some((pathCell, index) => isForbiddenSlideAscent(gameState, index === 0 ? actor.position : shizzlePath[index - 1], pathCell));
-    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleDiagonalBlocked && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject && !shizzlePath.some((pathCell) => gameState.objects.some((object) => (object.kind === 'wall-pillar' || object.kind === 'orkk-shield') && object.position.x === pathCell.x && object.position.y === pathCell.y));
+    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleDiagonalBlocked && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject && !shizzlePath.some((pathCell) => gameState.objects.some((object) => (object.kind === 'orkk-shield' || object.kind === 'tomb' || object.kind === 'spirit-guardian') && object.position.x === pathCell.x && object.position.y === pathCell.y));
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
     const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell } | undefined;
@@ -4595,11 +4709,19 @@ function highlightCells() {
       Boolean(guardianPending) && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId])
       || Boolean(spectrePlacement) && distance(spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell) <= spectrePlacement!.range && hasReplicaPlacementLineOfSight(gameState, spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell, Boolean(gameState.players[spectrePlacement!.casterId].spectreOnBoxId) && !spectrePlacement!.origin)
     );
+    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
+    const shadowBarterTombValid = gameState.phase === 'choosing-shadow-barter-tomb-square' && Boolean(shadowBarter) && !occupiedByPlayer && !occupiedByObject
+      && distance(gameState.players[shadowBarter!.attackerId].position, cell) === 1;
+    const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
+    const dakkothCaster = dakkoth ? gameState.players[dakkoth.casterId] : null;
+    const dakkothTombSquareValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-square' && Boolean(dakkothCaster) && !occupiedByPlayer && !occupiedByObject
+      && distance(dakkothCaster!.position, cell) <= effectiveAttackRange(gameState, dakkothCaster!);
     const attackableObject = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
+    const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = activePlayer.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(activePlayer, cell))
       : distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && canAttackTargetSquare(gameState, activePlayer.position, cell);
-    const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id) || (attackableObject && !(objectOnCell!.kind === 'spectre-replica' && objectOnCell!.ownerId === activePlayer.id)))
+    const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && !playerOnCellIsEntombed) || (attackableObject && !(objectOnCell!.kind === 'spectre-replica' && objectOnCell!.ownerId === activePlayer.id)))
       && attackTargetReachable;
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
       (selectedCard?.cardId === 'force-throw' && movableObjectOnCell && distance(activePlayer.position, cell) <= 4)
@@ -4623,12 +4745,27 @@ function highlightCells() {
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
       && distance(gameState.players[fireball!.casterId].position, cell) <= 3 && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
-    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
+    const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
+    const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
+    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian'
+      && (!testPhylacteryPending?.sacrificeEnemyId || Boolean(testPhylacteryCaster && distance(testPhylacteryCaster.position, cell) <= effectiveAttackRange(gameState, testPhylacteryCaster) && hasLineOfSight(gameState, testPhylacteryCaster.position, cell)));
+    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
+    const dakkothTombSacrificeValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && objectOnCell?.kind === 'tomb' && objectOnCell.ownerId === dakkoth?.casterId;
+    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
+    const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType;
+    const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
+    const sapCaster = sap ? gameState.players[sap.casterId] : null;
+    const sapTargetValid = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sapCaster) && Boolean(playerOnCell) && playerOnCell!.id !== sap!.casterId
+      && canLocalAct(sap!.casterId) && distance(sapCaster!.position, cell) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, cell);
+    const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
+    const decayCaster = decay ? gameState.players[decay.casterId] : null;
+    const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(playerOnCell) && playerOnCell!.id !== decay!.casterId
+      && canLocalAct(decay!.casterId) && distance(decayCaster!.position, cell) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
-    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || kykTargetValid;
-    const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || targetSquareValid;
+    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
+    const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
   });
   updateTargetHighlights(performance.now());
 }
@@ -4653,12 +4790,17 @@ function updateTargetHighlights(time: number) {
   const canMagicTarget = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic) && canLocalAct(magic!.casterId);
   const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
   const canShadowDirection = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadow) && canLocalAct(shadow!.casterId);
+  const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
+  const canSapTarget = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sap) && canLocalAct(sap!.casterId);
+  const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
+  const canDecayTarget = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decay) && canLocalAct(decay!.casterId);
   dummyGroups.forEach((group, playerId) => {
     const target = gameState.players[playerId];
+    const targetIsEntombed = Boolean(target.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, target.position))
       : distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
-    const validAttack = canTarget && playerId !== attacker.id && attackTargetReachable;
+    const validAttack = canTarget && playerId !== attacker.id && !targetIsEntombed && attackTargetReachable;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
     const validArcane = canArcaneTarget && playerId !== arcane!.casterId && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], target) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level)));
@@ -4666,7 +4808,11 @@ function updateTargetHighlights(time: number) {
     const validChain = canChainTarget && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= effectiveAttackRange(gameState, chainCaster!) && hasLineOfSight(gameState, chainCaster!.position, target.position);
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
     const validMagic = canMagicTarget && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
-    const valid = validAttack || validPull || validArcane || validChain || validMagic;
+    const sapCaster = sap ? gameState.players[sap.casterId] : null;
+    const validSap = canSapTarget && playerId !== sap!.casterId && distance(sapCaster!.position, target.position) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, target.position);
+    const decayCaster = decay ? gameState.players[decay.casterId] : null;
+    const validDecay = canDecayTarget && playerId !== decay!.casterId && distance(decayCaster!.position, target.position) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, target.position);
+    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
     ring.visible = valid;
@@ -4693,7 +4839,7 @@ function updateTargetHighlights(time: number) {
       child.material.emissiveIntensity = validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
-  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection ? 'crosshair' : 'grab';
+  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
 }
 
 function onBoardClick(event: PointerEvent) {
@@ -4718,6 +4864,26 @@ function onBoardClick(event: PointerEvent) {
     const guardian = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId } }).spiritGuardian;
     if (cellHit && spectrePlacement) dispatch({ type: 'spectre-replica-square', playerId: spectrePlacement.casterId, to: cellHit.object.userData.cell });
     else if (cellHit && guardian) dispatch({ type: 'spirit-guardian-square', playerId: guardian.casterId, to: cellHit.object.userData.cell });
+  } else if (gameState.phase === 'choosing-shadow-barter-tomb-square') {
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
+    if (cellHit && shadowBarter) dispatch({ type: 'shadow-barter-tomb-square', playerId: shadowBarter.attackerId, to: cellHit.object.userData.cell });
+  } else if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') {
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
+    if (cellHit && dakkoth) dispatch({ type: 'dakkoth-tomb-square', playerId: dakkoth.casterId, to: cellHit.object.userData.cell });
+  } else if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
+    if (objectHit && dakkoth) dispatch({ type: 'dakkoth-tomb-sacrifice', playerId: dakkoth.casterId, objectId: objectHit });
+  } else if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
+    if (objectHit && dakkoth) dispatch({ type: 'dakkoth-phylactery-target', playerId: dakkoth.casterId, objectId: objectHit });
+  } else if ((gameState.phase as string) === 'choosing-necronomicon-tomb') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
+    if (objectHit && necronomicon) dispatch({ type: 'necronomicon-tomb-target', playerId: necronomicon.casterId, objectId: objectHit });
   } else if (gameState.phase === 'choosing-preparation-teleport') {
     const objectId = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     if (objectId) dispatch({ type: 'preparation-teleport', playerId: gameState.preparation!.casterId, objectId });
@@ -4736,6 +4902,14 @@ function onBoardClick(event: PointerEvent) {
   } else if (gameState.phase === 'choosing-chain-lightning-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     if (playerHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetId: playerHit });
+  } else if ((gameState.phase as string) === 'choosing-sap-target') {
+    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
+    if (playerHit && sap && playerHit !== sap.casterId) dispatch({ type: 'sap-target', playerId: sap.casterId, targetId: playerHit });
+  } else if ((gameState.phase as string) === 'choosing-decay-target') {
+    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
+    if (playerHit && decay && playerHit !== decay.casterId) dispatch({ type: 'decay-target', playerId: decay.casterId, targetId: playerHit });
   } else if (gameState.phase === 'choosing-magic-hand-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
@@ -4772,6 +4946,10 @@ function onBoardClick(event: PointerEvent) {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const pending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId } | null }).testPhylactery;
     if (objectHit && pending) dispatch({ type: 'test-phylactery-target', playerId: pending.casterId, objectId: objectHit });
+  } else if (gameState.phase === 'choosing-lichdom-target') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const pending = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
+    if (objectHit && pending) dispatch({ type: 'lichdom-target', playerId: pending.casterId, objectId: objectHit });
   } else if (gameState.phase === 'choosing-kyk-target') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
@@ -4830,7 +5008,7 @@ function onBoardClick(event: PointerEvent) {
     else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
     else if (objectHit) {
       const object = hitObject;
-      if (object && object.kind !== 'wall-pillar' && object.kind !== 'orkk-shield' && window.confirm(`Attack ${object.name} at ${cellLabel(object.position)}? If the resolved Attack Value is above 0, it will be destroyed.`)) {
+      if (object && object.kind !== 'wall-pillar' && object.kind !== 'orkk-shield' && window.confirm(`Attack ${object.name} at ${cellLabel(object.position)}? A destructible Object is destroyed by the Attack Card.`)) {
         if (attacker.character === 'spectre') {
           const origin = spectreAttackOriginForTarget(attacker, object.position);
           if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: objectHit, targetKind: 'object' }); }
