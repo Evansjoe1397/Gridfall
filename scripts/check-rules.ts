@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementPath, orkkActionEventForCommand, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 
 // Most historical rule checks focus on the final resolved card state. Preserve
 // their concise form while production now holds after-combat effects until both
@@ -4892,6 +4892,12 @@ assert.equal(trenchInitialBoxLabels.filter((label) => ['C6', 'D6', 'E6', 'F6'].i
 assert.equal(trenchInitialBoxLabels.filter((label) => ['B3', 'G3'].includes(label)).length, 1, 'The Trench spawns one Box in Group 3.');
 assert.equal(trenchInitialBoxLabels.includes('B3') ? trenchInitialBoxLabels.includes('G6') : trenchInitialBoxLabels.includes('B6'), true, 'Group 4 spawns opposite the Group 3 Box.');
 
+const trenchLineOfSightState = createTrenchTestState(true, 'spectre', 'dummy');
+trenchLineOfSightState.objects = [];
+assert.equal(hasLineOfSight(trenchLineOfSightState, { x: 4, y: 3 }, { x: 4, y: 1 }), false, 'The Row 3 High Ground ridge blocks line of sight from the Trench to Row 2.');
+assert.equal(hasLineOfSight(trenchLineOfSightState, { x: 4, y: 3 }, { x: 4, y: 6 }), false, 'The Row 6 High Ground ridge blocks line of sight from the Trench to Row 7.');
+assert.equal(hasLineOfSight(trenchLineOfSightState, { x: 4, y: 3 }, { x: 4, y: 2 }), true, 'The facing High Ground Square itself remains visible from the Trench.');
+
 const trenchSlopeState = createTrenchTestState(true, 'magician', 'dummy');
 trenchSlopeState.objects = [];
 trenchSlopeState.players.P1.position = { x: 2, y: 3 }; // B4, ordinary Low Ground
@@ -4994,6 +5000,267 @@ if (trenchBlockedEnemySlide.ok) {
   assert.equal(trenchBlockedEnemySlide.state.players.P2.hp, blockedEnemyHp - 1, 'An unpushable enemy still receives 1 Slide Damage.');
   assert.deepEqual(trenchBlockedEnemySlide.state.players.P2.position, { x: 3, y: 4 }, 'An unpushable enemy remains in place.');
   assert.deepEqual(trenchBlockedEnemySlide.state.players.P1.position, { x: 3, y: 3 }, 'The sliding character remains on the Slide Square if the enemy cannot be displaced.');
+}
+
+const spectreState = createHotseatTestState(true, 'spectre', 'dummy');
+assert.equal(spectreState.players.P1.character, 'spectre');
+assert.equal(spectreState.players.P1.hp, 17, 'Spectre starts with 17 HP.');
+assert.equal(spectreState.players.P1.moveRange, 3, 'Spectre starts with 3 MOV.');
+assert.equal(spectreState.players.P1.attackRange, 1, 'Spectre is melee Range 1.');
+assert.equal(STARTING_DECKS.spectre.reserve, 'replicate');
+for (const cardId of ['replicate', 'relocate', 'shadow-dagger', 'consume-replica', 'fear', 'solitude', 'deja-vu', 'echo-strike', 'soul-strike', 'displace', 'devour', 'split', 'anguish', 'dispersion', 'accumulate'] as CardTypeId[]) assert.equal(cardDefinition({ instanceId: `spectre-${cardId}`, cardId }).id, cardId);
+assert.equal(cardDefinition({ instanceId: 'spectre-solitude-value', cardId: 'solitude' }).value, 2, 'Solitude has 2 base ATT.');
+assert.match(cardDefinition({ instanceId: 'spectre-deja-text', cardId: 'deja-vu' }).effectText!, /Otherwise, return Deja Vu to your Hand/, 'Deja Vu tooltip includes its no-replica branch.');
+assert.match(cardDefinition({ instanceId: 'spectre-anguish-text', cardId: 'anguish' }).effectText!, /suffer Damage, draw 1 Card/, 'Anguish tooltip includes its Damage draw.');
+assert.match(cardDefinition({ instanceId: 'spectre-replicate-tooltip', cardId: 'replicate' }).levelEffects![0], /Range 2/, 'Replicate tooltip states its new Level 1 Range.');
+
+const replicateRangeState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+replicateRangeState.phase = 'active'; replicateRangeState.activePlayerId = 'P1'; replicateRangeState.players.P1.hand = [{ instanceId: 'replicate-range', cardId: 'replicate' }];
+const replicateRangePlay = applyGameCommand(replicateRangeState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'replicate-range', destination: 'direct' });
+assert.equal(replicateRangePlay.ok, true);
+if (replicateRangePlay.ok) assert.equal((replicateRangePlay.state as any).spectreReplicaPlacement?.range, 2, 'Replicate Level 1 placement Range is 2.');
+
+const replicateBoxLosState = createHotseatTestState(true, 'spectre', 'dummy');
+replicateBoxLosState.objects = [{ id: 'replicate-los-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 1 } }];
+assert.equal(hasLineOfSight(replicateBoxLosState, { x: 2, y: 1 }, { x: 4, y: 1 }), true, 'A Wooden Box still does not block ordinary combat line of sight.');
+assert.equal(hasReplicaPlacementLineOfSight(replicateBoxLosState, { x: 2, y: 1 }, { x: 4, y: 1 }), false, 'A Wooden Box blocks Replicate placement line of sight.');
+
+const anguishDeclineState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+anguishDeclineState.phase = 'choosing-blessed-prayer-discard'; anguishDeclineState.activePlayerId = 'P2';
+anguishDeclineState.players.P1.hand = [{ instanceId: 'anguish-decline-pinned', cardId: 'pinned', revealedToOpponent: true }];
+anguishDeclineState.spectreStatusChoice = { playerId: 'P1', mode: 'anguish', attackerId: 'P2' };
+const anguishDeclined = applyGameCommand(anguishDeclineState, { type: 'spectre-status-choice', playerId: 'P1', cardInstanceId: null });
+assert.equal(anguishDeclined.ok, true, 'Anguish may be declined without transferring a Status Card.');
+if (anguishDeclined.ok) {
+  assert.equal(anguishDeclined.state.phase, 'active', 'Declining Anguish returns the match to the active phase.');
+  assert.equal(anguishDeclined.state.players.P1.hand.some((card) => card.instanceId === 'anguish-decline-pinned'), true, 'Declining Anguish leaves Spectre’s Status Card in her Hand.');
+}
+
+const anguishTransferState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+anguishTransferState.phase = 'choosing-blessed-prayer-discard'; anguishTransferState.activePlayerId = 'P2';
+anguishTransferState.players.P1.hand = [{ instanceId: 'anguish-transfer-headache', cardId: 'headache', revealedToOpponent: true }];
+anguishTransferState.players.P2.hand = [];
+anguishTransferState.spectreStatusChoice = { playerId: 'P1', mode: 'anguish', attackerId: 'P2' };
+const anguishTransferred = applyGameCommand(anguishTransferState, { type: 'spectre-status-choice', playerId: 'P1', cardInstanceId: 'anguish-transfer-headache' });
+assert.equal(anguishTransferred.ok, true);
+if (anguishTransferred.ok) {
+  assert.equal(anguishTransferred.state.players.P1.hand.length, 0, 'Anguish removes the chosen negative Status from Spectre’s Hand.');
+  assert.equal(anguishTransferred.state.players.P2.hand[0]?.instanceId, 'anguish-transfer-headache', 'Anguish transfers the same Card instance to the attacker.');
+  assert.equal(anguishTransferred.state.players.P2.hand[0]?.revealedToOpponent, true, 'The transferred negative Status remains public.');
+}
+
+const anguishDrawState = createHotseatTestState(true, 'spectre', 'dummy');
+anguishDrawState.phase = 'active'; anguishDrawState.activePlayerId = 'P2'; anguishDrawState.objects = [];
+anguishDrawState.players.P1.position = { x: 1, y: 1 }; anguishDrawState.players.P2.position = { x: 2, y: 1 };
+anguishDrawState.players.P1.hand = [{ instanceId: 'anguish-draw-defense', cardId: 'anguish' }, { instanceId: 'anguish-draw-pinned', cardId: 'pinned', revealedToOpponent: true }];
+anguishDrawState.players.P1.deck = [{ instanceId: 'anguish-drawn-card', cardId: 'attack-2' }];
+anguishDrawState.players.P2.hand = [{ instanceId: 'anguish-damaging-attack', cardId: 'attack-3' }];
+const anguishDrawAttack = applyGameCommand(anguishDrawState, { type: 'attack', playerId: 'P2', cardInstanceId: 'anguish-damaging-attack', targetId: 'P1', targetKind: 'player' });
+const anguishDrawDefense = anguishDrawAttack.ok ? applyGameCommand(anguishDrawAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'anguish-draw-defense' }) : anguishDrawAttack;
+const anguishDrawAckOne = anguishDrawDefense.ok ? applyGameCommand(anguishDrawDefense.state, { type: 'ack-combat', playerId: 'P1' }) : anguishDrawDefense;
+const anguishDrawAckTwo = anguishDrawAckOne.ok ? applyGameCommand(anguishDrawAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : anguishDrawAckOne;
+assert.equal(anguishDrawAckTwo.ok, true);
+if (anguishDrawAckTwo.ok) {
+  assert.equal(anguishDrawAckTwo.state.players.P1.hand.some((card) => card.instanceId === 'anguish-drawn-card'), true, 'Anguish draws after Spectre suffers actual Damage.');
+  assert.equal(anguishDrawAckTwo.state.phase, 'choosing-blessed-prayer-discard', 'Anguish draws before offering its optional Status transfer.');
+}
+
+const anguishBlockedState = createHotseatTestState(true, 'spectre', 'dummy');
+anguishBlockedState.phase = 'active'; anguishBlockedState.activePlayerId = 'P2'; anguishBlockedState.objects = [];
+anguishBlockedState.players.P1.position = { x: 1, y: 1 }; anguishBlockedState.players.P2.position = { x: 2, y: 1 };
+anguishBlockedState.players.P1.hand = [{ instanceId: 'anguish-block-defense', cardId: 'anguish' }, { instanceId: 'anguish-block-pinned', cardId: 'pinned', revealedToOpponent: true }];
+anguishBlockedState.players.P1.deck = [{ instanceId: 'anguish-not-drawn-card', cardId: 'attack-2' }];
+anguishBlockedState.players.P2.hand = [{ instanceId: 'anguish-blocked-attack', cardId: 'attack-2' }];
+const anguishBlockedAttack = applyGameCommand(anguishBlockedState, { type: 'attack', playerId: 'P2', cardInstanceId: 'anguish-blocked-attack', targetId: 'P1', targetKind: 'player' });
+const anguishBlockedDefense = anguishBlockedAttack.ok ? applyGameCommand(anguishBlockedAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'anguish-block-defense' }) : anguishBlockedAttack;
+const anguishBlockedAckOne = anguishBlockedDefense.ok ? applyGameCommand(anguishBlockedDefense.state, { type: 'ack-combat', playerId: 'P1' }) : anguishBlockedDefense;
+const anguishBlockedAckTwo = anguishBlockedAckOne.ok ? applyGameCommand(anguishBlockedAckOne.state, { type: 'ack-combat', playerId: 'P2' }) : anguishBlockedAckOne;
+assert.equal(anguishBlockedAckTwo.ok, true);
+if (anguishBlockedAckTwo.ok) assert.equal(anguishBlockedAckTwo.state.players.P1.deck.some((card) => card.instanceId === 'anguish-not-drawn-card'), true, 'Anguish draws nothing when Spectre suffers no Damage.');
+
+const spectreVisibleBonusState = createHotseatTestState(true, 'spectre', 'dummy');
+spectreVisibleBonusState.phase = 'active'; spectreVisibleBonusState.activePlayerId = 'P1'; spectreVisibleBonusState.objects = [];
+spectreVisibleBonusState.players.P1.position = { x: 3, y: 3 }; spectreVisibleBonusState.players.P2.position = { x: 4, y: 3 };
+spectreVisibleBonusState.players.P1.hand = [{ instanceId: 'visible-bonus-deja', cardId: 'deja-vu' }];
+spectreVisibleBonusState.players.P1.spectreAttackBonus = 2; spectreVisibleBonusState.players.P1.spectreAccumulateActive = 3;
+const spectreVisibleBonusAttack = applyGameCommand(spectreVisibleBonusState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'visible-bonus-deja', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(spectreVisibleBonusAttack.ok, true);
+if (spectreVisibleBonusAttack.ok) {
+  assert.equal(spectreVisibleBonusAttack.state.pendingAttack?.attackValue, 6, 'Temporary Spectre ATT and active Accumulate both contribute to combat.');
+  assert.deepEqual(spectreVisibleBonusAttack.state.pendingAttack?.attackModifiers?.filter((modifier) => modifier.source === 'Spectre temporary ATT' || modifier.source === 'Accumulate'), [
+    { value: 2, source: 'Spectre temporary ATT' },
+    { value: 3, source: 'Accumulate' },
+  ], 'Combat preview separates temporary Spectre ATT from active Accumulate.');
+}
+
+const dejaReturnState = createHotseatTestState(true, 'spectre', 'dummy');
+dejaReturnState.phase = 'active'; dejaReturnState.activePlayerId = 'P1'; dejaReturnState.objects = [];
+dejaReturnState.players.P1.position = { x: 3, y: 3 }; dejaReturnState.players.P2.position = { x: 4, y: 3 };
+dejaReturnState.players.P1.hand = [{ instanceId: 'deja-return-player', cardId: 'deja-vu' }];
+const dejaReturned = applyGameCommand(dejaReturnState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-return-player', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(dejaReturned.ok, true);
+if (dejaReturned.ok) {
+  assert.equal(dejaReturned.state.players.P1.hand.some((card) => card.instanceId === 'deja-return-player'), true, 'Deja Vu returns to Hand when Spectre has no replica.');
+  assert.equal(dejaReturned.state.players.P1.discard.some((card) => card.instanceId === 'deja-return-player'), false);
+  assert.equal(dejaReturned.state.players.P1.actionsRemaining, 1, 'The returned Deja Vu still costs one Action.');
+}
+
+const dejaObjectReturnState = createHotseatTestState(true, 'spectre', 'dummy');
+dejaObjectReturnState.phase = 'active'; dejaObjectReturnState.activePlayerId = 'P1';
+dejaObjectReturnState.players.P1.position = { x: 3, y: 3 };
+dejaObjectReturnState.players.P1.hand = [{ instanceId: 'deja-return-object', cardId: 'deja-vu' }];
+dejaObjectReturnState.objects = [{ id: 'deja-target-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
+const dejaObjectReturned = applyGameCommand(dejaObjectReturnState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-return-object', origin: 'spectre', targetKind: 'object', targetId: 'deja-target-box' });
+assert.equal(dejaObjectReturned.ok, true);
+if (dejaObjectReturned.ok) assert.equal(dejaObjectReturned.state.players.P1.hand.some((card) => card.instanceId === 'deja-return-object'), true, 'Deja Vu also returns after attacking an Object without a replica.');
+
+spectreState.phase = 'active';
+spectreState.activePlayerId = 'P1';
+spectreState.objects = [{ id: 'p1-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+spectreState.players.P1.position = { x: 1, y: 1 };
+spectreState.players.P2.position = { x: 4, y: 2 };
+spectreState.players.P1.hand = [{ instanceId: 'replica-solitude', cardId: 'solitude' }];
+const replicaOriginAttack = applyGameCommand(spectreState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'replica-solitude', origin: 'replica', targetKind: 'player', targetId: 'P2' });
+assert.equal(replicaOriginAttack.ok, true, 'Spectre can originate a melee Attack from the replica.');
+if (replicaOriginAttack.ok) {
+  assert.deepEqual(replicaOriginAttack.state.pendingAttack?.attackerPosition, { x: 3, y: 2 });
+  assert.equal(replicaOriginAttack.state.pendingAttack?.attackerBody, 'replica');
+}
+
+const replicaDefenseState = createHotseatTestState(true, 'spectre', 'dummy');
+replicaDefenseState.phase = 'active'; replicaDefenseState.activePlayerId = 'P2'; replicaDefenseState.objects = [{ id: 'defending-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+replicaDefenseState.players.P1.position = { x: 1, y: 1 }; replicaDefenseState.players.P2.position = { x: 4, y: 2 };
+replicaDefenseState.players.P2.hand = [{ instanceId: 'attack-replica', cardId: 'attack-2' }]; replicaDefenseState.players.P1.hand = [{ instanceId: 'devour-replica', cardId: 'devour' }];
+const attackReplica = applyGameCommand(replicaDefenseState, { type: 'spectre-attack', playerId: 'P2', cardInstanceId: 'attack-replica', origin: 'spectre', targetKind: 'replica', targetId: 'defending-replica' });
+assert.equal(attackReplica.ok, true, "Any character can Attack an enemy replica as its owner's combat proxy.");
+if (attackReplica.ok) {
+  const hpBeforeDevour = attackReplica.state.players.P1.hp;
+  const devour = applyCommand(attackReplica.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'devour-replica' });
+  assert.equal(devour.ok, true);
+  if (devour.ok) {
+    assert.equal(devour.state.players.P1.hp, hpBeforeDevour, 'Devour prevents all combat Damage.');
+    assert.equal(spectreReplica(devour.state, 'P1'), undefined, 'Devour destroys the shared replica.');
+    assert.equal(devour.state.players.P1.hand.some((card: any) => card.cardId === 'headache'), true, 'Devour adds Headache to Spectre’s shared Hand.');
+  }
+}
+
+const shadowMovementState = createTrenchTestState(true, 'spectre', 'dummy') as any;
+shadowMovementState.objects = [{ id: 'trail-column', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 3, y: 3 } }];
+shadowMovementState.players.P1.position = { x: 3, y: 4 }; // C5 Trench
+shadowMovementState.spectreShadow = { casterId: 'P1', level: 1, trail: [{ x: 3, y: 3 }, { x: 3, y: 2 }], undo: null };
+const shadowPath = movementPath(shadowMovementState, shadowMovementState.players.P1, { x: 3, y: 2 });
+assert.deepEqual(shadowPath, [{ x: 3, y: 3 }, { x: 3, y: 2 }], 'Shadow trail crosses a Column and overrides forbidden Trench ascent.');
+assert.equal(movementCost(shadowMovementState, shadowMovementState.players.P1, shadowPath), 1, 'Entering the Column costs 1 MOV, while leaving it along the trail costs 0 MOV.');
+
+const shadowTransitState = createHotseatTestState(true, 'spectre', 2, 'dummy') as any;
+shadowTransitState.objects = [
+  { id: 'trail-shield', name: 'Shield', kind: 'orkk-shield', hp: 3, maxHp: 3, position: { x: 2, y: 1 } },
+  { id: 'trail-tomb', name: 'Tomb', kind: 'tomb', hp: 3, maxHp: 3, position: { x: 4, y: 1 } },
+  { id: 'trail-column-2', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 5, y: 1 } },
+  { id: 'trail-box', name: 'Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 8, y: 1 } },
+];
+shadowTransitState.players.P1.position = { x: 1, y: 1 };
+shadowTransitState.players.P2.position = { x: 3, y: 1 };
+shadowTransitState.spectreShadow = { casterId: 'P1', level: 1, trail: Array.from({ length: 7 }, (_, index) => ({ x: index + 2, y: 1 })), undo: null };
+const occupiedShadowPath = movementPath(shadowTransitState, shadowTransitState.players.P1, { x: 7, y: 1 });
+assert.deepEqual(occupiedShadowPath, Array.from({ length: 6 }, (_, index) => ({ x: index + 2, y: 1 })), 'Shadow trail permits transit through an enemy, Shield, Tomb, Column, and Box.');
+assert.equal(movementCost(shadowTransitState, shadowTransitState.players.P1, occupiedShadowPath), 2, 'Entering the first transit Object and the second ordinary empty Square each cost 1 MOV; exits from non-Box occupied Squares are free.');
+for (const x of [2, 3, 4, 5]) {
+  const transitPath = movementPath(shadowTransitState, shadowTransitState.players.P1, { x, y: 1 });
+  assert.equal(transitPath.length, x - 1, 'Spectre may select an occupied trail Square as an intermediate movement destination.');
+  assert.equal(movementCost(shadowTransitState, shadowTransitState.players.P1, transitPath), 1, 'Entering the first character or non-Box Object costs 1 MOV; each subsequent occupied-to-occupied exit is free.');
+}
+assert.deepEqual(movementPath(shadowTransitState, shadowTransitState.players.P1, { x: 8, y: 1 }), Array.from({ length: 7 }, (_, index) => ({ x: index + 2, y: 1 })), 'Spectre may finish movement on a Box.');
+assert.equal(movementCost(shadowTransitState, shadowTransitState.players.P1, movementPath(shadowTransitState, shadowTransitState.players.P1, { x: 8, y: 1 })), 3, 'Entering the first transit Object, crossing the second ordinary empty Square, and entering the Box each cost 1 MOV.');
+shadowTransitState.phase = 'active';
+shadowTransitState.activePlayerId = 'P1';
+shadowTransitState.players.P1.movementRemaining = 0;
+const enterShadowColumnWithoutMovement = applyGameCommand(shadowTransitState, { type: 'move', playerId: 'P1', to: { x: 5, y: 1 } });
+assert.equal(enterShadowColumnWithoutMovement.ok, false, 'A Column is unreachable from an empty Square when Spectre has 0 MOV.');
+shadowTransitState.players.P1.movementRemaining = 1;
+const enterShadowColumn = applyGameCommand(shadowTransitState, { type: 'move', playerId: 'P1', to: { x: 5, y: 1 } });
+assert.equal(enterShadowColumn.ok, true, 'Spectre may enter a Column on the Shadow trail as an intermediate destination.');
+if (enterShadowColumn.ok) {
+  assert.equal(enterShadowColumn.state.players.P1.movementRemaining, 0, 'Entering the Column consumes 1 MOV.');
+  const endInsideColumn = applyGameCommand(enterShadowColumn.state, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(endInsideColumn.ok, false, 'Spectre cannot end the turn inside a Column.');
+  const freeExitPath = movementPath(enterShadowColumn.state, enterShadowColumn.state.players.P1, { x: 6, y: 1 });
+  assert.equal(movementCost(enterShadowColumn.state, enterShadowColumn.state.players.P1, freeExitPath), 0, `Leaving an occupied trail chain is free. Path: ${JSON.stringify(freeExitPath)}`);
+  const leaveShadowColumn = applyGameCommand(enterShadowColumn.state, { type: 'move', playerId: 'P1', to: { x: 6, y: 1 } });
+  assert.equal(leaveShadowColumn.ok, true, 'Spectre may leave a Column along the Shadow trail with 0 MOV.');
+  if (leaveShadowColumn.ok) assert.equal(leaveShadowColumn.state.players.P1.movementRemaining, 0, 'The free exit from the occupied trail chain consumes no additional MOV.');
+}
+
+const highgroundBoxState = createHotseatTestState(true, 'spectre', 2, 'dummy');
+highgroundBoxState.phase = 'active';
+highgroundBoxState.activePlayerId = 'P1';
+highgroundBoxState.players.P1.position = { x: 4, y: 3 }; // D4 High Ground
+highgroundBoxState.players.P2.position = { x: 5, y: 3 }; // E4 High Ground
+highgroundBoxState.objects = [{ id: 'highground-spectre-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
+highgroundBoxState.players.P1.spectreOnBoxId = 'highground-spectre-box';
+highgroundBoxState.players.P1.hand = [{ instanceId: 'box-highground-attack', cardId: 'deja-vu' }];
+const highgroundBoxAttack = applyGameCommand(highgroundBoxState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'box-highground-attack', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(highgroundBoxAttack.ok, true, 'Spectre may attack from a Box on High Ground.');
+if (highgroundBoxAttack.ok) {
+  assert.equal(highgroundBoxAttack.state.pendingAttack?.attackValue, 2, 'A High Ground Box is one level above ordinary High Ground and grants +1 ATT against it.');
+  assert.equal(highgroundBoxAttack.state.pendingAttack?.attackModifiers?.some((modifier) => modifier.source === 'High Ground advantage' && modifier.value === 1), true, 'The extra Box elevation is reported as High Ground advantage.');
+}
+
+const highgroundBoxRangeState = createHotseatTestState(true, 'spectre', 2, 'dummy');
+highgroundBoxRangeState.phase = 'active';
+highgroundBoxRangeState.activePlayerId = 'P1';
+highgroundBoxRangeState.players.P1.position = { x: 4, y: 3 };
+highgroundBoxRangeState.players.P2.position = { x: 6, y: 3 };
+highgroundBoxRangeState.objects = [{ id: 'range-spectre-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
+highgroundBoxRangeState.players.P1.spectreOnBoxId = 'range-spectre-box';
+highgroundBoxRangeState.players.P1.hand = [{ instanceId: 'box-range-attack', cardId: 'deja-vu' }];
+assert.equal(applyGameCommand(highgroundBoxRangeState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'box-range-attack', origin: 'spectre', targetKind: 'player', targetId: 'P2' }).ok, false, 'Box elevation does not increase Spectre’s melee Attack Range.');
+
+const highgroundBoxFallState = createHotseatTestState(true, 'spectre', 2, 'dummy');
+highgroundBoxFallState.phase = 'active';
+highgroundBoxFallState.activePlayerId = 'P2';
+highgroundBoxFallState.players.P1.position = { x: 4, y: 3 };
+highgroundBoxFallState.players.P2.position = { x: 5, y: 3 };
+highgroundBoxFallState.objects = [{ id: 'fall-highground-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
+highgroundBoxFallState.players.P1.spectreOnBoxId = 'fall-highground-box';
+highgroundBoxFallState.players.P2.hand = [{ instanceId: 'destroy-highground-box', cardId: 'attack-2' }];
+const hpBeforeHighgroundBoxFall = highgroundBoxFallState.players.P1.hp;
+const destroyHighgroundBox = applyGameCommand(highgroundBoxFallState, { type: 'attack', playerId: 'P2', cardInstanceId: 'destroy-highground-box', targetKind: 'object', targetId: 'fall-highground-box' });
+assert.equal(destroyHighgroundBox.ok, true, 'An adjacent enemy may destroy Spectre’s supporting High Ground Box.');
+if (destroyHighgroundBox.ok) {
+  assert.equal(destroyHighgroundBox.state.players.P1.hp, hpBeforeHighgroundBoxFall - 1, 'Falling from a destroyed Box deals 1 Damage even when Spectre lands on High Ground.');
+  assert.equal(destroyHighgroundBox.state.players.P1.spectreOnBoxId, null, 'Destroying the Box clears Box-top occupancy.');
+}
+
+const shadowStealState = createHotseatTestState(true, 'spectre', 3, 'dummy') as any;
+shadowStealState.phase = 'choosing-arkane-arow-target';
+shadowStealState.activePlayerId = 'P1';
+shadowStealState.players.P1.position = { x: 1, y: 1 };
+shadowStealState.players.P2.position = { x: 3, y: 1 };
+shadowStealState.players.P3.position = { x: 5, y: 1 };
+for (const player of Object.values(shadowStealState.players) as any[]) {
+  player.freeMoveUsed = true;
+  player.movementRemaining = 2;
+  player.hand = [];
+}
+shadowStealState.spectreShadow = { casterId: 'P1', level: 2, trail: [], undo: null };
+const shadowSteal = applyGameCommand(shadowStealState, { type: 'spectre-shadow-direction', playerId: 'P1', to: { x: 2, y: 1 } });
+assert.equal(shadowSteal.ok, true, 'Shadow Dagger resolves its selected direction.');
+if (shadowSteal.ok) {
+  assert.equal(shadowSteal.state.players.P1.spectreShadowMoveBonus, 2, 'Spectre gains 1 MOV per enemy hit.');
+  assert.equal(shadowSteal.state.players.P1.movementRemaining, 4, 'Stolen MOV is immediately added to Spectre’s unspent movement.');
+  assert.equal(shadowSteal.state.players.P2.spectreShadowMovePenalty, 1, 'The first enemy loses 1 maximum MOV.');
+  assert.equal(shadowSteal.state.players.P3.spectreShadowMovePenalty, 1, 'The second enemy loses 1 maximum MOV.');
+  assert.equal(shadowSteal.state.players.P2.movementRemaining, 1, 'The first enemy immediately loses 1 unspent MOV.');
+  assert.equal(shadowSteal.state.players.P3.movementRemaining, 1, 'The second enemy immediately loses 1 unspent MOV.');
+  assert.equal(effectiveMoveRange(shadowSteal.state.players.P1), shadowSteal.state.players.P1.moveRange + 2, 'Spectre’s maximum MOV includes all stolen movement.');
+  const shadowExpired = applyGameCommand(shadowSteal.state, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(shadowExpired.ok, true, 'Spectre may end the turn after Shadow Dagger.');
+  if (shadowExpired.ok) {
+    assert.equal(shadowExpired.state.players.P1.spectreShadowMoveBonus, 0, 'Stolen MOV expires at the end of Spectre’s turn.');
+    assert.equal(shadowExpired.state.players.P2.spectreShadowMovePenalty, 0, 'Enemy Shadow Dagger penalties expire at the end of Spectre’s turn.');
+    assert.equal(shadowExpired.state.players.P3.spectreShadowMovePenalty, 0, 'All enemy Shadow Dagger penalties expire together.');
+  }
 }
 
 console.log('Rules checks passed.');
