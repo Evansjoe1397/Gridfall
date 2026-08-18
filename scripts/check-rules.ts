@@ -5664,6 +5664,64 @@ assert.equal(cardDefinition({ instanceId: 'spectre-solitude-value', cardId: 'sol
 assert.match(cardDefinition({ instanceId: 'spectre-deja-text', cardId: 'deja-vu' }).effectText!, /Otherwise, return Deja Vu to your Hand/, 'Deja Vu tooltip includes its no-replica branch.');
 assert.match(cardDefinition({ instanceId: 'spectre-anguish-text', cardId: 'anguish' }).effectText!, /suffer Damage, draw 1 Card/, 'Anguish tooltip includes its Damage draw.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-tooltip', cardId: 'replicate' }).levelEffects![0], /Range 2/, 'Replicate tooltip states its new Level 1 Range.');
+assert.match(cardDefinition({ instanceId: 'spectre-fear-tooltip', cardId: 'fear' }).levelEffects![1], /Range 2/, 'Fear Level 2 tooltip states its increased Range 2 radius.');
+assert.match(cardDefinition({ instanceId: 'spectre-shadow-origin-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /replica/, 'Shadow Dagger tooltip states that its origin may be the replica.');
+
+const uphillDisplaceState = createTrenchTestState(true, 'spectre', 'dummy');
+uphillDisplaceState.phase = 'active';
+uphillDisplaceState.activePlayerId = 'P1';
+uphillDisplaceState.objects = [];
+uphillDisplaceState.players.P1.position = { x: 3, y: 4 }; // C5, below the target
+uphillDisplaceState.players.P2.position = { x: 3, y: 3 }; // C4 Trench; C3 is High Ground
+uphillDisplaceState.players.P1.hand = [{ instanceId: 'uphill-displace', cardId: 'displace' }];
+uphillDisplaceState.players.P2.hand = [];
+const uphillDisplaceAttack = applyGameCommand(uphillDisplaceState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'uphill-displace', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(uphillDisplaceAttack.ok, true, 'Displace may attack an adjacent enemy in the Trench.');
+if (uphillDisplaceAttack.ok) {
+  const uphillDisplaceCombat = applyCommand(uphillDisplaceAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(uphillDisplaceCombat.ok, true, 'The uphill Displace combat resolves.');
+  if (uphillDisplaceCombat.ok) {
+    assert.deepEqual(uphillDisplaceCombat.state.players.P2.position, { x: 3, y: 3 }, 'Displace cannot push a character directly from C4 Trench onto C3 High Ground.');
+    assert.equal(uphillDisplaceCombat.state.players.P2.hp, 17, 'Blocked uphill Displace deals 2 combat Damage plus 1 extra card-effect Damage.');
+    assert.equal(uphillDisplaceCombat.state.log.some((line) => line.includes('C3') && line.includes('cannot move a character directly from a Slide or Trench Square onto High Ground')), true, 'Displace reports the attempted destination and uphill terrain restriction.');
+  }
+}
+
+const replicaDisplaceState = createHotseatTestState(true, 'spectre', 'dummy');
+replicaDisplaceState.phase = 'active';
+replicaDisplaceState.activePlayerId = 'P1';
+replicaDisplaceState.objects = [{ id: 'displace-origin-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+replicaDisplaceState.players.P1.position = { x: 1, y: 1 };
+replicaDisplaceState.players.P2.position = { x: 4, y: 2 };
+replicaDisplaceState.players.P1.hand = [{ instanceId: 'replica-displace', cardId: 'displace' }];
+replicaDisplaceState.players.P2.hand = [];
+const replicaDisplaceAttack = applyGameCommand(replicaDisplaceState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'replica-displace', origin: 'replica', targetKind: 'player', targetId: 'P2' });
+assert.equal(replicaDisplaceAttack.ok, true, 'The replica may originate Displace when Spectre cannot reach the target.');
+if (replicaDisplaceAttack.ok) {
+  assert.deepEqual(replicaDisplaceAttack.state.pendingAttack?.attackerPosition, { x: 3, y: 2 }, 'Replica-only Displace captures the replica position.');
+  assert.equal(replicaDisplaceAttack.state.pendingAttack?.attackerBody, 'replica', 'Replica-only Displace records the replica as attacking body.');
+  const replicaDisplaceCombat = applyCommand(replicaDisplaceAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(replicaDisplaceCombat.ok, true, 'Replica-origin Displace combat resolves.');
+  if (replicaDisplaceCombat.ok) assert.deepEqual(replicaDisplaceCombat.state.players.P2.position, { x: 5, y: 2 }, 'Replica-origin Displace pushes directly away from the replica.');
+}
+
+const spectrePriorityDisplaceState = createHotseatTestState(true, 'spectre', 'dummy');
+spectrePriorityDisplaceState.phase = 'active';
+spectrePriorityDisplaceState.activePlayerId = 'P1';
+spectrePriorityDisplaceState.objects = [{ id: 'displace-origin-priority', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+spectrePriorityDisplaceState.players.P1.position = { x: 3, y: 3 };
+spectrePriorityDisplaceState.players.P2.position = { x: 4, y: 2 };
+spectrePriorityDisplaceState.players.P1.hand = [{ instanceId: 'priority-displace', cardId: 'displace' }];
+spectrePriorityDisplaceState.players.P2.hand = [];
+const spectrePriorityDisplaceAttack = applyGameCommand(spectrePriorityDisplaceState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'priority-displace', origin: 'replica', targetKind: 'player', targetId: 'P2' });
+assert.equal(spectrePriorityDisplaceAttack.ok, true, 'Displace resolves when both Spectre and her replica can reach the target.');
+if (spectrePriorityDisplaceAttack.ok) {
+  assert.deepEqual(spectrePriorityDisplaceAttack.state.pendingAttack?.attackerPosition, { x: 3, y: 3 }, 'Spectre has Attack-origin priority when both bodies can reach.');
+  assert.equal(spectrePriorityDisplaceAttack.state.pendingAttack?.attackerBody, 'character', 'The shared resolver overrides a replica request when Spectre can reach.');
+  const spectrePriorityDisplaceCombat = applyCommand(spectrePriorityDisplaceAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(spectrePriorityDisplaceCombat.ok, true, 'Spectre-priority Displace combat resolves.');
+  if (spectrePriorityDisplaceCombat.ok) assert.deepEqual(spectrePriorityDisplaceCombat.state.players.P2.position, { x: 5, y: 1 }, 'Displace pushes away from Spectre when both bodies can reach.');
+}
 
 const replicateRangeState = createHotseatTestState(true, 'spectre', 'dummy') as any;
 replicateRangeState.phase = 'active'; replicateRangeState.activePlayerId = 'P1'; replicateRangeState.players.P1.hand = [{ instanceId: 'replicate-range', cardId: 'replicate' }];
@@ -5795,6 +5853,124 @@ if (attackReplica.ok) {
   }
 }
 
+const fearOriginState = createHotseatTestState(true, 'spectre', 3, 'dummy') as any;
+fearOriginState.phase = 'active';
+fearOriginState.activePlayerId = 'P1';
+fearOriginState.players.P1.position = { x: 1, y: 1 };
+fearOriginState.players.P2.position = { x: 6, y: 4 };
+fearOriginState.players.P3.position = { x: 2, y: 1 };
+fearOriginState.objects = [{ id: 'fear-origin-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 4 } }];
+fearOriginState.players.P1.hand = [];
+fearOriginState.players.P1.spellEcho = [null, { instanceId: 'fear-level-two-origin', cardId: 'fear' }, null];
+fearOriginState.players.P2.hand = [];
+fearOriginState.players.P3.hand = [];
+const fearOriginStarted = applyGameCommand(fearOriginState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(fearOriginStarted.ok, true, 'Fear begins body selection before applying any effect.');
+if (fearOriginStarted.ok) {
+  assert.equal(fearOriginStarted.state.phase, 'choosing-spectre-perk-origin');
+  assert.deepEqual(fearOriginStarted.state.players.P2.position, { x: 6, y: 4 }, 'Fear does not move enemies before origin confirmation.');
+  const fearReplicaSelected = applyGameCommand(fearOriginStarted.state, { type: 'spectre-perk-origin-select', playerId: 'P1', origin: 'replica' });
+  assert.equal(fearReplicaSelected.ok, true, 'Fear may select the replica as its origin.');
+  if (fearReplicaSelected.ok) {
+    const fearConfirmed = applyGameCommand(fearReplicaSelected.state, { type: 'spectre-perk-origin-confirm', playerId: 'P1' });
+    assert.equal(fearConfirmed.ok, true, 'Fear resolves only after origin confirmation.');
+    if (fearConfirmed.ok) {
+      assert.deepEqual(fearConfirmed.state.players.P2.position, { x: 7, y: 4 }, 'Level 2 Fear affects and pushes an enemy at Range 2 away from the replica.');
+      assert.equal(fearConfirmed.state.players.P2.hand.some((card: any) => card.cardId === 'panic'), true, 'Level 2 Fear gives Panic to the Range 2 enemy.');
+      assert.deepEqual(fearConfirmed.state.players.P2.spectreFearSourceIds, ['P1'], 'An affected enemy tracks the Spectre source for its fear sigil.');
+      assert.deepEqual(fearConfirmed.state.players.P3.position, { x: 2, y: 1 }, 'Fear radius is measured only from the selected replica, not Spectre.');
+      assert.equal(fearConfirmed.state.players.P3.hand.some((card: any) => card.cardId === 'panic'), false, 'An enemy outside the selected origin radius is unaffected.');
+      assert.deepEqual(fearConfirmed.state.players.P3.spectreFearSourceIds, [], 'An unaffected enemy receives no fear sigil.');
+      const fearTurnEnded = applyGameCommand(fearConfirmed.state, { type: 'end-turn', playerId: 'P1' });
+      assert.equal(fearTurnEnded.ok, true, 'Spectre may end the turn after Fear resolves.');
+      if (fearTurnEnded.ok) assert.deepEqual(fearTurnEnded.state.players.P2.spectreFearSourceIds, [], 'Fear sigils expire at the end of the originating Spectre’s turn.');
+    }
+  }
+}
+
+const fearCancelState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+fearCancelState.phase = 'active';
+fearCancelState.activePlayerId = 'P1';
+fearCancelState.objects = [{ id: 'cancel-fear-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 3, y: 2 } }];
+fearCancelState.players.P1.hand = [{ instanceId: 'cancel-fear-origin', cardId: 'fear' }];
+const fearCancelStarted = applyGameCommand(fearCancelState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'cancel-fear-origin', destination: 'direct' });
+assert.equal(fearCancelStarted.ok, true);
+if (fearCancelStarted.ok) {
+  const fearCancelled = applyGameCommand(fearCancelStarted.state, { type: 'cancel-targeting', playerId: 'P1' });
+  assert.equal(fearCancelled.ok, true, 'Fear can be cancelled during body selection.');
+  if (fearCancelled.ok) {
+    assert.equal(fearCancelled.state.phase, 'active');
+    assert.equal(fearCancelled.state.players.P1.hand.some((card: any) => card.instanceId === 'cancel-fear-origin'), true, 'Cancelling Fear restores its Card.');
+    assert.equal(fearCancelled.state.players.P1.perkUsed, false, 'Cancelling Fear restores Perk availability.');
+  }
+}
+
+const fearWithoutReplicaState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+fearWithoutReplicaState.phase = 'active';
+fearWithoutReplicaState.activePlayerId = 'P1';
+fearWithoutReplicaState.objects = [];
+fearWithoutReplicaState.players.P1.position = { x: 3, y: 3 };
+fearWithoutReplicaState.players.P2.position = { x: 4, y: 3 };
+fearWithoutReplicaState.players.P1.hand = [{ instanceId: 'fear-no-replica', cardId: 'fear' }];
+const fearWithoutReplica = applyGameCommand(fearWithoutReplicaState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'fear-no-replica', destination: 'direct' });
+assert.equal(fearWithoutReplica.ok, true, 'Fear may be used without a replica.');
+if (fearWithoutReplica.ok) {
+  assert.equal(fearWithoutReplica.state.phase, 'active', 'Fear skips body selection when no replica exists.');
+  assert.deepEqual(fearWithoutReplica.state.players.P2.position, { x: 5, y: 3 }, 'Fear immediately resolves away from Spectre when no replica exists.');
+}
+
+const shadowOriginState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+shadowOriginState.phase = 'active';
+shadowOriginState.activePlayerId = 'P1';
+shadowOriginState.players.P1.position = { x: 1, y: 1 };
+shadowOriginState.objects = [{ id: 'shadow-origin-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 4 } }];
+shadowOriginState.players.P1.hand = [{ instanceId: 'shadow-origin-card', cardId: 'shadow-dagger' }];
+const shadowOriginStarted = applyGameCommand(shadowOriginState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'shadow-origin-card', destination: 'direct' });
+assert.equal(shadowOriginStarted.ok, true, 'Shadow Dagger begins body selection before direction selection.');
+if (shadowOriginStarted.ok) {
+  const shadowReplicaSelected = applyGameCommand(shadowOriginStarted.state, { type: 'spectre-perk-origin-select', playerId: 'P1', origin: 'replica' });
+  assert.equal(shadowReplicaSelected.ok, true);
+  if (shadowReplicaSelected.ok) {
+    const shadowOriginConfirmed = applyGameCommand(shadowReplicaSelected.state, { type: 'spectre-perk-origin-confirm', playerId: 'P1' });
+    assert.equal(shadowOriginConfirmed.ok, true, 'Confirming Shadow Dagger origin advances to direction selection.');
+    if (shadowOriginConfirmed.ok) {
+      assert.equal(shadowOriginConfirmed.state.phase, 'choosing-arkane-arow-target');
+      assert.deepEqual((shadowOriginConfirmed.state as any).spectreShadow.originPosition, { x: 4, y: 4 }, 'Shadow Dagger stores the replica origin position.');
+      const shadowCancelled = applyGameCommand(shadowOriginConfirmed.state, { type: 'cancel-targeting', playerId: 'P1' });
+      assert.equal(shadowCancelled.ok, true, 'Shadow Dagger remains cancellable during direction selection.');
+      if (shadowCancelled.ok) {
+        assert.equal(shadowCancelled.state.players.P1.hand.some((card: any) => card.instanceId === 'shadow-origin-card'), true, 'Cancelling Shadow Dagger restores its Card.');
+        assert.equal(shadowCancelled.state.spellProjectiles.length, 0, 'Cancelling before the throw creates no projectile or trail.');
+      }
+    }
+  }
+}
+
+const shadowReplicaThrowState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+shadowReplicaThrowState.phase = 'choosing-arkane-arow-target';
+shadowReplicaThrowState.activePlayerId = 'P1';
+shadowReplicaThrowState.players.P1.position = { x: 1, y: 1 };
+shadowReplicaThrowState.objects = [{ id: 'shadow-throw-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 4 } }];
+shadowReplicaThrowState.spectreShadow = { casterId: 'P1', level: 1, origin: 'replica', originPosition: { x: 4, y: 4 }, trail: [], undo: null };
+const shadowReplicaThrow = applyGameCommand(shadowReplicaThrowState, { type: 'spectre-shadow-direction', playerId: 'P1', to: { x: 5, y: 4 } });
+assert.equal(shadowReplicaThrow.ok, true);
+if (shadowReplicaThrow.ok) {
+  assert.deepEqual((shadowReplicaThrow.state as any).spectreShadow.trail[0], { x: 5, y: 4 }, 'Replica-origin Shadow Dagger trail starts next to the replica.');
+  assert.deepEqual(shadowReplicaThrow.state.spellProjectiles.at(-1)?.from, { x: 4, y: 4 }, 'Replica-origin Shadow Dagger projectile starts from the replica.');
+}
+
+const shadowWithoutReplicaState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+shadowWithoutReplicaState.phase = 'active';
+shadowWithoutReplicaState.activePlayerId = 'P1';
+shadowWithoutReplicaState.objects = [];
+shadowWithoutReplicaState.players.P1.hand = [{ instanceId: 'shadow-no-replica', cardId: 'shadow-dagger' }];
+const shadowWithoutReplica = applyGameCommand(shadowWithoutReplicaState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'shadow-no-replica', destination: 'direct' });
+assert.equal(shadowWithoutReplica.ok, true, 'Shadow Dagger may be used without a replica.');
+if (shadowWithoutReplica.ok) {
+  assert.equal(shadowWithoutReplica.state.phase, 'choosing-arkane-arow-target', 'Shadow Dagger skips body selection when no replica exists.');
+  assert.deepEqual(shadowWithoutReplica.state.spectreShadow?.originPosition, shadowWithoutReplica.state.players.P1.position, 'Shadow Dagger immediately uses Spectre as its origin without a replica.');
+}
+
 const shadowMovementState = createTrenchTestState(true, 'spectre', 'dummy') as any;
 shadowMovementState.objects = [{ id: 'trail-column', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 3, y: 3 } }];
 shadowMovementState.players.P1.position = { x: 3, y: 4 }; // C5 Trench
@@ -5841,6 +6017,21 @@ if (enterShadowColumn.ok) {
   assert.equal(leaveShadowColumn.ok, true, 'Spectre may leave a Column along the Shadow trail with 0 MOV.');
   if (leaveShadowColumn.ok) assert.equal(leaveShadowColumn.state.players.P1.movementRemaining, 0, 'The free exit from the occupied trail chain consumes no additional MOV.');
 }
+
+const shadowCharacterExitState = createHotseatTestState(true, 'spectre', 2, 'dummy') as any;
+shadowCharacterExitState.phase = 'active';
+shadowCharacterExitState.activePlayerId = 'P1';
+shadowCharacterExitState.objects = [];
+shadowCharacterExitState.players.P1.position = { x: 3, y: 1 };
+shadowCharacterExitState.players.P2.position = { x: 3, y: 1 };
+shadowCharacterExitState.players.P1.movementRemaining = 0;
+shadowCharacterExitState.spectreShadow = { casterId: 'P1', level: 1, trail: Array.from({ length: 7 }, (_, index) => ({ x: index + 2, y: 1 })), undo: null };
+const shadowCharacterExitPath = movementPath(shadowCharacterExitState, shadowCharacterExitState.players.P1, { x: 4, y: 1 });
+assert.deepEqual(shadowCharacterExitPath, [{ x: 4, y: 1 }], 'A shared character Square has a direct exit along the Shadow trail.');
+assert.equal(movementCost(shadowCharacterExitState, shadowCharacterExitState.players.P1, shadowCharacterExitPath), 0, 'Leaving a character Square along the Shadow trail costs 0 MOV.');
+const shadowCharacterExit = applyGameCommand(shadowCharacterExitState, { type: 'move', playerId: 'P1', to: { x: 4, y: 1 } });
+assert.equal(shadowCharacterExit.ok, true, 'Spectre may leave a character Square along the Shadow trail with 0 MOV.');
+if (shadowCharacterExit.ok) assert.deepEqual(shadowCharacterExit.state.players.P1.position, { x: 4, y: 1 }, 'The free character exit reaches the selected trail Square.');
 
 const highgroundBoxState = createHotseatTestState(true, 'spectre', 2, 'dummy');
 highgroundBoxState.phase = 'active';

@@ -82,15 +82,18 @@ Exchange Spectre's position with the replica and cleanse Spectre.
 
 Throw a dagger to create a temporary traversal line.
 
-- **Level 1:** Choose one of the eight straight-line directions. The dagger travels from Spectre to the edge of the board and leaves a shadow trail through every Square on that line until the end of the turn. Along the trail, Spectre may climb Boxes and pass through characters, Objects, and Columns. Entering a character, Column, or non-Box Object Square costs normal MOV, but the next transition leaving that occupied Square along the trail costs 0 MOV. Wooden Boxes always cost normal MOV.
-  - Shadow Dagger always originates from Spectre, never from the replica.
-  - UI refinement: during direction selection, every Board Square lying horizontally, vertically, or diagonally from Spectre is a highlighted direction target. Terrain and Objects do not interrupt these rays because the dagger continues to the Board edge.
+- **Level 1:** First choose Spectre or her replica as the origin, then choose one of the eight straight-line directions. The dagger travels from the selected body to the edge of the board and leaves a shadow trail through every Square on that line until the end of the turn. Along the trail, Spectre may climb Boxes and pass through characters, Objects, and Columns. Entering a character, Column, or non-Box Object Square costs normal MOV, but the next transition leaving that occupied Square along the trail costs 0 MOV. Wooden Boxes always cost normal MOV.
+  - Origin selection occurs before the dagger is thrown. `Tab` switches between Spectre and the replica, `Enter` confirms, and either body may also be clicked.
+  - The Perk may be cancelled during origin selection or subsequent direction selection because no dagger action has executed yet. Cancellation restores the Card, Action, Perk availability, and Spell Echo arrangement to their pre-use state.
+  - If no replica exists, the body-selection step is skipped and direction selection starts from Spectre immediately.
+  - UI refinement: during direction selection, every Board Square lying horizontally, vertically, or diagonally from the selected body is a highlighted direction target. Terrain and Objects do not interrupt these rays because the dagger continues to the Board edge.
   - The dagger has unlimited Range within the current board and continues to the board edge.
   - The line may be horizontal, vertical, or diagonal.
   - Entering a trail Square occupied by another character, a Column, a Shield, a Tomb, the replica, or another non-Box Object costs the normal 1 MOV.
   - Leaving that occupied Square for the next trail Square costs 0 MOV. The free transition is the exit, not the entry.
   - Empty trail Squares cost normal MOV unless reached by the free exit described above. Entering a Wooden Box Square always costs normal MOV, including when the previous Square contains a character or non-Box Object.
   - Occupied trail Squares are transit-only, except that Spectre may remain on top of a Wooden Box. During movement, Spectre may temporarily enter a character, Column, Shield, Tomb, or other Object Square and continue with a later movement input.
+  - If entering such a transit-only Square spends Spectre's last MOV, the client keeps or automatically restores movement selection so the free trail exit remains selectable at 0 MOV. End Turn stays disabled until Spectre leaves the occupied Square.
   - The trail temporarily overrides terrain traversal restrictions. Spectre may follow it between Squares even when the normal terrain rules forbid that transition.
   - Example: on The Trench, Spectre may climb directly from a Trench Square to adjacent High Ground when both lie along the shadow trail.
   - Future impassable transit terrain, such as a River, may be crossed while following the trail.
@@ -125,14 +128,16 @@ Destroy the replica to convert it into a short offensive burst.
 
 ### Fear
 
-Force nearby enemies to retreat from Spectre.
+Force nearby enemies to retreat from Spectre or her replica.
 
-- **Level 1:** Every enemy adjacent to Spectre moves one Square directly away from Spectre. An enemy that cannot make that move reveals one Card instead.
+- Before resolving Fear, choose Spectre or her replica as the origin. `Tab` switches the selection, `Enter` confirms it, and either body may also be clicked. Fear may be cancelled before confirmation because no enemy movement or other effect has executed yet. If no replica exists, this selection is skipped and Fear resolves immediately from Spectre.
+- Every enemy affected by Fear receives a glowing violet fear sigil above their model. This visual includes enemies that could not move and revealed a Card instead, and remains until the end of the originating Spectre's turn.
+- **Level 1:** Every enemy within Range 1 of the selected body moves one Square directly away from that body. An enemy that cannot make that move reveals one Card instead.
   - Use the enemy's regular walk/run animation, not a push animation.
   - This forced movement is not a push.
   - Moving an enemy from High Ground to Low Ground this way does not deal the normal 1 displacement Damage.
-  - Refinement: “away” should use the signed direction from Spectre to the enemy, preserving diagonal direction where applicable.
-- **Level 2:** Add one Panic Card to the Hand of every enemy affected by Fear.
+  - Refinement: “away” uses the signed direction from the selected origin body to the enemy, preserving diagonal direction where applicable.
+- **Level 2:** Increase Fear's radius by 1, so every enemy within Range 2 of the selected body is affected. Add one Panic Card to the Hand of every affected enemy.
   - Refinement: this currently includes enemies that could not move and revealed a Card instead.
 - **Level 3:** Gain +1 ATT until the end of the turn for each enemy affected by Fear.
   - Example: if Fear affects three adjacent enemies, Spectre gains +3 ATT.
@@ -179,10 +184,13 @@ Reveal one Card from the attacked enemy's Hand.
 
 ### Displace — 2 ATT
 
-Push the attacked enemy one Square directly away from Spectre. If the enemy cannot be pushed, deal 1 additional Damage.
+Push the attacked enemy one Square directly away from the body that performed the Attack. If Spectre attacked, push away from Spectre; if the replica attacked, push away from the replica. If the enemy cannot be pushed, deal 1 additional Damage.
 
-- Refinement: push origin is Spectre even when the replica originated the Attack, unless clarified otherwise.
+- Spectre has Attack-origin priority. If both Spectre and her replica can legally reach the chosen target, the Attack always originates from Spectre. The replica is the attacking body only when Spectre cannot legally reach the target herself.
+- The push origin is captured when the Attack is declared and remains the attacking body's combat position through after-combat resolution.
 - Refinement: use the general push/collision system for legal destination checks. Confirm whether a normal collision also deals collision Damage in addition to this Card's 1 extra Damage.
+- A character cannot be pushed directly from a Slide or Trench Square onto High Ground. Such an uphill Displace is blocked and deals the Card's 1 extra Damage.
+- The combat feed identifies the calculated destination and exact blocking reason, using Spectre or the replica according to the Attack's actual origin.
 
 ## Starting defends
 
@@ -278,12 +286,11 @@ The current opening setup empties all piles, shuffles the eight non-Reserve defa
 1. For Replicate Level 3 and a failed Fear movement, who chooses the Card revealed privately to Spectre: the affected enemy, Spectre, or random selection in the web version?
 2. Does Relocate's ATT bonus apply to replica-origin attacks? Does its cleanse remove a player-chosen negative Status, and may Relocate be used with no negative Status in Hand?
 3. How is “standing atop a Box” entered and exited? Can any character attack Spectre there, can Spectre attack normally, and can another entity occupy the underlying Box Square?
-4. Does Fear use the exact radial Square away from Spectre, or may the affected enemy choose among multiple Squares that increase distance?
+4. Does Fear use the exact radial Square away from its selected origin body, or may the affected enemy choose among multiple Squares that increase distance?
 5. Does Deja Vu grant its Action and draw before combat, after combat, or only if the Attack resolves? Can the gained Action exceed the normal maximum of two?
-6. For Displace, its wording says “away from Spectre.” Should that always use Spectre's position even when the replica attacks? Does blocked-push Damage stack with general collision Damage?
-7. For Split, does Spectre choose the replica Square after combat, and what happens if combat ends the match or no legal adjacent Square exists?
-8. Does Accumulate have an overall combined ATT cap after stacking, and does the resulting bonus apply to every Attack during the next turn?
-9. Should allied characters be damaged by Consume Replica Level 3? Its current text says enemies only, unlike Echo Strike's explicit all-character pulse.
+6. For Split, does Spectre choose the replica Square after combat, and what happens if combat ends the match or no legal adjacent Square exists?
+7. Does Accumulate have an overall combined ATT cap after stacking, and does the resulting bonus apply to every Attack during the next turn?
+8. Should allied characters be damaged by Consume Replica Level 3? Its current text says enemies only, unlike Echo Strike's explicit all-character pulse.
 
 ## Current implementation findings and provisional rulings
 
@@ -292,11 +299,11 @@ The first playable implementation uses the following precise rulings. They are r
 - Web-only private reveals choose a random eligible unrevealed Card and store viewer-specific visibility for Spectre. Public reveals continue to use the existing global reveal flag.
 - Relocate's ATT applies to both Spectre- and replica-origin Attacks. If negative Status Cards exist, Spectre must choose one; if none exist, the swap completes without a choice. Its extra Action may exceed two.
 - Deja Vu checks for the replica when the Attack is declared, then immediately restores one Action and draws one Card. The restored Action may exceed two.
-- Shadow Dagger allows Spectre to transit through characters and all Objects while following the trail. Entering a character or non-Box Object Square—including a Column, Shield, Tomb, or the replica—costs normal MOV; the next transition leaving it along the trail costs 0 MOV. Entering a Wooden Box always costs normal MOV. The UI accepts a transit-only Square as an intermediate movement destination, but Spectre must leave it before ending the turn. A turn may end only on an empty legal Square or atop a Wooden Box.
+- Shadow Dagger first serializes a Spectre-or-replica origin choice, then measures its direction and complete trail from that selected body's captured position. `Tab` switches, `Enter` confirms, clicking either body selects it, and cancellation remains available through direction selection. Spectre may then transit through characters and all Objects while following the trail. Entering a character or non-Box Object Square—including a Column, Shield, Tomb, or the replica—costs normal MOV; the next transition leaving it along the trail costs 0 MOV. Entering a Wooden Box always costs normal MOV. The UI accepts a transit-only Square as an intermediate movement destination, but Spectre must leave it before ending the turn. A turn may end only on an empty legal Square or atop a Wooden Box.
 - Shadow trail movement overrides forbidden terrain edges such as Trench-to-High-Ground ascent. The trail is retained in serialized state through the end of Spectre's turn, then the trail and its temporary MOV penalties are cleared together.
 - Box-top occupancy is explicit Spectre state. Entering a Box along the trail costs normal MOV, raises the Three.js model, and adds one elevation level for Spectre-origin combat. A High Ground Box is therefore above ordinary High Ground and grants +1 ATT against ordinary High Ground targets, while Attack Range still uses the underlying Square's normal grid distance and terrain rules. Destroying the supporting Box clears that state, deals 1 falling Damage even when the underlying Square is High Ground, and immediately animates Spectre falling vertically to the underlying terrain without changing her Square.
-- Fear uses the exact radial Square directly away from Spectre. It uses ordinary walking movement, does not deal elevation-drop Damage, and a blocked enemy is privately revealed instead.
-- Displace always measures “away” from Spectre's actual body, even for a replica-origin Attack. A blocked one-Square push deals exactly 1 extra card-effect Damage and does not also invoke generic collision Damage.
+- Fear first serializes a Spectre-or-replica origin choice and resolves only after confirmation; it remains cancellable before that point. Level 1 affects enemies within Range 1, while Level 2 and Level 3 affect enemies within Range 2 and apply Panic cumulatively. Forced movement uses the exact radial Square directly away from the selected body, uses ordinary walking movement, does not deal elevation-drop Damage, and privately reveals a Card when blocked. Every affected enemy stores the originating Spectre's ID and displays an animated Three.js fear sigil above its head until that Spectre's turn ends; source-specific cleanup keeps the state safe if a future match contains multiple Spectres.
+- Displace measures “away” from the body that originated the Attack: Spectre when she can legally reach the target, otherwise the replica when it is the only body that can reach. Spectre has priority when both bodies can reach. The serialized `attackerPosition` fixes that origin through after-combat resolution. Displace follows the general terrain restriction that a character cannot be pushed directly from a Slide or Trench Square onto High Ground. A blocked one-Square push deals exactly 1 extra card-effect Damage and does not also invoke generic collision Damage. The combat feed reports the attempted destination and whether terrain, a character, an Object, or the board edge blocked it.
 - Split placement is measured from the body that defended, matching other attacked-body positional effects. Combat remains pending until the placement is resolved.
 - Accumulate's per-use storage is capped at +3, but the combined stored total is not capped. The full combined bonus applies to every Attack during Spectre's next turn and expires at its end.
 - Consume Replica Level 3 damages enemies only, not allies or Spectre.

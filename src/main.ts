@@ -255,6 +255,21 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'Space' || event.code === 'Escape') event.preventDefault();
     return;
   }
+  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; origin: 'spectre' | 'replica' } | undefined;
+  if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin && canLocalAct(spectrePerkOrigin.casterId)) {
+    if (event.code === 'Tab') {
+      event.preventDefault();
+      const hasReplica = Boolean(spectreReplica(gameState, spectrePerkOrigin.casterId));
+      if (!hasReplica) notify('Spectre has no replica; Spectre remains selected.');
+      else dispatch({ type: 'spectre-perk-origin-select', playerId: spectrePerkOrigin.casterId, origin: spectrePerkOrigin.origin === 'spectre' ? 'replica' : 'spectre' });
+      return;
+    }
+    if (event.code === 'Enter') {
+      event.preventDefault();
+      dispatch({ type: 'spectre-perk-origin-confirm', playerId: spectrePerkOrigin.casterId });
+      return;
+    }
+  }
   if (event.code === 'Escape' && gameState.phase === 'dance-through') {
     event.preventDefault();
     dispatch({ type: 'end-dance', playerId: gameState.activePlayerId });
@@ -318,6 +333,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
+  if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
   if (gameState.phase === 'choosing-spirit-guardian-square' && (Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian) || Boolean((gameState as any).spectreReplicaPlacement))) return true;
   if (gameState.phase === 'choosing-arkane-arow-target' && Boolean((gameState as any).spectreShadow)) return true;
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
@@ -613,6 +629,7 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') return gameState.forceThrow!.casterId;
   if (gameState.phase === 'choosing-force-pull-target') return gameState.forcePull!.casterId;
+  if (gameState.phase === 'choosing-spectre-perk-origin') return (gameState as any).spectrePerkOrigin?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-arkane-arow-target') return (gameState as any).spectreShadow?.casterId ?? gameState.arkaneArow!.casterId;
   if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
   if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
@@ -683,12 +700,14 @@ function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
     : { playerId: event.playerId, animation: 'Encourage' };
 }
 
-type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
+type SpectreVisualIntent = { playerId: PlayerId; objectId?: string; animation: 'Fear' };
 
 function spectreVisualIntentForCommand(state: GameState, command: GameCommand): SpectreVisualIntent | null {
-  if (command.type !== 'play-perk') return null;
-  const card = state.players[command.playerId]?.hand.find((entry) => entry.instanceId === command.cardInstanceId);
-  return card?.cardId === 'fear' ? { playerId: command.playerId, animation: 'Fear' } : null;
+  if (command.type !== 'spectre-perk-origin-confirm') return null;
+  const pending = (state as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'fear'; origin: 'spectre' | 'replica' } | undefined;
+  if (pending?.perkId !== 'fear' || pending.casterId !== command.playerId) return null;
+  const replica = pending.origin === 'replica' ? spectreReplica(state, command.playerId) : undefined;
+  return { playerId: command.playerId, objectId: replica?.id, animation: 'Fear' };
 }
 
 function dispatch(command: GameCommand) {
@@ -762,6 +781,8 @@ function renderUI() {
   prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
+  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'fear'; origin: 'spectre' | 'replica' } | undefined;
+  if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin) prompt.textContent = `${spectrePerkOrigin.perkId === 'fear' ? 'FEAR' : 'SHADOW DAGGER'} ORIGIN: ${spectrePerkOrigin.origin === 'replica' ? 'REPLICA' : 'SPECTRE'} · Tab or click to switch · Enter to confirm · Escape to cancel`;
   if (select.kind === 'attack' && actor.character === 'spectre') prompt.textContent = `Preferred attack origin: ${selectedSpectreAttackOrigin === 'replica' ? 'Replica' : 'Spectre'} · targets available to either body are highlighted`;
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
   if (gameState.phase === 'wreckna-wisdom-discard') prompt.textContent = 'Phylactery of Wisdom: select 1 Card from Hand to discard before choosing a Defend Card';
@@ -772,9 +793,9 @@ function renderUI() {
   if (gameState.phase === 'choosing-kyk-target') prompt.textContent = 'KYK: select an adjacent Object or enemy · Escape to cancel';
   if (gameState.phase === 'choosing-kyk-direction') prompt.textContent = 'KYK: select a highlighted legal push direction · Escape to cancel';
   if (gameState.phase === 'choosing-arkane-arow-target') {
-    const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
+    const shadow = (gameState as any).spectreShadow as { casterId: PlayerId; origin?: 'spectre' | 'replica' } | undefined;
     prompt.textContent = shadow
-      ? 'SHADOW DAGGER: select a highlighted horizontal, vertical, or diagonal direction · Escape to cancel'
+      ? `SHADOW DAGGER FROM ${shadow.origin === 'replica' ? 'REPLICA' : 'SPECTRE'}: select a highlighted horizontal, vertical, or diagonal direction · Escape to cancel`
       : `ARKANE AROW: select a highlighted Square within Range ${gameState.arkaneArow!.range} · Escape to cancel`;
   }
   if (gameState.phase === 'choosing-arm-da-wiz-choice') prompt.textContent = 'Arm da Wiz: choose Recall or Create Shield · Escape to cancel';
@@ -842,10 +863,23 @@ function renderUI() {
   (byId('guardButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canLocalAct(actor.id);
   const canPayForDash = actor.hand.some((card) => card.cardId === 'burning' || (!cardDefinition(card).cannotBeDiscarded && !cardDefinition(card).name.startsWith('Blessing:')));
   (byId('dashButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || !actor.freeMoveUsed || !canPayForDash || !canLocalAct(actor.id);
-  (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
+  const shadow = (gameState as GameState & { spectreShadow?: { casterId: PlayerId; trail: Cell[] } | null }).spectreShadow;
+  const spectreInsideShadowTransit = actor.character === 'spectre' && shadow?.casterId === actor.id && isSpectreShadowTrailCell(gameState, actor, actor.position) && (
+    Object.values(gameState.players).some((candidate) => candidate.id !== actor.id && candidate.hp > 0 && candidate.position.x === actor.position.x && candidate.position.y === actor.position.y)
+    || gameState.objects.some((object) => object.kind !== 'wooden-box' && object.position.x === actor.position.x && object.position.y === actor.position.y)
+  );
+  const hasFreeShadowExit = Boolean(spectreInsideShadowTransit && shadow?.trail.some((cell) => {
+    const path = movementPath(gameState, actor, cell);
+    return path.length > 0 && movementCost(gameState, actor, path) === 0;
+  }));
+  if (spectreInsideShadowTransit) {
+    prompt.textContent = hasFreeShadowExit ? 'Shadow Trail: leave the occupied Square for 0 MOV before ending the turn' : 'Shadow Trail: leave the occupied Square before ending the turn';
+    prompt.classList.add('visible');
+  }
+  (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || spectreInsideShadowTransit || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
   const currentTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
   const hasFreeAdjacentTombMove = Boolean(currentTomb && gameState.objects.some((object) => object.kind === 'tomb' && object.id !== currentTomb.id && distance(object.position, currentTomb.position) === 1));
-  if (((gameState.phase === 'active' && (actor.movementRemaining > 0 || hasFreeAdjacentTombMove)) || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
+  if (((gameState.phase === 'active' && (actor.movementRemaining > 0 || hasFreeAdjacentTombMove || hasFreeShadowExit)) || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
   highlightCells();
   applyInterfaceLanguage();
 }
@@ -2217,6 +2251,7 @@ renderer.setAnimationLoop((time) => {
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
+    animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
@@ -3666,7 +3701,7 @@ function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fa
 }
 
 function applySpectreVisualIntent(intent: SpectreVisualIntent) {
-  const group = dummyGroups.get(intent.playerId);
+  const group = intent.objectId ? objectGroups.get(intent.objectId) : dummyGroups.get(intent.playerId);
   if (!group) return;
   if (!group.userData.spectreAnimation) {
     group.userData.pendingSpectreAnimation = intent.animation;
@@ -4312,6 +4347,7 @@ function syncBoard() {
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
+    syncFearSigilVisual(group, (gameState.players[id].spectreFearSourceIds?.length ?? 0) > 0);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
     syncWrecknaPhylacteryVisuals(group, id);
@@ -4619,6 +4655,52 @@ function updateStoicShellAura(group: THREE.Group, active: boolean) {
   if (!active) aura.scale.setScalar(1);
 }
 
+function syncFearSigilVisual(group: THREE.Group, active: boolean) {
+  let sigil = group.getObjectByName('SpectreFearSigil') as THREE.Group | undefined;
+  if (!sigil) {
+    sigil = new THREE.Group();
+    sigil.name = 'SpectreFearSigil';
+    const glowMaterial = new THREE.MeshBasicMaterial({ color: 0x8c72ff, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.035, 10, 64), glowMaterial);
+    outerRing.name = 'FearSigilOuterRing';
+    outerRing.rotation.x = Math.PI / 2;
+    const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.018, 8, 48), glowMaterial.clone());
+    innerRing.name = 'FearSigilInnerRing';
+    innerRing.rotation.x = Math.PI / 2;
+    sigil.add(outerRing, innerRing);
+    for (let index = 0; index < 12; index += 1) {
+      const angle = index / 12 * Math.PI * 2;
+      const rune = new THREE.Mesh(index % 3 === 0 ? new THREE.TetrahedronGeometry(0.075, 0) : new THREE.BoxGeometry(0.12, 0.025, 0.045), glowMaterial.clone());
+      rune.name = `FearRune${index}`;
+      rune.position.set(Math.cos(angle) * 0.72, 0, Math.sin(angle) * 0.72);
+      rune.rotation.y = -angle;
+      sigil.add(rune);
+    }
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 12), new THREE.MeshBasicMaterial({ color: 0xd9d0ff, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+    core.name = 'FearSigilCore';
+    core.scale.set(0.82, 0.42, 1);
+    const light = new THREE.PointLight(0x765cff, 2.8, 3.6);
+    light.name = 'FearSigilLight';
+    sigil.add(core, light);
+    group.add(sigil);
+  }
+  const character = group.userData.character as string | undefined;
+  sigil.position.y = character === 'orkk' ? 3.35 : character === 'magician' ? 3.15 : character === 'wreckna' ? 2.9 : 2.7;
+  sigil.visible = active;
+}
+
+function animateFearSigil(group: THREE.Group, time: number) {
+  const sigil = group.getObjectByName('SpectreFearSigil') as THREE.Group | undefined;
+  if (!sigil?.visible) return;
+  sigil.rotation.y = time * 0.0011;
+  const pulse = 1 + Math.sin(time * 0.006) * 0.09;
+  sigil.scale.setScalar(pulse);
+  const innerRing = sigil.getObjectByName('FearSigilInnerRing');
+  if (innerRing) innerRing.rotation.z = -time * 0.0017;
+  const light = sigil.getObjectByName('FearSigilLight') as THREE.PointLight | undefined;
+  if (light) light.intensity = 2.5 + Math.sin(time * 0.009) * 0.8;
+}
+
 function distanceFromWorld(from: THREE.Vector3, to: THREE.Vector3) {
   return Math.max(Math.abs(from.x - to.x), Math.abs(from.z - to.z)) / 1.92;
 }
@@ -4630,7 +4712,6 @@ function spectreAttackOriginForTarget(attacker: GameState['players'][PlayerId], 
     { origin: 'spectre', position: attacker.position, range: effectiveAttackRange(gameState, attacker) },
     ...(replica ? [{ origin: 'replica' as const, position: replica.position, range: 1 }] : []),
   ];
-  candidates.sort((left, right) => left.origin === selectedSpectreAttackOrigin ? -1 : right.origin === selectedSpectreAttackOrigin ? 1 : 0);
   return candidates.find(({ position, range }) => distance(position, target) <= range && hasLineOfSight(gameState, position, target) && canAttackTargetSquare(gameState, position, target))?.origin ?? null;
 }
 
@@ -4682,10 +4763,10 @@ function highlightCells() {
     const kykDirectionValid = Boolean(kykTarget) && kykDirectionAllowed(gameState.players[gameState.forceThrow!.casterId].position, kykTarget!.position, cell);
     const arkane = gameState.arkaneArow;
     const arkaneValid = gameState.phase === 'choosing-arkane-arow-target' && Boolean(arkane) && arkaneArowPath(gameState, gameState.players[arkane!.casterId], cell, arkane!.range).length > 0;
-    const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
-    const shadowCaster = shadow ? gameState.players[shadow.casterId] : null;
-    const shadowDx = shadowCaster ? cell.x - shadowCaster.position.x : 0; const shadowDy = shadowCaster ? cell.y - shadowCaster.position.y : 0;
-    const shadowDirectionValid = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadowCaster) && (shadowDx !== 0 || shadowDy !== 0)
+    const shadow = (gameState as any).spectreShadow as { casterId: PlayerId; originPosition?: Cell } | undefined;
+    const shadowOrigin = shadow ? shadow.originPosition ?? gameState.players[shadow.casterId].position : null;
+    const shadowDx = shadowOrigin ? cell.x - shadowOrigin.x : 0; const shadowDy = shadowOrigin ? cell.y - shadowOrigin.y : 0;
+    const shadowDirectionValid = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadowOrigin) && (shadowDx !== 0 || shadowDy !== 0)
       && (shadowDx === 0 || shadowDy === 0 || Math.abs(shadowDx) === Math.abs(shadowDy));
     const teleportCaster = gameState.phase === 'choosing-preparation-teleport' ? gameState.players[gameState.preparation!.casterId]
       : gameState.phase === 'choosing-blink-teleport' ? gameState.players[gameState.pendingAttack!.defenderId]
@@ -4788,6 +4869,8 @@ function updateTargetHighlights(time: number) {
   const canMagicTarget = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic) && canLocalAct(magic!.casterId);
   const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
   const canShadowDirection = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadow) && canLocalAct(shadow!.casterId);
+  const spectreOriginChoice = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; origin: 'spectre' | 'replica' } | undefined;
+  const canSpectreOriginChoice = gameState.phase === 'choosing-spectre-perk-origin' && Boolean(spectreOriginChoice) && canLocalAct(spectreOriginChoice!.casterId);
   const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
   const canSapTarget = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sap) && canLocalAct(sap!.casterId);
   const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
@@ -4810,14 +4893,16 @@ function updateTargetHighlights(time: number) {
     const validSap = canSapTarget && playerId !== sap!.casterId && distance(sapCaster!.position, target.position) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, target.position);
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const validDecay = canDecayTarget && playerId !== decay!.casterId && distance(decayCaster!.position, target.position) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, target.position);
-    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay;
+    const validSpectreOrigin = canSpectreOriginChoice && playerId === spectreOriginChoice!.casterId;
+    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
     ring.visible = valid;
     if (valid) {
       const pulse = 1 + Math.sin(time * 0.006) * 0.08;
       ring.scale.setScalar(pulse);
-      (ring.material as THREE.MeshBasicMaterial).opacity = 0.68 + Math.sin(time * 0.006) * 0.22;
+      const selectedSpectreOrigin = validSpectreOrigin && spectreOriginChoice!.origin === 'spectre';
+      (ring.material as THREE.MeshBasicMaterial).opacity = validSpectreOrigin ? (selectedSpectreOrigin ? 0.96 : 0.34) : 0.68 + Math.sin(time * 0.006) * 0.22;
     }
   });
   objectGroups.forEach((group, objectId) => {
@@ -4831,13 +4916,23 @@ function updateTargetHighlights(time: number) {
     const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian';
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
     const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[magic!.casterId].position) <= gameState.players[magic!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, object!.position);
+    const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
+    const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica';
+    const originRing = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
+    if (originRing) {
+      originRing.visible = validSpectreOriginObject;
+      if (validSpectreOriginObject) {
+        (originRing.material as THREE.MeshBasicMaterial).opacity = selectedSpectreOriginObject ? 0.96 : 0.34;
+        originRing.scale.setScalar(selectedSpectreOriginObject ? 1 + Math.sin(time * 0.006) * 0.08 : 1);
+      }
+    }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
-  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
+  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
 }
 
 function onBoardClick(event: PointerEvent) {
@@ -4853,6 +4948,13 @@ function onBoardClick(event: PointerEvent) {
       const objectId = selectedTestObjectId; selectedTestObjectId = null;
       dispatch({ type: 'debug-teleport-object', playerId: gameState.activePlayerId, objectId, to: cellHit.object.userData.cell });
     }
+  } else if (gameState.phase === 'choosing-spectre-perk-origin') {
+    const pending = (gameState as any).spectrePerkOrigin as { casterId: PlayerId } | undefined;
+    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const object = gameState.objects.find((entry) => entry.id === objectHit);
+    if (pending && playerHit === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'spectre' });
+    else if (pending && object?.kind === 'spectre-replica' && object.ownerId === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'replica' });
   } else if (gameState.phase === 'choosing-base-placement') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'place-character', playerId: gameState.activePlayerId, to: cellHit.object.userData.cell });
