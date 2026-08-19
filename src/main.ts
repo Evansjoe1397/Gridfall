@@ -12,6 +12,7 @@ import {
   ACTION_QUEST_POOL,
   STARTING_DECKS,
   activeWrecknaPhylactery,
+  attackCardTargetInRange,
   applicableCombatCardInstanceIds,
   applyCommand,
   armDaWizPath,
@@ -45,6 +46,7 @@ import {
   spectreReplica,
   spiritGuardianEnemyPenalty,
   wizardActionEventForCommand,
+  wrecknaPerkTargetInRange,
   type CardTypeId,
   type Cell,
   type GameCommand,
@@ -382,25 +384,27 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
 
 type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna';
 type SelectableCharacter = OnlineCharacter;
-type HotseatOpponent = SelectableCharacter | 'dummy';
+type HotseatCharacter = SelectableCharacter | 'merylin';
+type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench';
-const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
+const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create one immobile replica. Spectre and the replica share Hand, Actions, HP, modifiers, and combat; either body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
+  merylin: { name: 'Merylin Pendragon', hp: 22, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: '⚔', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna'];
 const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
   shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
   'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich',
 };
-const WRECKNA_ARCHIVE_CARD_IDS: CardTypeId[] = ['hex', 'shadow-barter', 'enfeeble', 'finger-of-death', 'drain-strength', 'brain-freeze', 'sacrifice', 'immortality', 'graveyard', 'lichdom', 'dakkoth', 'sap', 'necronomicon', 'decay'];
-function characterSelectButton(character: SelectableCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
+function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
   const info = CHARACTER_SELECT_INFO[character];
-  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ATT RANGE</small><small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small></span></button>`;
+  const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
+  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
 }
 
 function dummySelectButton(): string {
@@ -424,25 +428,25 @@ function showOnlineArenaSelect() {
 function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
   const panel = byId('onlineWaiting');
   const arenaName = format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
-    const character = button.dataset.hotseatCharacter as SelectableCharacter;
+    const character = button.dataset.hotseatCharacter as HotseatCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character, arena);
     else startHotseat(character, format, 'dummy', arena);
   }));
 }
 
-function showHotseatOpponentSelect(playerCharacter: SelectableCharacter, arena: HotseatArena) {
+function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: HotseatArena) {
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
   const arenaName = arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
   panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
-  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as SelectableCharacter, arena)));
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as HotseatCharacter, arena)));
   panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel', arena));
 }
 
-function startHotseat(character: SelectableCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
+function startHotseat(character: HotseatCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
   mode = 'hotseat';
   localSeat = null;
   gameState = format === 'duel' && arena === 'trench'
@@ -748,7 +752,7 @@ function renderUI() {
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
   showTurnAnnouncement(actor);
-  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : 'TRAINING DUMMY';
+  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
   byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${effectiveAttackRange(gameState, actor)}</b></span>`;
   const knownTopCard = actor.knownTopCardId ? cardDefinition({ instanceId: '', cardId: actor.knownTopCardId }) : null;
@@ -778,7 +782,7 @@ function renderUI() {
   byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${escapeHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
   const prompt = byId('prompt');
-  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
+  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · pass through enemies, Objects, and Walls · finish unoccupied` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
   const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'fear'; origin: 'spectre' | 'replica' } | undefined;
@@ -806,13 +810,13 @@ function renderUI() {
     prompt.textContent = sacrifice ? `Sacrifice: select a non-Column Object within Range ${effectiveAttackRange(gameState, actor)}` : 'Test Phylactery: select any Object except a Column · Escape to cancel';
   }
   if (gameState.phase === 'choosing-immortality-phylactery') prompt.textContent = 'Immortality: choose an active Phylactery to sacrifice and teleport onto';
-  if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = 'Lichdom: select any Object except a Column · Escape to cancel';
+  if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = `Lichdom: select an Object within Range ${effectiveAttackRange(gameState, actor)} except a Column · Escape to cancel`;
   if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
-  if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') prompt.textContent = 'Dakkoth: select one of your Tombs to sacrifice';
-  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = 'Dakkoth: select another Object except a Column to create a Phylactery';
+  if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') prompt.textContent = `Dakkoth: select one of your Tombs within Range ${effectiveAttackRange(gameState, actor)} to sacrifice`;
+  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `Dakkoth: select another Object within Range ${effectiveAttackRange(gameState, actor)} except a Column`;
   if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
-  if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = 'Necronomicon: select a Tomb to create a Phylactery · Escape to cancel';
+  if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = `Necronomicon: select a Tomb within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
     const pending = (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId; remaining: number }[] } }).necronomicon?.discardQueue[0];
     if (pending) prompt.textContent = `${gameState.players[pending.playerId].name}: discard ${pending.remaining} Card${pending.remaining === 1 ? '' : 's'} for Necronomicon`;
@@ -852,8 +856,9 @@ function renderUI() {
   byId('mindTricksFinishButton').textContent = choosingMindTricks && (gameState.mindTricks?.discarded ?? 0) > 0 ? 'Finish Mind Tricks selection' : 'Use Mind Tricks without revealing';
   const cancelDanceButton = byId('finishDanceButton') as HTMLButtonElement;
   cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through');
-  cancelDanceButton.disabled = Boolean(gameState.danceThrough?.enemyUnderfoot) || !canLocalAct(gameState.activePlayerId);
-  cancelDanceButton.title = gameState.danceThrough?.enemyUnderfoot ? 'Shinobi must leave the enemy-occupied Square before cancelling.' : 'End Dance Through movement early.';
+  const danceOccupied = Boolean(gameState.danceThrough?.enemyUnderfoot || (gameState.danceThrough as typeof gameState.danceThrough & { objectUnderfoot?: string | null } | null)?.objectUnderfoot);
+  cancelDanceButton.disabled = danceOccupied || !canLocalAct(gameState.activePlayerId);
+  cancelDanceButton.title = danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
   const movementUndo = gameState.movementUndo;
   const canCancelMovement = Boolean(movementUndo && movementUndo.playerId === actor.id && movementUndo.actionsRemaining === actor.actionsRemaining && movementUndo.perkUsed === actor.perkUsed && ['active', 'dashing'].includes(gameState.phase) && canLocalAct(actor.id));
@@ -939,8 +944,11 @@ function characterTraitHtml(ru: boolean) {
   if (!(player.character in CHARACTER_SELECT_INFO)) {
     return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'У этого тестового персонажа нет особенности персонажа.' : 'This test character has no Character Trait.'}</p>`;
   }
-  const character = player.character as SelectableCharacter;
+  const character = player.character as HotseatCharacter;
   const info = CHARACTER_SELECT_INFO[character];
+  if (!info.trait) return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'Черты и карты этого персонажа будут добавлены позже.' : 'Traits and Cards for this character will be added later.'}</p>`;
+  if (character === 'merylin') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>Swordcraft</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><p class="character-hint-detail">Attack Cards require an active Summon. Using an Attack consumes the current Summon. If that Attack grants Summon, the new Summon is applied after the spent one and can enable another Attack during the same turn.</p><strong>Current state: ${player.merylinSummonActive ? 'Summon active · Attack enabled' : 'no Summon · Attacks disabled'}.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>MELEE</b></span></footer></article>`;
+  const traitCharacter = character as SelectableCharacter;
   const copy = {
     shinobi: {
       trait: 'Lightsaber',
@@ -1006,7 +1014,7 @@ function characterTraitHtml(ru: boolean) {
         ? `Сейчас: ${player.spiritForm ? 'Spirit Form активна' : 'обычная форма'} · Stoic Shell ${player.stoicShell ? 'активна' : 'неактивна'} · отложено Blessing: ${player.queuedBlessingCardIds.length}.`
         : `Current state: ${player.spiritForm ? 'Spirit Form active' : 'normal form'} · Stoic Shell ${player.stoicShell ? 'active' : 'inactive'} · queued Blessings: ${player.queuedBlessingCardIds.length}.`,
     },
-  }[character];
+  }[traitCharacter];
   return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>${escapeHtml(copy.trait)}</h3></div></header><p>${escapeHtml(copy.description)}</p>${copy.detail ? `<p class="character-hint-detail">${escapeHtml(copy.detail)}</p>` : ''}<strong>${escapeHtml(copy.status)}</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>${ru ? 'ДАЛЬНОСТЬ АТАКИ' : 'ATTACK RANGE'} <b>${player.attackRange}</b></span></footer></article>`;
 }
 
@@ -1146,7 +1154,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'blessing-swiftness': { en: 'A revealed passive Status granting +1 MOV while in Hand. Keep Hand size at 5 or fewer when ending the turn if you want to retain it; at 6 or more it is Removed at the beginning of the end-turn process. Its creation also grants Stoic Shell.', ru: 'Открытый пассивный Статус, дающий +1 MOV в Руке. Завершайте ход с 5 или менее картами, если хотите сохранить его; при 6+ он удаляется в самом начале процесса окончания хода. Создание также даёт Stoic Shell.' },
   'blessing-faith': { en: 'A revealed one-combat sanctuary. Apply it to negate every Damage instance dealt to both attacker and defender, including combat-value and card-effect Damage. If unused, it expires at the beginning of your next turn, so use it in the current enemy turn when meaningful.', ru: 'Открытое убежище на один бой. Примените, чтобы отменить весь урон обеим сторонам — и от разницы боевых значений, и от эффектов карт. Если не использовать, карта исчезнет в начале вашего следующего хода, поэтому применяйте её во время текущего хода врага, когда это выгодно.' },
   'light-the-saber': { en: 'An efficient setup Attack. Apply Pinned early to reduce enemy mobility and prepare Calmness, Double Jump, or Hello There for stronger follow-up value.', ru: 'Эффективная подготовительная Атака. Наложите Pinned заранее, чтобы снизить мобильность врага и усилить последующие Calmness, Double Jump или Hello There.' },
-  'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies to escape, cross a blocked lane, or apply Pinned, but reserve the final step for an empty Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов для побега, пересечения занятого пути или наложения Pinned, но оставьте последний шаг для пустой клетки.' },
+  'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies, Objects, and Wall Objects to cross blocked lanes or apply Pinned, but reserve the final step for an unoccupied Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов, Объекты и Объекты-Стены, но оставьте последний шаг для незанятой клетки.' },
   'force-disarm': { en: 'Use when the enemy is holding revealed or suspected Attack Cards. It removes their offensive option; if none exists, revealing the Hand provides information and Exhaust weakens future combat.', ru: 'Используйте, когда у врага есть открытые или предполагаемые Карты Атаки. Карта убирает наступательную угрозу; если Атак нет, раскрытие Руки даёт информацию, а Exhaust ослабляет будущие бои.' },
   'cut-them-legs': { en: 'A strong repeatable Attack. Aim for a favourable combat so it returns to Hand, applies Pinned, and can be played again if another Action remains.', ru: 'Сильная повторяемая Атака. Добивайтесь победы в бою, чтобы карта вернулась в Руку, наложила Pinned и могла быть сыграна снова при наличии Действия.' },
   'hello-there': { en: 'Shinobi’s Pinned payoff. Stack Pinned first, then use this even against a strong Defence: its bonus damage applies after combat, and Headache further clogs the enemy Hand.', ru: 'Главная реализация Pinned у Шиноби. Сначала накопите Pinned, затем используйте даже против сильной Защиты: дополнительный урон наносится после боя, а Headache засоряет Руку врага.' },
@@ -1298,6 +1306,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">🧊<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
     const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">RNG<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
     const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
+    const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">⚔<span class="status-tooltip"><strong>Summon · Attack Ready</strong>Swordcraft has summoned a sword from another realm. Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.</span></div>` : '';
+    const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">DEF<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
     const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Drain Strength, or Decay. Decay's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
     const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Drain Strength, or Decay reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
@@ -1313,7 +1323,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${phylacteryIcons}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1423,8 +1433,9 @@ function renderHand() {
   byId('hand').innerHTML = viewer.hand.map((instance) => {
     const card = cardDefinition(instance);
     const panicked = viewer.hand.some((entry) => entry.cardId === 'panic');
+    const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
-    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
@@ -2160,6 +2171,7 @@ const objectImpactAnimations = new Map<string, { startedAt: number; origin: THRE
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean }[] = [];
+const moonwaveAnimations: { mesh: THREE.Mesh; startedAt: number; delay: number; maxScale: number }[] = [];
 const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
@@ -2251,6 +2263,7 @@ renderer.setAnimationLoop((time) => {
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
+    if (group.userData.character === 'merylin') syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
     animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
@@ -2372,6 +2385,15 @@ function syncSpellProjectiles() {
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
     processedSpellProjectiles.add(event.id);
+    if (event.style === 'moonwave') {
+      event.path.forEach((cell, index) => {
+        const material = new THREE.MeshBasicMaterial({ color: index === 0 ? 0x78ffad : 0x24ff78, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+        const wave = new THREE.Mesh(new THREE.TorusGeometry(0.32, index === 0 ? 0.07 : 0.1, 12, 44), material);
+        wave.position.copy(worldPosition(cell)); wave.position.y += 0.16; wave.rotation.x = Math.PI / 2; wave.scale.setScalar(0.08); scene.add(wave);
+        moonwaveAnimations.push({ mesh: wave, startedAt: performance.now(), delay: index * 320, maxScale: index === 0 ? 1.15 : 2.05 });
+      });
+      continue;
+    }
     if (event.style === 'holy-fire') {
       const group = new THREE.Group();
       group.position.copy(worldPosition(event.to)); group.position.y += 0.08;
@@ -2436,6 +2458,21 @@ function updateSpellProjectiles(time: number) {
     if (progress >= 1) {
       scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
       spellProjectileAnimations.splice(index, 1);
+    }
+  }
+  for (let index = moonwaveAnimations.length - 1; index >= 0; index--) {
+    const animation = moonwaveAnimations[index];
+    const elapsed = time - animation.startedAt - animation.delay;
+    animation.mesh.visible = elapsed >= 0;
+    if (elapsed < 0) continue;
+    const progress = Math.min(1, elapsed / 780);
+    const expansion = THREE.MathUtils.smoothstep(progress, 0, 1) * animation.maxScale;
+    animation.mesh.scale.set(expansion, expansion, Math.max(0.35, expansion * 0.55));
+    animation.mesh.rotation.z = progress * 0.45;
+    (animation.mesh.material as THREE.MeshBasicMaterial).opacity = progress < 0.45 ? 0.9 : 0.9 * (1 - (progress - 0.45) / 0.55);
+    if (progress >= 1) {
+      scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
+      moonwaveAnimations.splice(index, 1);
     }
   }
   for (let index = holyFireAnimations.length - 1; index >= 0; index--) {
@@ -3828,6 +3865,128 @@ function createSpectre(playerColor = 0x169bd3, replica = false) {
   return root;
 }
 
+function createMerylin(playerColor = 0x169bd3) {
+  const root = new THREE.Group();
+  const body = new THREE.Group(); body.name = 'MerylinBody'; root.add(body);
+  root.userData.facingSide = 'negative-z';
+  const purple = new THREE.MeshStandardMaterial({ color: 0x55207d, roughness: 0.68 });
+  const purpleDark = new THREE.MeshStandardMaterial({ color: 0x261039, roughness: 0.78 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xd9a184, roughness: 0.7 });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x4a241d, roughness: 0.8 });
+  const plate = new THREE.MeshStandardMaterial({ color: 0x98a4b7, metalness: 0.82, roughness: 0.27 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xf2c84b, emissive: 0x5c3405, emissiveIntensity: 0.35, roughness: 0.38 });
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
+    const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
+  };
+  add(new THREE.ConeGeometry(0.54, 1.28, 28), purple, [0, 0.73, 0]);
+  const torso = add(new THREE.CapsuleGeometry(0.25, 0.46, 7, 16), purple, [0, 1.35, 0]); torso.scale.set(1, 1, 0.82);
+  // Skin-toned inset forms the open neckline without adding a separate garment layer.
+  const neckline = add(new THREE.SphereGeometry(0.18, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), skin, [0, 1.57, -0.205]); neckline.scale.set(0.72, 0.75, 0.26); neckline.rotation.x = 0.16;
+  const starPositions: Array<[number, number, number]> = [[-0.22, 0.42, -0.45], [0.24, 0.62, -0.43], [-0.34, 0.82, -0.36], [0.12, 0.98, -0.37], [0.3, 1.18, -0.24], [-0.18, 1.3, -0.25]];
+  for (const [x, y, z] of starPositions) {
+    const star = add(new THREE.OctahedronGeometry(0.045, 0), gold, [x, y, z]); star.scale.set(1, 1.35, 0.32); star.rotation.z = x * 2.1;
+  }
+  const leftShoulder = add(new THREE.SphereGeometry(0.22, 16, 10), plate, [-0.36, 1.5, 0]); leftShoulder.scale.set(1.3, 0.72, 1.05);
+  const leftArm = add(new THREE.CapsuleGeometry(0.08, 0.5, 5, 10), purpleDark, [-0.42, 1.16, 0]); leftArm.rotation.z = 0.15;
+  const leftGauntlet = add(new THREE.CapsuleGeometry(0.105, 0.3, 5, 10), plate, [-0.47, 0.88, -0.02]); leftGauntlet.rotation.z = 0.15;
+  const shield = new THREE.Group(); shield.name = 'MerylinSteelShield'; shield.position.set(-0.55, 1.12, -0.25); shield.rotation.set(-0.08, -0.18, 0.08); body.add(shield);
+  const shieldFace = add(new THREE.CylinderGeometry(0.31, 0.31, 0.065, 28), plate, [0, 0, 0], shield); shieldFace.rotation.x = Math.PI / 2; shieldFace.scale.set(0.82, 1, 1.12);
+  const shieldRim = add(new THREE.TorusGeometry(0.31, 0.025, 8, 28), plate, [0, 0, -0.04], shield); shieldRim.scale.set(0.82, 1.12, 1);
+  const shieldBoss = add(new THREE.SphereGeometry(0.095, 14, 9), plate, [0, 0, -0.075], shield); shieldBoss.scale.set(1, 1, 0.48);
+  const shieldBand = add(new THREE.BoxGeometry(0.035, 0.53, 0.035), gold, [0, 0, -0.082], shield); shieldBand.rotation.z = 0.03;
+  const rightArm = add(new THREE.CapsuleGeometry(0.075, 0.55, 5, 10), purpleDark, [0.39, 1.16, 0]); rightArm.rotation.z = -0.18;
+  add(new THREE.SphereGeometry(0.105, 12, 9), skin, [0.45, 0.85, -0.02]);
+  const head = add(new THREE.SphereGeometry(0.25, 20, 15), skin, [0, 1.91, 0]); head.scale.set(0.9, 1.05, 0.88);
+  add(new THREE.SphereGeometry(0.28, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.58), hair, [0, 2.01, 0.03]);
+  const hairMass = add(new THREE.ConeGeometry(0.34, 1.12, 18, 1, true), hair, [0, 1.48, 0.18]); hairMass.rotation.y = Math.PI;
+  add(new THREE.CylinderGeometry(0.48, 0.48, 0.07, 28), purpleDark, [0, 2.18, 0]);
+  const hat = add(new THREE.ConeGeometry(0.31, 0.9, 22), purple, [0.06, 2.62, 0]); hat.rotation.z = -0.12;
+  const hatBand = add(new THREE.TorusGeometry(0.245, 0.035, 8, 24), gold, [0, 2.28, 0]); hatBand.rotation.x = Math.PI / 2;
+  const summon = new THREE.Group(); summon.name = 'MerylinSummonForm'; summon.visible = false; body.add(summon);
+  const sword = new THREE.Group(); sword.name = 'MerylinSummonedSword'; sword.position.set(0.55, 1.08, -0.08); sword.rotation.z = -0.12; summon.add(sword);
+  const bladeColors = [0xb9132f, 0x17131d, 0x8d96a1, 0xe1ad35];
+  const bladeGeometries: THREE.BufferGeometry[] = [
+    new THREE.BoxGeometry(0.085, 1.18, 0.045),
+    new THREE.BoxGeometry(0.12, 0.78, 0.055),
+    new THREE.ConeGeometry(0.035, 1.12, 8),
+    new THREE.CylinderGeometry(0.035, 0.1, 1.02, 7),
+  ];
+  bladeGeometries.forEach((geometry, index) => {
+    const material = new THREE.MeshBasicMaterial({ color: bladeColors[0], transparent: true, opacity: 0.58, blending: THREE.AdditiveBlending, depthWrite: false });
+    const blade = new THREE.Mesh(geometry, material); blade.name = `MerylinSwordShape${index}`; blade.position.y = 0.62; blade.visible = index === 0; sword.add(blade);
+  });
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.055, 0.07), new THREE.MeshBasicMaterial({ color: 0xe2b84d, transparent: true, opacity: 0.62 })); guard.position.y = 0.04; sword.add(guard);
+  const windHair = new THREE.Group(); windHair.name = 'MerylinWindHair'; summon.add(windHair);
+  for (let index = 0; index < 7; index++) {
+    const strand = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.68 + index * 0.035, 4, 7), hair.clone());
+    strand.position.set((index - 3) * 0.075, 1.58 - Math.abs(index - 3) * 0.03, 0.22); strand.rotation.z = -0.72 - index * 0.035; strand.userData.windOffset = index * 0.7; windHair.add(strand);
+  }
+  const summonLight = new THREE.PointLight(0xe8b743, 2.6, 3.2); summonLight.name = 'MerylinSummonLight'; summonLight.position.set(0.42, 1.25, -0.1); summon.add(summonLight);
+  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xc889ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+  ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  return root;
+}
+
+function syncMerylinSummonVisual(group: THREE.Group, active: boolean, time: number) {
+  if (group.userData.character !== 'merylin') return;
+  const summon = group.getObjectByName('MerylinSummonForm');
+  if (!summon) return;
+  summon.visible = active;
+  const sword = summon.getObjectByName('MerylinSummonedSword');
+  if (!active) {
+    if (sword) sword.userData.morphInitialized = false;
+    return;
+  }
+  if (sword) {
+    const palette = [0xb9132f, 0x17131d, 0x8d96a1, 0xe1ad35];
+    const cycle = Math.floor(time / 1400);
+    if (!sword.userData.morphInitialized) {
+      sword.userData.morphInitialized = true;
+      sword.userData.currentShape = Math.floor(Math.random() * 4);
+      sword.userData.currentColor = palette[Math.floor(Math.random() * palette.length)];
+      sword.userData.lastMorphCycle = cycle;
+      sword.userData.morphing = false;
+    } else if (sword.userData.lastMorphCycle !== cycle) {
+      const currentShape = sword.userData.currentShape as number;
+      let nextShape = Math.floor(Math.random() * 3);
+      if (nextShape >= currentShape) nextShape += 1;
+      sword.userData.nextShape = nextShape;
+      sword.userData.nextColor = palette[Math.floor(Math.random() * palette.length)];
+      sword.userData.morphStartedAt = time;
+      sword.userData.lastMorphCycle = cycle;
+      sword.userData.morphing = true;
+    }
+    const morphProgress = sword.userData.morphing ? THREE.MathUtils.smoothstep((time - sword.userData.morphStartedAt) / 720, 0, 1) : 0;
+    const currentShape = sword.userData.currentShape as number;
+    const nextShape = sword.userData.nextShape as number | undefined;
+    for (let index = 0; index < 4; index++) {
+      const blade = summon.getObjectByName(`MerylinSwordShape${index}`) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
+      if (!blade) continue;
+      const isCurrent = index === currentShape;
+      const isNext = sword.userData.morphing && index === nextShape;
+      blade.visible = isCurrent || Boolean(isNext);
+      if (isCurrent) {
+        blade.material.color.setHex(sword.userData.currentColor);
+        blade.material.opacity = 0.58 * (1 - morphProgress);
+        blade.scale.set(1 + morphProgress * 0.16, 1 - morphProgress * 0.12, 1);
+      } else if (isNext) {
+        blade.material.color.setHex(sword.userData.nextColor);
+        blade.material.opacity = 0.58 * morphProgress;
+        blade.scale.set(1.16 - morphProgress * 0.16, 0.82 + morphProgress * 0.18, 1);
+      } else blade.scale.set(1, 1, 1);
+    }
+    if (sword.userData.morphing && morphProgress >= 1) {
+      sword.userData.currentShape = sword.userData.nextShape;
+      sword.userData.currentColor = sword.userData.nextColor;
+      sword.userData.morphing = false;
+    }
+  }
+  if (sword) { sword.scale.setScalar(0.96 + Math.sin(time * 0.006) * 0.06); sword.rotation.y = Math.sin(time * 0.0025) * 0.14; }
+  const windHair = summon.getObjectByName('MerylinWindHair');
+  windHair?.children.forEach((strand) => { strand.rotation.y = Math.sin(time * 0.004 + strand.userData.windOffset) * 0.22; strand.rotation.z = -0.72 + Math.sin(time * 0.0032 + strand.userData.windOffset) * 0.16; });
+}
+
 function createWreckna(playerColor = 0x169bd3) {
   const root = new THREE.Group();
   const body = new THREE.Group(); body.name = 'WrecknaBody'; root.add(body);
@@ -4298,7 +4457,7 @@ function syncBoard() {
     if (!group || group.userData.character !== character) {
       if (group) scene.remove(group);
       const color = id === 'P1' ? 0x169bd3 : id === 'P2' ? 0xff5d68 : 0xa06cff;
-      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : createDummy(color);
+      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : character === 'merylin' ? createMerylin(color) : createDummy(color);
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
@@ -4732,7 +4891,8 @@ function highlightCells() {
     const specialSteps = gameState.phase === 'double-jump' ? (gameState.doubleJump?.stepsRemaining ?? 0) : (gameState.danceThrough?.stepsRemaining ?? 0);
     const diagonalBlocked = diagonalMovementBlockedByObject(gameState, actor.position, cell);
     const forbiddenSlideAscent = isForbiddenSlideAscent(gameState, actor.position, cell);
-    const danceValid = (gameState.phase === 'dance-through' || gameState.phase === 'double-jump') && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
+    const danceValid = gameState.phase === 'dance-through' && distance(actor.position, cell) === 1 && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
+    const doubleJumpValid = gameState.phase === 'double-jump' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
     const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !forbiddenSlideAscent && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = movementCost(gameState, actor, regularPath);
@@ -4795,11 +4955,11 @@ function highlightCells() {
     const dakkothCaster = dakkoth ? gameState.players[dakkoth.casterId] : null;
     const dakkothTombSquareValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-square' && Boolean(dakkothCaster) && !occupiedByPlayer && !occupiedByObject
       && distance(dakkothCaster!.position, cell) <= effectiveAttackRange(gameState, dakkothCaster!);
-    const attackableObject = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield';
+    const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || (objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield'));
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = activePlayer.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(activePlayer, cell))
-      : distance(activePlayer.position, cell) <= effectiveAttackRange(gameState, activePlayer) && hasLineOfSight(gameState, activePlayer.position, cell) && canAttackTargetSquare(gameState, activePlayer.position, cell);
+      : Boolean(selectedCard && attackCardTargetInRange(gameState, activePlayer, selectedCard.cardId, cell) && hasLineOfSight(gameState, activePlayer.position, cell) && canAttackTargetSquare(gameState, activePlayer.position, cell));
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && !playerOnCellIsEntombed) || (attackableObject && !(objectOnCell!.kind === 'spectre-replica' && objectOnCell!.ownerId === activePlayer.id)))
       && attackTargetReachable;
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
@@ -4826,23 +4986,27 @@ function highlightCells() {
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
-    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian'
-      && (!testPhylacteryPending?.sacrificeEnemyId || Boolean(testPhylacteryCaster && distance(testPhylacteryCaster.position, cell) <= effectiveAttackRange(gameState, testPhylacteryCaster) && hasLineOfSight(gameState, testPhylacteryCaster.position, cell)));
-    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
-    const dakkothTombSacrificeValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && objectOnCell?.kind === 'tomb' && objectOnCell.ownerId === dakkoth?.casterId;
-    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian';
-    const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType;
+    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian'
+      && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, cell);
+    const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
+    const lichdomCaster = lichdom ? gameState.players[lichdom.casterId] : null;
+    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(lichdomCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, lichdomCaster!, cell);
+    const dakkothTombSacrificeValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && Boolean(dakkothCaster) && objectOnCell?.kind === 'tomb' && objectOnCell.ownerId === dakkoth?.casterId && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
+    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(dakkothCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
+    const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
+    const necronomiconCaster = necronomicon ? gameState.players[necronomicon.casterId] : null;
+    const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && Boolean(necronomiconCaster) && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType && wrecknaPerkTargetInRange(gameState, necronomiconCaster!, cell);
     const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
     const sapTargetValid = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sapCaster) && Boolean(playerOnCell) && playerOnCell!.id !== sap!.casterId
-      && canLocalAct(sap!.casterId) && distance(sapCaster!.position, cell) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, cell);
+      && canLocalAct(sap!.casterId) && wrecknaPerkTargetInRange(gameState, sapCaster!, cell);
     const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(playerOnCell) && playerOnCell!.id !== decay!.casterId
-      && canLocalAct(decay!.casterId) && distance(decayCaster!.position, cell) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, cell);
+      && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = (selected.kind === 'move' && (danceValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
+    const valid = (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
     material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
   });
@@ -4859,6 +5023,17 @@ function updateTargetHighlights(time: number) {
   const canArmTarget = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && canLocalAct(gameState.armDaWiz!.casterId);
   const testPhylactery = (gameState as GameState & { testPhylactery?: { casterId: PlayerId } | null }).testPhylactery;
   const canTestPhylacteryTarget = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylactery) && canLocalAct(testPhylactery!.casterId);
+  const wrecknaObjectTargeting = (() => {
+    const extended = gameState as GameState & {
+      lichdom?: { casterId: PlayerId } | null;
+      dakkoth?: { casterId: PlayerId } | null;
+      necronomicon?: { casterId: PlayerId } | null;
+    };
+    if (gameState.phase === 'choosing-lichdom-target') return extended.lichdom ?? null;
+    if ((gameState.phase as string).startsWith('choosing-dakkoth-') && (gameState.phase as string) !== 'choosing-dakkoth-tomb-square') return extended.dakkoth ?? null;
+    if ((gameState.phase as string) === 'choosing-necronomicon-tomb') return extended.necronomicon ?? null;
+    return null;
+  })();
   const canKykTarget = gameState.phase === 'choosing-kyk-target' && Boolean(gameState.forceThrow) && canLocalAct(gameState.forceThrow!.casterId);
   const arcane = gameState.arcaneMissle;
   const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
@@ -4880,7 +5055,7 @@ function updateTargetHighlights(time: number) {
     const targetIsEntombed = Boolean(target.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, target.position))
-      : distance(attacker.position, target.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
+      : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, target.position) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
     const validAttack = canTarget && playerId !== attacker.id && !targetIsEntombed && attackTargetReachable;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
@@ -4890,9 +5065,9 @@ function updateTargetHighlights(time: number) {
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
     const validMagic = canMagicTarget && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
-    const validSap = canSapTarget && playerId !== sap!.casterId && distance(sapCaster!.position, target.position) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, target.position);
+    const validSap = canSapTarget && playerId !== sap!.casterId && wrecknaPerkTargetInRange(gameState, sapCaster!, target.position);
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
-    const validDecay = canDecayTarget && playerId !== decay!.casterId && distance(decayCaster!.position, target.position) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, target.position);
+    const validDecay = canDecayTarget && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
     const validSpectreOrigin = canSpectreOriginChoice && playerId === spectreOriginChoice!.casterId;
     const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
@@ -4909,11 +5084,19 @@ function updateTargetHighlights(time: number) {
     const object = gameState.objects.find((entry) => entry.id === objectId);
     const attackObjectReachable = object && (attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, object.position))
-      : distance(attacker.position, object.position) <= effectiveAttackRange(gameState, attacker) && hasLineOfSight(gameState, attacker.position, object.position) && canAttackTargetSquare(gameState, attacker.position, object.position));
-    const validAttackObject = canTarget && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'orkk-shield'
+      : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, object.position) && hasLineOfSight(gameState, attacker.position, object.position) && canAttackTargetSquare(gameState, attacker.position, object.position));
+    const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || (object!.kind !== 'wall-pillar' && object!.kind !== 'orkk-shield'))
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
     const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
-    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian';
+    const testPhylacteryCaster = testPhylactery ? gameState.players[testPhylactery.casterId] : null;
+    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
+    const wrecknaObjectCaster = wrecknaObjectTargeting ? gameState.players[wrecknaObjectTargeting.casterId] : null;
+    const validWrecknaObject = Boolean(object && wrecknaObjectCaster && canLocalAct(wrecknaObjectCaster.id) && wrecknaPerkTargetInRange(gameState, wrecknaObjectCaster, object.position) && (
+      (gameState.phase === 'choosing-lichdom-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian')
+      || ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && object.kind === 'tomb' && object.ownerId === wrecknaObjectCaster.id)
+      || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian')
+      || ((gameState.phase as string) === 'choosing-necronomicon-tomb' && object.kind === 'tomb' && !object.phylacteryType)
+    ));
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
     const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[magic!.casterId].position) <= gameState.players[magic!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, object!.position);
     const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
@@ -4928,8 +5111,8 @@ function updateTargetHighlights(time: number) {
     }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validKykObject || validMagicObject ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
   renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
@@ -5088,7 +5271,12 @@ function onBoardClick(event: PointerEvent) {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
+    const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);
     const hitObject = gameState.objects.find((entry) => entry.id === objectHit);
+    const entombedPlayer = playerHit ? gameState.players[playerHit] : undefined;
+    const occupiedTomb = entombedPlayer?.wrecknaInsideTombId
+      ? gameState.objects.find((object) => object.id === entombedPlayer.wrecknaInsideTombId && object.kind === 'tomb')
+      : undefined;
     if (playerHit === attacker.id && attacker.character === 'spectre') {
       selectedSpectreAttackOrigin = 'spectre';
       notify('Attack origin: Spectre. Now select an enemy body.');
@@ -5097,6 +5285,11 @@ function onBoardClick(event: PointerEvent) {
       selectedSpectreAttackOrigin = 'replica';
       notify('Attack origin: Replica. Now select an enemy body.');
       renderUI();
+    } else if (occupiedTomb) {
+      if (attacker.character === 'spectre') {
+        const origin = spectreAttackOriginForTarget(attacker, occupiedTomb.position);
+        if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: occupiedTomb.id, targetKind: 'object' }); }
+      } else dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: occupiedTomb.id, targetKind: 'object' });
     } else if (playerHit && attacker.character === 'spectre') {
       const origin = spectreAttackOriginForTarget(attacker, gameState.players[playerHit].position);
       if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: playerHit, targetKind: 'player' }); }
@@ -5108,7 +5301,12 @@ function onBoardClick(event: PointerEvent) {
     else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
     else if (objectHit) {
       const object = hitObject;
-      if (object && object.kind !== 'wall-pillar' && object.kind !== 'orkk-shield' && window.confirm(`Attack ${object.name} at ${cellLabel(object.position)}? A destructible Object is destroyed by the Attack Card.`)) {
+      const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
+      const normallyAttackable = object?.kind !== 'wall-pillar' && object?.kind !== 'orkk-shield';
+      const confirmation = moonlightCanTargetWall && object && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield')
+        ? `Attack ${object.name} at ${cellLabel(object.position)} with Moonlight? The Wall Object survives the direct hit and the moonwave forms behind it.`
+        : object ? `Attack ${object.name} at ${cellLabel(object.position)}? A destructible Object is destroyed by the Attack Card.` : '';
+      if (object && (normallyAttackable || moonlightCanTargetWall) && window.confirm(confirmation)) {
         if (attacker.character === 'spectre') {
           const origin = spectreAttackOriginForTarget(attacker, object.position);
           if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: objectHit, targetKind: 'object' }); }
@@ -5259,9 +5457,8 @@ function renderCharacterBrowserProfile() {
 }
 
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
-  const ids = character === 'wreckna'
-    ? WRECKNA_ARCHIVE_CARD_IDS
-    : [...STARTING_DECKS[character].defaults, ...STARTING_DECKS[character].attackFocus, ...STARTING_DECKS[character].defendFocus, ...STARTING_DECKS[character].perkPhase];
+  const definition = STARTING_DECKS[character];
+  const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase];
   const available = new Set<CardTypeId>(ids);
   return CARDS.filter((card) => available.has(card.id) && card.kind === kind);
 }

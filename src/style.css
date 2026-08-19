@@ -310,6 +310,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .status-icon.spectre-attack-status { border-color: #9d72ff; color: #f0e9ff; background: #291650; box-shadow: 0 0 14px rgba(141,91,255,.5); font: 800 10px 'Barlow Condensed', sans-serif; letter-spacing: .05em; }
 .status-icon.spectre-accumulate-status { border-color: #55d7ff; color: #e8fbff; background: #123d52; box-shadow: 0 0 14px rgba(69,200,255,.46); font: 800 16px 'Barlow Condensed', sans-serif; }
 .status-icon.spectre-accumulate-status.stored { border-color: #d6a5ff; color: #f6eaff; background: #3c2253; box-shadow: 0 0 14px rgba(190,126,255,.42); font-size: 12px; }
+.status-icon.merylin-summon-status { border-color: #f2c84b; color: #fff0a8; background: linear-gradient(135deg, #3f155f, #21102f); box-shadow: 0 0 16px rgba(220,151,255,.55), inset 0 0 10px rgba(242,200,75,.18); }
 .combat-stack-private { margin: 12px 0; padding: 10px; border: 1px solid rgba(91,225,202,.35); background: rgba(4,24,21,.72); }
 .combat-stack-private h3 { margin: 0 0 8px; color: #78ead5; font-size: 13px; letter-spacing: .08em; }
 .combat-stack-card { width: 100%; margin: 4px 0; padding: 9px 11px; display: grid; grid-template-columns: minmax(150px, .65fr) 1fr auto; gap: 10px; align-items: center; border: 1px solid #438776; background: linear-gradient(135deg, #12382f, #091d18); color: #eafff9; text-align: left; cursor: pointer; }
