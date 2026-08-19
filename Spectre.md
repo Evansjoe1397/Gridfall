@@ -56,7 +56,7 @@ Spectre can control at most one replica at a time.
 
 Create or improve Spectre's replica.
 
-- **Level 1:** Create a replica on an empty visible Square within Range 2 of Spectre. The replica can attack and defend but cannot move. Remove an existing replica before creating the new one.
+- **Level 1:** Create a replica on an empty visible Square within Range 2 of Spectre, then draw 1 Card. The replica can attack and defend but cannot move. Remove an existing replica before creating the new one.
   - Example: Spectre at D4 may create the replica on any legal Square no farther than two Squares away, including diagonally.
   - Placement requires line of sight, obeys normal board bounds, and requires an unoccupied destination. Wooden Boxes block Replicate's placement line of sight in addition to Columns and other Wall Objects, even though ordinary Attack line of sight may pass through a Box.
   - High Ground terrain between Spectre and the destination blocks line of sight. On The Trench, a Spectre inside the central trench cannot place a replica on Rows 2 or 7 through the intervening High Ground ridges.
@@ -82,7 +82,7 @@ Exchange Spectre's position with the replica and cleanse Spectre.
 
 Throw a dagger to create a temporary traversal line.
 
-- **Level 1:** First choose Spectre or her replica as the origin, then choose one of the eight straight-line directions. The dagger travels from the selected body to the edge of the board and leaves a shadow trail through every Square on that line until the end of the turn. Along the trail, Spectre may climb Boxes and pass through characters, Objects, and Columns. Entering a character, Column, or non-Box Object Square costs normal MOV, but the next transition leaving that occupied Square along the trail costs 0 MOV. Wooden Boxes always cost normal MOV.
+- **Level 1:** Throw a dagger in a straight line to the board edge. Until turn end, Spectre may follow its trail through forbidden terrain (including characters) and gains +1 MOV. Crossing forbidden terrain costs 0 MOV. Spectre may climb Boxes along the trail and use them as High Ground.
   - Origin selection occurs before the dagger is thrown. `Tab` switches between Spectre and the replica, `Enter` confirms, and either body may also be clicked.
   - The Perk may be cancelled during origin selection or subsequent direction selection because no dagger action has executed yet. Cancellation restores the Card, Action, Perk availability, and Spell Echo arrangement to their pre-use state.
   - If no replica exists, the body-selection step is skipped and direction selection starts from Spectre immediately.

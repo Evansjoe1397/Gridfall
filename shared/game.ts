@@ -212,9 +212,9 @@ export const CARDS: readonly Card[] = [
   { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Deal 1 Damage to each adjacent enemy if Shield is equipped. If not - Recall Shield.' },
   { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat, add 1 Headache Card per Rage Stack to the attacking enemy's Discard Deck." },
   { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the Shield whose optimal route crosses the most enemies, breaking ties by choosing the nearest, and deal 2 Damage to any enemy it passes through.' },
-  { id: 'replicate', name: 'Replicate', kind: 'perk', value: 1, levelEffects: ['Create a replica on an empty visible Square within Range 2. Replace an existing replica', '+1 Range. Add Panic to each enemy adjacent to the new replica', '+1 Range. Each affected enemy reveals 1 Card privately to Spectre'] },
+  { id: 'replicate', name: 'Replicate', kind: 'perk', value: 1, levelEffects: ['Create a replica on an empty visible Square within Range 2, then draw 1 Card. Replace an existing replica', '+1 Range. Add Panic to each enemy adjacent to the new replica', '+1 Range. Each affected enemy reveals 1 Card privately to Spectre'] },
   { id: 'relocate', name: 'Relocate', kind: 'perk', value: 1, levelEffects: ['Swap places with the replica and remove 1 negative Status Card from your Hand', 'Gain +1 ATT until end of turn', 'Gain 1 Action'] },
-  { id: 'shadow-dagger', name: 'Shadow Dagger', kind: 'perk', value: 1, levelEffects: ['Choose Spectre or her replica, then throw a dagger from that body in a straight line to the board edge. Until turn end, Spectre may follow its trail through forbidden terrain. Entering a character, Column, or other Object costs normal MOV; leaving it along the trail costs 0 MOV. Boxes always cost normal MOV. Spectre may pause there while moving but must end the turn on an empty Square or a Box', 'Steal 1 MOV from each enemy hit until end of turn: they lose 1 MOV and Spectre gains 1 MOV', 'Enemies hit by the dagger receive 1 Damage'] },
+  { id: 'shadow-dagger', name: 'Shadow Dagger', kind: 'perk', value: 1, levelEffects: ["Throw a dagger in a straight line to the board edge. Until turn end, Spectre may follow its trail through forbidden terrain (including characters) and gains +1 MOV. Crossing the forbidden terrain doesn't cost MOV. Spectre may climb on boxes along the trail and use it as high-ground.", 'Steal 1 MOV from each enemy hit until end of turn: they lose 1 MOV and Spectre gains 1 MOV', 'Enemies hit by the dagger receive 1 Damage'] },
   { id: 'consume-replica', name: 'Consume Replica', kind: 'perk', value: 1, levelEffects: ['Destroy the replica. Gain +2 ATT until end of turn and add Headache to your Hand', 'Gain +1 additional ATT', 'Deal 1 Damage to each enemy adjacent to the replica'] },
   { id: 'fear', name: 'Fear', kind: 'perk', value: 1, levelEffects: ['Choose Spectre or her replica. Each enemy within Range 1 of that body moves 1 Square away from it or reveals 1 Card if unable', 'Increase Fear to Range 2 and add Panic to each affected enemy', 'Gain +1 ATT for each affected enemy'] },
   { id: 'solitude', name: 'Solitude', kind: 'attack', value: 2, effectText: '+2 ATT if the target has no adjacent Objects or characters, excluding Spectre and her replica.' },
@@ -5631,6 +5631,10 @@ function resolveSpectreReplicaSquare(state: GameState, playerId: PlayerId, to: C
   if (!hasReplicaPlacementLineOfSight(state, placementOrigin, to, placementFromBox)) return fail(state, 'Replica placement line of sight is blocked.');
   if (Object.values(state.players).some((player) => player.hp > 0 && player.position.x === to.x && player.position.y === to.y) || state.objects.some((object) => object.position.x === to.x && object.position.y === to.y && !(object.kind === 'spectre-replica' && object.ownerId === playerId))) return fail(state, 'The replica requires an empty Square and cannot be placed on a Box.');
   const replica = createOrReplaceSpectreReplica(state, playerId, to);
+  if (pending.source === 'replicate') {
+    const drawn = drawCards(caster, 1);
+    state.log.unshift(`Replicate created a replica and drew ${drawn} Card.`);
+  }
   if (pending.source === 'replicate' && pending.level >= 2) {
     const enemies = Object.values(state.players).filter((enemy) => enemy.id !== playerId && enemy.hp > 0 && distance(replica.position, enemy.position) === 1);
     for (const enemy of enemies) {
@@ -5716,6 +5720,8 @@ function resolveSpectreShadowDirection(state: GameState, playerId: PlayerId, to:
     trail.push(next); cursor = next;
   }
   pending.trail = trail;
+  caster.spectreShadowMoveBonus = (caster.spectreShadowMoveBonus ?? 0) + 1;
+  grantMovement(caster, 1);
   const projectileId = `${playerId}-shadow-dagger-${++instanceSequence}`;
   const enemies = Object.values(state.players).filter((enemy) => enemy.id !== playerId && enemy.hp > 0 && trail.some((cell) => cell.x === enemy.position.x && cell.y === enemy.position.y));
   for (const enemy of enemies) {

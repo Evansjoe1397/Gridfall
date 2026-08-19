@@ -5664,8 +5664,10 @@ assert.equal(cardDefinition({ instanceId: 'spectre-solitude-value', cardId: 'sol
 assert.match(cardDefinition({ instanceId: 'spectre-deja-text', cardId: 'deja-vu' }).effectText!, /Otherwise, return Deja Vu to your Hand/, 'Deja Vu tooltip includes its no-replica branch.');
 assert.match(cardDefinition({ instanceId: 'spectre-anguish-text', cardId: 'anguish' }).effectText!, /suffer Damage, draw 1 Card/, 'Anguish tooltip includes its Damage draw.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-tooltip', cardId: 'replicate' }).levelEffects![0], /Range 2/, 'Replicate tooltip states its new Level 1 Range.');
+assert.match(cardDefinition({ instanceId: 'spectre-replicate-draw-tooltip', cardId: 'replicate' }).levelEffects![0], /draw 1 Card/i, 'Replicate tooltip states its Level 1 draw.');
 assert.match(cardDefinition({ instanceId: 'spectre-fear-tooltip', cardId: 'fear' }).levelEffects![1], /Range 2/, 'Fear Level 2 tooltip states its increased Range 2 radius.');
-assert.match(cardDefinition({ instanceId: 'spectre-shadow-origin-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /replica/, 'Shadow Dagger tooltip states that its origin may be the replica.');
+assert.match(cardDefinition({ instanceId: 'spectre-shadow-trail-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /forbidden terrain/i, 'Shadow Dagger tooltip describes its trail traversal.');
+assert.match(cardDefinition({ instanceId: 'spectre-shadow-movement-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /gains \+1 MOV/, 'Shadow Dagger tooltip states its Level 1 movement bonus.');
 
 const uphillDisplaceState = createTrenchTestState(true, 'spectre', 'dummy');
 uphillDisplaceState.phase = 'active';
@@ -5724,10 +5726,15 @@ if (spectrePriorityDisplaceAttack.ok) {
 }
 
 const replicateRangeState = createHotseatTestState(true, 'spectre', 'dummy') as any;
-replicateRangeState.phase = 'active'; replicateRangeState.activePlayerId = 'P1'; replicateRangeState.players.P1.hand = [{ instanceId: 'replicate-range', cardId: 'replicate' }];
+replicateRangeState.phase = 'active'; replicateRangeState.activePlayerId = 'P1'; replicateRangeState.players.P1.position = { x: 1, y: 1 }; replicateRangeState.players.P2.position = { x: 8, y: 7 }; replicateRangeState.objects = []; replicateRangeState.players.P1.hand = [{ instanceId: 'replicate-range', cardId: 'replicate' }]; replicateRangeState.players.P1.deck = [{ instanceId: 'replicate-drawn-card', cardId: 'attack-2' }];
 const replicateRangePlay = applyGameCommand(replicateRangeState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'replicate-range', destination: 'direct' });
 assert.equal(replicateRangePlay.ok, true);
-if (replicateRangePlay.ok) assert.equal((replicateRangePlay.state as any).spectreReplicaPlacement?.range, 2, 'Replicate Level 1 placement Range is 2.');
+if (replicateRangePlay.ok) {
+  assert.equal((replicateRangePlay.state as any).spectreReplicaPlacement?.range, 2, 'Replicate Level 1 placement Range is 2.');
+  const replicatePlaced = applyGameCommand(replicateRangePlay.state, { type: 'spectre-replica-square', playerId: 'P1', to: { x: 3, y: 1 } });
+  assert.equal(replicatePlaced.ok, true, 'Replicate may create a Level 1 replica on a valid Square.');
+  if (replicatePlaced.ok) assert.equal(replicatePlaced.state.players.P1.hand.some((card: any) => card.instanceId === 'replicate-drawn-card'), true, 'Replicate draws 1 Card after creating its replica.');
+}
 
 const replicateBoxLosState = createHotseatTestState(true, 'spectre', 'dummy');
 replicateBoxLosState.objects = [{ id: 'replicate-los-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 1 } }];
@@ -6089,13 +6096,13 @@ shadowStealState.spectreShadow = { casterId: 'P1', level: 2, trail: [], undo: nu
 const shadowSteal = applyGameCommand(shadowStealState, { type: 'spectre-shadow-direction', playerId: 'P1', to: { x: 2, y: 1 } });
 assert.equal(shadowSteal.ok, true, 'Shadow Dagger resolves its selected direction.');
 if (shadowSteal.ok) {
-  assert.equal(shadowSteal.state.players.P1.spectreShadowMoveBonus, 2, 'Spectre gains 1 MOV per enemy hit.');
-  assert.equal(shadowSteal.state.players.P1.movementRemaining, 4, 'Stolen MOV is immediately added to Spectre’s unspent movement.');
+  assert.equal(shadowSteal.state.players.P1.spectreShadowMoveBonus, 3, 'Spectre gains +1 MOV at Level 1 plus 1 MOV per enemy hit at Level 2.');
+  assert.equal(shadowSteal.state.players.P1.movementRemaining, 5, 'The Level 1 and stolen MOV are immediately added to Spectre’s unspent movement.');
   assert.equal(shadowSteal.state.players.P2.spectreShadowMovePenalty, 1, 'The first enemy loses 1 maximum MOV.');
   assert.equal(shadowSteal.state.players.P3.spectreShadowMovePenalty, 1, 'The second enemy loses 1 maximum MOV.');
   assert.equal(shadowSteal.state.players.P2.movementRemaining, 1, 'The first enemy immediately loses 1 unspent MOV.');
   assert.equal(shadowSteal.state.players.P3.movementRemaining, 1, 'The second enemy immediately loses 1 unspent MOV.');
-  assert.equal(effectiveMoveRange(shadowSteal.state.players.P1), shadowSteal.state.players.P1.moveRange + 2, 'Spectre’s maximum MOV includes all stolen movement.');
+  assert.equal(effectiveMoveRange(shadowSteal.state.players.P1), shadowSteal.state.players.P1.moveRange + 3, 'Spectre’s maximum MOV includes its Level 1 and stolen movement.');
   const shadowExpired = applyGameCommand(shadowSteal.state, { type: 'end-turn', playerId: 'P1' });
   assert.equal(shadowExpired.ok, true, 'Spectre may end the turn after Shadow Dagger.');
   if (shadowExpired.ok) {
