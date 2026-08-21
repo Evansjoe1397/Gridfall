@@ -45,6 +45,7 @@ import {
   shieldRecallEnemyCount,
   spectreReplica,
   spiritGuardianEnemyPenalty,
+  sweetPotatoStatusCount,
   wizardActionEventForCommand,
   wrecknaPerkTargetInRange,
   type CardTypeId,
@@ -667,6 +668,7 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'flurry-offer') return gameState.flurry!.defenderId;
   if (gameState.phase === 'choosing-flurry-enemy-discard') return gameState.flurry!.attackerId;
   if (gameState.phase === 'mana-blast-offer') return gameState.pendingAttack!.defenderId;
+  if (gameState.phase === 'choosing-frostmourne') return (gameState as GameState & { frostmourne?: { playerId: PlayerId } }).frostmourne?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-grimoire-discard') return gameState.pendingAttack!.defenderId;
   return gameState.activePlayerId;
 }
@@ -899,11 +901,11 @@ function renderMatchResults() {
   const winner = gameState.winner ? gameState.players[gameState.winner] : null;
   const rows = (Object.keys(gameState.players) as PlayerId[]).map((playerId) => {
     const player = gameState.players[playerId];
-    const stats = player.matchStats ?? { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0 };
+    const stats = player.matchStats ?? { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 };
     const totalDamage = stats.attackDamage + stats.perkDamage + (stats.defensiveRetaliationDamage ?? 0);
-    return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${totalDamage}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
+    return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${stats.defensiveRetaliationDamage ?? 0}</td><td>${totalDamage}</td><td>${stats.objectsDestroyed ?? 0}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
   }).join('');
-  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Total<br>Damage</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><button type="button" id="closeMatchResults">Review battlefield</button></section>`;
+  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><button type="button" id="closeMatchResults">Review battlefield</button></section>`;
   modal.classList.remove('hidden');
   byId('closeMatchResults').addEventListener('click', () => modal.classList.add('hidden'));
 }
@@ -1115,7 +1117,7 @@ function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['pla
 const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: string; ru: string }>> = {
   'echo-pulse': { en: 'A flexible Spell Echo engine. Use it early for a Card, mature it to Level 2 when an extra Action creates a combo turn, or hold Level 3 for emergency healing.', ru: 'Гибкий двигатель Spell Echo. Используйте рано ради карты, поднимите до 2-го уровня для дополнительного Действия в комбо-ходе или сохраните 3-й уровень для срочного лечения.' },
   fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at turn end if still held; Dash deals that Damage first, then Removes it and moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Burning наносит 1 урон в конце хода, если остаётся в Руке; Dash сначала наносит этот урон, затем удаляет карту и перемещает цель случайно.' },
-  portal: { en: 'A one-use global reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты. Portal удаляется из игры после применения или сброса.' },
+  portal: { en: 'A one-use Free Action reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card without spending an Action. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение Свободным Действием. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты, не тратя Действие. Portal удаляется из игры после применения или сброса.' },
   'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
@@ -1429,20 +1431,21 @@ function renderHand() {
     document.querySelectorAll<HTMLButtonElement>('[data-flurry-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'flurry-enemy-discard', playerId: viewerId, cardInstanceId: button.dataset.flurryDiscard! })));
     return;
   }
-  const choosingDiscard = gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard' || gameState.phase === 'choosing-end-discard' || gameState.phase === 'choosing-preparation-discard' || gameState.phase === 'choosing-blink-discard' || gameState.phase === 'choosing-snowball-discard' || gameState.phase === 'choosing-mind-tricks-discard' || gameState.phase === 'choosing-mind-tricks-enemy-discard';
+  const choosingDiscard = (gameState.phase as string) === 'choosing-hot-potato-discard' || gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard' || gameState.phase === 'choosing-end-discard' || gameState.phase === 'choosing-preparation-discard' || gameState.phase === 'choosing-blink-discard' || gameState.phase === 'choosing-snowball-discard' || gameState.phase === 'choosing-mind-tricks-discard' || gameState.phase === 'choosing-mind-tricks-enemy-discard';
   byId('hand').innerHTML = viewer.hand.map((instance) => {
     const card = cardDefinition(instance);
     const panicked = viewer.hand.some((entry) => entry.cardId === 'panic');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
-    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const rewardAction = instance.cardId === 'fireball' || instance.cardId === 'sweet-potato';
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? viewer.actionsRemaining > 0 && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && !viewer.perkUsed && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
     return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
@@ -1471,6 +1474,17 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  const frostmourne = (gameState as GameState & { frostmourne?: { playerId: PlayerId } | null }).frostmourne;
+  if (gameState.phase === 'choosing-frostmourne' && frostmourne) {
+    const player = gameState.players[frostmourne.playerId];
+    const visible = viewerId === player.id && canLocalAct(player.id);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    modal.innerHTML = `<div class="choice-dialog"><span>FROSTMOURNE · AFTER COMBAT</span><h2>Feed the Blade?</h2><p>Sacrifice 1 Hit Point to put Frostmourne on top of your Deck and gain 1 Action.</p><div class="choice-cards"><button id="frostmourneUse"><strong>Sacrifice 1 HP</strong><small>Frostmourne to top of Deck · Gain 1 Action</small></button></div><button class="choice-decline" id="frostmourneDecline">Leave Frostmourne in Discard</button></div>`;
+    modal.querySelector('#frostmourneUse')?.addEventListener('click', () => dispatch({ type: 'frostmourne-decision', playerId: player.id, use: true }));
+    modal.querySelector('#frostmourneDecline')?.addEventListener('click', () => dispatch({ type: 'frostmourne-decision', playerId: player.id, use: false }));
+    return;
+  }
   const innerPeace = (gameState as GameState & { innerPeace?: { playerId: PlayerId; level: number } | null }).innerPeace;
   const spectreChoice = (gameState as any).spectreStatusChoice as { playerId: PlayerId; mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreChoice) {
@@ -1603,6 +1617,16 @@ function renderArmDaWizModal() {
 
 function renderManaModal() {
   const modal = byId('manaModal');
+  const sweet = (gameState as GameState & { sweetPotato?: { casterId: PlayerId } | null }).sweetPotato;
+  if ((gameState.phase as string) === 'choosing-sweet-potato' && sweet && canLocalAct(sweet.casterId)) {
+    const player = gameState.players[sweet.casterId];
+    const statusCount = sweetPotatoStatusCount(player);
+    modal.classList.remove('hidden');
+    modal.innerHTML = `<div class="choice-panel mana-choice-panel"><span>SWEET POTATO · ACTION</span><strong>Choose an effect</strong><p>Restore 2 Hit Points, or Remove all ${statusCount} negative Status Card${statusCount === 1 ? '' : 's'} currently in ${escapeHtml(player.name)}'s Deck.</p><div><button id="sweetPotatoHeal">Heal 2 Hit Points</button><button id="sweetPotatoCleanse">Remove ${statusCount} Status Card${statusCount === 1 ? '' : 's'}</button></div></div>`;
+    document.querySelector('#sweetPotatoHeal')?.addEventListener('click', () => dispatch({ type: 'sweet-potato-choice', playerId: sweet.casterId, choice: 'heal' }));
+    document.querySelector('#sweetPotatoCleanse')?.addEventListener('click', () => dispatch({ type: 'sweet-potato-choice', playerId: sweet.casterId, choice: 'cleanse' }));
+    return;
+  }
   const playerId = gameState.pendingManaChoice;
   if (gameState.phase !== 'choosing-mana-mode' || !playerId || !canLocalAct(playerId)) { modal.classList.add('hidden'); modal.innerHTML = ''; return; }
   const player = gameState.players[playerId];
@@ -1622,15 +1646,22 @@ function renderFocusModal() {
   modal.classList.toggle('hidden', !visible);
   if (!visible || !playerId) { modal.innerHTML = ''; return; }
   const player = gameState.players[playerId];
+  const focusCardHtml = (cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card') => {
+    const card = cardDefinition({ instanceId: '', cardId });
+    const typeLabel = card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : 'REACTION · DISCARD ON USE';
+    const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : 'DEFEND VALUE';
+    return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${escapeHtml(card.name)}</strong><div><b>${card.value}</b> ${valueLabel}</div><small>${cardRulesHtml(card)}</small></button>`;
+  };
   if (gameState.phase === 'choosing-focus') {
-    modal.innerHTML = `<div class="choice-dialog"><span>STARTING DECK · CHOOSE FOCUS</span><h2>${escapeHtml(player.name)}</h2><p>Your Focus determines which two sidelined Cards are offered as the handpicked tenth Card.</p><div class="choice-cards"><button data-focus="attack"><strong>Attack Focus</strong><small>Choose between two sidelined Attack Cards</small></button><button data-focus="defend"><strong>Defend Focus</strong><small>Choose between two sidelined Defend Cards</small></button></div></div>`;
-    modal.querySelectorAll<HTMLButtonElement>('[data-focus]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus', playerId, focus: button.dataset.focus as 'attack' | 'defend' })));
+    const definition = STARTING_DECKS[player.character as keyof typeof STARTING_DECKS];
+    modal.innerHTML = `<div class="choice-dialog focus-choice-dialog"><span>STARTING DECK · CHOOSE FOCUS CARD</span><h2>${escapeHtml(player.name)}</h2><p>Choose one of all four available Focus Cards. Its type becomes your initial Focus.</p><div class="focus-choice-groups"><section class="focus-choice-group attack-focus-group"><h3>Attack Focus</h3><div class="focus-card-pair">${definition.attackFocus.map((cardId) => focusCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section><section class="focus-choice-group defend-focus-group"><h3>Defend Focus</h3><div class="focus-card-pair">${definition.defendFocus.map((cardId) => focusCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section></div></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-opening-focus-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus-card', playerId, cardId: button.dataset.openingFocusCard as any })));
     return;
   }
   const focus = opening.focusByPlayer[playerId]!;
   const definition = STARTING_DECKS[player.character as keyof typeof STARTING_DECKS];
   const choices = focus === 'attack' ? definition.attackFocus : definition.defendFocus;
-  modal.innerHTML = `<div class="choice-dialog"><span>${focus.toUpperCase()} FOCUS · CHOOSE TENTH CARD</span><h2>${escapeHtml(player.name)}</h2><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : 'DEFEND VALUE'; return `<button data-focus-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${valueLabel}</b><small>${escapeHtml(card.effectText ?? '')}</small></button>`; }).join('')}</div><button class="focus-back-button" id="backToFocusChoice" type="button">Back</button></div>`;
+  modal.innerHTML = `<div class="choice-dialog focus-choice-dialog focus-choice-dialog-single"><span>${focus.toUpperCase()} FOCUS · CHOOSE TENTH CARD</span><h2>${escapeHtml(player.name)}</h2><section class="focus-choice-group ${focus}-focus-group"><h3>${focus === 'attack' ? 'Attack' : 'Defend'} Focus</h3><div class="focus-card-pair">${choices.map((cardId) => focusCardHtml(cardId, 'data-focus-card')).join('')}</div></section><button class="focus-back-button" id="backToFocusChoice" type="button">Back</button></div>`;
   modal.querySelectorAll<HTMLButtonElement>('[data-focus-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus-card', playerId, cardId: button.dataset.focusCard as any })));
   modal.querySelector<HTMLButtonElement>('#backToFocusChoice')!.addEventListener('click', () => dispatch({ type: 'back-focus-choice', playerId }));
 }
@@ -2171,7 +2202,7 @@ const objectImpactAnimations = new Map<string, { startedAt: number; origin: THRE
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean }[] = [];
-const moonwaveAnimations: { mesh: THREE.Mesh; startedAt: number; delay: number; maxScale: number }[] = [];
+const moonwaveAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; startScale: number; endScale: number }[] = [];
 const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
@@ -2187,6 +2218,7 @@ const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
 const questFlagModels = new Map<string, THREE.Group>();
 let questFlagVisualKey = '';
+let hotPotatoModel: THREE.Group | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
 let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
@@ -2386,12 +2418,17 @@ function syncSpellProjectiles() {
     if (processedSpellProjectiles.has(event.id)) continue;
     processedSpellProjectiles.add(event.id);
     if (event.style === 'moonwave') {
-      event.path.forEach((cell, index) => {
-        const material = new THREE.MeshBasicMaterial({ color: index === 0 ? 0x78ffad : 0x24ff78, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-        const wave = new THREE.Mesh(new THREE.TorusGeometry(0.32, index === 0 ? 0.07 : 0.1, 12, 44), material);
-        wave.position.copy(worldPosition(cell)); wave.position.y += 0.16; wave.rotation.x = Math.PI / 2; wave.scale.setScalar(0.08); scene.add(wave);
-        moonwaveAnimations.push({ mesh: wave, startedAt: performance.now(), delay: index * 320, maxScale: index === 0 ? 1.15 : 2.05 });
+      const points = event.path.map((cell) => {
+        const point = worldPosition(cell);
+        point.y += 0.16;
+        return point;
       });
+      if (points.length > 0) {
+        const material = new THREE.MeshBasicMaterial({ color: 0x42ff8a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+        const wave = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.08, 12, 44), material);
+        wave.position.copy(points[0]); wave.rotation.x = Math.PI / 2; scene.add(wave);
+        moonwaveAnimations.push({ mesh: wave, points, startedAt: performance.now(), duration: points.length > 1 ? 920 : 620, startScale: 0.45, endScale: 1.35 });
+      }
       continue;
     }
     if (event.style === 'holy-fire') {
@@ -2462,14 +2499,13 @@ function updateSpellProjectiles(time: number) {
   }
   for (let index = moonwaveAnimations.length - 1; index >= 0; index--) {
     const animation = moonwaveAnimations[index];
-    const elapsed = time - animation.startedAt - animation.delay;
-    animation.mesh.visible = elapsed >= 0;
-    if (elapsed < 0) continue;
-    const progress = Math.min(1, elapsed / 780);
-    const expansion = THREE.MathUtils.smoothstep(progress, 0, 1) * animation.maxScale;
+    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    const easedProgress = THREE.MathUtils.smoothstep(progress, 0, 1);
+    if (animation.points.length > 1) animation.mesh.position.lerpVectors(animation.points[0], animation.points[animation.points.length - 1], easedProgress);
+    const expansion = THREE.MathUtils.lerp(animation.startScale, animation.endScale, easedProgress);
     animation.mesh.scale.set(expansion, expansion, Math.max(0.35, expansion * 0.55));
     animation.mesh.rotation.z = progress * 0.45;
-    (animation.mesh.material as THREE.MeshBasicMaterial).opacity = progress < 0.45 ? 0.9 : 0.9 * (1 - (progress - 0.45) / 0.55);
+    (animation.mesh.material as THREE.MeshBasicMaterial).opacity = progress < 0.72 ? 0.9 : 0.9 * (1 - (progress - 0.72) / 0.28);
     if (progress >= 1) {
       scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
       moonwaveAnimations.splice(index, 1);
@@ -4514,6 +4550,7 @@ function syncBoard() {
     group.traverse((child) => { child.userData.playerId = id; });
   });
   syncCaptureTheFlagVisual();
+  syncHotPotatoVisual();
   const currentObjectIds = new Set(gameState.objects.map((object) => object.id));
   const animatedRemovalIds = new Set(gameState.objectPushAnimations.filter((event) => event.removeOnComplete && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId))).map((event) => event.objectId));
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
@@ -4674,6 +4711,26 @@ function createQuestFlag(color: number) {
   const finial = new THREE.Mesh(new THREE.SphereGeometry(.075, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0x8a5b00, emissiveIntensity: .7 }));
   finial.position.y = 1.68; finial.castShadow = true; root.add(finial);
   return root;
+}
+
+function createHotPotatoModel() {
+  const root = new THREE.Group();
+  const potato = new THREE.Mesh(new THREE.SphereGeometry(.38, 18, 12), new THREE.MeshStandardMaterial({ color: 0x9a5528, roughness: .94 }));
+  potato.scale.set(1.25, .82, .92); potato.position.y = .4; potato.rotation.z = -.2; potato.castShadow = true; root.add(potato);
+  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x4d2818, roughness: 1 });
+  for (const [x, y, z] of [[-.18, .53, .29], [.13, .33, .35], [.24, .55, .18]] as [number, number, number][]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), eyeMaterial); eye.position.set(x, y, z); root.add(eye);
+  }
+  return root;
+}
+
+function syncHotPotatoVisual() {
+  const potato = (gameState as GameState & { questPhases?: { hotPotato?: { anchor: { x: number; y: number }; carrierId: PlayerId | null } | null } }).questPhases?.hotPotato;
+  if (!potato || potato.carrierId) { hotPotatoModel?.removeFromParent(); return; }
+  hotPotatoModel ??= createHotPotatoModel();
+  if (hotPotatoModel.parent !== scene) scene.add(hotPotatoModel);
+  hotPotatoModel.position.set((potato.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (potato.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  hotPotatoModel.rotation.y = performance.now() * .001;
 }
 
 function syncCaptureTheFlagVisual() {
@@ -5242,7 +5299,15 @@ function onBoardClick(event: PointerEvent) {
     if (cellHit) dispatch({ type: 'kyk-direction', playerId: gameState.forceThrow!.casterId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-boomerang-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    if (playerHit) dispatch({ type: 'boomerang-target', playerId: gameState.boomerang!.casterId, targetId: playerHit });
+    if (playerHit) {
+      const casterId = gameState.boomerang!.casterId;
+      const caster = gameState.players[casterId];
+      const target = gameState.players[playerHit];
+      const meleeUse = playerHit !== casterId && Boolean(target) && distance(caster.position, target.position) === 1;
+      if (!meleeUse || window.confirm('Are you sure? Using Boomerang at melee Range spends 1 Action, deals 2 Damage, and Removes the Card.')) {
+        dispatch({ type: 'boomerang-target', playerId: casterId, targetId: playerHit });
+      }
+    }
   } else if (selected.kind === 'perk') {
     const casterId = gameState.activePlayerId;
     const selectedInstance = gameState.players[casterId].hand.find((card) => card.instanceId === selected.cardInstanceId);
@@ -5298,7 +5363,11 @@ function onBoardClick(event: PointerEvent) {
       const origin = attacker.character === 'spectre' ? spectreAttackOriginForTarget(attacker, hitObject.position) : 'spectre';
       if (origin) { if (attacker.character === 'spectre') selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: hitObject.id, targetKind: 'replica' }); }
     }
-    else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
+    else if (playerHit) {
+      const swapBeforeCombat = selectedAttackCard?.cardId === 'lightbringer'
+        && window.confirm(`Lightbringer: swap places with ${gameState.players[playerHit].name} before combat?\n\nOK: swap places.\nCancel: attack without swapping.`);
+      dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player', swapBeforeCombat });
+    }
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';

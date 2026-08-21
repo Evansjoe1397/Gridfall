@@ -548,6 +548,18 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 }
 .focus-back-button { width: 100%; margin-top: 12px; padding: 10px; border: 1px solid #4c7067; background: rgba(6,18,15,.7); color: #a9cbc2; cursor: pointer; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
 .focus-back-button:hover { border-color: var(--cyan); color: #effffb; }
+.focus-choice-dialog { width: min(1120px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
+.focus-choice-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.focus-choice-group { min-width: 0; }
+.focus-choice-group h3 { margin: 0 0 8px; padding: 8px 10px; border: 1px solid rgba(255,95,105,.45); border-left: 3px solid #ff5f69; background: rgba(255,95,105,.07); color: #ffdadd; font: 700 18px 'Barlow Condensed', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.focus-choice-group.defend-focus-group h3 { border-color: rgba(66,207,255,.45); border-left-color: #42cfff; background: rgba(66,207,255,.07); color: #d7f6ff; }
+.focus-card-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.focus-card-pair .focus-selection-card { width: 100%; min-height: 250px; box-sizing: border-box; }
+.focus-choice-dialog-single { width: min(600px, calc(100vw - 32px)); }
+@media (max-width: 760px) {
+  .focus-choice-groups { grid-template-columns: 1fr; }
+  .focus-card-pair .focus-selection-card { min-height: 220px; }
+}
 
 @media (max-width: 800px) {
   .shell { padding: 12px; }
