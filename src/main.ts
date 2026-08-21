@@ -43,6 +43,7 @@ import {
   pinnedCount,
   shieldRecallEnemyCount,
   spectreReplica,
+  spectreReplicas,
   spiritGuardianEnemyPenalty,
   wizardActionEventForCommand,
   type CardTypeId,
@@ -255,13 +256,18 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'Space' || event.code === 'Escape') event.preventDefault();
     return;
   }
-  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; origin: 'spectre' | 'replica' } | undefined;
+  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin && canLocalAct(spectrePerkOrigin.casterId)) {
     if (event.code === 'Tab') {
       event.preventDefault();
-      const hasReplica = Boolean(spectreReplica(gameState, spectrePerkOrigin.casterId));
-      if (!hasReplica) notify('Spectre has no replica; Spectre remains selected.');
-      else dispatch({ type: 'spectre-perk-origin-select', playerId: spectrePerkOrigin.casterId, origin: spectrePerkOrigin.origin === 'spectre' ? 'replica' : 'spectre' });
+      const replicas = spectreReplicas(gameState, spectrePerkOrigin.casterId);
+      const options: { origin: 'spectre' | 'replica'; replicaId: string | null }[] = [
+        ...(spectrePerkOrigin.perkId === 'shadow-dagger' ? [{ origin: 'spectre' as const, replicaId: null }] : []),
+        ...replicas.map((replica) => ({ origin: 'replica' as const, replicaId: replica.id })),
+      ];
+      const currentIndex = options.findIndex((option) => option.origin === spectrePerkOrigin.origin && option.replicaId === spectrePerkOrigin.replicaId);
+      const next = options[(currentIndex + 1) % options.length];
+      if (next) dispatch({ type: 'spectre-perk-origin-select', playerId: spectrePerkOrigin.casterId, origin: next.origin, replicaId: next.replicaId });
       return;
     }
     if (event.code === 'Enter') {
@@ -333,6 +339,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
+  if (gameState.phase === 'choosing-soul-strike-discard') return true;
   if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
   if (gameState.phase === 'choosing-spirit-guardian-square' && (Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian) || Boolean((gameState as any).spectreReplicaPlacement))) return true;
   if (gameState.phase === 'choosing-arkane-arow-target' && Boolean((gameState as any).spectreShadow)) return true;
@@ -389,7 +396,7 @@ const CHARACTER_SELECT_INFO: Record<SelectableCharacter, { name: string; hp: num
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
-  spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create one immobile replica. Spectre and the replica share Hand, Actions, HP, modifiers, and combat; either body may originate melee Attacks, while positional effects use the body involved.' },
+  spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna'];
@@ -644,6 +651,7 @@ function actingPlayer(): PlayerId {
   if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-soul-strike-discard') return (gameState as GameState & { soulStrikeDiscard?: { defenderId: PlayerId } }).soulStrikeDiscard?.defenderId ?? gameState.activePlayerId;
   if (gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
@@ -700,20 +708,9 @@ function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
     : { playerId: event.playerId, animation: 'Encourage' };
 }
 
-type SpectreVisualIntent = { playerId: PlayerId; objectId?: string; animation: 'Fear' };
-
-function spectreVisualIntentForCommand(state: GameState, command: GameCommand): SpectreVisualIntent | null {
-  if (command.type !== 'spectre-perk-origin-confirm') return null;
-  const pending = (state as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'fear'; origin: 'spectre' | 'replica' } | undefined;
-  if (pending?.perkId !== 'fear' || pending.casterId !== command.playerId) return null;
-  const replica = pending.origin === 'replica' ? spectreReplica(state, command.playerId) : undefined;
-  return { playerId: command.playerId, objectId: replica?.id, animation: 'Fear' };
-}
-
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
-  const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
     room.send('command', command);
@@ -726,7 +723,6 @@ function dispatch(command: GameCommand) {
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
-  if (spectreVisualIntent) applySpectreVisualIntent(spectreVisualIntent);
 }
 
 function renderAll() {
@@ -781,8 +777,13 @@ function renderUI() {
   prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · Escape or Cancel button to stop on an empty Square` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
-  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'fear'; origin: 'spectre' | 'replica' } | undefined;
-  if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin) prompt.textContent = `${spectrePerkOrigin.perkId === 'fear' ? 'FEAR' : 'SHADOW DAGGER'} ORIGIN: ${spectrePerkOrigin.origin === 'replica' ? 'REPLICA' : 'SPECTRE'} · Tab or click to switch · Enter to confirm · Escape to cancel`;
+  const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
+  if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin) {
+    const selectedReplica = gameState.objects.find((object) => object.id === spectrePerkOrigin.replicaId);
+    const selectedBody = spectrePerkOrigin.origin === 'replica' ? `REPLICA${selectedReplica ? ` AT ${cellLabel(selectedReplica.position)}` : ''}` : 'SPECTRE';
+    const choiceLabel = spectrePerkOrigin.perkId === 'devour' ? 'DEVOUR TARGET' : spectrePerkOrigin.perkId === 'relocate' ? 'RELOCATE TARGET' : 'SHADOW DAGGER ORIGIN';
+    prompt.textContent = `${choiceLabel}: ${selectedBody} · Tab or click to switch · Enter to confirm${spectrePerkOrigin.perkId === 'devour' ? '' : ' · Escape to cancel'}`;
+  }
   if (select.kind === 'attack' && actor.character === 'spectre') prompt.textContent = `Preferred attack origin: ${selectedSpectreAttackOrigin === 'replica' ? 'Replica' : 'Spectre'} · targets available to either body are highlighted`;
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
   if (gameState.phase === 'wreckna-wisdom-discard') prompt.textContent = 'Phylactery of Wisdom: select 1 Card from Hand to discard before choosing a Defend Card';
@@ -832,6 +833,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
+  if (gameState.phase === 'choosing-soul-strike-discard') prompt.textContent = 'Soul Strike: the target must discard 1 Card revealed to Spectre';
   if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
   if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
@@ -1283,7 +1285,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spectreTemporaryAttack = player.character === 'spectre' ? player.spectreAttackBonus ?? 0 : 0;
     const spectreAccumulateActive = player.character === 'spectre' ? player.spectreAccumulateActive ?? 0 : 0;
     const spectreAccumulateStored = player.character === 'spectre' ? player.spectreAccumulateStored ?? 0 : 0;
-    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">ATT<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Relocate, Consume Replica, and Fear currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The combined bonus expires at the end of Spectre's turn.</span></div>` : '';
+    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">ATT<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Relocate, Consume Replica, and Haunt currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The combined bonus expires at the end of Spectre's turn.</span></div>` : '';
     const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">Σ<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
     const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">Σ→<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
@@ -1359,6 +1361,17 @@ function renderHand() {
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
+    return;
+  }
+  if (gameState.phase === 'choosing-soul-strike-discard') {
+    const pending = (gameState as GameState & { soulStrikeDiscard?: { attackerId: PlayerId; defenderId: PlayerId } | null }).soulStrikeDiscard;
+    if (!pending || viewerId !== pending.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Soul Strike.</div>'; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => {
+      const card = cardDefinition(instance);
+      const eligible = isCardRevealedToOpponents(viewer, instance, pending.attackerId) && !card.cannotBeDiscarded;
+      return `<button class="card ${cardVisualClass(card)}" data-soul-strike-discard="${instance.instanceId}" ${eligible ? '' : 'disabled'}><span>${eligible ? 'SOUL STRIKE · SELECT TO DISCARD' : 'NOT REVEALED TO SPECTRE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+    }).join('');
+    handElement.querySelectorAll<HTMLButtonElement>('[data-soul-strike-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'soul-strike-discard', playerId: viewerId, cardInstanceId: button.dataset.soulStrikeDiscard! })));
     return;
   }
   if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
@@ -2251,7 +2264,6 @@ renderer.setAnimationLoop((time) => {
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
-    animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
@@ -2279,6 +2291,7 @@ renderer.setAnimationLoop((time) => {
     }
     updateManaOrbAnimation(group, time);
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
+    animateFearSigil(group, time);
   });
   objectGroups.forEach((group, objectId) => {
     if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
@@ -2535,7 +2548,7 @@ function updateCharacterFacing(deltaSeconds: number) {
     let nearestEnemy: THREE.Group | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
     dummyGroups.forEach((candidate, candidateId) => {
-      if (candidateId === playerId) return;
+      if (candidateId === playerId || gameState.players[candidateId]?.hp <= 0) return;
       const candidateDistance = group.position.distanceToSquared(candidate.position);
       if (candidateDistance < nearestDistance) {
         nearestDistance = candidateDistance;
@@ -3493,7 +3506,9 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
-      child.receiveShadow = true;
+      // Logan's thin, double-sided skinned surfaces self-shadow as dense bands
+      // in Three.js. Keep his cast silhouette without rendering that shadow acne.
+      child.receiveShadow = false;
       child.material = Array.isArray(child.material)
         ? child.material.map((material) => material.clone())
         : child.material.clone();
@@ -3700,16 +3715,6 @@ function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fa
   state.idlePauseUntil = undefined;
 }
 
-function applySpectreVisualIntent(intent: SpectreVisualIntent) {
-  const group = intent.objectId ? objectGroups.get(intent.objectId) : dummyGroups.get(intent.playerId);
-  if (!group) return;
-  if (!group.userData.spectreAnimation) {
-    group.userData.pendingSpectreAnimation = intent.animation;
-    return;
-  }
-  playSpectreAnimation(group, intent.animation, 0.08);
-}
-
 function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefined, deltaSeconds: number) {
   const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
   if (!state) return;
@@ -3743,13 +3748,15 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     if (body.parent !== root) return;
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'SpectreImportedModel';
-    model.position.y = 0.16;
+    model.position.y = 0;
     model.rotation.y = Math.PI;
     model.scale.setScalar(1.18);
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = !replica;
-      child.receiveShadow = true;
+      // Spectre's closely layered skinned mesh produces the same striped
+      // self-shadow artifact as Logan. Replicas share this imported mesh.
+      child.receiveShadow = false;
       child.material = Array.isArray(child.material)
         ? child.material.map((material) => material.clone())
         : child.material.clone();
@@ -3767,7 +3774,7 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
         material.needsUpdate = true;
       });
     });
-    const persistentEffects = body.children.filter((child) => child.name === 'SpectreAura' || child instanceof THREE.PointLight);
+    const persistentEffects = body.children.filter((child) => child instanceof THREE.PointLight);
     persistentEffects.forEach((child) => child.removeFromParent());
     disposeTemporaryCharacterBody(body);
     persistentEffects.forEach((child) => body.add(child));
@@ -3796,8 +3803,9 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
   }
 }
 
-function createSpectre(playerColor = 0x169bd3, replica = false) {
+function createSpectre(_playerColor = 0x169bd3, replica = false) {
   const root = new THREE.Group();
+  root.scale.setScalar(1.15);
   const body = new THREE.Group(); body.name = replica ? 'SpectreReplicaBody' : 'SpectreBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
   root.userData.spectreReplica = replica;
@@ -3817,10 +3825,7 @@ function createSpectre(playerColor = 0x169bd3, replica = false) {
     const arm = add(new THREE.CapsuleGeometry(0.07, 0.46, 5, 9), shadow, [side * 0.4, 1.18, -0.02]); arm.rotation.z = side * 0.18;
     const dagger = add(new THREE.ConeGeometry(0.055, 0.55, 5), glow, [side * 0.49, 0.83, -0.08]); dagger.rotation.z = side * -0.18;
   }
-  const aura = new THREE.Mesh(new THREE.TorusGeometry(replica ? 0.58 : 0.5, 0.028, 8, 42), glow.clone()); aura.name = 'SpectreAura'; aura.rotation.x = Math.PI / 2; aura.position.y = 0.12; body.add(aura);
   const light = new THREE.PointLight(replica ? 0xa474ff : 0x7450e8, replica ? 3.8 : 2.2, 4); light.position.set(0, 1.25, -0.15); body.add(light);
-  const base = add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.7, transparent: replica, opacity: replica ? 0.5 : 1 }), [0, 0.1, 0], root);
-  base.castShadow = false;
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: replica ? 0xc79cff : 0x9b77ff, transparent: true, opacity: 0.92, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring);
   root.userData.player = !replica;
@@ -4347,7 +4352,7 @@ function syncBoard() {
     updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
-    syncFearSigilVisual(group, (gameState.players[id].spectreFearSourceIds?.length ?? 0) > 0);
+    syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
     syncWrecknaPhylacteryVisuals(group, id);
@@ -4374,6 +4379,7 @@ function syncBoard() {
       phylacteryAura.name = 'PhylacteryAura'; phylacteryAura.rotation.x = Math.PI / 2; phylacteryAura.position.y = 0.18; group.add(phylacteryAura);
     } else if (!object.phylacteryType && phylacteryAura) group.remove(phylacteryAura);
     const target = worldPosition(object.position);
+    if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.22;
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
     if (!previousKey) {
@@ -4385,6 +4391,7 @@ function syncBoard() {
       const travelSquares = Math.max(1, distanceFromWorld(from, target));
       objectMovementAnimations.set(object.id, { from, to: target.clone(), startedAt: performance.now(), duration: 380 + travelSquares * 180, collided: false, dx: 0, dy: 0 });
     }
+    else if (!objectMovementAnimations.has(object.id)) group.position.y = target.y;
     lastObjectVisualCells.set(object.id, targetKey);
     group.traverse((child) => { child.userData.objectId = object.id; });
   });
@@ -4707,10 +4714,9 @@ function distanceFromWorld(from: THREE.Vector3, to: THREE.Vector3) {
 
 function spectreAttackOriginForTarget(attacker: GameState['players'][PlayerId], target: Cell): 'spectre' | 'replica' | null {
   if (attacker.character !== 'spectre') return null;
-  const replica = spectreReplica(gameState, attacker.id);
   const candidates: Array<{ origin: 'spectre' | 'replica'; position: Cell; range: number }> = [
     { origin: 'spectre', position: attacker.position, range: effectiveAttackRange(gameState, attacker) },
-    ...(replica ? [{ origin: 'replica' as const, position: replica.position, range: 1 }] : []),
+    ...spectreReplicas(gameState, attacker.id).map((replica) => ({ origin: 'replica' as const, position: replica.position, range: 1 })),
   ];
   return candidates.find(({ position, range }) => distance(position, target) <= range && hasLineOfSight(gameState, position, target) && canAttackTargetSquare(gameState, position, target))?.origin ?? null;
 }
@@ -4869,7 +4875,7 @@ function updateTargetHighlights(time: number) {
   const canMagicTarget = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic) && canLocalAct(magic!.casterId);
   const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
   const canShadowDirection = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadow) && canLocalAct(shadow!.casterId);
-  const spectreOriginChoice = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; origin: 'spectre' | 'replica' } | undefined;
+  const spectreOriginChoice = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   const canSpectreOriginChoice = gameState.phase === 'choosing-spectre-perk-origin' && Boolean(spectreOriginChoice) && canLocalAct(spectreOriginChoice!.casterId);
   const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
   const canSapTarget = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sap) && canLocalAct(sap!.casterId);
@@ -4893,7 +4899,7 @@ function updateTargetHighlights(time: number) {
     const validSap = canSapTarget && playerId !== sap!.casterId && distance(sapCaster!.position, target.position) <= effectiveAttackRange(gameState, sapCaster!) && hasLineOfSight(gameState, sapCaster!.position, target.position);
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const validDecay = canDecayTarget && playerId !== decay!.casterId && distance(decayCaster!.position, target.position) <= effectiveAttackRange(gameState, decayCaster!) && hasLineOfSight(gameState, decayCaster!.position, target.position);
-    const validSpectreOrigin = canSpectreOriginChoice && playerId === spectreOriginChoice!.casterId;
+    const validSpectreOrigin = canSpectreOriginChoice && spectreOriginChoice!.perkId === 'shadow-dagger' && playerId === spectreOriginChoice!.casterId;
     const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
@@ -4917,7 +4923,7 @@ function updateTargetHighlights(time: number) {
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
     const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[magic!.casterId].position) <= gameState.players[magic!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, object!.position);
     const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
-    const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica';
+    const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica' && spectreOriginChoice!.replicaId === objectId;
     const originRing = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (originRing) {
       originRing.visible = validSpectreOriginObject;
@@ -4949,12 +4955,12 @@ function onBoardClick(event: PointerEvent) {
       dispatch({ type: 'debug-teleport-object', playerId: gameState.activePlayerId, objectId, to: cellHit.object.userData.cell });
     }
   } else if (gameState.phase === 'choosing-spectre-perk-origin') {
-    const pending = (gameState as any).spectrePerkOrigin as { casterId: PlayerId } | undefined;
+    const pending = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour' } | undefined;
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const object = gameState.objects.find((entry) => entry.id === objectHit);
-    if (pending && playerHit === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'spectre' });
-    else if (pending && object?.kind === 'spectre-replica' && object.ownerId === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'replica' });
+    if (pending?.perkId === 'shadow-dagger' && playerHit === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'spectre', replicaId: null });
+    else if (pending && object?.kind === 'spectre-replica' && object.ownerId === pending.casterId) dispatch({ type: 'spectre-perk-origin-select', playerId: pending.casterId, origin: 'replica', replicaId: object.id });
   } else if (gameState.phase === 'choosing-base-placement') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'place-character', playerId: gameState.activePlayerId, to: cellHit.object.userData.cell });
