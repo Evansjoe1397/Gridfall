@@ -1036,24 +1036,30 @@ assert.equal(merylinHotseat.players.P1.maxHp, 22);
 assert.equal(merylinHotseat.players.P1.hp, 22);
 assert.equal(merylinHotseat.players.P1.moveRange, 2);
 assert.equal(merylinHotseat.players.P1.attackRange, 1, 'Merylin has melee Attack Range.');
-assert.equal(merylinHotseat.players.P1.hand.length, 5, 'Merylin starts with exactly 5 Cards in test mode.');
-assert.equal(merylinHotseat.players.P1.hand.some((card) => card.cardId === 'carian-stance'), true, 'Carian Stance is always in Merylin\'s starting Hand.');
-assert.deepEqual(['barbarian-stance', 'kamelot-stance', 'spellsinger-stance'].map((cardId) => merylinHotseat.players.P1.hand.some((card) => card.cardId === cardId)), [true, true, true], 'Merylin starts with her three most recently created non-Attack Cards.');
-assert.equal(merylinHotseat.players.P1.hand.filter((card) => cardDefinition(card).kind === 'attack').length, 1, 'Merylin starts with exactly 1 randomly selected exclusive Attack Card.');
-assert.equal(merylinHotseat.players.P1.deck.length, 10, 'Merylin keeps every exclusive Card not selected for her starting Hand in her Deck.');
-assert.equal(new Set([...merylinHotseat.players.P1.hand, ...merylinHotseat.players.P1.deck].map((card) => card.cardId)).size, 15, 'Merylin has all 15 exclusive Cards across her starting Hand and Deck without duplication.');
-assert.equal(merylinHotseat.phase, 'active', 'Merylin skips opening Focus selection until her Cards exist.');
-merylinHotseat.players.P1.position = { x: 2, y: 2 };
-merylinHotseat.players.P2.position = { x: 3, y: 2 };
-merylinHotseat.players.P1.hand = [{ instanceId: 'merylin-test-attack', cardId: 'attack-2' }];
-assert.equal(applyGameCommand(merylinHotseat, { type: 'attack', playerId: 'P1', cardInstanceId: 'merylin-test-attack', targetId: 'P2', targetKind: 'player' }).ok, false, 'Swordcraft prevents Merylin from using an Attack without Summon.');
-assert.equal(grantMerylinSummon(merylinHotseat, 'P1', 'test preparation'), true, 'A Merylin Card effect can grant Summon.');
-assert.equal(merylinHotseat.players.P1.merylinSummonActive, true);
-const merylinSummonedAttack = applyGameCommand(merylinHotseat, { type: 'attack', playerId: 'P1', cardInstanceId: 'merylin-test-attack', targetId: 'P2', targetKind: 'player' });
+assert.equal(merylinHotseat.phase, 'choosing-focus', 'Merylin uses the same opening Focus selection in test mode as in multiplayer.');
+assert.equal(merylinHotseat.players.P1.hand.length, 0, 'Merylin starts test-mode deck setup with an empty Hand.');
+assert.equal(merylinHotseat.players.P1.deck.length, 0, 'Merylin starts test-mode deck setup with an empty Deck.');
+const merylinHotseatFocus = applyGameCommand(merylinHotseat, { type: 'choose-focus', playerId: 'P1', focus: 'attack' });
+const merylinHotseatOpening = merylinHotseatFocus.ok ? applyGameCommand(merylinHotseatFocus.state, { type: 'choose-focus-card', playerId: 'P1', cardId: 'lightbringer' }) : merylinHotseatFocus;
+assert.equal(merylinHotseatOpening.ok, true, 'Merylin can complete the same opening deck setup in test mode.');
+if (merylinHotseatOpening.ok) {
+  const openingCards = [...merylinHotseatOpening.state.players.P1.hand, ...merylinHotseatOpening.state.players.P1.deck].map((card) => card.cardId);
+  assert.equal(openingCards.length, 10);
+  assert.equal(openingCards.includes('carian-stance'), true, 'Carian Stance remains Merylin\'s reserved opening Card.');
+  assert.equal(openingCards.includes('lightbringer'), true, 'The selected Focus Card is placed on top of Merylin\'s Deck.');
+}
+const merylinSwordcraftState = createHotseatTestState(true, 'merylin', 2);
+merylinSwordcraftState.players.P1.position = { x: 2, y: 2 };
+merylinSwordcraftState.players.P2.position = { x: 3, y: 2 };
+merylinSwordcraftState.players.P1.hand = [{ instanceId: 'merylin-test-attack', cardId: 'attack-2' }];
+assert.equal(applyGameCommand(merylinSwordcraftState, { type: 'attack', playerId: 'P1', cardInstanceId: 'merylin-test-attack', targetId: 'P2', targetKind: 'player' }).ok, false, 'Swordcraft prevents Merylin from using an Attack without Summon.');
+assert.equal(grantMerylinSummon(merylinSwordcraftState, 'P1', 'test preparation'), true, 'A Merylin Card effect can grant Summon.');
+assert.equal(merylinSwordcraftState.players.P1.merylinSummonActive, true);
+const merylinSummonedAttack = applyGameCommand(merylinSwordcraftState, { type: 'attack', playerId: 'P1', cardInstanceId: 'merylin-test-attack', targetId: 'P2', targetKind: 'player' });
 assert.equal(merylinSummonedAttack.ok, true, 'An active Summon enables Merylin to use one Attack Card.');
 if (merylinSummonedAttack.ok) assert.equal(merylinSummonedAttack.state.players.P1.merylinSummonActive, false, 'Using Merylin\'s Attack consumes the active Summon before any new Summon effect can be applied.');
 
-const excaliburRangeState = createHotseatTestState(false, 'merylin', 2);
+const excaliburRangeState = createHotseatTestState(true, 'merylin', 2);
 excaliburRangeState.phase = 'active'; excaliburRangeState.activePlayerId = 'P1'; excaliburRangeState.objects = []; excaliburRangeState.elevations = {};
 excaliburRangeState.players.P1.position = { x: 2, y: 2 }; excaliburRangeState.players.P2.position = { x: 4, y: 2 };
 excaliburRangeState.players.P1.hand = [{ instanceId: 'excalibur-direct-two', cardId: 'excalibur' }]; excaliburRangeState.players.P2.hand = [];
@@ -1067,7 +1073,7 @@ if (excaliburAttack.ok) {
   if (excaliburResolved.ok) assert.equal(excaliburResolved.state.players.P2.hand.some((card: any) => card.cardId === 'headache'), true, 'Excalibur adds Headache after combat.');
 }
 
-const excaliburTurnedPathState = createHotseatTestState(false, 'merylin', 2);
+const excaliburTurnedPathState = createHotseatTestState(true, 'merylin', 2);
 excaliburTurnedPathState.phase = 'active'; excaliburTurnedPathState.activePlayerId = 'P1'; excaliburTurnedPathState.objects = []; excaliburTurnedPathState.elevations = {};
 excaliburTurnedPathState.players.P1.position = { x: 2, y: 2 }; excaliburTurnedPathState.players.P2.position = { x: 4, y: 3 };
 excaliburTurnedPathState.players.P1.hand = [{ instanceId: 'excalibur-turned-two', cardId: 'excalibur' }]; excaliburTurnedPathState.players.P1.merylinSummonActive = true;
@@ -1075,7 +1081,7 @@ const excaliburTurnedPath = applyGameCommand(excaliburTurnedPathState, { type: '
 assert.equal(excaliburTurnedPath.ok, false, 'Excalibur rejects a Range 2 target that would require changing direction.');
 assert.equal(excaliburTurnedPath.state.players.P1.merylinSummonActive, true, 'An invalid Excalibur target does not consume Summon.');
 
-const moonlightWaveState = createHotseatTestState(false, 'merylin', 3);
+const moonlightWaveState = createHotseatTestState(true, 'merylin', 3);
 moonlightWaveState.phase = 'active'; moonlightWaveState.activePlayerId = 'P1'; moonlightWaveState.objects = [{ id: 'moonlight-first-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 2 } }]; moonlightWaveState.elevations = {};
 moonlightWaveState.players.P1.position = { x: 2, y: 2 }; moonlightWaveState.players.P2.position = { x: 3, y: 2 }; moonlightWaveState.players.P3.position = { x: 5, y: 2 };
 moonlightWaveState.players.P1.hand = [{ instanceId: 'moonlight-player-target', cardId: 'moonlight' }]; moonlightWaveState.players.P2.hand = [];
@@ -1093,7 +1099,7 @@ if (moonlightAttack.ok) {
   }
 }
 
-const moonlightFirstSquareState = createHotseatTestState(false, 'merylin', 3);
+const moonlightFirstSquareState = createHotseatTestState(true, 'merylin', 3);
 moonlightFirstSquareState.phase = 'active'; moonlightFirstSquareState.activePlayerId = 'P1'; moonlightFirstSquareState.objects = []; moonlightFirstSquareState.elevations = {};
 moonlightFirstSquareState.players.P1.position = { x: 2, y: 2 }; moonlightFirstSquareState.players.P2.position = { x: 3, y: 2 }; moonlightFirstSquareState.players.P3.position = { x: 4, y: 2 };
 moonlightFirstSquareState.players.P1.hand = [{ instanceId: 'moonlight-first-square', cardId: 'moonlight' }]; moonlightFirstSquareState.players.P2.hand = []; moonlightFirstSquareState.players.P1.merylinSummonActive = true;
@@ -1106,7 +1112,7 @@ if (moonlightFirstSquareAttack.ok) {
   if (moonlightFirstSquareResolved.ok) assert.equal(moonlightFirstSquareResolved.state.players.P3.hp, firstSquareHp - 1, 'Moonlight deals 1 Damage on its first wave Square.');
 }
 
-const moonlightWallState = createHotseatTestState(false, 'merylin', 2);
+const moonlightWallState = createHotseatTestState(true, 'merylin', 2);
 moonlightWallState.phase = 'active'; moonlightWallState.activePlayerId = 'P1'; moonlightWallState.elevations = {};
 moonlightWallState.players.P1.position = { x: 2, y: 2 }; moonlightWallState.players.P2.position = { x: 5, y: 2 };
 moonlightWallState.players.P1.hand = [{ instanceId: 'moonlight-wall-target', cardId: 'moonlight' }]; moonlightWallState.players.P1.merylinSummonActive = true;
@@ -1123,7 +1129,7 @@ if (moonlightWallAttack.ok) {
   assert.equal(moonlightWallAttack.state.players.P2.hp, wallTargetHp - 3, 'The second wave Square deals 3 Damage after a Wall Object target.');
 }
 
-const stingNearbyState = createHotseatTestState(false, 'merylin', 3);
+const stingNearbyState = createHotseatTestState(true, 'merylin', 3);
 stingNearbyState.phase = 'active'; stingNearbyState.activePlayerId = 'P1'; stingNearbyState.elevations = {};
 stingNearbyState.players.P1.position = { x: 2, y: 2 }; stingNearbyState.players.P2.position = { x: 4, y: 2 }; stingNearbyState.players.P3.position = { x: 7, y: 7 };
 stingNearbyState.objects = [{ id: 'sting-nearby-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 2 } }];
@@ -1137,7 +1143,7 @@ if (stingNearbyAttack.ok) {
   assert.equal(stingNearbyAttack.state.players.P1.discard.some((card) => card.instanceId === 'sting-nearby'), true, 'The nearby-enemy branch leaves the used Sting in Discard.');
 }
 
-const stingReturnState = createHotseatTestState(false, 'merylin', 2);
+const stingReturnState = createHotseatTestState(true, 'merylin', 2);
 stingReturnState.phase = 'active'; stingReturnState.activePlayerId = 'P1'; stingReturnState.elevations = {};
 stingReturnState.players.P1.position = { x: 2, y: 2 }; stingReturnState.players.P2.position = { x: 7, y: 7 };
 stingReturnState.objects = [{ id: 'sting-return-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 2 } }];
@@ -1149,7 +1155,7 @@ if (stingReturnAttack.ok) {
   assert.equal(stingReturnAttack.state.players.P1.merylinSummonActive, false, 'Returning Sting does not grant a new Summon.');
 }
 
-const lightbringerState = createHotseatTestState(false, 'merylin', 2);
+const lightbringerState = createHotseatTestState(true, 'merylin', 2);
 lightbringerState.phase = 'active'; lightbringerState.activePlayerId = 'P1'; lightbringerState.objects = [];
 lightbringerState.players.P1.position = { x: 2, y: 2 }; lightbringerState.players.P2.position = { x: 3, y: 2 };
 lightbringerState.elevations = { C3: 1 };
@@ -1163,7 +1169,7 @@ if (lightbringerSwap.ok) {
   assert.equal(lightbringerSwap.state.pendingAttack?.attackModifiers?.some((modifier) => modifier.value === 2 && modifier.source.includes('High Ground')), true, 'Lightbringer records its High Ground x2 as one additive +2 modifier.');
 }
 
-const frostmourneState = createHotseatTestState(false, 'merylin', 2);
+const frostmourneState = createHotseatTestState(true, 'merylin', 2);
 frostmourneState.phase = 'active'; frostmourneState.activePlayerId = 'P1'; frostmourneState.objects = []; frostmourneState.elevations = {};
 frostmourneState.players.P1.position = { x: 2, y: 2 }; frostmourneState.players.P2.position = { x: 3, y: 2 };
 frostmourneState.players.P1.hand = [{ instanceId: 'frostmourne-use', cardId: 'frostmourne' }]; frostmourneState.players.P1.deck = []; frostmourneState.players.P1.discard = []; frostmourneState.players.P1.merylinSummonActive = true;
@@ -1188,7 +1194,7 @@ if (frostmourneAttack.ok) {
   }
 }
 
-const decisiveBlockState = createHotseatTestState(false, 'merylin', 2);
+const decisiveBlockState = createHotseatTestState(true, 'merylin', 2);
 decisiveBlockState.phase = 'active'; decisiveBlockState.activePlayerId = 'P1'; decisiveBlockState.objects = []; decisiveBlockState.elevations = {};
 decisiveBlockState.players.P1.position = { x: 2, y: 2 }; decisiveBlockState.players.P2.position = { x: 3, y: 2 };
 decisiveBlockState.players.P1.hand = [{ instanceId: 'decisive-frostmourne', cardId: 'frostmourne' }]; decisiveBlockState.players.P1.merylinSummonActive = true;
@@ -1405,10 +1411,11 @@ if (oracleForcedAttack.ok) {
   if (forcedOracle.ok) assert.equal(forcedOracle.state.combatReveal?.defendBase, 1, 'Forced Oracle Defends with its current base Value of 1.');
 }
 
-const carianLevelOneState = createHotseatTestState(false, 'merylin', 2);
+const carianLevelOneState = createHotseatTestState(true, 'merylin', 2);
 carianLevelOneState.phase = 'active'; carianLevelOneState.activePlayerId = 'P1';
 carianLevelOneState.players.P1.deck = [{ instanceId: 'carian-draw', cardId: 'defend-1' }];
-const carianLevelOne = applyGameCommand(carianLevelOneState, { type: 'play-perk', playerId: 'P1', cardInstanceId: carianLevelOneState.players.P1.hand[0].instanceId, destination: 'direct' });
+const carianLevelOneCard = ensureCardInHand(carianLevelOneState, 'P1', 'carian-stance');
+const carianLevelOne = applyGameCommand(carianLevelOneState, { type: 'play-perk', playerId: 'P1', cardInstanceId: carianLevelOneCard.instanceId, destination: 'direct' });
 assert.equal(carianLevelOne.ok, true);
 if (carianLevelOne.ok) {
   assert.equal(carianLevelOne.state.players.P1.hand.some((card) => card.instanceId === 'carian-draw'), true, 'Carian Stance level 1 draws 1 Card.');
@@ -1416,7 +1423,7 @@ if (carianLevelOne.ok) {
   assert.equal(carianLevelOne.state.players.P1.merylinSummonedDefenseBonus ?? 0, 0, 'Level 1 does not grant the level 2 DEF bonus.');
 }
 
-const windwalkerLevelOneState = createHotseatTestState(false, 'merylin', 2);
+const windwalkerLevelOneState = createHotseatTestState(true, 'merylin', 2);
 windwalkerLevelOneState.phase = 'active'; windwalkerLevelOneState.activePlayerId = 'P1';
 const windwalkerInHand = ensureCardInHand(windwalkerLevelOneState, 'P1', 'windwalker-stance');
 const windwalkerLevelOne = applyGameCommand(windwalkerLevelOneState, { type: 'play-perk', playerId: 'P1', cardInstanceId: windwalkerInHand.instanceId, destination: 'direct' });
@@ -1429,7 +1436,7 @@ if (windwalkerLevelOne.ok) {
   assert.equal(windwalkerLevelOne.state.players.P1.windwalkerUnrestrictedMovement, undefined, 'Level 1 does not grant unrestricted movement.');
 }
 
-const windwalkerLevelThreeState = createHotseatTestState(false, 'merylin', 2);
+const windwalkerLevelThreeState = createHotseatTestState(true, 'merylin', 2);
 windwalkerLevelThreeState.phase = 'active'; windwalkerLevelThreeState.activePlayerId = 'P1'; windwalkerLevelThreeState.elevations = { B1: 1, C1: -1, D1: 1 };
 windwalkerLevelThreeState.players.P1.position = { x: 1, y: 0 }; windwalkerLevelThreeState.players.P1.movementRemaining = 4; windwalkerLevelThreeState.players.P1.freeMoveUsed = true;
 windwalkerLevelThreeState.players.P2.position = { x: 3, y: 0 };
@@ -1449,7 +1456,7 @@ if (windwalkerLevelThree.ok) {
   }
 }
 
-const carianLevelThreeState = createHotseatTestState(false, 'merylin', 2);
+const carianLevelThreeState = createHotseatTestState(true, 'merylin', 2);
 carianLevelThreeState.phase = 'active'; carianLevelThreeState.activePlayerId = 'P1';
 carianLevelThreeState.players.P1.hand = [];
 carianLevelThreeState.players.P1.spellEcho = [null, null, { instanceId: 'carian-level-three', cardId: 'carian-stance' }];
@@ -1462,7 +1469,7 @@ if (carianLevelThree.ok) {
   assert.equal(carianLevelThree.state.players.P1.merylinSummonedDefenseBonus, 1, 'Level 3 includes the level 2 while-Summoned DEF bonus.');
 }
 
-const carianNoSpentMovementState = createHotseatTestState(false, 'merylin', 2);
+const carianNoSpentMovementState = createHotseatTestState(true, 'merylin', 2);
 carianNoSpentMovementState.phase = 'active'; carianNoSpentMovementState.activePlayerId = 'P1';
 carianNoSpentMovementState.players.P1.hand = []; carianNoSpentMovementState.players.P1.movementRemaining = 2;
 carianNoSpentMovementState.players.P1.spellEcho = [null, null, { instanceId: 'carian-no-spent-movement', cardId: 'carian-stance' }];
@@ -1470,7 +1477,7 @@ const carianNoSpentMovement = applyGameCommand(carianNoSpentMovementState, { typ
 assert.equal(carianNoSpentMovement.ok, true);
 if (carianNoSpentMovement.ok) assert.equal(carianNoSpentMovement.state.players.P1.movementRemaining, 2, 'Carian Stance level 3 does not add MOV when none was previously spent.');
 
-const carianConsumeState = createHotseatTestState(false, 'merylin', 2);
+const carianConsumeState = createHotseatTestState(true, 'merylin', 2);
 carianConsumeState.phase = 'active'; carianConsumeState.activePlayerId = 'P1'; carianConsumeState.objects = [];
 carianConsumeState.players.P1.position = { x: 2, y: 2 }; carianConsumeState.players.P2.position = { x: 3, y: 2 };
 carianConsumeState.players.P1.hand = [{ instanceId: 'carian-enabled-attack', cardId: 'attack-2' }];
@@ -1487,7 +1494,7 @@ if (carianLevelTwo.ok) {
   }
 }
 
-const barbarianState = createHotseatTestState(false, 'merylin', 2);
+const barbarianState = createHotseatTestState(true, 'merylin', 2);
 barbarianState.phase = 'active'; barbarianState.activePlayerId = 'P1'; barbarianState.objects = [];
 barbarianState.players.P1.position = { x: 2, y: 2 }; barbarianState.players.P2.position = { x: 3, y: 2 };
 barbarianState.players.P1.freeMoveUsed = true; barbarianState.players.P1.movementRemaining = 2;
@@ -1499,7 +1506,7 @@ if (barbarianOne.ok) {
   assert.equal(barbarianOne.state.players.P1.barbarianNextAttackBonus, 1, 'Level 1 stores +1 ATT until an Attack is used.');
 }
 
-const barbarianTwoState = createHotseatTestState(false, 'merylin', 2);
+const barbarianTwoState = createHotseatTestState(true, 'merylin', 2);
 barbarianTwoState.phase = 'active'; barbarianTwoState.activePlayerId = 'P1'; barbarianTwoState.objects = [];
 barbarianTwoState.players.P1.position = { x: 2, y: 2 }; barbarianTwoState.players.P2.position = { x: 3, y: 2 };
 barbarianTwoState.players.P1.freeMoveUsed = true; barbarianTwoState.players.P1.movementRemaining = 2; barbarianTwoState.players.P1.barbarianNextAttackBonus = 1;
@@ -1518,12 +1525,12 @@ if (barbarianTwo.ok) {
   }
 }
 
-const barbarianThreeSpent = createHotseatTestState(false, 'merylin', 2);
+const barbarianThreeSpent = createHotseatTestState(true, 'merylin', 2);
 barbarianThreeSpent.phase = 'active'; barbarianThreeSpent.activePlayerId = 'P1'; barbarianThreeSpent.players.P1.freeMoveUsed = true; barbarianThreeSpent.players.P1.movementRemaining = 0;
 barbarianThreeSpent.players.P1.spellEcho = [null, null, { instanceId: 'barbarian-three-spent', cardId: 'barbarian-stance' }];
 assert.equal(applyGameCommand(barbarianThreeSpent, { type: 'use-echo-perk', playerId: 'P1', position: 3 }).ok, false, 'Barbarian Stance Level 3 cannot be used after all MOV is spent.');
 
-const barbarianThreeState = createHotseatTestState(false, 'merylin', 2);
+const barbarianThreeState = createHotseatTestState(true, 'merylin', 2);
 barbarianThreeState.phase = 'active'; barbarianThreeState.activePlayerId = 'P1'; barbarianThreeState.players.P1.freeMoveUsed = true; barbarianThreeState.players.P1.movementRemaining = 1;
 barbarianThreeState.players.P1.hand.push({ instanceId: 'barbarian-pinned', cardId: 'pinned' }); barbarianThreeState.players.P1.hexMovementPenalty = 1;
 barbarianThreeState.players.P1.spellEcho = [null, null, { instanceId: 'barbarian-three', cardId: 'barbarian-stance' }];
@@ -1535,7 +1542,7 @@ if (barbarianThree.ok) {
   assert.equal(barbarianThree.state.players.P1.movementRemaining, 2, 'Level 3 restores all MOV after ignoring negative MOV effects.');
 }
 
-const kamelotAttackState = createHotseatTestState(false, 'merylin', 2);
+const kamelotAttackState = createHotseatTestState(true, 'merylin', 2);
 kamelotAttackState.phase = 'active'; kamelotAttackState.activePlayerId = 'P1'; kamelotAttackState.objects = [];
 kamelotAttackState.players.P1.position = { x: 4, y: 3 }; kamelotAttackState.players.P2.position = { x: 3, y: 3 };
 kamelotAttackState.players.P1.merylinSummonActive = true;
@@ -1552,7 +1559,7 @@ if (kamelotOne.ok) {
   }
 }
 
-const kamelotBaseState = createHotseatTestState(false, 'merylin', 2);
+const kamelotBaseState = createHotseatTestState(true, 'merylin', 2);
 kamelotBaseState.phase = 'active'; kamelotBaseState.activePlayerId = 'P2'; kamelotBaseState.objects = [];
 kamelotBaseState.players.P1.position = { x: 1, y: 3 }; kamelotBaseState.players.P2.position = { x: 2, y: 3 };
 kamelotBaseState.players.P1.kamelotDoubleSquareBonuses = true;
@@ -1563,14 +1570,14 @@ const kamelotBaseDefense = kamelotBaseAttack.ok ? applyGameCommand(kamelotBaseAt
 assert.equal(kamelotBaseDefense.ok, true);
 if (kamelotBaseDefense.ok) assert.equal(kamelotBaseDefense.state.combatReveal?.defendTotal, 3, 'Kamelot doubles the owned Base Square DEF bonus from +1 to +2.');
 
-const kamelotDrawState = createHotseatTestState(false, 'merylin', 2);
+const kamelotDrawState = createHotseatTestState(true, 'merylin', 2);
 kamelotDrawState.phase = 'active'; kamelotDrawState.activePlayerId = 'P2'; kamelotDrawState.players.P1.position = { x: 4, y: 0 };
 kamelotDrawState.players.P1.kamelotDoubleSquareBonuses = true; kamelotDrawState.players.P1.deck = [{ instanceId: 'kamelot-draw-one', cardId: 'attack-2' }, { instanceId: 'kamelot-draw-two', cardId: 'attack-3' }]; kamelotDrawState.players.P1.hand = [];
 const kamelotDrawTurn = applyGameCommand(kamelotDrawState, { type: 'end-turn', playerId: 'P2' });
 assert.equal(kamelotDrawTurn.ok, true);
 if (kamelotDrawTurn.ok) assert.equal(kamelotDrawTurn.state.players.P1.hand.length, 2, 'Kamelot doubles a draw Square from +1 Card to +2 Cards at turn start.');
 
-const kamelotZoneState = createHotseatTestState(false, 'merylin', 2);
+const kamelotZoneState = createHotseatTestState(true, 'merylin', 2);
 kamelotZoneState.phase = 'active'; kamelotZoneState.activePlayerId = 'P1'; kamelotZoneState.objects = [];
 kamelotZoneState.players.P1.position = { x: 3, y: 0 }; kamelotZoneState.players.P2.position = { x: 4, y: 0 };
 kamelotZoneState.players.P1.spellEcho = [null, null, { instanceId: 'kamelot-three', cardId: 'kamelot-stance' }];
@@ -1587,7 +1594,7 @@ if (kamelotThree.ok) {
   }
 }
 
-const spellsingerOneState = createHotseatTestState(false, 'merylin', 2);
+const spellsingerOneState = createHotseatTestState(true, 'merylin', 2);
 spellsingerOneState.phase = 'active'; spellsingerOneState.activePlayerId = 'P1';
 spellsingerOneState.players.P1.hand = [{ instanceId: 'spellsinger-one', cardId: 'spellsinger-stance' }, { instanceId: 'spellsinger-followup', cardId: 'carian-stance' }];
 spellsingerOneState.players.P1.deck = [{ instanceId: 'spellsinger-known', cardId: 'excalibur' }];
@@ -1601,7 +1608,7 @@ if (spellsingerOne.ok) {
   if (followupPerk.ok) assert.equal(followupPerk.state.players.P1.spellsingerExtraPerkUses, 0, 'The second Perk consumes the allowance.');
 }
 
-const spellsingerTwoState = createHotseatTestState(false, 'merylin', 2);
+const spellsingerTwoState = createHotseatTestState(true, 'merylin', 2);
 spellsingerTwoState.phase = 'active'; spellsingerTwoState.activePlayerId = 'P1';
 spellsingerTwoState.players.P1.deck = [{ instanceId: 'spell-deep', cardId: 'moonlight' }, { instanceId: 'spell-top', cardId: 'excalibur' }];
 spellsingerTwoState.players.P1.spellEcho = [null, { instanceId: 'spellsinger-two', cardId: 'spellsinger-stance' }, null];
@@ -1612,7 +1619,7 @@ if (spellsingerTwo.ok) {
   assert.equal(spellsingerTwo.state.players.P1.merylinSummonActive, true, 'Spellsinger Level 2 grants Summon.');
 }
 
-const spellsingerThreeState = createHotseatTestState(false, 'merylin', 2);
+const spellsingerThreeState = createHotseatTestState(true, 'merylin', 2);
 spellsingerThreeState.phase = 'active'; spellsingerThreeState.activePlayerId = 'P1'; spellsingerThreeState.objects = [];
 spellsingerThreeState.players.P1.position = { x: 2, y: 2 }; spellsingerThreeState.players.P2.position = { x: 3, y: 2 };
 spellsingerThreeState.players.P1.actionsRemaining = 1;
@@ -1628,7 +1635,7 @@ if (spellsingerThree.ok) {
   if (extraAttack.ok) assert.equal(extraAttack.state.players.P1.spellsingerExtraAttacks, 0, 'Using the extra Attack consumes it.');
 }
 
-const carianDefenseState = createHotseatTestState(false, 'merylin', 2);
+const carianDefenseState = createHotseatTestState(true, 'merylin', 2);
 carianDefenseState.phase = 'active'; carianDefenseState.activePlayerId = 'P2'; carianDefenseState.objects = [];
 carianDefenseState.players.P1.position = { x: 2, y: 2 }; carianDefenseState.players.P2.position = { x: 3, y: 2 };
 carianDefenseState.players.P1.hand = [{ instanceId: 'carian-defense', cardId: 'defend-1' }];
