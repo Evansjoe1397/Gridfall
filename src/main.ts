@@ -2645,7 +2645,10 @@ function updateCharacterMovement(time: number) {
     const group = dummyGroups.get(playerId);
     if (!group) return;
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
-    const eased = animation.verticalOnly ? progress * progress : group.userData.character === 'shinobi' ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
+    const constantLocomotionSpeed = group.userData.character === 'shinobi'
+      || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
+    const eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
     if (!animation.verticalOnly && !animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
@@ -3232,6 +3235,13 @@ function createDaOrkk(playerColor = 0xff5d68, previewRageStacks = 0) {
 }
 
 type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'BoxAttack';
+const ORKK_LOCOMOTION_FPS = 24;
+const ORKK_CASUAL_WALK_FRAMES = 33;
+const ORKK_CASUAL_WALK_TIME_SCALE = 1.2;
+const ORKK_WALKING_FRAMES = 24.8;
+const ORKK_WALKING_TIME_SCALE = 1.1;
+const ORKK_RUNNING_FRAMES_PER_CELL = 8;
+const ORKK_RUNNING_TIME_SCALE = 1.1;
 const ORKK_BASE_ATTACK_FPS = 24;
 const ORKK_BASE_ATTACK_END_FRAME = 45;
 const ORKK_BASE_ATTACK_IMPACT_FRAME = 23;
@@ -3244,6 +3254,26 @@ type OrkkAnimationState = {
   shieldThrowReleaseMs: number;
   shieldIdleSocketLocalQuaternion: THREE.Quaternion;
 };
+
+function orkkMovementDuration(travelSquares: number) {
+  if (travelSquares <= 1) return ORKK_CASUAL_WALK_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_CASUAL_WALK_TIME_SCALE * 1000;
+  if (travelSquares === 2) return ORKK_WALKING_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_WALKING_TIME_SCALE * 1000;
+  return travelSquares * ORKK_RUNNING_FRAMES_PER_CELL / ORKK_LOCOMOTION_FPS / ORKK_RUNNING_TIME_SCALE * 1000;
+}
+
+function alignOrkkLocomotionRoot(source: THREE.AnimationClip, idle: THREE.AnimationClip) {
+  const clip = source.clone();
+  const idleHips = idle.tracks.find((track) => track.name.endsWith('Hips.position'));
+  const movingHips = clip.tracks.find((track) => track.name.endsWith('Hips.position'));
+  if (!idleHips || !movingHips || idleHips.getValueSize() !== 3 || movingHips.getValueSize() !== 3) return clip;
+  const offsetX = idleHips.values[0] - movingHips.values[0];
+  const offsetZ = idleHips.values[2] - movingHips.values[2];
+  for (let index = 0; index < movingHips.values.length; index += 3) {
+    movingHips.values[index] += offsetX;
+    movingHips.values[index + 2] += offsetZ;
+  }
+  return clip;
+}
 
 async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
   try {
@@ -3264,8 +3294,11 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
     const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID'];
     if (required.some((name) => !clips[name])) throw new Error(`Da Orkk GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
+    const alignedCasualWalk = alignOrkkLocomotionRoot(clips.DaOrkh_Casual_Walk, clips.DaOrkh_Idle_With_Shield);
+    const alignedWalking = alignOrkkLocomotionRoot(clips.DaOrkh_Walking, clips.DaOrkh_Idle_With_Shield);
+    const alignedRunning = alignOrkkLocomotionRoot(clips.DaOrkh_Running, clips.DaOrkh_Idle_With_Shield);
     // One board square needs only the first step cycle, not the full multi-step source clip.
-    const casualWalkOneSquare = THREE.AnimationUtils.subclip(clips.DaOrkh_Casual_Walk, 'DaOrkh_Casual_Walk_One_Square', 0, 33, 24);
+    const casualWalkOneSquare = THREE.AnimationUtils.subclip(alignedCasualWalk, 'DaOrkh_Casual_Walk_One_Square', 0, ORKK_CASUAL_WALK_FRAMES, ORKK_LOCOMOTION_FPS);
     const baseAttack = THREE.AnimationUtils.subclip(
       clips.DaOrkh_Base_UUID,
       'DaOrkh_Base_UUID_45_Frames',
@@ -3278,12 +3311,15 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
       IdleWithShield: mixer.clipAction(clips.DaOrkh_Idle_With_Shield),
       IdleNoShield: mixer.clipAction(clips.DaOrkh_Idle_No_Shield),
       CasualWalk: mixer.clipAction(casualWalkOneSquare),
-      Walking: mixer.clipAction(clips.DaOrkh_Walking),
-      Running: mixer.clipAction(clips.DaOrkh_Running),
+      Walking: mixer.clipAction(alignedWalking),
+      Running: mixer.clipAction(alignedRunning),
       Encourage: mixer.clipAction(clips.DaOrkh_Skill_01),
       ShieldThrow: mixer.clipAction(clips.DaOrkh_Shield_Throw),
       BoxAttack: mixer.clipAction(baseAttack),
     };
+    actions.CasualWalk.timeScale = ORKK_CASUAL_WALK_TIME_SCALE;
+    actions.Walking.timeScale = ORKK_WALKING_TIME_SCALE;
+    actions.Running.timeScale = ORKK_RUNNING_TIME_SCALE;
     actions.Encourage.setLoop(THREE.LoopOnce, 1); actions.Encourage.clampWhenFinished = true;
     actions.ShieldThrow.setLoop(THREE.LoopOnce, 1); actions.ShieldThrow.clampWhenFinished = true;
     actions.BoxAttack.setLoop(THREE.LoopOnce, 1); actions.BoxAttack.clampWhenFinished = true;
@@ -3362,9 +3398,8 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
   state.oneShotUntil = undefined;
   if (moving) {
     const movement = movementAnimations.get(playerId);
-    const squares = movement?.path?.length ?? 1;
+    const squares = movement?.travelSquares ?? movement?.path?.length ?? 1;
     const movementName = squares >= 3 ? 'Running' : squares === 2 ? 'Walking' : 'CasualWalk';
-    if (movement) state.actions[movementName].timeScale = state.actions[movementName].getClip().duration / (movement.duration / 1000);
     playOrkkAnimation(group, movementName);
   } else {
     const equippedShield = group.getObjectByName('EquippedShield');
@@ -4968,9 +5003,11 @@ function syncBoard() {
         const visualPath = walkingPath.map(worldPosition);
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
-        const duration = character === 'shinobi' && !forced
+        const duration = !forced && character === 'shinobi'
           ? obiWanMovementDuration(travelSquares)
-          : 320 + travelSquares * 150;
+          : !forced && character === 'orkk'
+            ? orkkMovementDuration(travelSquares)
+            : 320 + travelSquares * 150;
         const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
