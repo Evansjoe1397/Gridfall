@@ -4072,6 +4072,7 @@ const swiftformPlay = applyCommand(swiftformState, { type: 'use-echo-perk', play
 assert.equal(swiftformPlay.ok, true);
 if (swiftformPlay.ok) {
   assert.equal(effectiveMoveRange(swiftformPlay.state.players.P1), 4);
+  assert.equal(swiftformPlay.state.players.P1.swiftformCanPassEnemies, true, 'Swiftform remains active for its caster so clients can render its turn-long hologram state.');
   const swiftformMove = applyCommand(swiftformPlay.state, { type: 'free-move', playerId: 'P1' });
   assert.equal(swiftformMove.ok, true);
   if (swiftformMove.ok) {
@@ -4094,7 +4095,10 @@ if (swiftformPlay.ok) {
       assert.equal(leftSameEnemyAgain.state.players.P2.hand.filter((card) => card.cardId === 'pinned').length, 1, 'Swiftform may apply Pinned only once per enemy per turn.');
       const swiftformEnd = applyCommand(leftSameEnemyAgain.state, { type: 'end-turn', playerId: 'P1' });
       assert.equal(swiftformEnd.ok, true);
-      if (swiftformEnd.ok) assert.equal(swiftformEnd.state.players.P1.lightsaberBuff, true, 'Swiftform level 3 must grant Lightsaber even after movement.');
+      if (swiftformEnd.ok) {
+        assert.equal(swiftformEnd.state.players.P1.lightsaberBuff, true, 'Swiftform level 3 must grant Lightsaber even after movement.');
+        assert.equal(swiftformEnd.state.players.P1.swiftformCanPassEnemies, false, 'Swiftform and its hologram state expire when the caster finishes the turn.');
+      }
     }
   }
 }

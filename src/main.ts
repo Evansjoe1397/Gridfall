@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
 import { LORDAERON_ARENA, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaDefinition, type ArenaId } from '../shared/arenas.ts';
@@ -30,6 +34,7 @@ import {
   diagonalMovementBlockedByObject,
   effectiveMoveRange,
   effectiveAttackRange,
+  forcePowerActionEventForCommand,
   hasLineOfSight,
   hasReplicaPlacementLineOfSight,
   isNegativeStatusCard,
@@ -53,6 +58,7 @@ import {
   type Cell,
   type GameCommand,
   type GameState,
+  type ForcePowerActionEvent,
   type OrkkActionEvent,
   type WizardActionEvent,
   type PlayerId,
@@ -103,6 +109,11 @@ app.innerHTML = `
         <div class="character-browser-layout">
           <div class="character-preview-stage" id="characterPreviewStage">
             <div class="character-preview-canvas" id="characterPreviewCanvas" aria-label="Rotatable character model"></div>
+            <div class="character-preview-styles" id="characterPreviewStyles" role="group" aria-label="Character preview style">
+              <button type="button" data-character-preview-style="solid" aria-pressed="true"><span class="solid"></span>Solid</button>
+              <button type="button" data-character-preview-style="cartoon" aria-pressed="false"><span class="cartoon"></span>Cartoon</button>
+              <button type="button" data-character-preview-style="hologram" aria-pressed="false"><span class="hologram"></span>Hologram</button>
+            </div>
             <span class="character-preview-hint">DRAG TO ROTATE · SCROLL TO ZOOM</span>
           </div>
           <article class="character-browser-profile" id="characterBrowserProfile"></article>
@@ -171,6 +182,12 @@ type WizardPowerVisualIntent =
   | { kind: 'resolve'; playerId: PlayerId }
   | { kind: 'cancel'; playerId: PlayerId };
 let pendingOnlineWizardPowerVisualIntent: WizardPowerVisualIntent | null = null;
+type ObiWanPowerVisualIntent =
+  | { kind: 'start'; playerId: PlayerId }
+  | { kind: 'target'; playerId: PlayerId; target: THREE.Vector3; targetKind: 'player' | 'object'; targetId: string; resolves: boolean }
+  | { kind: 'resolve'; playerId: PlayerId }
+  | { kind: 'cancel'; playerId: PlayerId };
+let pendingOnlineObiWanPowerVisualIntents: ObiWanPowerVisualIntent[] = [];
 type OrkkVisualIntent = { playerId: PlayerId; animation: 'Encourage' | 'ShieldThrow'; target?: THREE.Vector3 };
 let pendingOnlineOrkkVisualIntent: OrkkVisualIntent | null = null;
 selection.subscribe(() => renderUI());
@@ -500,6 +517,9 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.onMessage('wizard-action', (event: WizardActionEvent) => {
       pendingOnlineWizardPowerVisualIntent = wizardPowerVisualIntentForAction(event);
     });
+    room.onMessage('force-power-action', (event: ForcePowerActionEvent) => {
+      pendingOnlineObiWanPowerVisualIntents.push(obiWanPowerVisualIntentForAction(event));
+    });
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const arenaChanged = gameState.boardSize !== state.boardSize;
@@ -516,17 +536,26 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       selection.send({ type: 'CLEAR' });
       const powerVisualIntent = pendingOnlineWizardPowerVisualIntent;
       pendingOnlineWizardPowerVisualIntent = null;
+      const obiWanPowerVisualIntents = pendingOnlineObiWanPowerVisualIntents;
+      pendingOnlineObiWanPowerVisualIntents = [];
       const orkkVisualIntent = pendingOnlineOrkkVisualIntent;
       pendingOnlineOrkkVisualIntent = null;
       if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
       lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
       if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
-      requestAnimationFrame(() => {
+      obiWanPowerVisualIntents.forEach(applyObiWanPowerVisualIntent);
+      if (shouldFitCamera) requestAnimationFrame(() => {
         resize();
-        if (shouldFitCamera) fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
+        fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
       });
     });
-    room.onMessage('error', (message: string) => { pendingOnlineWizardPowerVisualIntent = null; pendingOnlineOrkkVisualIntent = null; notify(message); });
+    room.onMessage('error', (message: string) => {
+      pendingOnlineWizardPowerVisualIntent = null;
+      pendingOnlineObiWanPowerVisualIntents = [];
+      pendingOnlineOrkkVisualIntent = null;
+      if (localSeat) pendingMovementCancellationTargets.delete(localSeat);
+      notify(message);
+    });
     room.onMessage('notice', (message: string) => notify(message));
     room.send('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
@@ -703,6 +732,25 @@ function wizardPowerVisualIntentForAction(event: WizardActionEvent): WizardPower
   return { kind: 'cast', playerId: event.playerId, target: worldPosition(event.target), hold: event.hold, targetKind: event.targetKind, targetId: event.targetId };
 }
 
+function obiWanPowerVisualIntentForCommand(state: GameState, command: GameCommand): ObiWanPowerVisualIntent | null {
+  const event = forcePowerActionEventForCommand(state, command);
+  return event ? obiWanPowerVisualIntentForAction(event) : null;
+}
+
+function obiWanPowerVisualIntentForAction(event: ForcePowerActionEvent): ObiWanPowerVisualIntent {
+  if (event.action === 'power-started') return { kind: 'start', playerId: event.playerId };
+  if (event.action === 'power-resolved') return { kind: 'resolve', playerId: event.playerId };
+  if (event.action === 'targeting-cancelled') return { kind: 'cancel', playerId: event.playerId };
+  return {
+    kind: 'target',
+    playerId: event.playerId,
+    target: worldPosition(event.target),
+    targetKind: event.targetKind,
+    targetId: event.targetId,
+    resolves: event.resolves,
+  };
+}
+
 function orkkVisualIntentForCommand(state: GameState, command: GameCommand): OrkkVisualIntent | null {
   const event = orkkActionEventForCommand(state, command);
   return event ? orkkVisualIntentForAction(event) : null;
@@ -716,9 +764,12 @@ function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
 
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
+  const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
+  const movementCancellationTarget = command.type === 'cancel-movement' ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
+    if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
     room.send('command', command);
     return;
   }
@@ -726,9 +777,13 @@ function dispatch(command: GameCommand) {
   if (!result.ok) return notify(result.error);
   gameState = result.state;
   selection.send({ type: 'CLEAR' });
+  if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
+  if (obiWanPowerVisualIntent && (obiWanPowerVisualIntent.kind !== 'start' || gameState.forceThrow || gameState.forcePull)) {
+    applyObiWanPowerVisualIntent(obiWanPowerVisualIntent);
+  }
 }
 
 function renderAll() {
@@ -2171,6 +2226,7 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
 camera.position.set(14.5, 18.5, 15.5);
 camera.lookAt(0, 0, 0);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+const hologramShaderTime = { value: 0 };
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -2224,9 +2280,10 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean }>();
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean }>();
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
+const pendingMovementCancellationTargets = new Map<PlayerId, string>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
 const questFlagModels = new Map<string, THREE.Group>();
@@ -2258,6 +2315,8 @@ renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab);
 renderer.domElement.addEventListener('pointerdown', onBoardClick);
 renderer.domElement.addEventListener('dblclick', onBoardDoubleClick);
 renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+let renderedBoardWidth = 0;
+let renderedBoardHeight = 0;
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(boardEl);
 resize();
@@ -2290,6 +2349,7 @@ let previousFrameTime = performance.now();
 renderer.setAnimationLoop((time) => {
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
+  hologramShaderTime.value = time / 1000;
   updateCameraMovement(deltaSeconds);
   if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
@@ -2305,12 +2365,14 @@ renderer.setAnimationLoop((time) => {
     const body = group.children[0];
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
+    updateObiWanAnimation(group, id, moving, deltaSeconds);
+    if (group.userData.character === 'shinobi') updateObiWanLightsaberLightPosition(group);
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
     if (group.userData.character === 'merylin') syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
     animateFearSigil(group, time);
-    const usesImportedAnimation = group.userData.character === 'magician' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
+    const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
@@ -2546,7 +2608,7 @@ function updateCharacterMovement(time: number) {
     const group = dummyGroups.get(playerId);
     if (!group) return;
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
-    const eased = animation.verticalOnly ? progress * progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    const eased = animation.verticalOnly ? progress * progress : group.userData.character === 'shinobi' ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
     if (!animation.verticalOnly && !animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
@@ -2554,9 +2616,9 @@ function updateCharacterMovement(time: number) {
         group.rotation.y = characterFacingRotation(group, dx, dz);
       }
     }
-    if (!animation.verticalOnly && group.userData.character !== 'magician' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    if (!animation.verticalOnly && !group.userData.orkkAnimation && !group.userData.spectreAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
@@ -2612,6 +2674,8 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
     const spectreAnimation = group.userData.spectreAnimation as SpectreAnimationState | undefined;
     if (spectreAnimation?.oneShot) return;
+    const obiWanAnimation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    if (obiWanAnimation?.power) return;
     const shieldStillFlying = [...objectMovementAnimations.keys()].some((objectId) => {
       const object = objectGroups.get(objectId);
       const animation = objectMovementAnimations.get(objectId);
@@ -3106,8 +3170,9 @@ function createProceduralOrkkShieldObject() {
   return root;
 }
 
-function createDaOrkk(playerColor = 0xff5d68) {
+function createDaOrkk(playerColor = 0xff5d68, previewRageStacks = 0) {
   const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
+  root.userData.previewRageStacks = previewRageStacks;
   root.userData.facingSide = 'positive-z';
   const skin = new THREE.MeshStandardMaterial({ color: 0x477f3b, roughness: 0.75 });
   const iron = new THREE.MeshStandardMaterial({ color: 0x51595a, roughness: 0.35, metalness: 0.86 });
@@ -3207,6 +3272,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
       if (shieldGroup.userData.ownerId === playerId && !objectMovementAnimations.has(objectId)) settleOrkkShieldAtRest(shieldGroup);
     });
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
+    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
     const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'BoxAttack' | undefined;
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
   } catch (error) {
@@ -3349,6 +3415,7 @@ function installOrkkRageCoreGlow(root: THREE.Group, model: THREE.Group) {
   });
   const shell = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16), shellMaterial);
   shell.name = 'OrkkRageCoreShell';
+  shell.userData.preservePreviewMaterial = true;
   shell.renderOrder = 7;
   const inverseScale = effect.userData.inverseWorldScale as THREE.Vector3;
   shell.userData.baseScale = new THREE.Vector3(0.38 * inverseScale.x, 0.32 * inverseScale.y, 0.32 * inverseScale.z);
@@ -3401,7 +3468,7 @@ function installOrkkRageCoreGlow(root: THREE.Group, model: THREE.Group) {
   effect.add(light);
   socket.add(effect);
   const playerId = root.userData.playerId as PlayerId | undefined;
-  updateOrkkRageCoreGlow(root, playerId ? gameState.players[playerId]?.rageStacks ?? 0 : 0);
+  updateOrkkRageCoreGlow(root, playerId ? gameState.players[playerId]?.rageStacks ?? 0 : Number(root.userData.previewRageStacks ?? 0));
 }
 
 function updateOrkkRageCoreGlow(root: THREE.Group, rageStacks: number) {
@@ -3576,7 +3643,7 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     if (body.parent !== root) return;
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'LongHatLoganImportedModel';
-    model.scale.setScalar(1.1);
+    model.scale.setScalar(1.32);
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
@@ -3633,6 +3700,7 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     const playerId = root.userData.playerId as PlayerId | undefined;
     if (playerId && gameState.players[playerId]) syncManaOrbVisual(root, gameState.players[playerId]);
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
+    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
     const pendingPowerIntent = root.userData.pendingWizardPowerVisualIntent as WizardPowerVisualIntent | undefined;
     if (pendingPowerIntent) {
       delete root.userData.pendingWizardPowerVisualIntent;
@@ -3872,6 +3940,7 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     delete root.userData.pendingSpectreAnimation;
     playSpectreAnimation(root, pending ?? (replica ? 'Arise' : 'Idle'), 0);
     mixer.update(0);
+    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
   } catch (error) {
     console.error('Failed to load Spectre model; keeping procedural fallback.', error);
   }
@@ -4308,10 +4377,324 @@ function updateStoicShellHealAnimations(time: number) {
   }
 }
 
-function createObiWanShinobi(playerColor = 0x169bd3) {
+type ObiWanAnimationState = {
+  mixer: THREE.AnimationMixer;
+  actions: Record<string, THREE.AnimationAction>;
+  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power';
+  power?: ObiWanPowerRuntime;
+};
+
+type ObiWanPowerRuntime = {
+  phase: 'playing' | 'holding' | 'resolving';
+  targetKind?: 'player' | 'object';
+  targetId?: string;
+  resolvedAt?: number;
+};
+
+const OBI_WAN_WALK_FPS = 24;
+const OBI_WAN_WALK_TIME_SCALE = 1.2;
+const OBI_WAN_CASUAL_WALK_FRAMES = 34;
+const OBI_WAN_WALKING_FRAMES = 24.8;
+const OBI_WAN_WALKING_TIME_SCALE = 1.1;
+const OBI_WAN_RUN_TIME_SCALE = 1.1;
+const OBI_WAN_RUN_FRAMES_PER_CELL = 8;
+const OBI_WAN_RUN_FAST_TIME_SCALE = 1.1;
+const OBI_WAN_RUN_FAST_FRAMES_PER_CELL = 6;
+
+function obiWanRunningDuration(travelSquares: number) {
+  return Math.max(0, travelSquares) * OBI_WAN_RUN_FRAMES_PER_CELL / OBI_WAN_WALK_FPS / OBI_WAN_RUN_TIME_SCALE * 1000;
+}
+
+function obiWanRunFastDuration(travelSquares: number) {
+  return Math.max(0, travelSquares) * OBI_WAN_RUN_FAST_FRAMES_PER_CELL / OBI_WAN_WALK_FPS / OBI_WAN_RUN_FAST_TIME_SCALE * 1000;
+}
+
+function obiWanMovementDuration(travelSquares: number) {
+  if (travelSquares <= 1) return OBI_WAN_CASUAL_WALK_FRAMES / OBI_WAN_WALK_FPS / OBI_WAN_WALK_TIME_SCALE * 1000;
+  if (travelSquares === 2) return OBI_WAN_WALKING_FRAMES / OBI_WAN_WALK_FPS / OBI_WAN_WALKING_TIME_SCALE * 1000;
+  return travelSquares >= 5 ? obiWanRunFastDuration(travelSquares) : obiWanRunningDuration(travelSquares);
+}
+
+function alignObiWanLocomotionRoot(source: THREE.AnimationClip, idle: THREE.AnimationClip) {
+  const clip = source.clone();
+  const idleHips = idle.tracks.find((track) => track.name.endsWith('Hips.position'));
+  const movingHips = clip.tracks.find((track) => track.name.endsWith('Hips.position'));
+  if (!idleHips || !movingHips || idleHips.getValueSize() !== 3 || movingHips.getValueSize() !== 3) return clip;
+  const offsetX = idleHips.values[0] - movingHips.values[0];
+  const offsetZ = idleHips.values[2] - movingHips.values[2];
+  for (let index = 0; index < movingHips.values.length; index += 3) {
+    movingHips.values[index] += offsetX;
+    movingHips.values[index + 2] += offsetZ;
+  }
+  return clip;
+}
+
+function enhanceObiWanLightsaber(model: THREE.Group) {
+  const saber = model.getObjectByName('Lightsaber');
+  if (!saber) return;
+  let saberMesh: THREE.Mesh | undefined;
+  saber.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    saberMesh ??= child;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      material.emissive.set(0x249cff);
+      material.emissiveMap = material.map;
+      material.emissiveIntensity = 5.5;
+      material.metalness = 0.35;
+      material.roughness = 0.2;
+      material.needsUpdate = true;
+    });
+  });
+  if (!saberMesh) return;
+  saberMesh.geometry.computeBoundingBox();
+  const center = saberMesh.geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
+  const bladeLight = new THREE.PointLight(0x309dff, 0, 3.2, 2);
+  bladeLight.name = 'ObiWanLightsaberLight';
+  bladeLight.castShadow = false;
+  bladeLight.userData.activeIntensity = 5.2;
+  bladeLight.userData.bladeMesh = saberMesh;
+  bladeLight.userData.bladeCenter = center;
+  model.add(bladeLight);
+}
+
+function syncObiWanLightsaberVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
+  const visible = player.character === 'shinobi' && player.lightsaberBuff;
+  group.userData.obiWanLightsaberVisible = visible;
+  const importedLightsaber = group.getObjectByName('Lightsaber');
+  if (importedLightsaber) importedLightsaber.visible = visible;
+  const fallbackLightsaber = group.getObjectByName('ObiWanFallbackLightsaber');
+  fallbackLightsaber?.traverse((child) => {
+    if (child instanceof THREE.Mesh) child.visible = visible;
+  });
+  for (const lightName of ['ObiWanLightsaberLight', 'ObiWanFallbackLightsaberLight']) {
+    const light = group.getObjectByName(lightName) as THREE.PointLight | undefined;
+    if (light) light.intensity = visible ? Number(light.userData.activeIntensity) : 0;
+  }
+}
+
+function updateObiWanLightsaberLightPosition(group: THREE.Group) {
+  const model = group.getObjectByName('ObiWanImportedModel');
+  const light = group.getObjectByName('ObiWanLightsaberLight') as THREE.PointLight | undefined;
+  if (!model || !light) return;
+  const bladeMesh = light.userData.bladeMesh as THREE.Mesh | undefined;
+  const bladeCenter = light.userData.bladeCenter as THREE.Vector3 | undefined;
+  if (!bladeMesh || !bladeCenter) return;
+  const worldCenter = bladeMesh.localToWorld(bladeCenter.clone());
+  light.position.copy(model.worldToLocal(worldCenter));
+}
+
+function obiWanMovementCancellationTarget(state: GameState, playerId: PlayerId): Cell | null {
+  if (state.players[playerId]?.character !== 'shinobi' || state.movementUndo?.playerId !== playerId) return null;
+  try {
+    const restored = JSON.parse(state.movementUndo.stateJson) as GameState;
+    return { ...restored.players[playerId].position };
+  } catch {
+    return null;
+  }
+}
+
+function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
+  const group = dummyGroups.get(playerId);
+  if (!group) return;
+  const target = worldPosition(targetCell);
+  const from = group.position.clone();
+  from.y = target.y;
+  const travelSquares = distanceFromWorld(from, target);
+  pendingMovementCancellationTargets.set(playerId, cellLabel(targetCell));
+  movementAnimations.set(playerId, {
+    from,
+    to: target,
+    startedAt: performance.now(),
+    duration: Math.max(120, obiWanRunningDuration(travelSquares)),
+    travelSquares,
+    obiWanReturn: true,
+  });
+  const dx = target.x - from.x;
+  const dz = target.z - from.z;
+  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+  const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (!state) return;
+  state.mixer.stopAllAction();
+  state.actions.Running.reset().play();
+  state.current = 'Running';
+}
+
+let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+
+function loadObiWanAsset() {
+  return obiWanAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`);
+}
+
+async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
+  try {
+    const asset = await loadObiWanAsset();
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = 'ObiWanImportedModel';
+    model.position.y = 0;
+    model.scale.setScalar(1.36);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = false;
+      child.material = Array.isArray(child.material)
+        ? child.material.map((material) => material.clone())
+        : child.material.clone();
+    });
+    disposeTemporaryCharacterBody(body);
+    body.add(model);
+    enhanceObiWanLightsaber(model);
+    const bladeLight = model.getObjectByName('ObiWanLightsaberLight') as THREE.PointLight | undefined;
+    const lightsaber = model.getObjectByName('Lightsaber');
+    if (lightsaber) lightsaber.visible = Boolean(root.userData.obiWanLightsaberVisible);
+    if (bladeLight) bladeLight.intensity = root.userData.obiWanLightsaberVisible ? Number(bladeLight.userData.activeIntensity) : 0;
+    const idleClip = asset.animations.find((clip) => clip.name === 'Idle');
+    const casualWalkClip = asset.animations.find((clip) => clip.name === 'Casual_Walk');
+    const walkingClip = asset.animations.find((clip) => clip.name === 'Walking');
+    const runningClip = asset.animations.find((clip) => clip.name === 'Running');
+    const runFastClip = asset.animations.find((clip) => clip.name === 'RunFast');
+    const powerClip = asset.animations.find((clip) => clip.name === 'Power');
+    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, and Power clips.');
+    const alignedCasualWalk = alignObiWanLocomotionRoot(casualWalkClip, idleClip);
+    const alignedWalking = alignObiWanLocomotionRoot(walkingClip, idleClip);
+    const alignedRunning = alignObiWanLocomotionRoot(runningClip, idleClip);
+    const alignedRunFast = alignObiWanLocomotionRoot(runFastClip, idleClip);
+    const oneCellWalk = THREE.AnimationUtils.subclip(alignedCasualWalk, 'CasualWalkOneCell', 0, 35, OBI_WAN_WALK_FPS);
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
+    actions.CasualWalkOneCell = mixer.clipAction(oneCellWalk);
+    actions.Walking = mixer.clipAction(alignedWalking);
+    actions.Running = mixer.clipAction(alignedRunning);
+    actions.RunFast = mixer.clipAction(alignedRunFast);
+    actions.CasualWalkOneCell.timeScale = OBI_WAN_WALK_TIME_SCALE;
+    actions.Walking.timeScale = OBI_WAN_WALKING_TIME_SCALE;
+    actions.Running.timeScale = OBI_WAN_RUN_TIME_SCALE;
+    actions.RunFast.timeScale = OBI_WAN_RUN_FAST_TIME_SCALE;
+    actions.Power.setLoop(THREE.LoopOnce, 1);
+    actions.Power.clampWhenFinished = true;
+    actions.Idle.play();
+    mixer.update(0);
+    root.userData.obiWanAnimation = { mixer, actions, current: 'Idle' } satisfies ObiWanAnimationState;
+    if (root === characterPreviewModels.get('shinobi')) applyCharacterPreviewStyle(root);
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    if (playerId && gameState.players[playerId]?.swiftformCanPassEnemies) updateSwiftformVisual(root, true);
+    const pendingPowerIntents = root.userData.pendingObiWanPowerVisualIntents as ObiWanPowerVisualIntent[] | undefined;
+    if (pendingPowerIntents) {
+      delete root.userData.pendingObiWanPowerVisualIntents;
+      pendingPowerIntents.forEach(applyObiWanPowerVisualIntent);
+    }
+  } catch (error) {
+    console.error('Failed to load Obi-Wan model; keeping procedural fallback.', error);
+  }
+}
+
+function finishObiWanPowerAnimation(state: ObiWanAnimationState) {
+  state.actions.Power.paused = false;
+  state.actions.Power.fadeOut(0.12);
+  state.actions.Idle.reset().fadeIn(0.12).play();
+  state.current = 'Idle';
+  state.power = undefined;
+}
+
+function startObiWanPowerAnimation(state: ObiWanAnimationState) {
+  if (state.power) finishObiWanPowerAnimation(state);
+  state.actions[state.current].fadeOut(0.12);
+  state.actions.Power.paused = false;
+  state.actions.Power.reset().fadeIn(0.12).play();
+  state.current = 'Power';
+  state.power = { phase: 'playing' };
+}
+
+function obiWanPowerEffectFinished(power: ObiWanPowerRuntime) {
+  if (!power.resolvedAt || performance.now() - power.resolvedAt < 120) return false;
+  if (power.targetKind === 'object' && power.targetId && objectMovementAnimations.has(power.targetId)) return false;
+  if (power.targetKind === 'player' && power.targetId && movementAnimations.has(power.targetId as PlayerId)) return false;
+  return true;
+}
+
+function applyObiWanPowerVisualIntent(intent: ObiWanPowerVisualIntent) {
+  const group = dummyGroups.get(intent.playerId);
+  if (!group) return;
+  const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (!state) {
+    const pending = group.userData.pendingObiWanPowerVisualIntents as ObiWanPowerVisualIntent[] | undefined;
+    group.userData.pendingObiWanPowerVisualIntents = [...(pending ?? []), intent];
+    return;
+  }
+  if (intent.kind === 'cancel') {
+    if (state.power) finishObiWanPowerAnimation(state);
+    return;
+  }
+  if (intent.kind === 'start') {
+    startObiWanPowerAnimation(state);
+    return;
+  }
+  if (intent.kind === 'resolve') {
+    if (state.power) {
+      state.power.phase = 'resolving';
+      state.power.resolvedAt = performance.now();
+    }
+    return;
+  }
+  const dx = intent.target.x - group.position.x;
+  const dz = intent.target.z - group.position.z;
+  if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+  if (!state.power) startObiWanPowerAnimation(state);
+  state.power!.targetKind = intent.targetKind;
+  state.power!.targetId = intent.targetId;
+  if (intent.resolves) {
+    state.power!.phase = 'resolving';
+    state.power!.resolvedAt = performance.now();
+  }
+}
+
+function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: boolean, deltaSeconds: number) {
+  const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (!state) return;
+  if (state.power) {
+    if (state.power.targetKind && state.power.targetId) {
+      const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
+      if (target) {
+        const dx = target.position.x - group.position.x;
+        const dz = target.position.z - group.position.z;
+        if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+      }
+    }
+    state.mixer.update(deltaSeconds);
+    const reachedFinalFrame = state.actions.Power.time >= state.actions.Power.getClip().duration - 1 / 60;
+    if (reachedFinalFrame) {
+      if (state.power.phase === 'playing') state.power.phase = 'holding';
+      else if (state.power.phase === 'resolving' && obiWanPowerEffectFinished(state.power)) finishObiWanPowerAnimation(state);
+    }
+    return;
+  }
+  const movement = movementAnimations.get(playerId);
+  const travelSquares = movement?.travelSquares ?? movement?.path?.length ?? 1;
+  const locomoting = moving && movement && !movement.verticalOnly && !movement.forced;
+  const next: ObiWanAnimationState['current'] = !locomoting
+    ? 'Idle'
+      : movement.obiWanReturn ? 'Running'
+      : travelSquares <= 1 ? 'CasualWalkOneCell'
+      : travelSquares === 2 ? 'Walking'
+        : travelSquares >= 5 ? 'RunFast'
+          : 'Running';
+  if (state.current !== next) {
+    state.actions[state.current].fadeOut(0.12);
+    state.actions[next].reset().fadeIn(0.12).play();
+    state.current = next;
+  }
+  state.mixer.update(deltaSeconds);
+}
+
+function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false) {
   const root = new THREE.Group();
+  root.userData.obiWanLightsaberVisible = previewLightsaber;
   const body = new THREE.Group();
+  body.name = 'ObiWanBody';
   root.add(body);
+  root.userData.facingSide = 'positive-z';
   const robe = new THREE.MeshStandardMaterial({ color: 0xb8aa8c, roughness: 0.82 });
   const underRobe = new THREE.MeshStandardMaterial({ color: 0x514a40, roughness: 0.88 });
   const cloak = new THREE.MeshStandardMaterial({ color: 0x292d2d, roughness: 0.92, side: THREE.DoubleSide });
@@ -4350,20 +4733,28 @@ function createObiWanShinobi(playerColor = 0x169bd3) {
   const saberArm = add(new THREE.CapsuleGeometry(0.095, 0.55, 6, 12), robe, [0.38, 1.18, -0.01]);
   saberArm.rotation.z = 0.58;
   add(new THREE.SphereGeometry(0.11, 14, 10), skin, [0.55, 0.96, -0.01]);
-  const hilt = add(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 16), metal, [0.64, 1.15, -0.01]);
+  const fallbackLightsaber = new THREE.Group();
+  fallbackLightsaber.name = 'ObiWanFallbackLightsaber';
+  body.add(fallbackLightsaber);
+  const hilt = add(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 16), metal, [0.64, 1.15, -0.01], fallbackLightsaber);
   hilt.rotation.z = -0.52;
-  const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberBlue, [0.99, 1.85, -0.01]);
+  const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberBlue, [0.99, 1.85, -0.01], fallbackLightsaber);
   blade.rotation.z = -0.52;
   const bladeGlow = new THREE.PointLight(0x229dff, 2.8, 3.2);
+  bladeGlow.name = 'ObiWanFallbackLightsaberLight';
+  bladeGlow.userData.activeIntensity = 2.8;
+  bladeGlow.intensity = 0;
   bladeGlow.position.set(0.9, 1.65, 0);
-  body.add(bladeGlow);
+  fallbackLightsaber.add(bladeGlow);
+  fallbackLightsaber.traverse((child) => {
+    if (child instanceof THREE.Mesh) child.visible = previewLightsaber;
+  });
+  bladeGlow.intensity = previewLightsaber ? Number(bladeGlow.userData.activeIntensity) : 0;
 
   for (const side of [-1, 1]) {
     const leg = add(new THREE.CapsuleGeometry(0.11, 0.52, 5, 10), underRobe, [side * 0.15, 0.32, 0]);
     leg.rotation.z = side * 0.05;
   }
-  const baseMaterial = new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65, roughness: 0.3, metalness: 0.25 });
-  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), baseMaterial, [0, 0.1, 0], root);
   const targetRing = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
   targetRing.name = 'TargetRing';
   targetRing.rotation.x = -Math.PI / 2;
@@ -4371,6 +4762,7 @@ function createObiWanShinobi(playerColor = 0x169bd3) {
   targetRing.visible = false;
   root.add(targetRing);
   root.userData.player = true;
+  attachObiWanModel(root, body);
   return root;
 }
 
@@ -4515,26 +4907,42 @@ function syncBoard() {
       group.position.copy(target);
       faceCharacterTowardNearestOpponent(group, id);
     } else if (previousKey !== targetKey) {
-      const from = group.position.clone();
-      from.y = target.y;
-      const previousCell = { x: previousKey.charCodeAt(0) - 64, y: Number(previousKey.slice(1)) - 1 };
-      const recordedMovement = gameState.players[id].visualMovement;
-      const recordedPathMatches = recordedMovement
-        && cellLabel(recordedMovement.from) === previousKey
-        && recordedMovement.path.length > 0
-        && cellLabel(recordedMovement.path[recordedMovement.path.length - 1]) === targetKey;
-      const shouldFollowWalkingPath = id === gameState.activePlayerId && (gameState.phase === 'active' || gameState.phase === 'dashing');
-      const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
-      const visualPath = walkingPath.map(worldPosition);
-      const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
-      const movement = { playerId: id, from, to: target.clone(), duration: 320 + travelSquares * 150, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced: gameState.players[id].visualMovementCause === 'enemy-ability' };
-      if (recordedMovement?.triggerAnimationId) {
-        const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
-        queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
-        impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
+      const cancellationReturn = character === 'shinobi' && (
+        gameState.players[id].visualMovementCause === 'movement-cancelled'
+        || pendingMovementCancellationTargets.get(id) === targetKey
+      );
+      if (cancellationReturn) {
+        const existingReturn = movementAnimations.get(id);
+        if (existingReturn?.obiWanReturn) existingReturn.to.copy(target);
+        else beginObiWanCancellationReturn(id, cell);
+        pendingMovementCancellationTargets.delete(id);
+        delete gameState.players[id].visualMovementCause;
+      } else {
+        const from = group.position.clone();
+        from.y = target.y;
+        const previousCell = { x: previousKey.charCodeAt(0) - 64, y: Number(previousKey.slice(1)) - 1 };
+        const recordedMovement = gameState.players[id].visualMovement;
+        const recordedPathMatches = recordedMovement
+          && cellLabel(recordedMovement.from) === previousKey
+          && recordedMovement.path.length > 0
+          && cellLabel(recordedMovement.path[recordedMovement.path.length - 1]) === targetKey;
+        const shouldFollowWalkingPath = id === gameState.activePlayerId && (gameState.phase === 'active' || gameState.phase === 'dashing');
+        const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
+        const visualPath = walkingPath.map(worldPosition);
+        const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
+        const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
+        const duration = character === 'shinobi' && !forced
+          ? obiWanMovementDuration(travelSquares)
+          : 320 + travelSquares * 150;
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced };
+        if (recordedMovement?.triggerAnimationId) {
+          const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
+          queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
+          impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
+        }
+        else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
+        delete gameState.players[id].visualMovementCause;
       }
-      else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
-      delete gameState.players[id].visualMovementCause;
     } else if (!movementAnimations.has(id) && Math.abs(group.position.y - target.y) > 0.001) {
       movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: 280, verticalOnly: true });
     }
@@ -4545,12 +4953,13 @@ function syncBoard() {
       && gameState.objects.some((object) => object.id === event.objectId && object.ownerId === id)
       && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     if (equippedShield) equippedShield.visible = (gameState.players[id].shieldEquipped && !recallInFlight) || throwInFlight;
-    updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies, id === 'P1' ? 0x45c8ff : 0xff5d68);
+    updateSwiftformVisual(group, gameState.players[id].character === 'shinobi' && gameState.players[id].swiftformCanPassEnemies);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
     syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
+    syncObiWanLightsaberVisual(group, gameState.players[id]);
     syncWrecknaPhylacteryVisuals(group, id);
     syncManaConsumeAnimation(id, group);
     group.traverse((child) => { child.userData.playerId = id; });
@@ -4778,47 +5187,35 @@ function syncCaptureTheFlagVisual() {
   }
 }
 
-function updateSwiftformVisual(group: THREE.Group, active: boolean, playerColor: number) {
-  group.traverse((child) => {
+type SwiftformHologramMaterialSet = {
+  original: THREE.Material | THREE.Material[];
+  hologram: THREE.Material | THREE.Material[];
+  castShadow: boolean;
+};
+const swiftformHologramMaterials = new WeakMap<THREE.Mesh, SwiftformHologramMaterialSet>();
+
+function updateSwiftformVisual(group: THREE.Group, active: boolean) {
+  const wasActive = group.userData.swiftformHologramActive === true;
+  if (!active && !wasActive) return;
+  const model = group.getObjectByName('ObiWanImportedModel') ?? group.getObjectByName('ObiWanBody');
+  model?.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    for (const material of materials) {
-      if (!(material instanceof THREE.MeshStandardMaterial)) continue;
-      if (!material.userData.swiftformOriginal) {
-        material.userData.swiftformOriginal = {
-          transparent: material.transparent,
-          opacity: material.opacity,
-          depthWrite: material.depthWrite,
-          emissive: material.emissive.getHex(),
-          emissiveIntensity: material.emissiveIntensity,
-        };
-      }
-      const original = material.userData.swiftformOriginal as { transparent: boolean; opacity: number; depthWrite: boolean; emissive: number; emissiveIntensity: number };
-      if (active) {
-        material.transparent = true;
-        material.opacity = 0.72;
-        material.depthWrite = false;
-        material.emissive.setHex(playerColor);
-        material.emissiveIntensity = 1.15;
-      } else {
-        material.transparent = original.transparent;
-        material.opacity = original.opacity;
-        material.depthWrite = original.depthWrite;
-        material.emissive.setHex(original.emissive);
-        material.emissiveIntensity = original.emissiveIntensity;
-      }
-      material.needsUpdate = true;
+    let materials = swiftformHologramMaterials.get(child);
+    if (!materials) {
+      if (!active) return;
+      materials = {
+        original: child.material,
+        hologram: characterStyledMaterial(child.material, 'hologram'),
+        castShadow: child.castShadow,
+      };
+      swiftformHologramMaterials.set(child, materials);
     }
+    child.material = active ? materials.hologram : materials.original;
+    child.castShadow = active ? false : materials.castShadow;
   });
-  let glow = group.getObjectByName('SwiftformGlow') as THREE.PointLight | undefined;
-  if (!glow) {
-    glow = new THREE.PointLight(playerColor, 0, 4.5);
-    glow.name = 'SwiftformGlow';
-    glow.position.set(0, 1.05, 0);
-    group.add(glow);
-  }
-  glow.color.setHex(playerColor);
-  glow.intensity = active ? 4.2 : 0;
+  group.userData.swiftformHologramActive = active;
+  const oldGlow = group.getObjectByName('SwiftformGlow') as THREE.PointLight | undefined;
+  if (oldGlow) oldGlow.intensity = 0;
 }
 
 function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
@@ -5471,6 +5868,9 @@ function onBoardDoubleClick(event: MouseEvent) {
 function resize() {
   const width = boardEl.clientWidth; const height = boardEl.clientHeight;
   if (width < 1 || height < 1) return;
+  if (width === renderedBoardWidth && height === renderedBoardHeight) return;
+  renderedBoardWidth = width;
+  renderedBoardHeight = height;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
   fitCameraToArena(visualBoardWidth(), visualBoardHeight());
 }
@@ -5483,7 +5883,28 @@ let characterPreviewScene: THREE.Scene | null = null;
 let characterPreviewCamera: THREE.PerspectiveCamera | null = null;
 let characterPreviewControls: OrbitControls | null = null;
 let characterPreviewModel: THREE.Group | null = null;
+let characterPreviewComposer: EffectComposer | null = null;
+let characterPreviewOutlinePass: OutlinePass | null = null;
 const characterPreviewModels = new Map<SelectableCharacter, THREE.Group>();
+type CharacterPreviewStyle = 'solid' | 'cartoon' | 'hologram';
+type CharacterPreviewMaterialSet = {
+  original: THREE.Material | THREE.Material[];
+  cartoon: THREE.Material | THREE.Material[];
+  hologram: THREE.Material | THREE.Material[];
+  castShadow: boolean;
+};
+let characterPreviewStyle: CharacterPreviewStyle = 'solid';
+const characterPreviewMaterials = new WeakMap<THREE.Mesh, CharacterPreviewMaterialSet>();
+const characterPreviewToonGradient = new THREE.DataTexture(new Uint8Array([
+  38, 38, 38, 255,
+  105, 105, 105, 255,
+  180, 180, 180, 255,
+  255, 255, 255, 255,
+]), 4, 1, THREE.RGBAFormat);
+characterPreviewToonGradient.minFilter = THREE.NearestFilter;
+characterPreviewToonGradient.magFilter = THREE.NearestFilter;
+characterPreviewToonGradient.generateMipmaps = false;
+characterPreviewToonGradient.needsUpdate = true;
 
 function initializeCharacterBrowser() {
   const tabs = byId('characterBrowserTabs');
@@ -5509,6 +5930,9 @@ function initializeCharacterBrowser() {
     event.preventDefault();
     perkTrack.scrollLeft += event.deltaY;
   }, { passive: false });
+  byId('characterPreviewStyles').querySelectorAll<HTMLButtonElement>('[data-character-preview-style]').forEach((button) => {
+    button.addEventListener('click', () => setCharacterPreviewStyle(button.dataset.characterPreviewStyle as CharacterPreviewStyle));
+  });
   setupCharacterPreview();
   selectBrowserCharacter(browserCharacter);
 }
@@ -5583,6 +6007,17 @@ function setupCharacterPreview() {
   characterPreviewRenderer.toneMappingExposure = 1.08;
   characterPreviewRenderer.shadowMap.enabled = true;
   characterPreviewRenderer.shadowMap.type = THREE.PCFShadowMap;
+  characterPreviewComposer = new EffectComposer(characterPreviewRenderer);
+  characterPreviewComposer.addPass(new RenderPass(characterPreviewScene, characterPreviewCamera));
+  characterPreviewOutlinePass = new OutlinePass(new THREE.Vector2(1, 1), characterPreviewScene, characterPreviewCamera);
+  characterPreviewOutlinePass.edgeStrength = 5.5;
+  characterPreviewOutlinePass.edgeThickness = 1.2;
+  characterPreviewOutlinePass.edgeGlow = 0;
+  characterPreviewOutlinePass.visibleEdgeColor.set(0x040706);
+  characterPreviewOutlinePass.hiddenEdgeColor.set(0x040706);
+  characterPreviewOutlinePass.selectedObjects = [];
+  characterPreviewComposer.addPass(characterPreviewOutlinePass);
+  characterPreviewComposer.addPass(new OutputPass());
   host.appendChild(characterPreviewRenderer.domElement);
   characterPreviewControls = new OrbitControls(characterPreviewCamera, characterPreviewRenderer.domElement);
   characterPreviewControls.enableDamping = true;
@@ -5605,7 +6040,7 @@ function setupCharacterPreview() {
     if (!characterPreviewRenderer || !characterPreviewCamera) return;
     const width = host.clientWidth; const height = host.clientHeight;
     if (width < 1 || height < 1) return;
-    characterPreviewRenderer.setSize(width, height, false); characterPreviewCamera.aspect = width / height; characterPreviewCamera.updateProjectionMatrix();
+    characterPreviewRenderer.setSize(width, height, false); characterPreviewComposer?.setSize(width, height); characterPreviewCamera.aspect = width / height; characterPreviewCamera.updateProjectionMatrix();
   };
   new ResizeObserver(resizePreview).observe(host);
   resizePreview();
@@ -5613,13 +6048,122 @@ function setupCharacterPreview() {
   characterPreviewRenderer.setAnimationLoop((time) => {
     if (!characterPreviewRenderer || !characterPreviewScene || !characterPreviewCamera || !characterPreviewControls || document.querySelector('.character-browser')?.classList.contains('hidden')) { previousTime = time; return; }
     const delta = Math.min((time - previousTime) / 1000, .05); previousTime = time;
+    hologramShaderTime.value = time / 1000;
     characterPreviewControls.update();
     const orkkState = characterPreviewModel?.userData.orkkAnimation as OrkkAnimationState | undefined;
     const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
-    orkkState?.mixer.update(delta); wizardState?.mixer.update(delta);
+    const obiWanState = characterPreviewModel?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
+    if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
     if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
-    characterPreviewRenderer.render(characterPreviewScene, characterPreviewCamera);
+    characterPreviewComposer?.render();
   });
+}
+
+function characterCartoonMaterial(source: THREE.Material) {
+  const standard = source as THREE.MeshStandardMaterial;
+  const material = new THREE.MeshToonMaterial({
+    name: `${source.name || 'Character'}_PreviewCartoon`,
+    color: standard.color?.clone() ?? new THREE.Color(0xffffff),
+    map: standard.map ?? null,
+    normalMap: standard.normalMap ?? null,
+    normalScale: standard.normalScale?.clone() ?? new THREE.Vector2(1, 1),
+    aoMap: standard.aoMap ?? null,
+    aoMapIntensity: standard.aoMapIntensity ?? 1,
+    emissive: standard.emissive?.clone() ?? new THREE.Color(0x000000),
+    emissiveMap: standard.emissiveMap ?? null,
+    emissiveIntensity: Math.min(standard.emissiveIntensity ?? 1, 1.4),
+    alphaMap: standard.alphaMap ?? null,
+    alphaTest: source.alphaTest,
+    transparent: source.transparent,
+    opacity: source.opacity,
+    side: source.side,
+    gradientMap: characterPreviewToonGradient,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      '#include <opaque_fragment>\ngl_FragColor.rgb *= 0.58;',
+    );
+  };
+  material.customProgramCacheKey = () => 'character-preview-cartoon-dark-v1';
+  return material;
+}
+
+function characterHologramMaterial(source: THREE.Material) {
+  const material = new THREE.MeshStandardMaterial({
+    name: `${source.name || 'Character'}_PreviewHologram`,
+    color: 0x78f7ff,
+    emissive: 0x35e5ef,
+    emissiveIntensity: 2.4,
+    roughness: 0.22,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    vertexColors: source.vertexColors,
+  });
+  material.forceSinglePass = true;
+  material.toneMapped = false;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.obiWanHologramTime = hologramShaderTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vObiWanHologramY;')
+      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\nvObiWanHologramY = transformed.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float obiWanHologramTime;\nvarying float vObiWanHologramY;')
+      .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+        float obiWanRim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.15);
+        float obiWanScan = pow(max(0.0, sin(vObiWanHologramY * 58.0 - obiWanHologramTime * 6.0)), 18.0);
+        float obiWanPulse = 0.9 + 0.1 * sin(obiWanHologramTime * 3.1 + vObiWanHologramY * 4.0);
+        vec3 obiWanHologramColor = vec3(0.32, 0.95, 1.0) * (0.42 + obiWanRim * 1.75 + obiWanScan * 0.7) * obiWanPulse;
+        gl_FragColor = vec4(obiWanHologramColor, clamp(0.18 + obiWanRim * 0.5 + obiWanScan * 0.18, 0.0, 0.78));`);
+  };
+  material.customProgramCacheKey = () => 'character-preview-hologram-v1';
+  return material;
+}
+
+function characterStyledMaterial(source: THREE.Material | THREE.Material[], style: Exclude<CharacterPreviewStyle, 'solid'>) {
+  const create = (material: THREE.Material) => style === 'cartoon' ? characterCartoonMaterial(material) : characterHologramMaterial(material);
+  return Array.isArray(source) ? source.map((material) => create(material)) : create(source);
+}
+
+function applyCharacterPreviewStyle(root = characterPreviewModel ?? undefined) {
+  if (!root) return;
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (child.userData.preservePreviewMaterial) return;
+    let materials = characterPreviewMaterials.get(child);
+    if (!materials) {
+      materials = {
+        original: child.material,
+        cartoon: characterStyledMaterial(child.material, 'cartoon'),
+        hologram: characterStyledMaterial(child.material, 'hologram'),
+        castShadow: child.castShadow,
+      };
+      characterPreviewMaterials.set(child, materials);
+    }
+    child.material = characterPreviewStyle === 'solid' ? materials.original : materials[characterPreviewStyle];
+    child.castShadow = characterPreviewStyle === 'hologram' ? false : materials.castShadow;
+  });
+  if (characterPreviewOutlinePass) {
+    characterPreviewOutlinePass.selectedObjects = characterPreviewStyle === 'cartoon' && root === characterPreviewModel ? [root] : [];
+  }
+}
+
+function syncCharacterPreviewStyleControls() {
+  const controls = byId('characterPreviewStyles');
+  controls.querySelectorAll<HTMLButtonElement>('[data-character-preview-style]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.characterPreviewStyle === characterPreviewStyle));
+  });
+}
+
+function setCharacterPreviewStyle(style: CharacterPreviewStyle) {
+  characterPreviewStyle = style;
+  syncCharacterPreviewStyleControls();
+  applyCharacterPreviewStyle();
 }
 
 function showCharacterPreviewModel(character: SelectableCharacter) {
@@ -5627,8 +6171,8 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   if (characterPreviewModel) characterPreviewScene.remove(characterPreviewModel);
   let model = characterPreviewModels.get(character);
   if (!model) {
-    model = character === 'shinobi' ? createObiWanShinobi(0x45c8ff)
-      : character === 'orkk' ? createDaOrkk(0xff5d68)
+    model = character === 'shinobi' ? createObiWanShinobi(0x45c8ff, true)
+      : character === 'orkk' ? createDaOrkk(0xff5d68, 8)
         : character === 'magician' ? createLongHatLogan(0x9b7cff)
           : character === 'john-christ' ? createJohnChrist(0xffd166)
             : character === 'spectre' ? createSpectre(0xa06cff)
@@ -5643,6 +6187,8 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   // game-facing convention so an archive preview starts face-forward.
   model.rotation.set(0, model.userData.facingSide === 'positive-z' ? 0 : Math.PI, 0);
   characterPreviewScene.add(model);
+  syncCharacterPreviewStyleControls();
+  applyCharacterPreviewStyle(model);
   characterPreviewCamera?.position.set(0, 1.55, character === 'magician' ? 6.1 : 5.4);
   characterPreviewControls?.target.set(0, character === 'magician' ? 1.55 : 1.35, 0);
   characterPreviewControls?.update();

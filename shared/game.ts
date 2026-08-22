@@ -306,7 +306,7 @@ export type PlayerState = {
   necronomiconAttackBonus?: number;
   decayMovementBonus?: number;
   visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number };
-  visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability';
+  visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability' | 'movement-cancelled';
   matchStats?: MatchStats;
 };
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
@@ -329,6 +329,11 @@ export type WizardActionEvent =
   | { playerId: PlayerId; action: 'spell-targeted'; spell: 'magic-hand' | 'arcane-missle' | 'chain-lightning' | 'fireball'; target: Cell; hold: boolean; targetKind?: 'player' | 'object'; targetId?: string }
   | { playerId: PlayerId; action: 'spell-resolved'; spell: 'magic-hand' }
   | { playerId: PlayerId; action: 'targeting-cancelled'; spell: 'magic-hand' };
+export type ForcePowerActionEvent =
+  | { playerId: PlayerId; action: 'power-started'; perk: 'force-throw' | 'force-pull' }
+  | { playerId: PlayerId; action: 'target-confirmed'; perk: 'force-throw' | 'force-pull'; target: Cell; targetKind: 'player' | 'object'; targetId: string; resolves: boolean }
+  | { playerId: PlayerId; action: 'power-resolved'; perk: 'force-throw' }
+  | { playerId: PlayerId; action: 'targeting-cancelled'; perk: 'force-throw' | 'force-pull' };
 
 export function orkkActionEventForCommand(state: GameState, command: GameCommand): OrkkActionEvent | null {
   const player = state.players[command.playerId];
@@ -359,6 +364,33 @@ export function wizardActionEventForCommand(state: GameState, command: GameComma
     if (!target) return null;
     const spell = command.type === 'arcane-missle-target' ? 'arcane-missle' : command.type === 'chain-lightning-target' ? 'chain-lightning' : 'fireball';
     return { playerId: command.playerId, action: 'spell-targeted', spell, target: { ...target }, hold: false, targetKind: 'player', targetId: command.targetId };
+  }
+  return null;
+}
+
+export function forcePowerActionEventForCommand(state: GameState, command: GameCommand): ForcePowerActionEvent | null {
+  const player = state.players[command.playerId];
+  if (!player || player.character !== 'shinobi') return null;
+  const playerTarget = (targetId: PlayerId) => state.players[targetId]?.position;
+  const objectTarget = (targetId: string) => state.objects.find((object) => object.id === targetId)?.position;
+  if (command.type === 'play-perk' || command.type === 'use-echo-perk') {
+    const card = command.type === 'play-perk'
+      ? player.hand.find((entry) => entry.instanceId === command.cardInstanceId)
+      : player.spellEcho[command.position - 1];
+    return card?.cardId === 'force-throw' || card?.cardId === 'force-pull'
+      ? { playerId: command.playerId, action: 'power-started', perk: card.cardId }
+      : null;
+  }
+  if (command.type === 'force-throw-target' || command.type === 'force-pull-target') {
+    const target = command.targetKind === 'player' ? playerTarget(command.targetId as PlayerId) : objectTarget(command.targetId);
+    if (!target) return null;
+    const perk = command.type === 'force-throw-target' ? 'force-throw' : 'force-pull';
+    return { playerId: command.playerId, action: 'target-confirmed', perk, target: { ...target }, targetKind: command.targetKind, targetId: command.targetId, resolves: perk === 'force-pull' };
+  }
+  if (command.type === 'force-throw-direction') return { playerId: command.playerId, action: 'power-resolved', perk: 'force-throw' };
+  if (command.type === 'cancel-targeting') {
+    if (state.forceThrow?.casterId === command.playerId) return { playerId: command.playerId, action: 'targeting-cancelled', perk: 'force-throw' };
+    if (state.forcePull?.casterId === command.playerId) return { playerId: command.playerId, action: 'targeting-cancelled', perk: 'force-pull' };
   }
   return null;
 }
@@ -2088,6 +2120,7 @@ function cancelMovement(state: GameState, playerId: PlayerId): CommandResult {
   if (player.actionsRemaining !== undo.actionsRemaining || player.perkUsed !== undo.perkUsed) return fail(state, 'Movement cannot be cancelled after using an Action.');
   const restored = JSON.parse(undo.stateJson) as GameState;
   restored.movementUndo = null;
+  restored.players[playerId].visualMovementCause = 'movement-cancelled';
   restored.log.unshift(`${restored.players[playerId].name} cancelled their movement and returned to the position before movement began.`);
   return ok(restored);
 }
