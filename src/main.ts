@@ -2342,6 +2342,7 @@ type MatchEndPresentation = {
   revealAt?: number;
 };
 let matchEndPresentation: MatchEndPresentation | null = null;
+const pendingDeathAnimationIds = new Set<PlayerId>();
 const pendingMovementCancellationTargets = new Map<PlayerId, string>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
@@ -2425,6 +2426,9 @@ renderer.setAnimationLoop((time) => {
     const defeated = gameState.players[id]?.hp <= 0;
     if (defeated) {
       movementAnimations.delete(id);
+      if (group.userData.character === 'magician') updateWizardAnimation(group, false, deltaSeconds);
+      if (group.userData.character === 'orkk') updateOrkkAnimation(group, id, false, deltaSeconds);
+      if (group.userData.character === 'shinobi') updateObiWanAnimation(group, id, false, deltaSeconds);
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
@@ -2489,6 +2493,7 @@ renderer.setAnimationLoop((time) => {
     material.opacity = 0.34 + Math.sin(time * 0.005 - index * 0.55) * 0.13;
   });
   updateDamageVisuals(time);
+  updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   renderer.render(scene, camera);
 });
@@ -3423,6 +3428,7 @@ function playOrkkDeathAnimation(playerId: PlayerId, startedAt: number): number |
   const group = dummyGroups.get(playerId);
   const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!group || !state || !group.userData.deathAnimationAvailable) return null;
+  if (state.deathEndsAt !== undefined) return state.deathEndsAt;
   state.actions[state.current].fadeOut(0.12);
   state.actions.Dead.reset().fadeIn(0.12).play();
   state.current = 'Dead';
@@ -3467,25 +3473,51 @@ function ensureMatchEndPresentation() {
   const defeatedIds = (Object.keys(gameState.players) as PlayerId[]).filter((id) => gameState.players[id].hp <= 0);
   const key = `${gameState.turn}:${gameState.winner ?? 'none'}:${defeatedIds.join(',')}`;
   if (matchEndPresentation?.key === key) return;
+  const newlyDefeatedId = defeatedIds.find((id) => pendingDeathAnimationIds.has(id)) ?? null;
   matchEndPresentation = {
     key,
-    defeatedId: defeatedIds[0] ?? null,
-    phase: defeatedIds.length > 0 ? 'effects' : 'ready',
+    defeatedId: newlyDefeatedId,
+    phase: newlyDefeatedId ? 'effects' : 'ready',
   };
 }
 
 function resetMatchEndPresentation() {
   if (!matchEndPresentation) return;
   dummyGroups.forEach((group, playerId) => {
-    const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
-    if (!state || state.deathEndsAt === undefined) return;
-    state.actions.Dead.stop();
-    const idle = gameState.players[playerId]?.shieldEquipped ? 'IdleWithShield' : 'IdleNoShield';
-    state.actions[idle].reset().play();
-    state.current = idle;
-    state.deathEndsAt = undefined;
+    const orkk = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (orkk?.deathEndsAt !== undefined) {
+      orkk.actions.Dead.stop();
+      const idle = gameState.players[playerId]?.shieldEquipped ? 'IdleWithShield' : 'IdleNoShield';
+      orkk.actions[idle].reset().play();
+      orkk.current = idle;
+      orkk.deathEndsAt = undefined;
+    }
+    const obiWan = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    if (obiWan?.deathEndsAt !== undefined) {
+      obiWan.actions.Dead.stop();
+      obiWan.actions.Idle.reset().play();
+      obiWan.current = 'Idle';
+      obiWan.deathEndsAt = undefined;
+    }
+    const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
+    if (wizard?.deathEndsAt !== undefined) {
+      wizard.actions.Death.stop();
+      wizard.actions.Idle.reset().play();
+      wizard.current = 'Idle';
+      wizard.deathEndsAt = undefined;
+    }
   });
+  pendingDeathAnimationIds.clear();
   matchEndPresentation = null;
+}
+
+function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
+  const group = dummyGroups.get(playerId);
+  if (!group?.userData.deathAnimationAvailable) return null;
+  if (group.userData.character === 'magician') return playWizardDeathAnimation(playerId, startedAt);
+  if (group.userData.character === 'orkk') return playOrkkDeathAnimation(playerId, startedAt);
+  if (group.userData.character === 'shinobi') return playObiWanDeathAnimation(playerId, startedAt);
+  return null;
 }
 
 function finishingBlowVisualsActive(time: number) {
@@ -3505,6 +3537,20 @@ function finishingBlowVisualsActive(time: number) {
   return false;
 }
 
+function updatePendingDeathAnimations(time: number) {
+  if (pendingDeathAnimationIds.size === 0 || finishingBlowVisualsActive(time)) return;
+  pendingDeathAnimationIds.forEach((playerId) => {
+    const group = dummyGroups.get(playerId);
+    if (!group || gameState.players[playerId]?.hp > 0) {
+      pendingDeathAnimationIds.delete(playerId);
+      return;
+    }
+    if (group.userData.characterModelLoadSettled === false) return;
+    playAvailableDeathAnimation(playerId, time);
+    pendingDeathAnimationIds.delete(playerId);
+  });
+}
+
 function updateMatchEndPresentation(time: number) {
   if (gameState.phase !== 'finished') return;
   ensureMatchEndPresentation();
@@ -3514,9 +3560,9 @@ function updateMatchEndPresentation(time: number) {
     if (finishingBlowVisualsActive(time)) return;
     const defeated = presentation.defeatedId ? gameState.players[presentation.defeatedId] : null;
     const group = presentation.defeatedId ? dummyGroups.get(presentation.defeatedId) : undefined;
-    if (defeated?.character === 'orkk' && group && !group.userData.characterModelLoadSettled) return;
-    const deathEndsAt = defeated?.character === 'orkk' && presentation.defeatedId
-      ? playOrkkDeathAnimation(presentation.defeatedId, time)
+    if (defeated && group?.userData.characterModelLoadSettled === false) return;
+    const deathEndsAt = defeated && presentation.defeatedId
+      ? playAvailableDeathAnimation(presentation.defeatedId, time)
       : null;
     if (deathEndsAt) {
       presentation.phase = 'death';
@@ -3541,6 +3587,8 @@ function updateMatchEndPresentation(time: number) {
 
 function createLongHatLogan(playerColor = 0x169bd3) {
   const root = new THREE.Group(); const body = new THREE.Group(); body.name = 'LongHatLoganBody'; root.add(body);
+  root.userData.deathAnimationAvailable = false;
+  root.userData.characterModelLoadSettled = false;
   root.userData.facingSide = 'positive-z';
   const robe = new THREE.MeshStandardMaterial({ color: 0x182354, roughness: 0.72, metalness: 0.16 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x8f79c7, roughness: 0.58 });
@@ -3796,7 +3844,7 @@ function createOrkkShieldObject() {
   return root;
 }
 
-type WizardAnimationName = 'Idle' | 'Walk' | 'Power';
+type WizardAnimationName = 'Idle' | 'Walk' | 'Power' | 'Death';
 const WIZARD_ORB_ORBIT_SCALE = 0.72;
 type WizardPowerRuntime = {
   phase: 'playing' | 'holding' | 'resolving';
@@ -3818,12 +3866,18 @@ type WizardAnimationState = {
   current: WizardAnimationName;
   orbital?: WizardOrbitalState;
   power?: WizardPowerRuntime;
+  deathEndsAt?: number;
 };
 
 let longHatLoganAsset: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let longHatLoganDeathAsset: ReturnType<GLTFLoader['loadAsync']> | null = null;
 
 function loadLongHatLoganAsset() {
   return longHatLoganAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/long-hat-logan.glb?v=20260811-4`);
+}
+
+function loadLongHatLoganDeathAsset() {
+  return longHatLoganDeathAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/long-hat-logan-death.glb?v=20260823-1`);
 }
 
 function disposeTemporaryCharacterBody(body: THREE.Group) {
@@ -3842,7 +3896,7 @@ function disposeTemporaryCharacterBody(body: THREE.Group) {
 
 async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
   try {
-    const asset = await loadLongHatLoganAsset();
+    const [asset, deathAsset] = await Promise.all([loadLongHatLoganAsset(), loadLongHatLoganDeathAsset()]);
     if (body.parent !== root) return;
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'LongHatLoganImportedModel';
@@ -3868,12 +3922,14 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
       clip.duration,
       clip.tracks.filter((track) => !track.name.startsWith('Wizard_Orbital_Controller.')),
     )])) as Partial<Record<WizardAnimationName, THREE.AnimationClip>>;
-    if (!clips.Idle || !clips.Walk || !clips.Power) throw new Error('Wizard GLB must contain Idle, Walk, and Power clips.');
+    const deathClip = deathAsset.animations.find((clip) => clip.name === 'Death');
+    if (!clips.Idle || !clips.Walk || !clips.Power || !deathClip) throw new Error('Wizard assets must contain Idle, Walk, Power, and Death clips.');
     const mixer = new THREE.AnimationMixer(model);
     const actions = {
       Idle: mixer.clipAction(clips.Idle),
       Walk: mixer.clipAction(clips.Walk),
       Power: mixer.clipAction(clips.Power),
+      Death: mixer.clipAction(deathClip),
     };
     actions.Walk.timeScale = 1.8;
     actions.Power.setLoop(THREE.LoopOnce, 1);
@@ -3891,6 +3947,7 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
         elapsed: 0,
       },
     } satisfies WizardAnimationState;
+    root.userData.deathAnimationAvailable = true;
     model.getObjectByName('Wizard_Native_LeftHand')!.visible = true;
     model.getObjectByName('Wizard_Power_LeftHand_Controller')!.visible = false;
 
@@ -3910,7 +3967,10 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
       applyWizardPowerVisualIntent(pendingPowerIntent);
     }
   } catch (error) {
+    root.userData.deathAnimationAvailable = false;
     console.error('Failed to load Long Hat Logan model; keeping procedural fallback.', error);
+  } finally {
+    root.userData.characterModelLoadSettled = true;
   }
 }
 
@@ -3930,6 +3990,20 @@ function finishWizardPowerAnimation(group: THREE.Group, state: WizardAnimationSt
   setWizardPowerHand(group, false);
   state.current = 'Idle';
   state.power = undefined;
+}
+
+function playWizardDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.wizardAnimation as WizardAnimationState | undefined;
+  if (!group || !state || !group.userData.deathAnimationAvailable) return null;
+  if (state.deathEndsAt !== undefined) return state.deathEndsAt;
+  if (state.power) finishWizardPowerAnimation(group, state);
+  state.actions[state.current].fadeOut(0.14);
+  state.actions.Death.reset().fadeIn(0.14).play();
+  setWizardPowerHand(group, false);
+  state.current = 'Death';
+  state.deathEndsAt = startedAt + state.actions.Death.getClip().duration * 1000;
+  return state.deathEndsAt;
 }
 
 function wizardPowerEffectFinished(power: WizardPowerRuntime, playerId: PlayerId) {
@@ -3985,6 +4059,10 @@ function applyWizardPowerVisualIntent(intent: WizardPowerVisualIntent) {
 function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds: number) {
   const state = group.userData.wizardAnimation as WizardAnimationState | undefined;
   if (!state) return;
+  if (state.deathEndsAt !== undefined) {
+    state.mixer.update(deltaSeconds);
+    return;
+  }
   if (state.power) {
     if (state.power.targetKind && state.power.targetId) {
       const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
@@ -4583,8 +4661,9 @@ function updateStoicShellHealAnimations(time: number) {
 type ObiWanAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<string, THREE.AnimationAction>;
-  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power';
+  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead';
   power?: ObiWanPowerRuntime;
+  deathEndsAt?: number;
 };
 
 type ObiWanPowerRuntime = {
@@ -4759,7 +4838,8 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     const runningClip = asset.animations.find((clip) => clip.name === 'Running');
     const runFastClip = asset.animations.find((clip) => clip.name === 'RunFast');
     const powerClip = asset.animations.find((clip) => clip.name === 'Power');
-    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, and Power clips.');
+    const deadClip = asset.animations.find((clip) => clip.name === 'Dead');
+    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, and Dead clips.');
     const alignedCasualWalk = alignObiWanLocomotionRoot(casualWalkClip, idleClip);
     const alignedWalking = alignObiWanLocomotionRoot(walkingClip, idleClip);
     const alignedRunning = alignObiWanLocomotionRoot(runningClip, idleClip);
@@ -4777,9 +4857,14 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     actions.RunFast.timeScale = OBI_WAN_RUN_FAST_TIME_SCALE;
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
+    actions.Death.setLoop(THREE.LoopOnce, 1);
+    actions.Death.clampWhenFinished = true;
+    actions.Dead.setLoop(THREE.LoopOnce, 1);
+    actions.Dead.clampWhenFinished = true;
     actions.Idle.play();
     mixer.update(0);
     root.userData.obiWanAnimation = { mixer, actions, current: 'Idle' } satisfies ObiWanAnimationState;
+    root.userData.deathAnimationAvailable = true;
     if (root === characterPreviewModels.get('shinobi')) applyCharacterPreviewStyle(root);
     const playerId = root.userData.playerId as PlayerId | undefined;
     if (playerId && gameState.players[playerId]?.swiftformCanPassEnemies) updateSwiftformVisual(root, true);
@@ -4789,7 +4874,10 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
       pendingPowerIntents.forEach(applyObiWanPowerVisualIntent);
     }
   } catch (error) {
+    root.userData.deathAnimationAvailable = false;
     console.error('Failed to load Obi-Wan model; keeping procedural fallback.', error);
+  } finally {
+    root.userData.characterModelLoadSettled = true;
   }
 }
 
@@ -4799,6 +4887,20 @@ function finishObiWanPowerAnimation(state: ObiWanAnimationState) {
   state.actions.Idle.reset().fadeIn(0.12).play();
   state.current = 'Idle';
   state.power = undefined;
+}
+
+function playObiWanDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (!group || !state || !group.userData.deathAnimationAvailable) return null;
+  if (state.deathEndsAt !== undefined) return state.deathEndsAt;
+  if (state.power) finishObiWanPowerAnimation(state);
+  state.actions[state.current].fadeOut(0.12);
+  state.actions.Dead.reset().fadeIn(0.12).play();
+  state.current = 'Dead';
+  const duration = state.actions.Dead.getClip().duration * 1000;
+  state.deathEndsAt = startedAt + duration;
+  return state.deathEndsAt;
 }
 
 function startObiWanPowerAnimation(state: ObiWanAnimationState) {
@@ -4856,6 +4958,10 @@ function applyObiWanPowerVisualIntent(intent: ObiWanPowerVisualIntent) {
 function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: boolean, deltaSeconds: number) {
   const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
   if (!state) return;
+  if (state.deathEndsAt !== undefined) {
+    state.mixer.update(deltaSeconds);
+    return;
+  }
   if (state.power) {
     if (state.power.targetKind && state.power.targetId) {
       const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
@@ -4894,6 +5000,8 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
 function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false) {
   const root = new THREE.Group();
   root.userData.obiWanLightsaberVisible = previewLightsaber;
+  root.userData.deathAnimationAvailable = false;
+  root.userData.characterModelLoadSettled = false;
   const body = new THREE.Group();
   body.name = 'ObiWanBody';
   root.add(body);
@@ -5105,7 +5213,10 @@ function syncBoard() {
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
     const defeated = gameState.players[id].hp <= 0;
-    if (defeated) target.y += 0.18;
+    const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi';
+    if (defeated && group.userData.defeated !== true) pendingDeathAnimationIds.add(id);
+    else if (!defeated) pendingDeathAnimationIds.delete(id);
+    if (defeated && !hasRiggedDeathPose) target.y += 0.18;
     if (gameState.players[id].spectreOnBoxId) target.y += 1.22;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
@@ -5156,7 +5267,7 @@ function syncBoard() {
     }
     lastVisualCells.set(id, targetKey);
     group.userData.defeated = defeated;
-    group.rotation.z = defeated ? Math.PI / 2 : 0;
+    group.rotation.z = defeated && !hasRiggedDeathPose ? Math.PI / 2 : 0;
     const equippedShield = group.getObjectByName('EquippedShield');
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     const throwInFlight = gameState.objectPushAnimations.some((event) => event.id.includes('-arkane-arow-')
