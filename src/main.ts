@@ -964,6 +964,13 @@ function renderUI() {
 function renderMatchResults() {
   const modal = byId('matchResultsModal');
   if (gameState.phase !== 'finished') {
+    resetMatchEndPresentation();
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+    return;
+  }
+  ensureMatchEndPresentation();
+  if (matchEndPresentation?.phase !== 'ready') {
     modal.classList.add('hidden');
     modal.innerHTML = '';
     return;
@@ -2320,6 +2327,14 @@ const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean }>();
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
+type MatchEndPresentation = {
+  key: string;
+  defeatedId: PlayerId | null;
+  phase: 'effects' | 'death' | 'delay' | 'ready';
+  deathEndsAt?: number;
+  revealAt?: number;
+};
+let matchEndPresentation: MatchEndPresentation | null = null;
 const pendingMovementCancellationTargets = new Map<PlayerId, string>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
@@ -2459,6 +2474,7 @@ renderer.setAnimationLoop((time) => {
     material.opacity = 0.34 + Math.sin(time * 0.005 - index * 0.55) * 0.13;
   });
   updateDamageVisuals(time);
+  updateMatchEndPresentation(time);
   renderer.render(scene, camera);
 });
 
@@ -3213,6 +3229,8 @@ function createProceduralOrkkShieldObject() {
 function createDaOrkk(playerColor = 0xff5d68, previewRageStacks = 0) {
   const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
   root.userData.previewRageStacks = previewRageStacks;
+  root.userData.deathAnimationAvailable = false;
+  root.userData.characterModelLoadSettled = false;
   root.userData.facingSide = 'positive-z';
   const skin = new THREE.MeshStandardMaterial({ color: 0x477f3b, roughness: 0.75 });
   const iron = new THREE.MeshStandardMaterial({ color: 0x51595a, roughness: 0.35, metalness: 0.86 });
@@ -3234,7 +3252,7 @@ function createDaOrkk(playerColor = 0xff5d68, previewRageStacks = 0) {
   return root;
 }
 
-type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'BoxAttack';
+type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'BoxAttack' | 'Dead';
 const ORKK_LOCOMOTION_FPS = 24;
 const ORKK_CASUAL_WALK_FRAMES = 33;
 const ORKK_CASUAL_WALK_TIME_SCALE = 1.2;
@@ -3251,6 +3269,7 @@ type OrkkAnimationState = {
   actions: Record<OrkkAnimationName, THREE.AnimationAction>;
   current: OrkkAnimationName;
   oneShotUntil?: number;
+  deathEndsAt?: number;
   shieldThrowReleaseMs: number;
   shieldIdleSocketLocalQuaternion: THREE.Quaternion;
 };
@@ -3292,7 +3311,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     body.add(model);
     installOrkkRageCoreGlow(root, model);
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
-    const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID'];
+    const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID', 'DaOrkh_Dead'];
     if (required.some((name) => !clips[name])) throw new Error(`Da Orkk GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
     const alignedCasualWalk = alignOrkkLocomotionRoot(clips.DaOrkh_Casual_Walk, clips.DaOrkh_Idle_With_Shield);
     const alignedWalking = alignOrkkLocomotionRoot(clips.DaOrkh_Walking, clips.DaOrkh_Idle_With_Shield);
@@ -3316,6 +3335,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
       Encourage: mixer.clipAction(clips.DaOrkh_Skill_01),
       ShieldThrow: mixer.clipAction(clips.DaOrkh_Shield_Throw),
       BoxAttack: mixer.clipAction(baseAttack),
+      Dead: mixer.clipAction(clips.DaOrkh_Dead),
     };
     actions.CasualWalk.timeScale = ORKK_CASUAL_WALK_TIME_SCALE;
     actions.Walking.timeScale = ORKK_WALKING_TIME_SCALE;
@@ -3323,6 +3343,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     actions.Encourage.setLoop(THREE.LoopOnce, 1); actions.Encourage.clampWhenFinished = true;
     actions.ShieldThrow.setLoop(THREE.LoopOnce, 1); actions.ShieldThrow.clampWhenFinished = true;
     actions.BoxAttack.setLoop(THREE.LoopOnce, 1); actions.BoxAttack.clampWhenFinished = true;
+    actions.Dead.setLoop(THREE.LoopOnce, 1); actions.Dead.clampWhenFinished = true;
     actions.BoxAttack.timeScale = ORKK_BASE_ATTACK_TIME_SCALE;
     const playerId = root.userData.playerId as PlayerId | undefined;
     const shieldEquipped = playerId ? gameState.players[playerId]?.shieldEquipped !== false : true;
@@ -3341,6 +3362,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     yawFreeIdleEuler.y = 0;
     shieldIdleSocketLocalQuaternion.setFromEuler(yawFreeIdleEuler);
     root.userData.orkkAnimation = { mixer, actions, current: initial, shieldThrowReleaseMs: clips.DaOrkh_Shield_Throw.duration * 1000, shieldIdleSocketLocalQuaternion } satisfies OrkkAnimationState;
+    root.userData.deathAnimationAvailable = true;
     objectGroups.forEach((shieldGroup, objectId) => {
       if (shieldGroup.userData.ownerId === playerId && !objectMovementAnimations.has(objectId)) settleOrkkShieldAtRest(shieldGroup);
     });
@@ -3350,6 +3372,9 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
   } catch (error) {
     console.error('Failed to load Da Orkk model; keeping procedural fallback.', error);
+    root.userData.deathAnimationAvailable = false;
+  } finally {
+    root.userData.characterModelLoadSettled = true;
   }
 }
 
@@ -3379,6 +3404,19 @@ function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' |
   state.oneShotUntil = performance.now() + action.getClip().duration * 1000 / effectiveTimeScale;
 }
 
+function playOrkkDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
+  if (!group || !state || !group.userData.deathAnimationAvailable) return null;
+  state.actions[state.current].fadeOut(0.12);
+  state.actions.Dead.reset().fadeIn(0.12).play();
+  state.current = 'Dead';
+  state.oneShotUntil = undefined;
+  const duration = state.actions.Dead.getClip().duration * 1000;
+  state.deathEndsAt = startedAt + duration;
+  return state.deathEndsAt;
+}
+
 function applyOrkkVisualIntent(intent: OrkkVisualIntent) {
   const group = dummyGroups.get(intent.playerId);
   if (!group) return;
@@ -3394,6 +3432,7 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
   const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!state) return;
   state.mixer.update(deltaSeconds);
+  if (state.deathEndsAt !== undefined) return;
   if (state.oneShotUntil && Number.isFinite(state.oneShotUntil) && performance.now() < state.oneShotUntil) return;
   state.oneShotUntil = undefined;
   if (moving) {
@@ -3405,6 +3444,83 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
     const equippedShield = group.getObjectByName('EquippedShield');
     const visiblyEquipped = gameState.players[playerId].shieldEquipped && equippedShield?.visible !== false;
     playOrkkAnimation(group, visiblyEquipped ? 'IdleWithShield' : 'IdleNoShield');
+  }
+}
+
+function ensureMatchEndPresentation() {
+  if (gameState.phase !== 'finished') return;
+  const defeatedIds = (Object.keys(gameState.players) as PlayerId[]).filter((id) => gameState.players[id].hp <= 0);
+  const key = `${gameState.turn}:${gameState.winner ?? 'none'}:${defeatedIds.join(',')}`;
+  if (matchEndPresentation?.key === key) return;
+  matchEndPresentation = {
+    key,
+    defeatedId: defeatedIds[0] ?? null,
+    phase: defeatedIds.length > 0 ? 'effects' : 'ready',
+  };
+}
+
+function resetMatchEndPresentation() {
+  if (!matchEndPresentation) return;
+  dummyGroups.forEach((group, playerId) => {
+    const state = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (!state || state.deathEndsAt === undefined) return;
+    state.actions.Dead.stop();
+    const idle = gameState.players[playerId]?.shieldEquipped ? 'IdleWithShield' : 'IdleNoShield';
+    state.actions[idle].reset().play();
+    state.current = idle;
+    state.deathEndsAt = undefined;
+  });
+  matchEndPresentation = null;
+}
+
+function finishingBlowVisualsActive(time: number) {
+  if (spellProjectileAnimations.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
+  if (objectMovementAnimations.size > 0 || movementAnimations.size > 0 || objectImpactAnimations.size > 0 || impactAnimations.size > 0) return true;
+  if (stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
+  for (const group of dummyGroups.values()) {
+    const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
+    if (wizard?.power) return true;
+    const obiWan = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    if (obiWan?.power) return true;
+    const orkk = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (orkk?.deathEndsAt === undefined && orkk?.oneShotUntil && time < orkk.oneShotUntil) return true;
+    const spectre = group.userData.spectreAnimation as SpectreAnimationState | undefined;
+    if (spectre?.oneShot) return true;
+  }
+  return false;
+}
+
+function updateMatchEndPresentation(time: number) {
+  if (gameState.phase !== 'finished') return;
+  ensureMatchEndPresentation();
+  const presentation = matchEndPresentation;
+  if (!presentation || presentation.phase === 'ready') return;
+  if (presentation.phase === 'effects') {
+    if (finishingBlowVisualsActive(time)) return;
+    const defeated = presentation.defeatedId ? gameState.players[presentation.defeatedId] : null;
+    const group = presentation.defeatedId ? dummyGroups.get(presentation.defeatedId) : undefined;
+    if (defeated?.character === 'orkk' && group && !group.userData.characterModelLoadSettled) return;
+    const deathEndsAt = defeated?.character === 'orkk' && presentation.defeatedId
+      ? playOrkkDeathAnimation(presentation.defeatedId, time)
+      : null;
+    if (deathEndsAt) {
+      presentation.phase = 'death';
+      presentation.deathEndsAt = deathEndsAt;
+    } else {
+      presentation.phase = 'delay';
+      presentation.revealAt = time + 1000;
+    }
+    return;
+  }
+  if (presentation.phase === 'death') {
+    if (time < (presentation.deathEndsAt ?? time)) return;
+    presentation.phase = 'delay';
+    presentation.revealAt = time + 1000;
+    return;
+  }
+  if (presentation.phase === 'delay' && time >= (presentation.revealAt ?? time)) {
+    presentation.phase = 'ready';
+    renderMatchResults();
   }
 }
 
@@ -3437,7 +3553,7 @@ function createLongHatLogan(playerColor = 0x169bd3) {
 }
 
 function loadDaOrkhAsset() {
-  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260814-2`).then((asset) => {
+  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260823-1`).then((asset) => {
     daOrkhAsset = asset;
     asset.scene.updateWorldMatrix(true, true);
     return asset;
