@@ -9,7 +9,7 @@ export type HotseatCharacterId = CharacterId;
 export const BOARD_SIZE = 8;
 export const CellSchema = z.object({ x: z.number().int().min(1).max(11), y: z.number().int().min(0).max(10) });
 export type Cell = z.infer<typeof CellSchema>;
-export const CardTypeIdSchema = z.enum(['attack-2', 'attack-3', 'defend-1', 'carian-stance', 'excalibur', 'sting', 'moonlight', 'lightbringer', 'frostmourne', 'decisive-block', 'redirect', 'tactician', 'yamato', 'oracle', 'windwalker-stance', 'barbarian-stance', 'kamelot-stance', 'spellsinger-stance', 'hot-potato', 'sweet-potato', 'hex', 'tomb-block', 'test-phylactery', 'shadow-barter', 'enfeeble', 'finger-of-death', 'drain-strength', 'brain-freeze', 'sacrifice', 'immortality', 'graveyard', 'lichdom', 'dakkoth', 'sap', 'necronomicon', 'decay', 'blessed-light', 'cleanse', 'repent', 'enforce', 'blessed-might', 'blessed-prayer', 'blessing-light', 'blessing-prayer', 'blessing-might', 'echo-pulse', 'fireball', 'portal', 'vicious-mockery', 'banner', 'mythril-helmet', 'boomerang', 'monarch-flush', 'preparation', 'arcane-missle', 'chain-lightning', 'magic-hand', 'shizzle', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse', 'spellblock', 'mana-shield', 'arcane-barrier', 'counterspell', 'blink', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'block', 'flurry-defensive-strikes', 'calmness', 'not-a-shinobi', 'double-jump', 'higround-advantage', 'force-throw', 'force-pull', 'swiftform', 'mind-tricks', 'arkane-arow', 'arm-da-wiz', 'encourage', 'kyk', 'consume-rage', 'fistbolt', 'chain-punchin', 'teef-strike', 'chip-cast', 'shield-bash', 'knee-blast', 'da-blokk', 'double', 'arcane-shield', 'countaspell', 'mana-baryer', 'replicate', 'relocate', 'shadow-dagger', 'consume-replica', 'haunt', 'solitude', 'deja-vu', 'echo-strike', 'soul-strike', 'displace', 'devour', 'split', 'anguish', 'dispersion', 'accumulate', 'pinned', 'headache', 'exhaust', 'burning', 'panic', 'blessed-block', 'blessing-shield', 'feed-the-spirit', 'thorns', 'blessed-swiftness', 'blessing-swiftness', 'resurrection', 'fear-the-justice', 'inner-peace', 'blessing-faith', 'mind-blast', 'spirit-guardian']);
+export const CardTypeIdSchema = z.enum(['attack-2', 'attack-3', 'defend-1', 'carian-stance', 'excalibur', 'sting', 'moonlight', 'lightbringer', 'frostmourne', 'decisive-block', 'redirect', 'tactician', 'yamato', 'oracle', 'windwalker-stance', 'barbarian-stance', 'kamelot-stance', 'spellsinger-stance', 'hot-potato', 'sweet-potato', 'hex', 'tomb-block', 'test-phylactery', 'shadow-barter', 'enfeeble', 'finger-of-death', 'drain-strength', 'brain-freeze', 'sacrifice', 'immortality', 'graveyard', 'lichdom', 'dakkoth', 'sap', 'necronomicon', 'decay', 'blessed-light', 'cleanse', 'repent', 'enforce', 'blessed-might', 'blessed-prayer', 'blessing-light', 'blessing-prayer', 'blessing-might', 'echo-pulse', 'fireball', 'firebolt', 'portal', 'portal-perk', 'vicious-mockery', 'banner', 'mythril-helmet', 'boomerang', 'monarch-flush', 'preparation', 'arcane-missle', 'chain-lightning', 'magic-hand', 'shizzle', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse', 'spellblock', 'mana-shield', 'arcane-barrier', 'counterspell', 'blink', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'block', 'flurry-defensive-strikes', 'calmness', 'not-a-shinobi', 'double-jump', 'higround-advantage', 'force-throw', 'force-pull', 'swiftform', 'mind-tricks', 'arkane-arow', 'arm-da-wiz', 'encourage', 'kyk', 'consume-rage', 'fistbolt', 'chain-punchin', 'teef-strike', 'chip-cast', 'shield-bash', 'knee-blast', 'da-blokk', 'double', 'arcane-shield', 'countaspell', 'mana-baryer', 'replicate', 'relocate', 'shadow-dagger', 'consume-replica', 'haunt', 'solitude', 'deja-vu', 'echo-strike', 'soul-strike', 'displace', 'devour', 'split', 'anguish', 'dispersion', 'accumulate', 'pinned', 'headache', 'exhaust', 'burning', 'panic', 'blessed-block', 'blessing-shield', 'feed-the-spirit', 'thorns', 'blessed-swiftness', 'blessing-swiftness', 'resurrection', 'fear-the-justice', 'inner-peace', 'blessing-faith', 'mind-blast', 'spirit-guardian']);
 export type CardTypeId = z.infer<typeof CardTypeIdSchema>;
 
 export const GameCommandSchema = z.discriminatedUnion('type', [
@@ -179,8 +179,10 @@ export const CARDS: readonly Card[] = [
   { id: 'blessing-swiftness', name: 'Blessing: Swiftness', kind: 'status', value: 1, effectText: '+1 MOV while in Hand. Discard automatically at the end of turn if you have more than 5 Cards in Hand.', canDiscardForHandLimit: true },
   { id: 'blessing-faith', name: 'Blessing: Faith', kind: 'status', value: 1, effectText: 'Apply in combat to negate all Damage dealt to both sides. Expires at the beginning of your Turn.', canDiscardForHandLimit: true },
   { id: 'echo-pulse', name: 'Echo Pulse', kind: 'perk', value: 1, levelEffects: ['Draw 1 Card', 'Gain 1 Action', 'Restore 2 HP'] },
-  { id: 'fireball', name: 'Fireball', kind: 'perk', value: 2, effectText: "As an Action: deal 2 Damage at Range 3 and add a Burning Status Card to the target's Hand. Remove Fireball from the game after use." },
+  { id: 'fireball', name: 'Fireball', kind: 'perk', value: 2, effectText: "As an Action at Range 3: deal 2 Damage and add Burning to the target's Hand. Does not count as the Perk used this turn. Remove Fireball from the game after use." },
+  { id: 'firebolt', name: 'Firebolt', kind: 'perk', value: 1, effectText: "Deal 1 Damage to a target at Range 3 and add Burning to the target's Hand." },
   { id: 'portal', name: 'Portal', kind: 'free-action', value: 1, effectText: 'Play as a Free Action. Teleport to an empty Square currently visible from the caster. Removed on use or Discard.' },
+  { id: 'portal-perk', name: 'Portal', kind: 'perk', value: 1, effectText: 'Use as a Perk. Teleport to an empty Square currently visible from the caster.' },
   { id: 'hot-potato', name: 'Hot Potato', kind: 'status', value: 0, effectText: "Can't Discard. Discard 1 Card at the end of your turn. Lose Potato to the Attacker if they win the combat.", cannotBeDiscarded: true },
   { id: 'sweet-potato', name: 'Sweet Potato', kind: 'perk', value: 1, effectText: 'As an Action: restore 2 Hit Points or Remove all negative Status Cards from your Deck.' },
   { id: 'vicious-mockery', name: 'Vicious Mockery', kind: 'perk', value: 2, effectText: 'Optionally apply during combat for +2 ATT or DEF. Then Remove this Card from the game.' },
@@ -300,6 +302,7 @@ export const STARTING_DECKS: Record<CharacterId, StartingDeckDefinition> = {
 
 export type PlayerState = {
   id: PlayerId; name: string; character: 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna' | 'merylin' | 'dummy'; hp: number; maxHp: number; moveRange: number; attackRange: number; position: Cell;
+  defeatedAnnounced?: boolean;
   deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[];
   knownTopCardId: CardTypeId | null;
   knownTopCardIds?: CardTypeId[];
@@ -1036,11 +1039,17 @@ function resolveCurrentActionQuest(state: GameState): void {
     const definition = ACTION_QUEST_POOL.find((quest) => quest.id === active.id);
     const winners = active.winners.length > 0 ? active.winners : definition?.determineWinners?.(state, active.progress) ?? [];
     questState.lastQuestWinners = [...new Set(winners)];
+    const tied = questState.lastQuestWinners.length > 1;
+    const drawRewardId: CardTypeId | null = active.id === 'damage-contest' ? 'firebolt' : active.id === 'rabbit-run' ? 'portal-perk' : null;
     for (const winnerId of questState.lastQuestWinners) {
+      if (tied) {
+        if (drawRewardId) state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: drawRewardId, revealedToOpponent: true });
+        continue;
+      }
       definition?.grantReward?.(state, winnerId);
-      if (active.id === 'damage-contest') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'fireball' });
-      if (active.id === 'rabbit-run') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'portal' });
-      if (active.id === 'provocateur') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'vicious-mockery' });
+      if (active.id === 'damage-contest') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'fireball', revealedToOpponent: true });
+      if (active.id === 'rabbit-run') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'portal', revealedToOpponent: true });
+      if (active.id === 'provocateur') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'vicious-mockery', revealedToOpponent: true });
       if (active.id === 'capture-the-flag') state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'banner', revealedToOpponent: true });
       if (active.id === 'hot-potato') {
         removeHotPotatoCard(state.players[winnerId]);
@@ -1048,7 +1057,9 @@ function resolveCurrentActionQuest(state: GameState): void {
       }
     }
     state.log.unshift(questState.lastQuestWinners.length > 0
-      ? `${questState.lastQuestWinners.map((id) => state.players[id].name).join(' and ')} completed ${definition?.name ?? active.id} and received its Reward.`
+      ? tied
+        ? `${questState.lastQuestWinners.map((id) => state.players[id].name).join(' and ')} drew ${definition?.name ?? active.id}${drawRewardId ? ` and each received ${cardDefinition({ instanceId: '', cardId: drawRewardId }).name}` : '; no Draw Reward has been defined yet'}.`
+        : `${questState.lastQuestWinners.map((id) => state.players[id].name).join(' and ')} completed ${definition?.name ?? active.id} and received its main Reward.`
       : `${definition?.name ?? active.id} ended without a Winner or Reward.`);
     questState.currentQuest = null;
     questState.captureTheFlag = null;
@@ -1294,7 +1305,7 @@ export function diagonalMovementBlockedByObject(state: GameState, from: Cell, to
   const sideA = { x: to.x, y: from.y };
   const sideB = { x: from.x, y: to.y };
   const objectAt = (cell: Cell) => state.objects.some((object) => object.position.x === cell.x && object.position.y === cell.y);
-  const entityAtSide = (cell: Cell) => objectAt(cell) || Object.values(state.players).some((player) => player.position.x === cell.x && player.position.y === cell.y);
+  const entityAtSide = (cell: Cell) => objectAt(cell) || Object.values(state.players).some((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y);
   return entityAtSide(sideA) && entityAtSide(sideB) && (objectAt(sideA) || objectAt(sideB));
 }
 export function isSpectreShadowTrailCell(state: GameState, player: PlayerState, cell: Cell): boolean {
@@ -1645,7 +1656,7 @@ function beginBoomerang(state: GameState, player: PlayerState, cardInstanceId: s
   if (card.cardId === 'portal') {
     const targetingUndo = snapshotPerkTargeting(player);
     discardFromHand(player, card.instanceId);
-    (state as GameState & { portal?: { casterId: PlayerId; undo: PerkTargetingUndo } | null }).portal = { casterId: player.id, undo: targetingUndo };
+    (state as GameState & { portal?: { casterId: PlayerId; undo: PerkTargetingUndo; source: 'portal' | 'portal-perk' } | null }).portal = { casterId: player.id, undo: targetingUndo, source: 'portal' };
     state.phase = 'choosing-portal-target';
     state.log.unshift(`${player.name} played Portal as a Free Action. Choose any visible empty Square to teleport to.`);
     return ok(state);
@@ -1855,6 +1866,32 @@ export function hasReplicaPlacementLineOfSight(state: GameState, from: Cell, to:
   return hasLineOfSightUsing(state, from, to, (object) => isWallObject(object) || object.kind === 'wooden-box', fromElevated);
 }
 
+function registerCharacterDefeat(state: GameState, target: PlayerState, preferredWinnerId?: PlayerId): void {
+  if (target.hp > 0 || target.defeatedAnnounced) return;
+  target.defeatedAnnounced = true;
+  const phases = questPhases(state);
+  for (const flag of phases.captureTheFlag?.flags ?? []) {
+    if (flag.status !== 'carried' || flag.carrierId !== target.id) continue;
+    flag.status = 'dropped'; flag.carrierId = null; flag.droppedAt = { ...target.position };
+    state.log.unshift(`${target.name} dropped ${state.players[flag.ownerId].name}'s Flag on ${cellLabel(target.position)}.`);
+  }
+  if (phases.hotPotato?.carrierId === target.id) {
+    removeHotPotatoCard(target);
+    phases.hotPotato.carrierId = null;
+    state.log.unshift(`${target.name} dropped the Hot Potato at the center after being defeated.`);
+  }
+  const living = (Object.keys(state.players) as PlayerId[]).filter((id) => state.players[id].hp > 0);
+  if (living.length <= 1) {
+    state.phase = 'finished';
+    state.winner = living[0] ?? (preferredWinnerId && state.players[preferredWinnerId]?.hp > 0 ? preferredWinnerId : null);
+    state.log.unshift(`${target.name} was defeated${state.winner ? `; ${state.players[state.winner].name} wins the match!` : '.'}`);
+    return;
+  }
+  if (state.phase === 'finished') state.phase = 'active';
+  state.winner = null;
+  state.log.unshift(`${target.name} was defeated and remains on the Board. ${living.length} Characters remain.`);
+}
+
 export function dealDamage(state: GameState, target: PlayerState, amount: number, collision = false, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other'): number {
   let resolvedAmount = Math.max(0, amount);
   const guardianActionId = (state as GuardianPerkDamageState).currentGuardianPerkActionId;
@@ -1888,6 +1925,7 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
       stats.defensiveRetaliationDamage += creditedDamage;
       stats.totalDamage += creditedDamage;
     }
+    if (sourceKind === 'other') stats.totalDamage += creditedDamage;
   }
   if (dealt > 0 && sourceId !== target.id && state.players[sourceId]) {
     const questState = questPhases(state);
@@ -1912,19 +1950,7 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
       enterSpiritForm(state, target, 'after receiving Damage');
     }
   }
-  if (target.hp === 0 && state.phase !== 'finished') {
-    const capture = questPhases(state).captureTheFlag;
-    for (const flag of capture?.flags ?? []) {
-      if (flag.status !== 'carried' || flag.carrierId !== target.id) continue;
-      flag.status = 'dropped'; flag.carrierId = null; flag.droppedAt = { ...target.position };
-      state.log.unshift(`${target.name} dropped ${state.players[flag.ownerId].name}'s Flag on ${cellLabel(target.position)}.`);
-    }
-    state.phase = 'finished';
-    state.winner = sourceId !== target.id && state.players[sourceId]?.hp > 0
-      ? sourceId
-      : (Object.keys(state.players) as PlayerId[]).find((id) => id !== target.id && state.players[id].hp > 0) ?? null;
-    state.log.unshift(`${target.name} was defeated${state.winner ? `; ${state.players[state.winner].name} wins the match!` : '.'}`);
-  }
+  if (target.hp === 0) registerCharacterDefeat(state, target, sourceId);
   return dealt;
 }
 
@@ -2688,7 +2714,7 @@ function playPerkFromHand(state: GameState, player: PlayerState, command: Extrac
     player.actionsRemaining -= 1;
     removeCard(player, instance.instanceId);
     if (perk.id === 'fireball') {
-      (state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo } | null }).fireball = { casterId: player.id, undo: targetingUndo };
+      (state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo; source: 'fireball' | 'firebolt' } | null }).fireball = { casterId: player.id, undo: targetingUndo, source: 'fireball' };
       state.phase = 'choosing-fireball-target';
       state.log.unshift(`${player.name} used the one-use Fireball Action Card. Choose an enemy within Range 3.`);
     } else {
@@ -2816,6 +2842,18 @@ function resolveFreeMove(state: GameState, player: PlayerState): CommandResult {
 }
 
 function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, level: number) {
+  if (perk.id === 'firebolt') {
+    (state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo; source: 'fireball' | 'firebolt' } | null }).fireball = { casterId: player.id, undo: snapshotPerkTargeting(player), source: 'firebolt' };
+    state.phase = 'choosing-fireball-target';
+    state.log.unshift(`${player.name} used Firebolt as a Perk. Choose an enemy within Range 3.`);
+    return;
+  }
+  if (perk.id === 'portal-perk') {
+    (state as GameState & { portal?: { casterId: PlayerId; undo: PerkTargetingUndo; source: 'portal' | 'portal-perk' } | null }).portal = { casterId: player.id, undo: snapshotPerkTargeting(player), source: 'portal-perk' };
+    state.phase = 'choosing-portal-target';
+    state.log.unshift(`${player.name} used Portal as a Perk. Choose any visible empty Square to teleport to.`);
+    return;
+  }
   if (perk.id === 'spellsinger-stance') {
     const revealCount = Math.min(player.deck.length, level >= 2 ? 2 : 1);
     player.knownTopCardIds = Array.from({ length: revealCount }, (_, index) => player.deck.at(-1 - index)!.cardId);
@@ -4069,9 +4107,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
             state.log.unshift(`${attacker.name} consumed all ${rageSpent} Rage Stack${rageSpent === 1 ? '' : 's'} applied to the Attack (${attacker.rageStacks} remaining).`);
           }
           state.pendingAttack = null;
-          state.phase = 'finished';
-          state.winner = defender.id;
-          state.log.unshift(`${defender.name} wins before combat begins!`);
+          state.phase = state.winner ? 'finished' : 'active';
           return ok(state);
         }
       } else state.log.unshift(`Flurry dealt no pre-combat damage because ${attacker.name} was not adjacent.`);
@@ -4082,9 +4118,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       state.log.unshift(`Thorns dealt ${dealt} Damage to ${attacker.name} before combat.`);
       if (attacker.hp === 0) {
         state.pendingAttack = null;
-        state.phase = 'finished';
-        state.winner = defender.id;
-        state.log.unshift(`${defender.name} wins before combat begins!`);
+        state.phase = state.winner ? 'finished' : 'active';
         return ok(state);
       }
     }
@@ -4626,8 +4660,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(`Shield Bash generated 1 Rage after all combat effects resolved because ${attacker.name}'s Shield was already equipped (${attacker.rageStacks} total).`);
   }
   let postCombatChoicePending = false;
-  if (attacker.hp === 0) { state.phase = 'finished'; state.winner = defender.id; state.log.unshift(`${defender.name} wins the duel!`); }
-  else if (defender.hp === 0) { state.phase = 'finished'; state.winner = pending.attackerId; state.log.unshift(`${attacker.name} wins the duel!`); }
+  if (attacker.hp === 0 || defender.hp === 0) {
+    state.phase = state.winner ? 'finished' : 'active';
+  }
   else if (!attackEffectsCancelled && pending.cardId === 'force-disarm') {
     const attackCards = defender.hand.filter((card) => cardDefinition(card).kind === 'attack');
     if (attackCards.length > 0) {
@@ -4850,8 +4885,7 @@ function resolveFlurryPay(state: GameState, playerId: PlayerId, cardInstanceId: 
     defender.hp = Math.max(0, defender.hp - 1);
     state.log.unshift(`${defender.name} lost 1 HP to activate Flurry's forced discard.`);
     if (defender.hp === 0) {
-      state.phase = 'finished'; state.winner = attacker.id; state.flurry = null;
-      state.log.unshift(`${attacker.name} wins the duel!`);
+      state.phase = 'active'; state.flurry = null;
       return ok(state);
     }
     const discardable = attacker.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
@@ -4959,6 +4993,9 @@ function snapshotPerkTargeting(player: PlayerState): PerkTargetingUndo {
 }
 function attachTargetingUndo(state: GameState, playerId: PlayerId, undo: PerkTargetingUndo) {
   const spectre = state as SpectreTargetingState;
+  const rewardTargeting = state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo } | null; portal?: { casterId: PlayerId; undo: PerkTargetingUndo } | null };
+  if (rewardTargeting.fireball?.casterId === playerId) rewardTargeting.fireball.undo = undo;
+  if (rewardTargeting.portal?.casterId === playerId) rewardTargeting.portal.undo = undo;
   if (spectre.spectreReplicaPlacement?.casterId === playerId) spectre.spectreReplicaPlacement.undo = undo;
   if (spectre.spectrePerkOrigin?.casterId === playerId) spectre.spectrePerkOrigin.undo = undo;
   if (spectre.spectreShadow?.casterId === playerId) spectre.spectreShadow.undo = undo;
@@ -5294,32 +5331,35 @@ function resolveSpiritGuardianSquare(state: GameState, playerId: PlayerId, to: C
 }
 
 function resolveFireballTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
-  const extended = state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo } | null };
+  const extended = state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo; source?: 'fireball' | 'firebolt' } | null };
   const pending = extended.fireball;
-  if (state.phase !== 'choosing-fireball-target' || pending?.casterId !== playerId) return fail(state, 'Fireball is not waiting for this target.');
+  if (state.phase !== 'choosing-fireball-target' || pending?.casterId !== playerId) return fail(state, 'A fire spell is not waiting for this target.');
   const caster = state.players[playerId]; const target = state.players[targetId];
   if (!target || targetId === playerId || target.hp <= 0) return fail(state, 'Choose a living enemy.');
-  if (distance(caster.position, target.position) > 3) return fail(state, 'Fireball has Range 3.');
-  if (!hasLineOfSight(state, caster.position, target.position)) return fail(state, 'A Wall Object blocks Fireball line of sight.');
-  const damage = 2 + meleeHighGroundDamageBonus(state, caster, target.position);
-  const dealt = dealDamage(state, target, damage, false, playerId, 'perk');
-  if (target.hp > 0) addForcedStatusCard(state, target, 'burning', 'hand', playerId, 'perk', true);
+  const source = pending.source ?? 'fireball';
+  const range = 3;
+  if (distance(caster.position, target.position) > range) return fail(state, `${source === 'fireball' ? 'Fireball' : 'Firebolt'} has Range ${range}.`);
+  if (!hasLineOfSight(state, caster.position, target.position)) return fail(state, `A Wall Object blocks ${source === 'fireball' ? 'Fireball' : 'Firebolt'} line of sight.`);
+  const baseDamage = source === 'fireball' ? 2 : 1;
+  const damage = baseDamage + meleeHighGroundDamageBonus(state, caster, target.position);
+  const dealt = dealDamage(state, target, damage, false, playerId, source === 'fireball' ? 'other' : 'perk');
+  if (target.hp > 0) addForcedStatusCard(state, target, 'burning', 'hand', playerId, source === 'fireball' ? 'other' : 'perk', true);
   extended.fireball = null; state.phase = 'active';
-  state.log.unshift(`${caster.name}'s Fireball dealt ${dealt} Damage to ${target.name}${damage > 2 ? ', including +1 from High Ground' : ''} and applied Burning; the Reward Card was Removed from the game.`);
+  state.log.unshift(`${caster.name}'s ${source === 'fireball' ? 'Fireball' : 'Firebolt'} dealt ${dealt} Damage to ${target.name}${damage > baseDamage ? ', including +1 from High Ground' : ''} and applied Burning${source === 'fireball' ? '; the main Reward Card was Removed from the game' : ''}.`);
   return ok(state);
 }
 
 function resolvePortalTeleport(state: GameState, playerId: PlayerId, to: Cell): CommandResult {
-  const extended = state as GameState & { portal?: { casterId: PlayerId; undo: PerkTargetingUndo } | null };
+  const extended = state as GameState & { portal?: { casterId: PlayerId; undo: PerkTargetingUndo; source?: 'portal' | 'portal-perk' } | null };
   const pending = extended.portal;
   if (state.phase !== 'choosing-portal-target' || pending?.casterId !== playerId) return fail(state, 'Portal is not waiting for this destination.');
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the Gaming Board.');
-  if (Object.values(state.players).some((player) => player.position.x === to.x && player.position.y === to.y) || state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Portal requires an empty Square.');
+  if (Object.values(state.players).some((player) => player.hp > 0 && player.position.x === to.x && player.position.y === to.y) || state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Portal requires an empty Square.');
   const player = state.players[playerId]; const from = { ...player.position };
   if (!hasLineOfSight(state, from, to)) return fail(state, 'Portal can only land on a Square currently visible from its caster.');
   recordQuestMovement(state, playerId, 1, true, to); player.position = { ...to };
   extended.portal = null; state.phase = 'active';
-  state.log.unshift(`${player.name} used Portal as a Free Action to teleport from ${cellLabel(from)} to ${cellLabel(to)}. Portal was Removed from the game.`);
+  state.log.unshift(`${player.name} used Portal as ${pending.source === 'portal-perk' ? 'a Perk' : 'a Free Action'} to teleport from ${cellLabel(from)} to ${cellLabel(to)}${pending.source === 'portal-perk' ? '.' : '. Portal was Removed from the game.'}`);
   return ok(state);
 }
 
@@ -5470,7 +5510,7 @@ function resolvePreparationTeleport(state: GameState, playerId: PlayerId, object
 function resolveBlinkTeleport(state: GameState, playerId: PlayerId, to: Cell): CommandResult {
   if (state.phase !== 'choosing-blink-teleport' || state.pendingAttack?.defenderId !== playerId) return fail(state, 'Blink is not waiting for this teleport destination.');
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
-  if (Object.values(state.players).some((entry) => entry.position.x === to.x && entry.position.y === to.y) || state.objects.some((entry) => entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Blink requires an empty Square.');
+  if (Object.values(state.players).some((entry) => entry.hp > 0 && entry.position.x === to.x && entry.position.y === to.y) || state.objects.some((entry) => entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Blink requires an empty Square.');
   const player = state.players[playerId];
   if (!hasLineOfSight(state, player.position, to)) return fail(state, 'Blink can only land on a Square currently visible from its caster.');
   recordQuestMovement(state, player.id, 1, true, to);
@@ -6229,7 +6269,7 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   if (automaticSlideIndex >= 0 && automaticSlideIndex < path.length - 1) return fail(state, 'Movement must stop when entering a Slide Square from High Ground so its automatic movement can resolve.');
   if (path.some((cell, index) => isForbiddenSlideAscent(state, index === 0 ? player.position : path[index - 1], cell))) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
-  if (Object.values(state.players).some((entry) => entry.id !== playerId && entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
+  if (Object.values(state.players).some((entry) => entry.id !== playerId && entry.hp > 0 && entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   const passedEnemies = shizzle.level >= 2 ? Object.values(state.players).filter((entry) => entry.id !== playerId && path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
   recordQuestMovement(state, player.id, steps, false, to);
   const enteredFrom = path.length > 1 ? path[path.length - 2] : { ...player.position };
@@ -6732,7 +6772,7 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   if (!dance || state.phase !== 'dance-through') return fail(state, 'Dance Through is not active.');
   if (distance(player.position, to) !== 1) return fail(state, 'Dance Through moves exactly one square at a time.');
   if (isForbiddenSlideAscent(state, player.position, to)) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.position.x === to.x && candidate.position.y === to.y);
+  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.hp > 0 && candidate.position.x === to.x && candidate.position.y === to.y);
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
   if (targetEnemy && isHighGroundSlideEntry(state, player.position, to)) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
   if ((targetEnemy || targetObject) && dance.stepsRemaining <= 1) return fail(state, 'Not enough Dance Through movement remains to leave the occupied Square.');
@@ -6775,7 +6815,7 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   if (!jump || state.phase !== 'double-jump' || jump.playerId !== player.id) return fail(state, 'Double Jump is not active.');
   if (distance(player.position, to) !== 1) return fail(state, 'Double Jump moves exactly one square at a time.');
   if (isForbiddenSlideAscent(state, player.position, to)) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.position.x === to.x && candidate.position.y === to.y);
+  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.hp > 0 && candidate.position.x === to.x && candidate.position.y === to.y);
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
   if (targetEnemy && isHighGroundSlideEntry(state, player.position, to)) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
   if ((targetEnemy || targetObject) && jump.stepsRemaining <= 1) return fail(state, 'Shinobi must end Double Jump on an unoccupied Square.');
@@ -7469,16 +7509,13 @@ function scorePendingDiscards(state: GameState) {
 }
 function ok(state: GameState): CommandResult {
   scorePendingDiscards(state);
-  // Individual card handlers may restore their normal follow-up phase after
-  // resolving damage. A defeated Character must always take precedence.
-  const defeated = (Object.keys(state.players) as PlayerId[]).find((id) => state.players[id].hp <= 0);
-  if (defeated && state.phase !== 'finished') {
+  for (const player of Object.values(state.players)) if (player.hp <= 0 && !player.defeatedAnnounced) registerCharacterDefeat(state, player);
+  const living = (Object.keys(state.players) as PlayerId[]).filter((id) => state.players[id].hp > 0);
+  if (living.length <= 1 && living.length < Object.keys(state.players).length) {
     state.phase = 'finished';
-    state.winner = state.winner && state.players[state.winner]?.hp > 0
-      ? state.winner
-      : (Object.keys(state.players) as PlayerId[]).find((id) => id !== defeated && state.players[id].hp > 0) ?? null;
-    state.log.unshift(`${state.players[defeated].name} was defeated${state.winner ? `; ${state.players[state.winner].name} wins the match!` : '.'}`);
+    state.winner = living[0] ?? null;
   }
+  if (state.phase !== 'finished' && state.players[state.activePlayerId]?.hp <= 0 && state.phase === 'active') state = finalizeTurn(state);
   return { ok: true, state };
 }
 function fail(state: GameState, error: string): CommandResult { return { ok: false, state, error }; }
