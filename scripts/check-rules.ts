@@ -311,6 +311,18 @@ if (playPortal.ok) {
   }
 }
 
+const portalPerkReward = createInitialState();
+portalPerkReward.players.P1.hand = [{ instanceId: 'reward-portal-perk', cardId: 'portal-perk' }];
+const playPortalPerk = applyCommand(portalPerkReward, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'reward-portal-perk', destination: 'direct' });
+assert.equal(playPortalPerk.ok, true, 'The Draw Reward version of Portal is used as a Perk.');
+if (playPortalPerk.ok) {
+  assert.equal(playPortalPerk.state.players.P1.actionsRemaining, 1, 'Perk Portal spends 1 Action.');
+  assert.equal(playPortalPerk.state.players.P1.perkUsed, true, 'Perk Portal consumes the once-per-turn Perk use.');
+  const usePortalPerk = applyCommand(playPortalPerk.state, { type: 'portal-teleport', playerId: 'P1', to: { x: 3, y: 3 } });
+  assert.equal(usePortalPerk.ok, true);
+  if (usePortalPerk.ok) assert.equal(usePortalPerk.state.players.P1.discard.some((card) => card.cardId === 'portal-perk'), true, 'Directly used Perk Portal remains in Discard like a normal Perk.');
+}
+
 const discardedPortalState = createInitialState();
 discardedPortalState.players.P1.freeMoveUsed = true;
 discardedPortalState.players.P1.hand = [{ instanceId: 'discarded-portal', cardId: 'portal' }];
@@ -502,9 +514,27 @@ if (playFireball.ok) {
   if (hit.ok) {
     assert.equal(hit.state.players.P2.hp, 22, 'Fireball deals 2 Damage.');
     assert.equal(hit.state.players.P2.hand.some((card) => card.cardId === 'burning' && card.sourcePlayerId === 'P1'), true, 'Fireball adds a revealed Burning Status Card to the target Hand.');
-    assert.equal(hit.state.players.P1.matchStats?.perkDamage, 2, 'Direct Perk damage is tracked separately.');
-    assert.equal(hit.state.players.P1.matchStats?.totalDamage, 2, 'Total Damage includes Perk damage.');
+    assert.equal(hit.state.players.P1.matchStats?.perkDamage, 0, 'Fireball is an Action reward rather than Perk Damage.');
+    assert.equal(hit.state.players.P1.matchStats?.totalDamage, 2, 'Total Damage includes Fireball Action damage.');
     assert.equal([...hit.state.players.P1.hand, ...hit.state.players.P1.deck, ...hit.state.players.P1.discard].some((card) => card.cardId === 'fireball'), false, 'Fireball is Removed rather than discarded after use.');
+  }
+}
+
+const fireboltReward = createInitialState();
+fireboltReward.players.P1.hand = [{ instanceId: 'reward-firebolt', cardId: 'firebolt' }];
+fireboltReward.objects = [];
+fireboltReward.players.P1.position = { x: 1, y: 1 };
+fireboltReward.players.P2.position = { x: 4, y: 1 };
+const playFirebolt = applyCommand(fireboltReward, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'reward-firebolt', destination: 'direct' });
+assert.equal(playFirebolt.ok, true, 'Firebolt is used through the normal Perk action.');
+if (playFirebolt.ok) {
+  assert.equal(playFirebolt.state.players.P1.perkUsed, true, 'Firebolt consumes the once-per-turn Perk use.');
+  const fireboltHit = applyCommand(playFirebolt.state, { type: 'fireball-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(fireboltHit.ok, true);
+  if (fireboltHit.ok) {
+    assert.equal(fireboltHit.state.players.P2.hp, 23, 'Firebolt deals 1 Damage at Range 3.');
+    assert.equal(fireboltHit.state.players.P2.hand.some((card) => card.cardId === 'burning'), true, 'Firebolt applies Burning.');
+    assert.equal(fireboltHit.state.players.P1.matchStats?.perkDamage, 1, 'Firebolt Damage counts as Perk Damage.');
   }
 }
 
@@ -522,6 +552,24 @@ if (playLethalFireball.ok) {
     assert.equal(lethalHit.state.phase, 'finished', 'Lethal Perk damage always opens the end-game state instead of returning to active play.');
     assert.equal(lethalHit.state.winner, 'P1', 'The Character dealing lethal Perk damage wins the match.');
   }
+}
+
+const freeForAllDeathState = createLordaeronMultiplayerState({ P1: 'shinobi', P2: 'orkk', P3: 'magician' });
+freeForAllDeathState.phase = 'active'; freeForAllDeathState.activePlayerId = 'P1'; freeForAllDeathState.objects = []; freeForAllDeathState.elevations = {};
+freeForAllDeathState.players.P1.position = { x: 2, y: 2 }; freeForAllDeathState.players.P2.position = { x: 3, y: 2 }; freeForAllDeathState.players.P3.position = { x: 8, y: 7 };
+dealDamage(freeForAllDeathState, freeForAllDeathState.players.P2, freeForAllDeathState.players.P2.hp, false, 'P1', 'attack');
+assert.equal(freeForAllDeathState.phase, 'active', 'A three-player Free For All continues after the first Character is defeated.');
+assert.equal(freeForAllDeathState.winner, null, 'The first Free For All defeat does not select a winner.');
+assert.equal(freeForAllDeathState.players.P2.defeatedAnnounced, true, 'A defeated Character enters the persistent death state.');
+assert.deepEqual(movementPath(freeForAllDeathState, freeForAllDeathState.players.P1, { x: 3, y: 2 }), [{ x: 3, y: 2 }], 'A living Character can move onto the Square occupied by a defeated model.');
+freeForAllDeathState.players.P1.hand = [{ instanceId: 'corpse-portal', cardId: 'portal' }];
+const corpsePortal = applyGameCommand(freeForAllDeathState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'corpse-portal' });
+const corpsePortalLanding = corpsePortal.ok ? applyGameCommand(corpsePortal.state, { type: 'portal-teleport', playerId: 'P1', to: { x: 3, y: 2 } }) : corpsePortal;
+assert.equal(corpsePortalLanding.ok, true, 'Teleport movement may end on a defeated Character model.');
+if (corpsePortalLanding.ok) {
+  dealDamage(corpsePortalLanding.state, corpsePortalLanding.state.players.P3, corpsePortalLanding.state.players.P3.hp, false, 'P1', 'attack');
+  assert.equal(corpsePortalLanding.state.phase, 'finished', 'The Free For All ends when only one living Character remains.');
+  assert.equal(corpsePortalLanding.state.winner, 'P1');
 }
 
 const burningTurnEnd = createInitialState();
@@ -567,8 +615,20 @@ const resolveTie = applyCommand(tiedDamageQuest, { type: 'end-turn', playerId: '
 assert.equal(resolveTie.ok, true);
 if (resolveTie.ok) {
   assert.deepEqual((resolveTie.state as any).questPhases.lastQuestWinners.sort(), ['P1', 'P2']);
-  assert.equal(resolveTie.state.players.P1.hand.some((card) => card.cardId === 'fireball'), true);
-  assert.equal(resolveTie.state.players.P2.hand.some((card) => card.cardId === 'fireball'), true, 'Every tied winner receives Fireball immediately.');
+  assert.equal(resolveTie.state.players.P1.hand.some((card) => card.cardId === 'firebolt'), true);
+  assert.equal(resolveTie.state.players.P2.hand.some((card) => card.cardId === 'firebolt'), true, 'Every tied Damage Contest leader receives Firebolt.');
+  assert.equal(resolveTie.state.players.P1.hand.some((card) => card.cardId === 'fireball'), false, 'A tied leader does not receive the clear-winner Fireball.');
+}
+
+const tiedRabbitQuest = createInitialState() as any;
+tiedRabbitQuest.turn = 5; tiedRabbitQuest.activePlayerId = 'P2'; tiedRabbitQuest.roundFirstPlayerId = 'P1'; tiedRabbitQuest.players.P2.hand = [];
+tiedRabbitQuest.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['rabbit-run'], currentQuest: { id: 'rabbit-run', announcedRound: 1, endsAfterRound: 5, winners: [], progress: { P1: 4, P2: 4 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveRabbitTie = applyCommand(tiedRabbitQuest, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveRabbitTie.ok, true);
+if (resolveRabbitTie.ok) {
+  assert.equal(resolveRabbitTie.state.players.P1.hand.some((card) => card.cardId === 'portal-perk'), true);
+  assert.equal(resolveRabbitTie.state.players.P2.hand.some((card) => card.cardId === 'portal-perk'), true, 'Every tied Rabbit Run leader receives the Perk version of Portal.');
+  assert.equal(resolveRabbitTie.state.players.P1.hand.some((card) => card.cardId === 'portal'), false, 'A tied leader does not receive the clear-winner Free Action Portal.');
 }
 
 const tankJuniorRewardState = createInitialState() as any;

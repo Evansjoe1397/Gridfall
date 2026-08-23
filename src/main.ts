@@ -908,7 +908,11 @@ function renderUI() {
   if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
   if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
-  if (gameState.phase === 'choosing-fireball-target') prompt.textContent = 'Fireball: select an enemy within Range 3 · Escape to cancel';
+  if (gameState.phase === 'choosing-fireball-target') {
+    const fireSpell = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' };
+    const range = 3;
+    prompt.textContent = `${fireSpell.source === 'firebolt' ? 'Firebolt' : 'Fireball'}: select an enemy within Range ${range} · Escape to cancel`;
+  }
   if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 3 · Range 1 automatically uses an Action for 2 Damage · Range 2-3 is a Free Action for 1 Damage · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
   if (gameState.phase === 'choosing-spirit-guardian-square') prompt.textContent = 'Spirit Guardian: select an empty highlighted Square within Range · Escape to cancel';
@@ -1189,7 +1193,9 @@ function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['pla
 const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: string; ru: string }>> = {
   'echo-pulse': { en: 'A flexible Spell Echo engine. Use it early for a Card, mature it to Level 2 when an extra Action creates a combo turn, or hold Level 3 for emergency healing.', ru: 'Гибкий двигатель Spell Echo. Используйте рано ради карты, поднимите до 2-го уровня для дополнительного Действия в комбо-ходе или сохраните 3-й уровень для срочного лечения.' },
   fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at turn end if still held; Dash deals that Damage first, then Removes it and moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Burning наносит 1 урон в конце хода, если остаётся в Руке; Dash сначала наносит этот урон, затем удаляет карту и перемещает цель случайно.' },
+  firebolt: { en: 'Use as a normal Perk to deal 1 Damage at Range 3 and add Burning to the target’s Hand.', ru: 'Используйте как обычный Перк, чтобы нанести 1 урон на дальности 3 и добавить Burning в Руку цели.' },
   portal: { en: 'A one-use Free Action reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card without spending an Action. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение Свободным Действием. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты, не тратя Действие. Portal удаляется из игры после применения или сброса.' },
+  'portal-perk': { en: 'The Draw Reward version of Portal uses the normal Perk action and teleports you to a visible empty Square.', ru: 'Версия Portal за ничью используется как обычный Перк и телепортирует на видимую пустую клетку.' },
   'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
@@ -1739,6 +1745,13 @@ function renderManaModal() {
   document.querySelector('#minimizeManaChoice')?.addEventListener('click', () => dispatch({ type: 'minimize-mana-choice', playerId }));
 }
 
+function focusSelectionCardHtml(cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card' | 'data-phase-card') {
+  const card = cardDefinition({ instanceId: '', cardId });
+  const typeLabel = card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'defend' ? 'REACTION · DISCARD ON USE' : 'ACTION: PERK · ONCE PER TURN';
+  const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'DEFEND VALUE' : 'PERK VALUE';
+  return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${escapeHtml(card.name)}</strong><div><b>${card.value}</b> ${valueLabel}</div><small>${cardRulesHtml(card)}</small></button>`;
+}
+
 function renderFocusModal() {
   const modal = byId('focusModal');
   const setupState = gameState as GameState & { openingSetup?: { pendingPlayerIds: PlayerId[]; focusByPlayer: Partial<Record<PlayerId, 'attack' | 'defend'>> } };
@@ -1748,22 +1761,16 @@ function renderFocusModal() {
   modal.classList.toggle('hidden', !visible);
   if (!visible || !playerId) { modal.innerHTML = ''; return; }
   const player = gameState.players[playerId];
-  const focusCardHtml = (cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card') => {
-    const card = cardDefinition({ instanceId: '', cardId });
-    const typeLabel = card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : 'REACTION · DISCARD ON USE';
-    const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : 'DEFEND VALUE';
-    return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${escapeHtml(card.name)}</strong><div><b>${card.value}</b> ${valueLabel}</div><small>${cardRulesHtml(card)}</small></button>`;
-  };
   if (gameState.phase === 'choosing-focus') {
     const definition = STARTING_DECKS[player.character as keyof typeof STARTING_DECKS];
-    modal.innerHTML = `<div class="choice-dialog focus-choice-dialog"><span>STARTING DECK · CHOOSE FOCUS CARD</span><h2>${escapeHtml(player.name)}</h2><p>Choose one of all four available Focus Cards. Its type becomes your initial Focus.</p><div class="focus-choice-groups"><section class="focus-choice-group attack-focus-group"><h3>Attack Focus</h3><div class="focus-card-pair">${definition.attackFocus.map((cardId) => focusCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section><section class="focus-choice-group defend-focus-group"><h3>Defend Focus</h3><div class="focus-card-pair">${definition.defendFocus.map((cardId) => focusCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section></div></div>`;
+    modal.innerHTML = `<div class="choice-dialog focus-choice-dialog"><span>STARTING DECK · CHOOSE FOCUS CARD</span><h2>${escapeHtml(player.name)}</h2><p>Choose one of all four available Focus Cards. Its type becomes your initial Focus.</p><div class="focus-choice-groups"><section class="focus-choice-group attack-focus-group"><h3>Attack Focus</h3><div class="focus-card-pair">${definition.attackFocus.map((cardId) => focusSelectionCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section><section class="focus-choice-group defend-focus-group"><h3>Defend Focus</h3><div class="focus-card-pair">${definition.defendFocus.map((cardId) => focusSelectionCardHtml(cardId, 'data-opening-focus-card')).join('')}</div></section></div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-opening-focus-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus-card', playerId, cardId: button.dataset.openingFocusCard as any })));
     return;
   }
   const focus = opening.focusByPlayer[playerId]!;
   const definition = STARTING_DECKS[player.character as keyof typeof STARTING_DECKS];
   const choices = focus === 'attack' ? definition.attackFocus : definition.defendFocus;
-  modal.innerHTML = `<div class="choice-dialog focus-choice-dialog focus-choice-dialog-single"><span>${focus.toUpperCase()} FOCUS · CHOOSE TENTH CARD</span><h2>${escapeHtml(player.name)}</h2><section class="focus-choice-group ${focus}-focus-group"><h3>${focus === 'attack' ? 'Attack' : 'Defend'} Focus</h3><div class="focus-card-pair">${choices.map((cardId) => focusCardHtml(cardId, 'data-focus-card')).join('')}</div></section><button class="focus-back-button" id="backToFocusChoice" type="button">Back</button></div>`;
+  modal.innerHTML = `<div class="choice-dialog focus-choice-dialog focus-choice-dialog-single"><span>${focus.toUpperCase()} FOCUS · CHOOSE TENTH CARD</span><h2>${escapeHtml(player.name)}</h2><section class="focus-choice-group ${focus}-focus-group"><h3>${focus === 'attack' ? 'Attack' : 'Defend'} Focus</h3><div class="focus-card-pair">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-focus-card')).join('')}</div></section><button class="focus-back-button" id="backToFocusChoice" type="button">Back</button></div>`;
   modal.querySelectorAll<HTMLButtonElement>('[data-focus-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'choose-focus-card', playerId, cardId: button.dataset.focusCard as any })));
   modal.querySelector<HTMLButtonElement>('#backToFocusChoice')!.addEventListener('click', () => dispatch({ type: 'back-focus-choice', playerId }));
 }
@@ -1860,7 +1867,7 @@ function renderPhaseRewardModal() {
     return;
   }
   const choices = phaseCardCandidates(gameState, playerId);
-  phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} REWARD</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><div class="choice-cards">${choices.map((cardId) => { const card = cardDefinition({ instanceId: '', cardId }); return `<button data-phase-card="${cardId}"><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${card.kind === 'attack' ? 'ATTACK' : card.kind === 'defend' ? 'DEFEND' : 'PERK'} VALUE</b><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? '')}</small></button>`; }).join('')}</div></div>`;
+  phaseRewardModal.innerHTML = `<div class="choice-dialog focus-choice-dialog phase-reward-focus-dialog"><span>PHASE ${reward.phase} REWARD</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><section class="focus-choice-group"><h3>Available Cards</h3><div class="focus-card-pair phase-reward-card-grid">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-phase-card')).join('')}</div></section></div>`;
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
@@ -2400,6 +2407,14 @@ renderer.setAnimationLoop((time) => {
   updateCharacterFacing(deltaSeconds);
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
+    const defeated = gameState.players[id]?.hp <= 0;
+    if (defeated) {
+      movementAnimations.delete(id);
+      body.position.y = 0;
+      const ring = group.getObjectByName('TargetRing');
+      if (ring) ring.visible = false;
+      return;
+    }
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
     updateObiWanAnimation(group, id, moving, deltaSeconds);
@@ -4937,10 +4952,11 @@ function syncSpectreShadowTrail() {
 }
 
 function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
+  if (gameState.players[playerId]?.hp <= 0) return;
   let nearestPosition: THREE.Vector3 | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
   (Object.keys(gameState.players) as PlayerId[]).forEach((candidateId) => {
-    if (candidateId === playerId) return;
+    if (candidateId === playerId || gameState.players[candidateId].hp <= 0) return;
     const candidatePosition = worldPosition(gameState.players[candidateId].position);
     const distance = group.position.distanceToSquared(candidatePosition);
     if (distance < nearestDistance) {
@@ -4972,6 +4988,8 @@ function syncBoard() {
     if (!group) return;
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
+    const defeated = gameState.players[id].hp <= 0;
+    if (defeated) target.y += 0.18;
     if (gameState.players[id].spectreOnBoxId) target.y += 1.22;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
@@ -5021,6 +5039,8 @@ function syncBoard() {
       movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: 280, verticalOnly: true });
     }
     lastVisualCells.set(id, targetKey);
+    group.userData.defeated = defeated;
+    group.rotation.z = defeated ? Math.PI / 2 : 0;
     const equippedShield = group.getObjectByName('EquippedShield');
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     const throwInFlight = gameState.objectPushAnimations.some((event) => event.id.includes('-arkane-arow-')
@@ -5419,7 +5439,7 @@ function highlightCells() {
   const selectedCard = (selected.kind === 'attack' || selected.kind === 'perk') ? activePlayer.hand.find((card) => card.instanceId === selected.cardInstanceId) : null;
   cellMeshes.forEach((mesh) => {
     const cell = mesh.userData.cell as Cell;
-    const playerOnCell = Object.values(gameState.players).find((player) => player.position.x === cell.x && player.position.y === cell.y);
+    const playerOnCell = Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y);
     const objectOnCell = gameState.objects.find((object) => object.position.x === cell.x && object.position.y === cell.y);
     const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
     const occupiedByPlayer = Boolean(playerOnCell && playerOnCell.id !== actor.id);
@@ -5518,9 +5538,10 @@ function highlightCells() {
       && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], playerOnCell!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level)));
     const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.chainLightning!.casterId
       && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[gameState.chainLightning!.casterId]) && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
-    const fireball = (gameState as any).fireball as { casterId: PlayerId } | undefined;
+    const fireball = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' } | undefined;
+    const fireballRange = 3;
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
-      && distance(gameState.players[fireball!.casterId].position, cell) <= 3 && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
+      && distance(gameState.players[fireball!.casterId].position, cell) <= fireballRange && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
@@ -5590,6 +5611,11 @@ function updateTargetHighlights(time: number) {
   const canDecayTarget = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decay) && canLocalAct(decay!.casterId);
   dummyGroups.forEach((group, playerId) => {
     const target = gameState.players[playerId];
+    if (target.hp <= 0) {
+      const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
+      if (ring) ring.visible = false;
+      return;
+    }
     const targetIsEntombed = Boolean(target.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, target.position))

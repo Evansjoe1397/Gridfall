@@ -564,6 +564,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .focus-choice-group.defend-focus-group h3 { border-color: rgba(66,207,255,.45); border-left-color: #42cfff; background: rgba(66,207,255,.07); color: #d7f6ff; }
 .focus-card-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .focus-card-pair .focus-selection-card { width: 100%; min-height: 250px; box-sizing: border-box; }
+.phase-reward-card-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.phase-reward-focus-dialog .focus-selection-card { min-height: 250px; }
 .focus-choice-dialog-single { width: min(600px, calc(100vw - 32px)); }
 @media (max-width: 760px) {
   .focus-choice-groups { grid-template-columns: 1fr; }
