@@ -1363,7 +1363,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const exhaustStored = player.deck.concat(player.discard).filter((card) => card.cardId === 'exhaust').length;
     const burning = player.hand.filter((card) => card.cardId === 'burning').length;
     const panic = player.hand.filter((card) => card.cardId === 'panic').length;
-    const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang');
+    const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang' || card.cardId === 'boomerang-draw');
     const phylacteryIcons = player.character === 'wreckna' ? ([
       ['might', 'M', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
       ['wisdom', 'W', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
@@ -1560,8 +1560,9 @@ function renderHand() {
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
-    const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const removeOnUseOrDiscard = instance.cardId === 'feint' || instance.cardId === 'weak-feint';
+    const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
+    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
     return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
@@ -1811,7 +1812,7 @@ function renderActionQuestPanel() {
   const remaining = Math.max(0, current.endsAfterRound - gameState.turn + 1);
   const definition = ACTION_QUEST_POOL.find((quest) => quest.id === current.id);
   const condition = actionQuestConditionWithEndRound(current.id, definition?.condition ?? '', current.endsAfterRound);
-  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : current.id === 'tank-junior' ? 'mythril-helmet' : current.id === 'the-elephant' ? 'boomerang' : current.id === 'the-gambler' ? 'monarch-flush' : current.id === 'hot-potato' ? 'sweet-potato' : null;
+  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : current.id === 'tank-junior' ? 'mythril-helmet' : current.id === 'the-elephant' ? 'boomerang' : current.id === 'the-gambler' ? 'monarch-flush' : current.id === 'the-spy' ? 'feint' : current.id === 'hot-potato' ? 'sweet-potato' : null;
   const rewardCard = rewardCardId ? cardDefinition({ instanceId: '', cardId: rewardCardId as any }) : null;
   const rewardHidden = hiddenQuestRewardId === current.id;
   const highest = Math.max(1, ...Object.values(gameState.players).map((player) => current.progress[player.id] ?? 0));

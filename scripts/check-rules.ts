@@ -123,6 +123,8 @@ assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-elephant')?.dur
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-elephant')?.reward, 'Boomerang');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-gambler')?.durationRounds, 3);
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-gambler')?.reward, 'Monarch Flush');
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-spy')?.durationRounds, 4);
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-spy')?.reward, 'Feint');
 
 const captureFlagState = createGameInitialState() as any;
 captureFlagState.activePlayerId = 'P1';
@@ -232,6 +234,24 @@ highgroundQuest.players.P1.hand = [];
 const highgroundEnd = applyCommand(highgroundQuest, { type: 'end-turn', playerId: 'P1' });
 assert.equal(highgroundEnd.ok, true);
 if (highgroundEnd.ok) assert.equal((highgroundEnd.state as any).questPhases.currentQuest.progress.P1, 1, 'Provocateur counts a turn only when it starts and ends on High Ground.');
+
+const spyQuestState = createInitialState() as any;
+spyQuestState.objects = [];
+spyQuestState.players.P1.position = { x: 8, y: 3 };
+spyQuestState.players.P1.hand = [];
+spyQuestState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-spy'], currentQuest: { id: 'the-spy', announcedRound: 1, endsAfterRound: 4, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {} };
+const spyEnemyBaseEnd = applyCommand(spyQuestState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(spyEnemyBaseEnd.ok, true);
+if (spyEnemyBaseEnd.ok) assert.equal((spyEnemyBaseEnd.state as any).questPhases.currentQuest.progress.P1, 1, 'The Spy counts only when a Player finishes their turn on an enemy Base Square.');
+
+const spyOwnBaseState = createInitialState() as any;
+spyOwnBaseState.objects = [];
+spyOwnBaseState.players.P1.position = { x: 1, y: 3 };
+spyOwnBaseState.players.P1.hand = [];
+spyOwnBaseState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-spy'], currentQuest: { id: 'the-spy', announcedRound: 1, endsAfterRound: 4, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {} };
+const spyOwnBaseEnd = applyCommand(spyOwnBaseState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(spyOwnBaseEnd.ok, true);
+if (spyOwnBaseEnd.ok) assert.equal((spyOwnBaseEnd.state as any).questPhases.currentQuest.progress.P1 ?? 0, 0, 'Ending on the Player\'s own Base does not count for The Spy.');
 
 const provocateurDrawState = createInitialState() as any;
 provocateurDrawState.turn = 5; provocateurDrawState.activePlayerId = 'P2'; provocateurDrawState.roundFirstPlayerId = 'P1'; provocateurDrawState.players.P2.hand = [];
@@ -705,6 +725,50 @@ if (resolveTankJunior.ok) {
   const helmet = resolveTankJunior.state.players.P1.hand.find((card) => card.cardId === 'mythril-helmet');
   assert.equal(Boolean(helmet), true, 'Tank Junior awards Mythril Helmet to the Player who blocked the most Damage.');
   assert.equal(helmet?.revealedToOpponent, true, 'Mythril Helmet is a revealed Status Card.');
+}
+
+const tiedTankJuniorRewardState = createInitialState() as any;
+tiedTankJuniorRewardState.turn = 4; tiedTankJuniorRewardState.activePlayerId = 'P2'; tiedTankJuniorRewardState.roundFirstPlayerId = 'P1';
+tiedTankJuniorRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['tank-junior'], currentQuest: { id: 'tank-junior', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 5, P2: 5 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveTankJuniorTie = applyCommand(tiedTankJuniorRewardState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveTankJuniorTie.ok, true);
+if (resolveTankJuniorTie.ok) {
+  assert.equal(resolveTankJuniorTie.state.players.P1.hand.some((card) => card.cardId === 'helmet'), true, 'Each tied Tank Junior leader receives Helmet.');
+  assert.equal(resolveTankJuniorTie.state.players.P2.hand.some((card) => card.cardId === 'helmet'), true, 'Helmet is the Tank Junior Draw Reward.');
+  assert.equal(resolveTankJuniorTie.state.players.P1.hand.some((card) => card.cardId === 'mythril-helmet'), false, 'A tied leader does not receive Mythril Helmet.');
+}
+
+const tiedElephantRewardState = createInitialState() as any;
+tiedElephantRewardState.turn = 4; tiedElephantRewardState.activePlayerId = 'P2'; tiedElephantRewardState.roundFirstPlayerId = 'P1';
+tiedElephantRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-elephant'], currentQuest: { id: 'the-elephant', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 3, P2: 3 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveElephantTie = applyCommand(tiedElephantRewardState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveElephantTie.ok, true);
+if (resolveElephantTie.ok) {
+  assert.equal(resolveElephantTie.state.players.P1.hand.some((card) => card.cardId === 'boomerang-draw'), true, 'Each tied Elephant leader receives the reusable Boomerang Draw Reward.');
+  assert.equal(resolveElephantTie.state.players.P2.hand.some((card) => card.cardId === 'boomerang-draw'), true);
+  assert.equal(resolveElephantTie.state.players.P1.hand.some((card) => card.cardId === 'boomerang'), false, 'A tied leader does not receive the main Boomerang Reward.');
+}
+
+const spyRewardState = createInitialState() as any;
+spyRewardState.turn = 4; spyRewardState.activePlayerId = 'P2'; spyRewardState.roundFirstPlayerId = 'P1'; spyRewardState.players.P2.hand = [];
+spyRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-spy'], currentQuest: { id: 'the-spy', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 3, P2: 1 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveSpyReward = applyCommand(spyRewardState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveSpyReward.ok, true);
+if (resolveSpyReward.ok) {
+  const feint = resolveSpyReward.state.players.P1.hand.find((card) => card.cardId === 'feint');
+  assert.equal(Boolean(feint), true, 'The Spy winner receives Feint.');
+  assert.equal(feint?.revealedToOpponent, false, 'Feint is hidden from opponents when awarded.');
+}
+
+const spyDrawRewardState = createInitialState() as any;
+spyDrawRewardState.turn = 4; spyDrawRewardState.activePlayerId = 'P2'; spyDrawRewardState.roundFirstPlayerId = 'P1'; spyDrawRewardState.players.P2.hand = [];
+spyDrawRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-spy'], currentQuest: { id: 'the-spy', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 2, P2: 2 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveSpyDraw = applyCommand(spyDrawRewardState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveSpyDraw.ok, true);
+if (resolveSpyDraw.ok) for (const player of Object.values(resolveSpyDraw.state.players)) {
+  const weakFeint = player.hand.find((card) => card.cardId === 'weak-feint');
+  assert.equal(Boolean(weakFeint), true, 'Each tied Spy leader receives Weak Feint.');
+  assert.equal(weakFeint?.revealedToOpponent, false, 'Weak Feint is hidden from opponents when awarded.');
 }
 
 const gamblerRewardState = createInitialState() as any;
@@ -5296,7 +5360,8 @@ const helmetCombatState = createInitialState();
 helmetCombatState.objects = [];
 helmetCombatState.players.P1.position = { x: 2, y: 2 };
 helmetCombatState.players.P2.position = { x: 3, y: 2 };
-helmetCombatState.players.P1.hand = [{ instanceId: 'helmet-attack', cardId: 'attack-3' }];
+helmetCombatState.players.P2.pinnedStacks = 1;
+helmetCombatState.players.P1.hand = [{ instanceId: 'helmet-attack', cardId: 'hello-there' }];
 helmetCombatState.players.P2.hand = [
   { instanceId: 'helmet-defend', cardId: 'defend-1' },
   { instanceId: 'helmet-status', cardId: 'mythril-helmet', revealedToOpponent: true },
@@ -5311,7 +5376,7 @@ if (helmetAttack.ok) {
     const helmetApplied = applyCommand(helmetDefend.state, { type: 'mythril-helmet-decision', playerId: 'P2', use: true });
     assert.equal(helmetApplied.ok, true);
     if (helmetApplied.ok) {
-      assert.equal(helmetApplied.state.players.P2.hp, 24, 'Mythril Helmet negates all combat Damage.');
+      assert.equal(helmetApplied.state.players.P2.hp, 24, 'Mythril Helmet negates combat Damage and post-combat Attack Card effect Damage.');
       assert.equal(helmetApplied.state.players.P2.hand.some((card) => card.cardId === 'mythril-helmet'), false, 'Applied Mythril Helmet is Removed from the Deck.');
     }
   }
@@ -5505,6 +5570,27 @@ wallAttackState.players.P1.hand = [{ instanceId: 'wall-attack', cardId: 'attack-
 wallAttackState.objects = [{ id: 'immune-column', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 2, y: 1 } }];
 assert.equal(applyCommand(wallAttackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'wall-attack', targetId: 'immune-column', targetKind: 'object' }).ok, false, 'Wall Objects remain immune to direct Attack Cards.');
 
+const feintCombatState = createInitialState();
+feintCombatState.objects = [];
+feintCombatState.players.P1.position = { x: 2, y: 2 };
+feintCombatState.players.P2.position = { x: 3, y: 2 };
+feintCombatState.players.P1.hand = [{ instanceId: 'reward-feint', cardId: 'feint', revealedToOpponent: false }];
+feintCombatState.players.P2.hand = [{ instanceId: 'feint-barrier', cardId: 'arcane-barrier' }];
+const feintAttack = applyCommand(feintCombatState, { type: 'attack', playerId: 'P1', cardInstanceId: 'reward-feint', targetId: 'P2' });
+assert.equal(feintAttack.ok, true);
+if (feintAttack.ok) {
+  assert.equal(feintAttack.state.players.P1.discard.some((card) => card.cardId === 'feint'), false, 'Feint is Removed when used.');
+  const feintDefense = applyCommand(feintAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'feint-barrier' });
+  assert.equal(feintDefense.ok, true);
+  if (feintDefense.ok) assert.deepEqual(feintDefense.state.players.P1.position, { x: 2, y: 2 }, 'Feint cancels the played Defend Card effect while preserving its printed Defend Value.');
+}
+
+const weakFeintDiscardState = createInitialState();
+weakFeintDiscardState.players.P1.hand = [{ instanceId: 'discard-weak-feint', cardId: 'weak-feint', revealedToOpponent: false }];
+const discardedWeakFeint = applyCommand(weakFeintDiscardState, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'discard-weak-feint' });
+assert.equal(discardedWeakFeint.ok, true);
+if (discardedWeakFeint.ok) assert.equal(discardedWeakFeint.state.players.P1.discard.some((card) => card.cardId === 'weak-feint'), false, 'Weak Feint is Removed when discarded.');
+
 const boomerangState = createInitialState();
 boomerangState.objects = [{ id: 'boomerang-wall', name: 'Wall', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 4, y: 2 } }];
 boomerangState.players.P1.position = { x: 2, y: 2 };
@@ -5564,6 +5650,23 @@ if (beginMeleeBoomerang.ok) {
     assert.equal(resolvedMeleeBoomerang.state.players.P1.actionsRemaining, 1, 'Melee Boomerang automatically spends 1 Action.');
     assert.equal([...resolvedMeleeBoomerang.state.players.P1.hand, ...resolvedMeleeBoomerang.state.players.P1.deck, ...resolvedMeleeBoomerang.state.players.P1.discard].some((card) => card.cardId === 'boomerang'), false, 'Melee Boomerang is Removed from the game.');
     assert.equal(effectiveMoveRange(resolvedMeleeBoomerang.state.players.P1), 2, 'Removed melee Boomerang causes no MOV penalty.');
+  }
+}
+
+const meleeDrawBoomerangState = createInitialState();
+meleeDrawBoomerangState.players.P1.position = { x: 2, y: 2 };
+meleeDrawBoomerangState.players.P2.position = { x: 3, y: 2 };
+meleeDrawBoomerangState.players.P1.hand = [{ instanceId: 'melee-draw-boomerang', cardId: 'boomerang-draw' }];
+meleeDrawBoomerangState.players.P1.deck = [{ instanceId: 'existing-deck-card', cardId: 'attack-2' }];
+const beginMeleeDrawBoomerang = applyCommand(meleeDrawBoomerangState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'melee-draw-boomerang' });
+assert.equal(beginMeleeDrawBoomerang.ok, true);
+if (beginMeleeDrawBoomerang.ok) {
+  const resolvedMeleeDrawBoomerang = applyCommand(beginMeleeDrawBoomerang.state, { type: 'boomerang-target', playerId: 'P1', targetId: 'P2' });
+  assert.equal(resolvedMeleeDrawBoomerang.ok, true);
+  if (resolvedMeleeDrawBoomerang.ok) {
+    assert.equal(resolvedMeleeDrawBoomerang.state.players.P2.hp, 22, 'The Boomerang Draw Reward retains the melee damage and Action cost.');
+    assert.equal(resolvedMeleeDrawBoomerang.state.players.P1.deck.some((card) => card.cardId === 'boomerang-draw'), true, 'The Boomerang Draw Reward shuffles into the Deck after melee use instead of being Removed.');
+    assert.equal(resolvedMeleeDrawBoomerang.state.players.P1.knownTopCardId, null, 'Shuffling the Draw Reward clears known top-card information.');
   }
 }
 
