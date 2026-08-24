@@ -112,7 +112,7 @@ for (let sample = 0; sample < 100; sample++) assertRandomNagrandBoxLayout(random
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.durationRounds, 5);
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'rabbit-run')?.reward, 'Portal Card');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.durationRounds, 5);
-assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.reward, 'Vicious Mockery Card');
+assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'provocateur')?.reward, 'Vicious Mockery +2');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'capture-the-flag')?.reward, 'The Banner');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'capture-the-flag')?.name, 'The Conqueror');
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'capture-the-flag')?.durationRounds, 5);
@@ -142,13 +142,53 @@ if (capturedFlag.ok) {
   assert.equal(flags.find((flag: any) => flag.ownerId === 'P1').status, 'home', 'The other Base Flag remains independently available.');
   capturedFlag.state.players.P1.position = { x: 1, y: 3 };
   capturedFlag.state.players.P1.hand = [];
-  const deliveredFlag = applyCommand(capturedFlag.state, { type: 'end-turn', playerId: 'P1' });
-  assert.equal(deliveredFlag.ok, true);
-  if (deliveredFlag.ok) {
+  const endedCarrierTurn = applyCommand(capturedFlag.state, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(endedCarrierTurn.ok, true);
+  if (endedCarrierTurn.ok) {
+    assert.equal(endedCarrierTurn.state.players.P1.hand.some((card) => card.cardId === 'banner'), false, 'The Conqueror does not resolve when the carrier merely ends a turn on their Base.');
+    endedCarrierTurn.state.players.P2.hand = [];
+    const deliveredFlag = applyCommand(endedCarrierTurn.state, { type: 'end-turn', playerId: 'P2' });
+    assert.equal(deliveredFlag.ok, true);
+    if (!deliveredFlag.ok) throw new Error(deliveredFlag.error);
     const banner = deliveredFlag.state.players.P1.hand.find((card) => card.cardId === 'banner');
     assert.equal(banner?.revealedToOpponent, true, 'The Banner reward is public information.');
     assert.equal(effectiveMoveRange(deliveredFlag.state.players.P1), deliveredFlag.state.players.P1.moveRange + 1, 'The Banner grants +1 MOV while in Hand.');
   }
+}
+
+const reciprocalCaptureState = createGameInitialState() as any;
+reciprocalCaptureState.activePlayerId = 'P1'; reciprocalCaptureState.roundFirstPlayerId = 'P1'; reciprocalCaptureState.objects = [];
+reciprocalCaptureState.players.P1.position = { x: 1, y: 3 }; reciprocalCaptureState.players.P1.hand = [];
+reciprocalCaptureState.players.P2.position = { x: 8, y: 3 }; reciprocalCaptureState.players.P2.hand = [];
+reciprocalCaptureState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['capture-the-flag'], currentQuest: { id: 'capture-the-flag', announcedRound: 1, endsAfterRound: 5, winners: [], progress: { P1: 1, P2: 1 } }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {}, captureTheFlag: { flags: [
+  { id: 'capture-flag-P1', ownerId: 'P1', homeSquares: [{ x: 1, y: 3 }, { x: 1, y: 4 }], homeAnchor: { x: 1, y: 3.5 }, status: 'carried', carrierId: 'P2', droppedAt: null, grabbedFromHome: true },
+  { id: 'capture-flag-P2', ownerId: 'P2', homeSquares: [{ x: 8, y: 3 }, { x: 8, y: 4 }], homeAnchor: { x: 8, y: 3.5 }, status: 'carried', carrierId: 'P1', droppedAt: null, grabbedFromHome: true },
+] } };
+const reciprocalCapture = applyCommand(reciprocalCaptureState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(reciprocalCapture.ok, true);
+if (reciprocalCapture.ok) {
+  assert.deepEqual((reciprocalCapture.state as any).questPhases.lastQuestWinners.sort(), ['P1', 'P2'], 'Reciprocal enemy Flag carriers on their own Bases draw The Conqueror at the turn-start check.');
+  for (const player of Object.values(reciprocalCapture.state.players)) {
+    const drawBanner = player.hand.find((card) => card.cardId === 'banner-draw');
+    assert.equal(drawBanner?.revealedToOpponent, true, 'Each tied Player receives a revealed Draw version of The Banner.');
+    assert.equal(effectiveMoveRange(player), player.moveRange + 1, 'The Draw Banner grants +1 MOV while held.');
+  }
+}
+
+const automaticBannerDiscardState = createGameInitialState() as any;
+automaticBannerDiscardState.players.P1.hand = [
+  { instanceId: 'automatic-banner', cardId: 'banner', revealedToOpponent: true },
+  { instanceId: 'kept-attack', cardId: 'attack-2' },
+  { instanceId: 'kept-defend', cardId: 'defend-1' },
+  { instanceId: 'kept-perk', cardId: 'light-the-saber' },
+  { instanceId: 'kept-card-four', cardId: 'attack-3' },
+  { instanceId: 'kept-card-five', cardId: 'block' },
+];
+const automaticBannerDiscard = applyCommand(automaticBannerDiscardState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(automaticBannerDiscard.ok, true);
+if (automaticBannerDiscard.ok) {
+  assert.equal(automaticBannerDiscard.state.players.P1.hand.some((card) => card.cardId === 'banner'), false, 'The winner Banner is automatically discarded when hand-limit discarding is requested.');
+  assert.equal(automaticBannerDiscard.state.players.P1.discard.some((card) => card.cardId === 'banner'), true, 'An automatically discarded Banner enters the Discard pile rather than being Removed.');
 }
 
 const droppedFlagState = createGameInitialState() as any;
@@ -192,6 +232,18 @@ highgroundQuest.players.P1.hand = [];
 const highgroundEnd = applyCommand(highgroundQuest, { type: 'end-turn', playerId: 'P1' });
 assert.equal(highgroundEnd.ok, true);
 if (highgroundEnd.ok) assert.equal((highgroundEnd.state as any).questPhases.currentQuest.progress.P1, 1, 'Provocateur counts a turn only when it starts and ends on High Ground.');
+
+const provocateurDrawState = createInitialState() as any;
+provocateurDrawState.turn = 5; provocateurDrawState.activePlayerId = 'P2'; provocateurDrawState.roundFirstPlayerId = 'P1'; provocateurDrawState.players.P2.hand = [];
+provocateurDrawState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['provocateur'], currentQuest: { id: 'provocateur', announcedRound: 1, endsAfterRound: 5, winners: [], progress: { P1: 3, P2: 3 } }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {} };
+const provocateurDraw = applyCommand(provocateurDrawState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(provocateurDraw.ok, true);
+if (provocateurDraw.ok) {
+  for (const player of Object.values(provocateurDraw.state.players)) {
+    const reward = player.hand.find((card) => card.cardId === 'vicious-mockery-1');
+    assert.equal(reward?.revealedToOpponent, true, 'Every tied Provocateur Player receives a revealed Vicious Mockery +1.');
+  }
+}
 
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'hot-potato')?.durationRounds, 4, 'The Hot Potato lasts 4 Rounds.');
 const potatoPickupState = createInitialState() as any;
@@ -294,6 +346,19 @@ if (mockeryDefend.ok) {
     assert.equal(useMockery.state.players.P2.hp, 22, 'Vicious Mockery adds +2 ATT before combat damage is resolved.');
     assert.equal([...useMockery.state.players.P1.hand, ...useMockery.state.players.P1.deck, ...useMockery.state.players.P1.discard].some((card) => card.cardId === 'vicious-mockery'), false, 'Used Vicious Mockery is Removed from the game.');
   }
+}
+
+const drawMockeryCombat = createInitialState();
+drawMockeryCombat.players.P1.position = { x: 2, y: 3 }; drawMockeryCombat.players.P2.position = { x: 3, y: 3 };
+drawMockeryCombat.players.P1.hand = [{ instanceId: 'draw-mockery-attack', cardId: 'attack-2' }, { instanceId: 'draw-combat-mockery', cardId: 'vicious-mockery-1' }];
+drawMockeryCombat.players.P2.hand = [{ instanceId: 'draw-mockery-defense', cardId: 'defend-1' }];
+const drawMockeryAttack = applyCommand(drawMockeryCombat, { type: 'attack', playerId: 'P1', cardInstanceId: 'draw-mockery-attack', targetId: 'P2' });
+const drawMockeryDefend = drawMockeryAttack.ok ? applyCommand(drawMockeryAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'draw-mockery-defense' }) : drawMockeryAttack;
+assert.equal(drawMockeryDefend.ok, true);
+if (drawMockeryDefend.ok) {
+  const useDrawMockery = applyCommand(drawMockeryDefend.state, { type: 'vicious-mockery-decision', playerId: 'P1', use: true });
+  assert.equal(useDrawMockery.ok, true);
+  if (useDrawMockery.ok) assert.equal(useDrawMockery.state.players.P2.hp, 23, 'Vicious Mockery +1 adds exactly +1 ATT before combat damage resolves.');
 }
 
 const portalReward = createInitialState();
@@ -649,6 +714,31 @@ const resolveGamblerReward = applyCommand(gamblerRewardState, { type: 'end-turn'
 assert.equal(resolveGamblerReward.ok, true);
 if (resolveGamblerReward.ok) assert.equal(resolveGamblerReward.state.players.P1.hand.some((card) => card.cardId === 'monarch-flush'), true, 'The Gambler awards Monarch Flush to its winner.');
 
+const gamblerDrawRewardState = createInitialState() as any;
+gamblerDrawRewardState.turn = 3; gamblerDrawRewardState.activePlayerId = 'P2'; gamblerDrawRewardState.roundFirstPlayerId = 'P1'; gamblerDrawRewardState.players.P2.hand = [];
+gamblerDrawRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-gambler'], currentQuest: { id: 'the-gambler', announcedRound: 1, endsAfterRound: 3, winners: [], progress: { P1: 6, P2: 6 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
+const resolveGamblerDraw = applyCommand(gamblerDrawRewardState, { type: 'end-turn', playerId: 'P2' });
+assert.equal(resolveGamblerDraw.ok, true);
+if (resolveGamblerDraw.ok) {
+  for (const playerId of ['P1', 'P2'] as PlayerId[]) {
+    const reward = resolveGamblerDraw.state.players[playerId].hand.find((card) => card.cardId === 'monarch-flush-perk');
+    assert.equal(Boolean(reward), true, 'Every Player tied in The Gambler receives the Perk version of Monarch\'s Flush.');
+    assert.equal(reward?.revealedToOpponent, true, 'The Gambler Draw Reward remains revealed to opponents.');
+  }
+}
+
+const monarchPerkState = createInitialState() as any;
+monarchPerkState.players.P1.hand = [{ instanceId: 'draw-monarch', cardId: 'monarch-flush-perk', revealedToOpponent: true, oneTimeCopy: true }];
+monarchPerkState.players.P2.hand = [{ instanceId: 'hidden-from-monarch', cardId: 'attack-2' }];
+const playedMonarchPerk = applyCommand(monarchPerkState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'draw-monarch', destination: 'direct' });
+assert.equal(playedMonarchPerk.ok, true);
+if (playedMonarchPerk.ok) {
+  assert.equal(playedMonarchPerk.state.players.P1.actionsRemaining, 1, 'The Draw Reward version of Monarch\'s Flush consumes one Action.');
+  assert.equal(playedMonarchPerk.state.players.P1.perkUsed, true, 'The Draw Reward version consumes the normal once-per-turn Perk use.');
+  assert.equal(playedMonarchPerk.state.players.P2.hand[0].revealedToOpponent, true, 'The Perk version reveals every opponent Hand.');
+  assert.equal([...playedMonarchPerk.state.players.P1.hand, ...playedMonarchPerk.state.players.P1.deck, ...playedMonarchPerk.state.players.P1.discard].some((card) => card.cardId === 'monarch-flush-perk'), false, 'The Perk version is Removed after use.');
+}
+
 const rabbitProgress = createInitialState() as any;
 rabbitProgress.objects = [];
 rabbitProgress.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['rabbit-run'], currentQuest: { id: 'rabbit-run', announcedRound: 1, endsAfterRound: 10, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null };
@@ -810,15 +900,13 @@ for (const [playerId, cardId] of [['P1', 'mana-barrage'], ['P2', 'shield-bash'],
   if (cardResult.ok) lordReady = cardResult.state;
 }
 assert.equal(lordReady.phase, 'choosing-base-placement');
-assert.equal(lordReady.players.P1.hand.length, lordOpeningOrder[1] === 'P1' ? 4 : 3);
-assert.equal(lordReady.players.P1.deck.length, lordOpeningOrder[1] === 'P1' ? 6 : 7);
+assert.equal(lordReady.players.P1.hand.length, lordOpeningOrder[0] === 'P1' ? 3 : 4);
+assert.equal(lordReady.players.P1.deck.length, lordOpeningOrder[0] === 'P1' ? 7 : 6);
 assert.equal(lordReady.players.P1.hand.some((card: any) => card.cardId === 'preparation'), true);
 assert.equal(
-  lordOpeningOrder[1] === 'P1'
-    ? lordReady.players.P1.hand.some((card: any) => card.cardId === 'mana-barrage')
-    : lordReady.players.P1.deck.at(-1)?.cardId === 'mana-barrage',
+  lordReady.players.P1.deck.at(-1)?.cardId === 'mana-barrage',
   true,
-  'The selected Focus Card stays on top unless P1 goes second and immediately draws it into Hand.',
+  'The selected Focus Card stays on top of P1\'s Deck regardless of opening turn order.',
 );
 const deploymentOrder = lordReady.lordaeronPlacement!.order;
 const firstPlacement = applyCommand(lordReady, { type: 'place-character', playerId: deploymentOrder[0], to: { x: 2, y: 6 } });
@@ -838,9 +926,10 @@ if (firstPlacement.ok) {
       assert.equal(thirdPlacement.state.activePlayerId, deploymentOrder[0]);
       assert.equal(Boolean((thirdPlacement.state as any).questPhases.currentQuest), true, 'The first Action Quest is announced when multiplayer deployment completes.');
       for (const player of Object.values(thirdPlacement.state.players)) {
-        const goesSecond = player.id === lordOpeningOrder[1];
-        assert.equal(player.hand.length, goesSecond ? 4 : 3, 'The Round 1 second Player receives one additional opening Card.');
-        assert.equal(player.deck.length, goesSecond ? 6 : 7, 'Only the second Player draws an extra Card from the ten-Card starting Deck.');
+        const goesFirst = player.id === lordOpeningOrder[0];
+        assert.equal(player.hand.length, goesFirst ? 3 : 4, 'The first Player starts with three Cards and every later Player starts with four.');
+        assert.equal(player.deck.length, goesFirst ? 7 : 6, 'Every Player after the first draws one additional opening Card from beneath their Focus Card.');
+        assert.equal(player.deck.at(-1)?.cardId, (thirdPlacement.state as any).questPhases.progression[player.id].chosenFocusCard, 'Each selected Focus Card remains on top of its owner\'s Deck.');
       }
     }
   }
@@ -877,6 +966,8 @@ const duelFirstPlayerId = (completedDuelSetup as any).roundFirstPlayerId as Play
 const duelSecondPlayerId = duelFirstPlayerId === 'P1' ? 'P2' : 'P1';
 assert.equal(completedDuelSetup.players[duelFirstPlayerId].hand.length, 3, 'The first Player keeps the standard three-Card opening Hand.');
 assert.equal(completedDuelSetup.players[duelSecondPlayerId].hand.length, 4, 'The Player going second in Round 1 draws one additional opening Card.');
+assert.equal(completedDuelSetup.players[duelFirstPlayerId].deck.at(-1)?.cardId, 'mana-barrage', 'The first Player keeps the selected Focus Card on top of the Deck.');
+assert.equal(completedDuelSetup.players[duelSecondPlayerId].deck.at(-1)?.cardId, 'mana-barrage', 'The second Player draws beneath the selected Focus Card, leaving it on top of the Deck.');
 assert.deepEqual(
   multiplayerLogan.objects.filter((object) => object.kind === 'wall-pillar').map((object) => cellLabel(object.position)).sort(),
   [...NAGRAND_ARENA.pillars].sort(),
@@ -1431,7 +1522,7 @@ if (oracleRevealAttack.ok) {
   const oracleReveal = applyGameCommand(oracleRevealAttack.state, { type: 'oracle-reveal', playerId: 'P2' });
   assert.equal(oracleReveal.ok, true);
   if (oracleReveal.ok) {
-    assert.equal(oracleReveal.state.players.P2.hand.find((card) => card.cardId === 'oracle')?.oracleValue, 3, 'Oracle permanently loses 1 base Defend Value when it reveals an Attack Card.');
+    assert.equal(oracleReveal.state.players.P2.hand.find((card) => card.cardId === 'oracle')?.oracleValue, 2, 'Oracle permanently loses 1 base Defend Value when it reveals an Attack Card.');
     assert.equal((oracleReveal.state.pendingAttack as any).oracleAttackRevealed, true, 'The current Attack Card becomes revealed to Oracle.');
     const blockedOracle = applyGameCommand(oracleReveal.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'oracle-reveal-defense' });
     assert.equal(blockedOracle.ok, false, 'Oracle cannot Defend against the Attack Card it revealed.');
@@ -1451,8 +1542,8 @@ if (oracleDefenseAttack.ok) {
   const oracleDefense = applyCommand(oracleDefenseAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'oracle-defense' });
   assert.equal(oracleDefense.ok, true);
   if (oracleDefense.ok) {
-    assert.equal(oracleDefense.state.combatReveal?.defendBase, 4, 'Oracle begins with base Defend Value 4.');
-    assert.equal(oracleDefense.state.players.P1.hand.filter((card) => card.revealedToOpponent).length, 4, 'Oracle reveals X attacker Hand Cards using its current base Defend Value for X.');
+    assert.equal(oracleDefense.state.combatReveal?.defendBase, 3, 'Oracle begins with base Defend Value 3.');
+    assert.equal(oracleDefense.state.players.P1.hand.filter((card) => card.revealedToOpponent).length, 3, 'Oracle reveals X attacker Hand Cards using its current base Defend Value for X.');
   }
 }
 
