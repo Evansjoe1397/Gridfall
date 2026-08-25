@@ -39,7 +39,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .character-browser-tabs button:hover { color: #d9fff5; background: #102a23; }
 .character-browser-tabs button.active { border-bottom-color: var(--cyan); background: linear-gradient(180deg, #163c32, #0a201a); color: #eafff9; box-shadow: inset 0 -2px var(--cyan); }
 .character-browser-layout { display: grid; grid-template-columns: minmax(270px, .9fr) minmax(230px, .7fr) minmax(330px, 1.2fr); min-height: 440px; border: 1px solid #294c43; border-top: 0; }
-.character-preview-stage { position: relative; min-height: 440px; overflow: hidden; border-right: 1px solid #294c43; background: radial-gradient(circle at 50% 40%, rgba(40,101,83,.38), rgba(3,11,9,.98) 68%); }
+.character-preview-stage { position: relative; height: clamp(440px, 38vw, 580px); min-height: 440px; overflow: hidden; border-right: 1px solid #294c43; background: radial-gradient(circle at 50% 40%, rgba(40,101,83,.38), rgba(3,11,9,.98) 68%); }
 .character-preview-stage::after { content: ''; position: absolute; left: 14%; right: 14%; bottom: 32px; height: 35px; border-radius: 50%; background: rgba(57,234,193,.1); filter: blur(14px); pointer-events: none; }
 .character-preview-canvas, .character-preview-canvas canvas { width: 100%; height: 100%; display: block; }
 .character-preview-canvas canvas { cursor: grab; touch-action: none; }
@@ -514,7 +514,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 
 /* Full-viewport game layout */
 .shell { width: 100%; max-width: none; min-height: 100vh; margin: 0; padding: 18px clamp(16px, 2vw, 38px) 16px; }
-.game:not(.hidden) { height: calc(100vh - 96px); min-height: 680px; display: grid; grid-template-rows: auto minmax(390px, 1fr) auto auto; gap: 0; }
+.shell:has(.game:not(.hidden)) .masthead { display: none; }
+.game:not(.hidden) { height: calc(100vh - 34px); min-height: 680px; display: grid; grid-template-rows: auto minmax(390px, 1fr) auto auto; gap: 0; }
 .arena-frame { width: 100%; height: auto; min-height: 0; }
 .command-deck { width: 100%; }
 .battle-log { width: 100%; }
@@ -603,7 +604,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .shell { padding: 12px 18px 10px; }
   .masthead { height: 54px; }
   h1 { font-size: 30px; }
-  .game:not(.hidden) { height: calc(100vh - 66px); min-height: 620px; grid-template-rows: auto minmax(310px, 1fr) auto auto; }
+  .game:not(.hidden) { height: calc(100vh - 22px); min-height: 620px; grid-template-rows: auto minmax(310px, 1fr) auto auto; }
   .hud { gap: 8px; margin-bottom: 6px; }
   .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 220px minmax(0, 1fr); gap: 10px; }
   .fighter { padding: 5px 9px; gap: 3px 8px; }
@@ -622,18 +623,52 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .command-deck .hand .card { padding: 9px; }
 }
 
-/* Short laptops use a fixed, balanced composition. Avoid page-level zoom here:
-   it changes the canvas coordinate space and causes uneven clipping. */
-@media (max-height: 780px) and (min-width: 801px) {
+/* Medium-height desktop windows (including a 1200p display with browser chrome)
+   need a denser control deck, but not the tiny type used by a 150%-scaled
+   laptop viewport. Keep the arena dominant and cap the hand to a stable row. */
+@media (min-height: 901px) and (max-height: 1200px) and (min-width: 801px) {
+  .game:not(.hidden) {
+    min-height: 0;
+    grid-template-rows: auto minmax(340px, 1fr) clamp(205px, 24vh, 230px) 18px;
+  }
+  .command-deck {
+    height: clamp(205px, 24vh, 230px);
+    grid-template-columns: 175px minmax(0, 1fr) 145px;
+    gap: 7px;
+    padding: 6px 0;
+  }
+  .identity, .turn-actions { min-height: 0; padding: 7px 8px; gap: 3px; overflow: hidden; }
+  .identity > span { font-size: 8px; }
+  .identity strong { font-size: 17px; }
+  .active-stats { gap: 3px; margin: 2px 0; }
+  .active-stats span { padding: 4px 2px; font-size: 6px; }
+  .active-stats b { font-size: 13px; }
+  .piles { margin: 2px 0; }
+  .piles span, .identity .piles button { min-height: 30px; padding: 3px 2px; }
+  .identity button, .turn-actions button { min-height: 27px; padding: 4px 6px; font-size: 8px; }
+  .identity .hints-button { min-height: 27px; padding-block: 3px; font-size: 11px; }
+  .command-deck .hand { gap: 6px; overflow-y: hidden; }
+  .command-deck .hand .card { min-height: 0; height: 100%; padding: 7px 8px; overflow: hidden; }
+  .command-deck .hand .card strong { margin: 3px 0; font-size: 15px; }
+  .command-deck .hand .card small { font-size: 9px; line-height: 1.25; }
+  .turn-actions #endTurn { font-size: 15px; }
+  .battle-log { min-height: 0; padding-top: 3px; overflow: hidden; }
+}
+
+/* High-DPI laptops commonly expose only 700-900 CSS pixels of height even at
+   1200p. Compact the individual UI regions instead of zooming the page, which
+   would change the Three.js canvas coordinate space. Fluid row sizes avoid a
+   sharp layout jump at a single viewport height. */
+@media (max-height: 900px) and (min-width: 801px) {
   .shell { width: 100%; min-height: 100vh; padding: 6px 10px 5px; zoom: 1; }
-  .masthead { height: 42px; }
+  .masthead { height: clamp(36px, 5.4vh, 42px); }
   .masthead .eyebrow { font-size: 7px; }
   h1 { font-size: 24px; }
   .connection { font-size: 9px; }
   .game:not(.hidden) {
-    height: calc(100vh - 53px);
+    height: calc(100vh - 11px);
     min-height: 0;
-    grid-template-rows: 64px minmax(235px, 1fr) 170px 18px;
+    grid-template-rows: clamp(54px, 8vh, 64px) minmax(210px, 1fr) clamp(130px, 18vh, 162px) 16px;
   }
   .hud { gap: 6px; margin-bottom: 4px; }
   .hud:has(#p3Stats.hidden) { grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); gap: 8px; }
@@ -683,7 +718,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .action-quest-panel > small { font-size: 7px; line-height: 1.25; }
   .action-quest-panel p { gap: 4px; margin-top: 5px; font-size: 8px; }
   .quest-reward-card { padding: 5px 6px; }
-  .command-deck { height: 170px; grid-template-columns: 165px minmax(0, 1fr) 130px; gap: 6px; padding: 5px 0; overflow: visible; }
+  .command-deck { height: clamp(130px, 18vh, 162px); grid-template-columns: 145px minmax(0, 1fr) 112px; gap: 5px; padding: 4px 0; overflow: visible; }
   .identity, .turn-actions { min-height: 0; padding: 4px 6px; gap: 1px; overflow: hidden; box-sizing: border-box; }
   .identity > span, .battle-log > span { font-size: 7px; }
   .identity strong { font-size: 15px; }
@@ -699,13 +734,13 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .piles span, .identity .piles button { min-height: 24px; padding: 2px; font-size: 6px; }
   .piles b { font-size: 11px; }
   .command-deck .hand { gap: 5px; overflow-y: hidden; }
-  .command-deck .hand .card { min-height: 0; height: 160px; padding: 6px 7px; overflow: hidden; }
+  .command-deck .hand .card { min-height: 0; height: 100%; padding: 5px 6px; overflow: hidden; }
   .command-deck .hand .card span { font-size: 6px; }
-  .command-deck .hand .card strong { margin: 3px 0; font-size: 14px; }
+  .command-deck .hand .card strong { margin: 2px 0; font-size: 13px; }
   .command-deck .hand .card div { padding-top: 4px; font-size: 7px; }
   .command-deck .hand .card b { font-size: 19px; }
-  .command-deck .hand .card small { font-size: 8px; line-height: 1.25; }
-  .turn-actions #endTurn { font-size: 14px; }
+  .command-deck .hand .card small { font-size: 7px; line-height: 1.22; }
+  .turn-actions #endTurn { font-size: 13px; }
   .battle-log { min-height: 0; padding-top: 3px; grid-template-columns: 105px 1fr; overflow: hidden; }
   .battle-log #log { flex-wrap: nowrap; overflow: hidden; }
   .battle-log p { flex: 0 0 auto; font-size: 7px; white-space: nowrap; }
@@ -720,9 +755,9 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 
 /* The 801-1000px HUD uses two rows. Reserve both rows on short laptops so
    the three fighter panels cannot spill over the arena overlays. */
-@media (max-width: 1000px) and (min-width: 801px) and (max-height: 780px) {
+@media (max-width: 1000px) and (min-width: 801px) and (max-height: 900px) {
   .game:not(.hidden) {
-    grid-template-rows: 112px minmax(194px, 1fr) 170px 18px;
+    grid-template-rows: 102px minmax(180px, 1fr) clamp(130px, 18vh, 162px) 16px;
   }
 }
 
@@ -761,7 +796,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .arena-frame .character-status-panel.status-p2 { left: auto; right: 34%; top: 8px; max-width: min(30%, 340px); transform: translateX(50%); }
 .arena-frame .character-status-panel.status-p3 { left: 50%; right: auto; top: 54px; max-width: min(30%, 340px); transform: translateX(-50%); }
 
-@media (max-height: 780px) and (min-width: 801px) {
+@media (max-height: 900px) and (min-width: 801px) {
   .arena-frame .character-status-panel.status-p1 { left: 32%; right: auto; top: 7px; max-width: 28%; transform: translateX(-50%); }
   .arena-frame .character-status-panel.status-p2 { left: auto; right: 32%; top: 7px; max-width: 28%; transform: translateX(50%); }
   .arena-frame .character-status-panel.status-p3 { left: 50%; right: auto; top: 50px; max-width: 28%; transform: translateX(-50%); }

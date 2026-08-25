@@ -221,6 +221,13 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   const browser = document.querySelector('.character-browser');
   browser?.classList.remove('hidden');
   browser?.scrollIntoView({ block: 'start' });
+  // The preview renderer is created while this panel is display:none. Rebuild
+  // its render targets after layout has a real size; ResizeObserver callbacks
+  // are not consistently delivered for this transition at every browser zoom.
+  requestAnimationFrame(() => {
+    resizeCharacterPreview();
+    characterPreviewComposer?.render();
+  });
 });
 document.querySelector('#closeCharacterBrowser')!.addEventListener('click', () => {
   document.querySelector('.character-browser')?.classList.add('hidden');
@@ -381,6 +388,8 @@ function isWaitingForSelectedCardTarget() {
 
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
+let combatRevealWasVisible = false;
+let deathAnimationNotBefore = 0;
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
   combatAckRequestFor = revealExpiresAt;
@@ -1885,7 +1894,16 @@ function renderCombatReveal() {
   const modal = byId('combatRevealModal');
   const reveal = gameState.combatReveal;
   modal.classList.toggle('hidden', !reveal);
-  if (!reveal) { modal.innerHTML = ''; return; }
+  if (!reveal) {
+    if (combatRevealWasVisible && Object.keys(gameState.players).length === 3) {
+      deathAnimationNotBefore = performance.now() + 1000;
+    }
+    combatRevealWasVisible = false;
+    modal.innerHTML = '';
+    return;
+  }
+  if (Object.keys(gameState.players).length === 3) deathAnimationNotBefore = Number.POSITIVE_INFINITY;
+  combatRevealWasVisible = true;
   const attack = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
@@ -2309,6 +2327,7 @@ const pointer = new THREE.Vector2();
 let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
@@ -2756,6 +2775,7 @@ function updateWizardLiftedTargets(time: number) {
 function updateCharacterFacing(deltaSeconds: number) {
   dummyGroups.forEach((group, playerId) => {
     if (!group.userData.facingSide) return;
+    if (gameState.players[playerId]?.hp <= 0) return;
     if (movementAnimations.has(playerId)) return;
     const orkkAnimation = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
@@ -3550,7 +3570,7 @@ function finishingBlowVisualsActive(time: number) {
 }
 
 function updatePendingDeathAnimations(time: number) {
-  if (pendingDeathAnimationIds.size === 0 || finishingBlowVisualsActive(time)) return;
+  if (pendingDeathAnimationIds.size === 0 || time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
   pendingDeathAnimationIds.forEach((playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group || gameState.players[playerId]?.hp > 0) {
@@ -3569,7 +3589,7 @@ function updateMatchEndPresentation(time: number) {
   const presentation = matchEndPresentation;
   if (!presentation || presentation.phase === 'ready') return;
   if (presentation.phase === 'effects') {
-    if (finishingBlowVisualsActive(time)) return;
+    if (time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
     const defeated = presentation.defeatedId ? gameState.players[presentation.defeatedId] : null;
     const group = presentation.defeatedId ? dummyGroups.get(presentation.defeatedId) : undefined;
     if (defeated && group?.userData.characterModelLoadSettled === false) return;
@@ -3946,6 +3966,8 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     actions.Walk.timeScale = 1.8;
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
+    actions.Death.setLoop(THREE.LoopOnce, 1);
+    actions.Death.clampWhenFinished = true;
     actions.Idle.play();
     const orbitalController = model.getObjectByName('Wizard_Orbital_Controller');
     root.userData.wizardAnimation = {
@@ -4815,8 +4837,6 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
   state.current = 'Running';
 }
 
-let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
-
 function loadObiWanAsset() {
   return obiWanAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`);
 }
@@ -4869,8 +4889,6 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     actions.RunFast.timeScale = OBI_WAN_RUN_FAST_TIME_SCALE;
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
-    actions.Death.setLoop(THREE.LoopOnce, 1);
-    actions.Death.clampWhenFinished = true;
     actions.Dead.setLoop(THREE.LoopOnce, 1);
     actions.Dead.clampWhenFinished = true;
     actions.Idle.play();
@@ -6347,6 +6365,18 @@ function updatePerkBrowserControls() {
   byId('perkPosition').textContent = `${browserPerkIndex + 1} / ${count}`;
 }
 
+function resizeCharacterPreview() {
+  if (!characterPreviewRenderer || !characterPreviewCamera) return;
+  const host = byId('characterPreviewCanvas');
+  const width = host.clientWidth;
+  const height = host.clientHeight;
+  if (width < 1 || height < 1) return;
+  characterPreviewRenderer.setSize(width, height, false);
+  characterPreviewComposer?.setSize(width, height);
+  characterPreviewCamera.aspect = width / height;
+  characterPreviewCamera.updateProjectionMatrix();
+}
+
 function setupCharacterPreview() {
   const host = byId('characterPreviewCanvas');
   characterPreviewScene = new THREE.Scene();
@@ -6388,14 +6418,8 @@ function setupCharacterPreview() {
   pedestal.position.y = -.11; pedestal.receiveShadow = true; characterPreviewScene.add(pedestal);
   const glowRing = new THREE.Mesh(new THREE.RingGeometry(.8, 1.02, 64), new THREE.MeshBasicMaterial({ color: 0x72f6d7, transparent: true, opacity: .38, side: THREE.DoubleSide }));
   glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = .002; characterPreviewScene.add(glowRing);
-  const resizePreview = () => {
-    if (!characterPreviewRenderer || !characterPreviewCamera) return;
-    const width = host.clientWidth; const height = host.clientHeight;
-    if (width < 1 || height < 1) return;
-    characterPreviewRenderer.setSize(width, height, false); characterPreviewComposer?.setSize(width, height); characterPreviewCamera.aspect = width / height; characterPreviewCamera.updateProjectionMatrix();
-  };
-  new ResizeObserver(resizePreview).observe(host);
-  resizePreview();
+  new ResizeObserver(resizeCharacterPreview).observe(host);
+  resizeCharacterPreview();
   let previousTime = performance.now();
   characterPreviewRenderer.setAnimationLoop((time) => {
     if (!characterPreviewRenderer || !characterPreviewScene || !characterPreviewCamera || !characterPreviewControls || document.querySelector('.character-browser')?.classList.contains('hidden')) { previousTime = time; return; }
