@@ -137,7 +137,7 @@ app.innerHTML = `
       </div>
       <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
-        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS (H)</button></div>
+        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
@@ -172,6 +172,7 @@ let actionQuestCollapsed = false;
 let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
+let healthBarsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
 let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
@@ -274,6 +275,26 @@ document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ t
 document.querySelector('#leaveGame')!.addEventListener('click', () => location.reload());
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if (!event.repeat && !game.classList.contains('hidden') && !event.metaKey) {
+    const digitMatch = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+    const hotkeyNumber = digitMatch ? Number(digitMatch[1]) : 0;
+    if (event.altKey && !event.ctrlKey && !event.shiftKey && hotkeyNumber > 0) {
+      const handCard = byId('hand').querySelectorAll<HTMLButtonElement>(':scope > .card')[hotkeyNumber - 1];
+      if (handCard && !handCard.disabled) {
+        event.preventDefault();
+        handCard.click();
+        return;
+      }
+    } else if (!event.altKey && !event.ctrlKey && !event.shiftKey && hotkeyNumber >= 1 && hotkeyNumber <= 3) {
+      const viewerId = actingPlayer();
+      const echoSlot = document.querySelector<HTMLButtonElement>(`[data-echo-owner="${viewerId}"][data-echo-position="${hotkeyNumber}"]`);
+      if (echoSlot && !echoSlot.disabled) {
+        event.preventDefault();
+        echoSlot.click();
+        return;
+      }
+    }
+  }
   if (event.code === 'Escape' && hintsOpen) {
     event.preventDefault(); hintsOpen = false; renderHintsModal(); return;
   }
@@ -360,8 +381,9 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'KeyH' && !game.classList.contains('hidden')) {
     event.preventDefault();
-    hintsOpen = !hintsOpen;
-    renderHintsModal();
+    healthBarsVisible = !healthBarsVisible;
+    updateCharacterHealthBars();
+    notify(`Character HP bars ${healthBarsVisible ? 'shown' : 'hidden'}.`);
   }
   if (event.code === 'KeyC' && !game.classList.contains('hidden')) {
     const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
@@ -803,6 +825,7 @@ function dispatch(command: GameCommand) {
 
 function renderAll() {
   syncBoard();
+  updateCharacterHealthBars(true);
   renderUI();
 }
 
@@ -2098,7 +2121,7 @@ function renderSpellEchoBars() {
       const canPlace = ownerId === viewerId && selected.kind === 'perk' && position === 1;
       const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
       const tooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
-      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" title="${escapeHtml(tooltip ?? '')}" data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
+      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
     }).join('');
     const leftEcho = fixedHotseatDuel ? ownerId === 'P1' : ownerId === viewerId;
     const seatClass = leftEcho ? 'own-echo' : `opponent-echo seat-${ownerId.toLowerCase()}`;
@@ -2116,7 +2139,8 @@ function renderSpellEchoBars() {
     } else dispatch({ type: 'use-echo-perk', playerId: ownerId, position });
   }));
   document.querySelectorAll<HTMLElement>('[data-echo-preview]').forEach((slot) => {
-    slot.addEventListener('pointerenter', () => showCardPreview(slot.dataset.echoPreview!));
+    slot.addEventListener('pointerenter', (event) => showCardPreview(slot.dataset.echoPreview!, event));
+    slot.addEventListener('pointermove', positionCardPreview);
     slot.addEventListener('pointerleave', hideCardPreview);
   });
 }
@@ -2292,9 +2316,10 @@ function escapeHtml(value: string) { const node = document.createElement('span')
 
 // Three.js board -------------------------------------------------------------
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x07100e);
+const darkArenaBackground = new THREE.Color(0x07100e);
+scene.background = darkArenaBackground;
 scene.fog = new THREE.Fog(0x07100e, 72, 120);
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000);
 camera.position.set(14.5, 18.5, 15.5);
 camera.lookAt(0, 0, 0);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -2303,6 +2328,9 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 boardEl.appendChild(renderer.domElement);
+const overheadStatusLayer = document.createElement('div');
+overheadStatusLayer.className = 'overhead-status-layer';
+boardEl.appendChild(overheadStatusLayer);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -2316,11 +2344,183 @@ controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
 controls.mouseButtons.RIGHT = null;
 controls.target.set(0, 0, 0);
 controls.update();
-scene.add(new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6));
+const hemisphereLight = new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6);
+scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
 keyLight.position.set(4, 9, 5); keyLight.castShadow = true; scene.add(keyLight);
+const dawnFillLight = new THREE.DirectionalLight(0xffb56b, 0);
+dawnFillLight.position.set(-8, 3, -6);
+scene.add(dawnFillLight);
 const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.8, 0.42, 8), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
+
+const dawnSkyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(1500, 64, 32),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    vertexShader: `
+      varying vec3 vDirection;
+      void main() {
+        vDirection = normalize((modelMatrix * vec4(position, 0.0)).xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vDirection;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float value = 0.0;
+        value += noise(p) * .50; p = p * 2.02 + 3.1;
+        value += noise(p) * .25; p = p * 2.03 + 1.7;
+        value += noise(p) * .125; p = p * 2.01 + 5.4;
+        value += noise(p) * .0625;
+        return value;
+      }
+      void main() {
+        vec3 direction = normalize(vDirection);
+        vec3 zenith = vec3(.055, .018, .018);
+        vec3 horizon = vec3(.24, .075, .035);
+        vec3 lowerSky = vec3(.035, .012, .015);
+        vec3 sky = mix(lowerSky, horizon, smoothstep(-.72, .02, direction.y));
+        sky = mix(sky, zenith, smoothstep(.02, .78, direction.y));
+
+        vec3 lightDirection = normalize(vec3(-.72, .18, -.66));
+        float distantGlow = pow(max(dot(direction, lightDirection), 0.0), 4.0);
+        sky += vec3(.18, .065, .018) * distantGlow;
+
+        vec2 skyUv = vec2(atan(direction.z, direction.x) / 6.2831853 + .5, asin(clamp(direction.y, -1.0, 1.0)) / 3.1415926 + .5);
+        float cloudNoise = fbm(vec2(skyUv.x * 9.0, skyUv.y * 5.0));
+        float cloudShape = smoothstep(.49, .68, cloudNoise);
+        float cloudBand = exp(-pow((direction.y - .16) * 2.65, 2.0));
+        sky = mix(sky, vec3(.28, .105, .055), cloudShape * cloudBand * .16);
+
+        float highWisps = smoothstep(.56, .72, fbm(vec2(skyUv.x * 15.0 + 8.0, skyUv.y * 7.0)))
+                        * smoothstep(.08, .58, direction.y);
+        sky = mix(sky, vec3(.20, .075, .048), highWisps * .10);
+
+        float haze = exp(-abs(direction.y) * 7.0);
+        sky = mix(sky, vec3(.31, .095, .045), haze * .30);
+
+        gl_FragColor = vec4(sky, 1.0);
+      }
+    `,
+  }),
+);
+dawnSkyDome.visible = false;
+dawnSkyDome.renderOrder = -1000;
+scene.add(dawnSkyDome);
+
+const horizonGrid = new THREE.Mesh(
+  new THREE.PlaneGeometry(360, 360),
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vWorldPosition;
+      float gridLine(float coordinate, float spacing, float width) {
+        float lineDistance = abs(fract(coordinate / spacing + .5) - .5) * spacing;
+        return 1.0 - smoothstep(width, width * 1.8, lineDistance);
+      }
+      void main() {
+        float minor = max(gridLine(vWorldPosition.x, 2.4, .018), gridLine(vWorldPosition.z, 2.4, .018));
+        float major = max(gridLine(vWorldPosition.x, 12.0, .045), gridLine(vWorldPosition.z, 12.0, .045));
+        float distanceFromArena = length(vWorldPosition.xz);
+        float outerFade = 1.0 - smoothstep(80.0, 175.0, distanceFromArena);
+        float innerFade = smoothstep(13.0, 25.0, distanceFromArena);
+        vec3 color = mix(vec3(.24, .055, .025), vec3(.50, .13, .045), major);
+        float alpha = max(minor * .12, major * .25) * outerFade * innerFade;
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+  }),
+);
+horizonGrid.rotation.x = -Math.PI / 2;
+horizonGrid.position.y = -15;
+horizonGrid.visible = false;
+scene.add(horizonGrid);
+
+const dawnStarPositions: number[] = [];
+const dawnStarSizes: number[] = [];
+const dawnStarCount = 900;
+for (let index = 0; index < dawnStarCount; index++) {
+  const vertical = 1 - 2 * ((index + .5) / dawnStarCount);
+  const horizontalRadius = Math.sqrt(1 - vertical * vertical);
+  const angle = index * Math.PI * (3 - Math.sqrt(5)) + .37;
+  const radius = 1400;
+  dawnStarPositions.push(Math.cos(angle) * horizontalRadius * radius, vertical * radius, Math.sin(angle) * horizontalRadius * radius);
+  dawnStarSizes.push(3.1 + (index * 11 % 8) * .38);
+}
+const dawnStarGeometry = new THREE.BufferGeometry();
+dawnStarGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dawnStarPositions, 3));
+dawnStarGeometry.setAttribute('size', new THREE.Float32BufferAttribute(dawnStarSizes, 1));
+const dawnStarField = new THREE.Points(
+  dawnStarGeometry,
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float size;
+      varying float vBrightness;
+      void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size;
+        vBrightness = .7 + fract(size * 1.91) * .3;
+      }
+    `,
+    fragmentShader: `
+      varying float vBrightness;
+      void main() {
+        float distanceFromCenter = length(gl_PointCoord - vec2(.5));
+        if (distanceFromCenter > .5) discard;
+        float core = 1.0 - smoothstep(.04, .2, distanceFromCenter);
+        float glow = 1.0 - smoothstep(.14, .5, distanceFromCenter);
+        vec3 color = mix(vec3(1.0, .3, .055), vec3(1.0, .86, .48), core);
+        gl_FragColor = vec4(color, (core * .8 + glow * .42) * vBrightness);
+      }
+    `,
+  }),
+);
+dawnStarField.frustumCulled = false;
+dawnStarField.renderOrder = 10;
+dawnStarField.visible = false;
+scene.add(dawnStarField);
+
+let dawnArenaMode = false;
+function setDawnArenaMode(enabled: boolean) {
+  dawnArenaMode = enabled;
+  scene.background = enabled ? null : darkArenaBackground;
+  scene.fog = new THREE.Fog(enabled ? 0x241014 : 0x07100e, enabled ? 76 : 72, enabled ? 200 : 120);
+  hemisphereLight.color.setHex(enabled ? 0xe6b69b : 0xbde8dc);
+  hemisphereLight.groundColor.setHex(enabled ? 0x17080a : 0x07100e);
+  hemisphereLight.intensity = enabled ? 1.45 : 1.6;
+  keyLight.color.setHex(enabled ? 0xfff0d2 : 0xffffff);
+  keyLight.intensity = enabled ? 3.35 : 2.8;
+  keyLight.position.set(enabled ? -7 : 4, enabled ? 11 : 9, enabled ? -4 : 5);
+  dawnFillLight.intensity = enabled ? .75 : 0;
+  dawnSkyDome.visible = enabled;
+  horizonGrid.visible = enabled;
+  dawnStarField.visible = enabled;
+  (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? 0x21332f : 0x0d1b18);
+  boardEl.closest('.arena-frame')?.classList.toggle('dawn-mode', enabled);
+}
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -2332,6 +2532,8 @@ let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
+const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
+const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
 const objectGroups = new Map<string, THREE.Group>();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
@@ -2374,7 +2576,8 @@ let questFlagVisualKey = '';
 let hotPotatoModel: THREE.Group | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
-let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
+let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt'; dragDistance: number } | null = null;
+let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
   const arenaId = (gameState as GameState & { arenaId?: ArenaId }).arenaId;
   if (arenaId === 'trench') return THE_TRENCH_ARENA;
@@ -2395,7 +2598,7 @@ renderer.domElement.addEventListener('pointermove', onCameraGrabMove);
 renderer.domElement.addEventListener('pointerup', finishCameraGrab);
 renderer.domElement.addEventListener('pointercancel', finishCameraGrab);
 renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab);
-renderer.domElement.addEventListener('pointerdown', onBoardClick);
+renderer.domElement.addEventListener('click', onBoardClick);
 renderer.domElement.addEventListener('dblclick', onBoardDoubleClick);
 renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
 let renderedBoardWidth = 0;
@@ -2406,6 +2609,12 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (event.ctrlKey && event.code === 'KeyK') {
+    setDawnArenaMode(!dawnArenaMode);
+    notify(dawnArenaMode ? 'Dawn arena lighting enabled.' : 'Dark arena lighting restored.');
+    event.preventDefault();
+    return;
+  }
   if (event.code === 'Home') {
     fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
     cameraKeys.clear();
@@ -2467,7 +2676,10 @@ renderer.setAnimationLoop((time) => {
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
     updateObiWanAnimation(group, id, moving, deltaSeconds);
-    if (group.userData.character === 'shinobi') updateObiWanLightsaberLightPosition(group);
+    if (group.userData.character === 'shinobi') {
+      updateObiWanLightsaberAnimation(group, deltaSeconds);
+      updateObiWanLightsaberLightPosition(group);
+    }
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
@@ -2525,8 +2737,164 @@ renderer.setAnimationLoop((time) => {
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
+  updateCharacterHealthBars();
   renderer.render(scene, camera);
 });
+
+function createCharacterHealthBar(playerId: PlayerId) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 384;
+  canvas.height = 64;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = 'CharacterHealthBar';
+  sprite.scale.set(1.9, 0.317, 1);
+  sprite.renderOrder = 110;
+  sprite.userData.playerId = playerId;
+  sprite.userData.healthKey = '';
+  scene.add(sprite);
+  characterHealthBars.set(playerId, sprite);
+  return sprite;
+}
+
+const characterVisibleBounds = new THREE.Box3();
+const characterPartBounds = new THREE.Box3();
+function visibleCharacterTop(character: THREE.Group) {
+  const visualRoot = character.children[0] ?? character;
+  const boundsSourceKey = visualRoot.children.map((child) => child.uuid).join(':');
+  if (character.userData.healthBoundsSourceKey === boundsSourceKey && Number.isFinite(character.userData.healthVisualTopOffset)) {
+    return character.position.y + Number(character.userData.healthVisualTopOffset);
+  }
+  character.updateWorldMatrix(true, true);
+  characterVisibleBounds.makeEmpty();
+  visualRoot.traverse((part) => {
+    if (!(part instanceof THREE.Mesh) || !part.visible) return;
+    let ancestor: THREE.Object3D | null = part.parent;
+    while (ancestor && ancestor !== visualRoot) {
+      if (!ancestor.visible) return;
+      ancestor = ancestor.parent;
+    }
+    if (part instanceof THREE.SkinnedMesh) {
+      part.computeBoundingBox();
+      if (!part.boundingBox) return;
+      characterPartBounds.copy(part.boundingBox).applyMatrix4(part.matrixWorld);
+    } else {
+      const geometry = part.geometry as THREE.BufferGeometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (!geometry.boundingBox) return;
+      characterPartBounds.copy(geometry.boundingBox).applyMatrix4(part.matrixWorld);
+    }
+    characterVisibleBounds.union(characterPartBounds);
+  });
+  const top = characterVisibleBounds.isEmpty() ? character.position.y + 2.8 : characterVisibleBounds.max.y;
+  character.userData.healthBoundsSourceKey = boundsSourceKey;
+  character.userData.healthVisualTopOffset = top - character.position.y;
+  return top;
+}
+
+function updateCharacterHealthBars(refreshContents = false) {
+  const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
+  characterHealthBars.forEach((sprite, playerId) => {
+    if (playerIds.has(playerId)) return;
+    scene.remove(sprite);
+    const material = sprite.material as THREE.SpriteMaterial;
+    material.map?.dispose();
+    material.dispose();
+    characterHealthBars.delete(playerId);
+  });
+  playerIds.forEach((playerId) => {
+    const player = gameState.players[playerId];
+    const character = dummyGroups.get(playerId);
+    const sprite = characterHealthBars.get(playerId) ?? createCharacterHealthBar(playerId);
+    sprite.visible = healthBarsVisible && Boolean(character?.visible);
+    if (!character) return;
+    sprite.position.copy(character.position);
+    const minimumTopOffset = player.character === 'shinobi' ? 2.35 : player.character === 'spectre' ? 2.45 : 0;
+    const measuredTop = visibleCharacterTop(character);
+    const characterTop = Math.max(measuredTop, character.position.y + minimumTopOffset);
+    const headClearance = player.character === 'orkk' ? 1.15 : 0.83;
+    sprite.position.y = characterTop + headClearance;
+    if (!refreshContents && sprite.userData.healthKey) return;
+    const healthKey = `${player.hp}/${player.maxHp}`;
+    if (sprite.userData.healthKey === healthKey) return;
+    sprite.userData.healthKey = healthKey;
+    const material = sprite.material as THREE.SpriteMaterial;
+    const canvas = material.map!.image as HTMLCanvasElement;
+    const context = canvas.getContext('2d')!;
+    const ratio = THREE.MathUtils.clamp(player.hp / Math.max(1, player.maxHp), 0, 1);
+    const fill = playerId === 'P1' ? '#169bd3' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'rgba(3, 9, 8, 0.9)';
+    context.fillRect(5, 8, 374, 48);
+    context.strokeStyle = fill;
+    context.lineWidth = 4;
+    context.strokeRect(7, 10, 370, 44);
+    context.fillStyle = 'rgba(19, 31, 28, 0.96)';
+    context.fillRect(14, 17, 356, 30);
+    if (ratio > 0) {
+      context.fillStyle = fill;
+      context.fillRect(14, 17, 356 * ratio, 30);
+    }
+    context.font = "800 25px 'Barlow Condensed', Arial";
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = 5;
+    context.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+    context.strokeText(`${player.hp} / ${player.maxHp}`, 192, 32);
+    context.fillStyle = '#ffffff';
+    context.fillText(`${player.hp} / ${player.maxHp}`, 192, 32);
+    material.map!.needsUpdate = true;
+  });
+  updateOverheadStatusRows(refreshContents);
+}
+
+const overheadStatusScreenPosition = new THREE.Vector3();
+const overheadStatusCameraDirection = new THREE.Vector3();
+const overheadStatusCameraOffset = new THREE.Vector3();
+function updateOverheadStatusRows(refreshContents = false) {
+  const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
+  overheadStatusRows.forEach((row, playerId) => {
+    if (playerIds.has(playerId)) return;
+    row.remove();
+    overheadStatusRows.delete(playerId);
+  });
+  playerIds.forEach((playerId) => {
+    const player = gameState.players[playerId];
+    const character = dummyGroups.get(playerId);
+    const healthBar = characterHealthBars.get(playerId);
+    let row = overheadStatusRows.get(playerId);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'overhead-character-statuses';
+      row.style.setProperty('--player-color', playerUiColor(playerId));
+      overheadStatusLayer.appendChild(row);
+      overheadStatusRows.set(playerId, row);
+      refreshContents = true;
+    }
+    if (refreshContents) {
+      const statusHtml = playerStatusIcons(player);
+      if (row.dataset.statusHtml !== statusHtml) {
+        row.dataset.statusHtml = statusHtml;
+        row.innerHTML = statusHtml;
+      }
+    }
+    const visible = healthBarsVisible && Boolean(character?.visible) && Boolean(healthBar?.visible) && row.childElementCount > 0;
+    row.classList.toggle('hidden', !visible);
+    if (!visible || !healthBar) return;
+    overheadStatusScreenPosition.copy(healthBar.position).project(camera);
+    row.style.left = `${(overheadStatusScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
+    row.style.top = `${(-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight}px`;
+    camera.getWorldDirection(overheadStatusCameraDirection);
+    const cameraDepth = Math.max(0.1, overheadStatusCameraOffset.copy(healthBar.position).sub(camera.position).dot(overheadStatusCameraDirection));
+    const pixelsPerWorldUnit = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * cameraDepth);
+    const scale = THREE.MathUtils.clamp(pixelsPerWorldUnit * 0.46 / 64, 0.28, 1.15);
+    row.style.setProperty('--overhead-scale', String(scale));
+    row.style.setProperty('--overhead-inverse-scale', String(1 / scale));
+  });
+}
 
 function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean) {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
@@ -4745,6 +5113,46 @@ function alignObiWanLocomotionRoot(source: THREE.AnimationClip, idle: THREE.Anim
   return clip;
 }
 
+function lightsaberGeometryPart(geometry: THREE.BufferGeometry, blade: boolean, bladeBase: number) {
+  const source = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+  const position = source.getAttribute('position');
+  const keptTriangles: number[] = [];
+  for (let vertex = 0; vertex < position.count; vertex += 3) {
+    const centerY = (position.getY(vertex) + position.getY(vertex + 1) + position.getY(vertex + 2)) / 3;
+    if ((centerY >= bladeBase) === blade) keptTriangles.push(vertex, vertex + 1, vertex + 2);
+  }
+  const result = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    const values: number[] = [];
+    for (const vertex of keptTriangles) {
+      for (let component = 0; component < attribute.itemSize; component += 1) values.push(attribute.getComponent(vertex, component));
+    }
+    result.setAttribute(name, new THREE.Float32BufferAttribute(values, attribute.itemSize, attribute.normalized));
+  }
+  result.computeBoundingBox();
+  result.computeBoundingSphere();
+  source.dispose();
+  return result;
+}
+
+function makeObiWanBladeMaterial(material: THREE.MeshStandardMaterial, bladeLength: number) {
+  const reveal = { value: 0 };
+  material.userData.reveal = reveal;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.saberReveal = reveal;
+    shader.uniforms.saberBladeLength = { value: Math.max(bladeLength, 0.0001) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vSaberBladeY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSaberBladeY = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vSaberBladeY;\nuniform float saberReveal;\nuniform float saberBladeLength;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vSaberBladeY > saberBladeLength * saberReveal) discard;');
+  };
+  material.customProgramCacheKey = () => 'obi-wan-blade-reveal-v1';
+  material.needsUpdate = true;
+  return material;
+}
+
 function enhanceObiWanLightsaber(model: THREE.Group) {
   const saber = model.getObjectByName('Lightsaber');
   if (!saber) return;
@@ -4752,25 +5160,32 @@ function enhanceObiWanLightsaber(model: THREE.Group) {
   saber.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     saberMesh ??= child;
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => {
-      if (!(material instanceof THREE.MeshStandardMaterial)) return;
-      material.emissive.set(0x249cff);
-      material.emissiveMap = material.map;
-      material.emissiveIntensity = 5.5;
-      material.metalness = 0.35;
-      material.roughness = 0.2;
-      material.needsUpdate = true;
-    });
   });
   if (!saberMesh) return;
   saberMesh.geometry.computeBoundingBox();
-  const center = saberMesh.geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
+  const bounds = saberMesh.geometry.boundingBox;
+  if (!bounds) return;
+  const bladeBase = THREE.MathUtils.lerp(bounds.min.y, bounds.max.y, 0.25);
+  const hiltGeometry = lightsaberGeometryPart(saberMesh.geometry, false, bladeBase);
+  const bladeGeometry = lightsaberGeometryPart(saberMesh.geometry, true, bladeBase);
+  // Put the blade's socket at local Y=0 so scaling changes only its length;
+  // the mesh itself remains fixed to the hilt throughout deployment.
+  bladeGeometry.translate(0, -bladeBase, 0);
+  saberMesh.geometry = hiltGeometry;
+  saberMesh.name = 'ObiWanImportedLightsaberHilt';
+  saberMesh.material = new THREE.MeshStandardMaterial({ color: 0x5d666d, metalness: 0.82, roughness: 0.28 });
+  const bladeLength = bladeGeometry.boundingBox?.max.y ?? bounds.max.y - bladeBase;
+  const bladeMaterial = makeObiWanBladeMaterial(new THREE.MeshStandardMaterial({ color: 0xa9e8ff, emissive: 0x249cff, emissiveIntensity: 5.5, metalness: 0.18, roughness: 0.12 }), bladeLength);
+  const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+  blade.name = 'ObiWanImportedLightsaberBlade';
+  blade.position.y = bladeBase;
+  saberMesh.add(blade);
+  const center = bladeGeometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
   const bladeLight = new THREE.PointLight(0x309dff, 0, 3.2, 2);
   bladeLight.name = 'ObiWanLightsaberLight';
   bladeLight.castShadow = false;
   bladeLight.userData.activeIntensity = 5.2;
-  bladeLight.userData.bladeMesh = saberMesh;
+  bladeLight.userData.bladeMesh = blade;
   bladeLight.userData.bladeCenter = center;
   model.add(bladeLight);
 }
@@ -4778,15 +5193,35 @@ function enhanceObiWanLightsaber(model: THREE.Group) {
 function syncObiWanLightsaberVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
   const visible = player.character === 'shinobi' && player.lightsaberBuff;
   group.userData.obiWanLightsaberVisible = visible;
-  const importedLightsaber = group.getObjectByName('Lightsaber');
-  if (importedLightsaber) importedLightsaber.visible = visible;
-  const fallbackLightsaber = group.getObjectByName('ObiWanFallbackLightsaber');
-  fallbackLightsaber?.traverse((child) => {
-    if (child instanceof THREE.Mesh) child.visible = visible;
-  });
+  group.userData.obiWanLightsaberTarget = visible ? 1 : 0;
+  if (group.userData.obiWanLightsaberProgress === undefined) group.userData.obiWanLightsaberProgress = visible ? 1 : 0;
+}
+
+function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: number) {
+  const target = Number(group.userData.obiWanLightsaberTarget ?? 0);
+  const previous = Number(group.userData.obiWanLightsaberProgress ?? target);
+  const step = deltaSeconds / 0.5;
+  const progress = THREE.MathUtils.clamp(previous + Math.sign(target - previous) * Math.min(Math.abs(target - previous), step), 0, 1);
+  group.userData.obiWanLightsaberProgress = progress;
+  const hiltVisible = target > 0 || progress > 0;
+  for (const hiltName of ['ObiWanImportedLightsaberHilt', 'ObiWanFallbackLightsaberHilt']) {
+    const hilt = group.getObjectByName(hiltName);
+    if (hilt) hilt.visible = hiltVisible;
+  }
+  for (const bladeName of ['ObiWanImportedLightsaberBlade', 'ObiWanFallbackLightsaberBlade']) {
+    const blade = group.getObjectByName(bladeName);
+    if (!blade) continue;
+    blade.visible = progress > 0;
+    blade.scale.y = 1;
+    const materials = blade instanceof THREE.Mesh ? (Array.isArray(blade.material) ? blade.material : [blade.material]) : [];
+    materials.forEach((material) => {
+      const reveal = material.userData.reveal as { value: number } | undefined;
+      if (reveal) reveal.value = progress;
+    });
+  }
   for (const lightName of ['ObiWanLightsaberLight', 'ObiWanFallbackLightsaberLight']) {
     const light = group.getObjectByName(lightName) as THREE.PointLight | undefined;
-    if (light) light.intensity = visible ? Number(light.userData.activeIntensity) : 0;
+    if (light) light.intensity = Number(light.userData.activeIntensity ?? 0) * progress;
   }
 }
 
@@ -4860,10 +5295,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     disposeTemporaryCharacterBody(body);
     body.add(model);
     enhanceObiWanLightsaber(model);
-    const bladeLight = model.getObjectByName('ObiWanLightsaberLight') as THREE.PointLight | undefined;
-    const lightsaber = model.getObjectByName('Lightsaber');
-    if (lightsaber) lightsaber.visible = Boolean(root.userData.obiWanLightsaberVisible);
-    if (bladeLight) bladeLight.intensity = root.userData.obiWanLightsaberVisible ? Number(bladeLight.userData.activeIntensity) : 0;
+    updateObiWanLightsaberAnimation(root, 0);
     const idleClip = asset.animations.find((clip) => clip.name === 'Idle');
     const casualWalkClip = asset.animations.find((clip) => clip.name === 'Casual_Walk');
     const walkingClip = asset.animations.find((clip) => clip.name === 'Walking');
@@ -5078,19 +5510,24 @@ function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false)
   fallbackLightsaber.name = 'ObiWanFallbackLightsaber';
   body.add(fallbackLightsaber);
   const hilt = add(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 16), metal, [0.64, 1.15, -0.01], fallbackLightsaber);
+  hilt.name = 'ObiWanFallbackLightsaberHilt';
   hilt.rotation.z = -0.52;
   const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberBlue, [0.99, 1.85, -0.01], fallbackLightsaber);
+  blade.name = 'ObiWanFallbackLightsaberBlade';
   blade.rotation.z = -0.52;
+  const fallbackBladeBase = -0.69;
+  blade.geometry.translate(0, -fallbackBladeBase, 0);
+  blade.position.add(new THREE.Vector3(0, fallbackBladeBase, 0).applyQuaternion(blade.quaternion));
+  blade.material = makeObiWanBladeMaterial(saberBlue, 1.38);
   const bladeGlow = new THREE.PointLight(0x229dff, 2.8, 3.2);
   bladeGlow.name = 'ObiWanFallbackLightsaberLight';
   bladeGlow.userData.activeIntensity = 2.8;
   bladeGlow.intensity = 0;
   bladeGlow.position.set(0.9, 1.65, 0);
   fallbackLightsaber.add(bladeGlow);
-  fallbackLightsaber.traverse((child) => {
-    if (child instanceof THREE.Mesh) child.visible = previewLightsaber;
-  });
-  bladeGlow.intensity = previewLightsaber ? Number(bladeGlow.userData.activeIntensity) : 0;
+  root.userData.obiWanLightsaberTarget = previewLightsaber ? 1 : 0;
+  root.userData.obiWanLightsaberProgress = previewLightsaber ? 1 : 0;
+  updateObiWanLightsaberAnimation(root, 0);
 
   for (const side of [-1, 1]) {
     const leg = add(new THREE.CapsuleGeometry(0.11, 0.52, 5, 10), underRobe, [side * 0.15, 0.32, 0]);
@@ -5140,7 +5577,8 @@ function fitCameraToArena(width: number, height: number, force = false) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
 
-  const viewingDirection = new THREE.Vector3(1, 1.28, 1).normalize();
+  // Face a board axis head-on so rows and columns have an immediately readable orientation.
+  const viewingDirection = new THREE.Vector3(0, 1.32, 1).normalize();
   const center = boardCenterWorld(width, height);
   const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ);
   controls.target.copy(center);
@@ -5945,7 +6383,8 @@ function updateTargetHighlights(time: number) {
   renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
 }
 
-function onBoardClick(event: PointerEvent) {
+function onBoardClick(event: MouseEvent) {
+  if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
@@ -6161,41 +6600,41 @@ function onBoardClick(event: PointerEvent) {
 }
 
 function onCameraRotateStart(event: PointerEvent) {
-  if (event.button !== 2) return;
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  const surfaceHit = raycaster.intersectObjects(cellMeshes, false)[0];
-  const pivot = surfaceHit?.point.clone() ?? raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
-  if (!pivot) return;
-
-  const center = boardCenterWorld();
-  const halfWidth = Math.max(1, visualBoardWidth() - 1) * .96 + 2;
-  const halfHeight = Math.max(1, visualBoardHeight() - 1) * .96 + 2;
-  pivot.x = THREE.MathUtils.clamp(pivot.x, center.x - halfWidth, center.x + halfWidth);
-  pivot.z = THREE.MathUtils.clamp(pivot.z, center.z - halfHeight, center.z + halfHeight);
+  if (event.button !== 0 && event.button !== 2) return;
+  const pivot = controls.target.clone();
   cameraGrab = {
     pointerId: event.pointerId,
     pivot,
     lastX: event.clientX,
     lastY: event.clientY,
-    focusDistance: THREE.MathUtils.clamp(camera.position.distanceTo(controls.target), controls.minDistance, controls.maxDistance),
+    mode: event.button === 0 ? 'tilt' : 'orbit',
+    dragDistance: 0,
   };
   renderer.domElement.setPointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grabbing';
-  event.preventDefault();
+  if (event.button === 2) event.preventDefault();
 }
 
 function onCameraGrabMove(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
   const dx = event.clientX - cameraGrab.lastX;
+  const dy = event.clientY - cameraGrab.lastY;
+  cameraGrab.dragDistance += Math.hypot(dx, dy);
   cameraGrab.lastX = event.clientX;
   cameraGrab.lastY = event.clientY;
-  if (dx === 0) return;
+  if (dx === 0 && dy === 0) return;
 
-  const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * .005);
-  rotateCameraPoseAroundPivot(yaw, cameraGrab.pivot);
-  levelCameraHorizon();
+  const offset = camera.position.clone().sub(cameraGrab.pivot);
+  const spherical = new THREE.Spherical().setFromVector3(offset);
+  if (cameraGrab.mode === 'orbit') {
+    spherical.theta -= dx * .005;
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - dy * .004, controls.minPolarAngle, controls.maxPolarAngle);
+  } else {
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - dy * .004, controls.minPolarAngle, controls.maxPolarAngle);
+  }
+  camera.position.copy(cameraGrab.pivot).add(new THREE.Vector3().setFromSpherical(spherical));
+  camera.up.set(0, 1, 0);
+  camera.lookAt(cameraGrab.pivot);
   camera.updateMatrixWorld(true);
   event.preventDefault();
 }
@@ -6213,13 +6652,17 @@ function levelCameraHorizon() {
 
 function finishCameraGrab(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
-  const direction = camera.getWorldDirection(new THREE.Vector3());
-  controls.target.copy(camera.position).addScaledVector(direction, cameraGrab.focusDistance);
+  const suppressClick = cameraGrab.mode === 'tilt' && cameraGrab.dragDistance > 4;
+  controls.target.copy(cameraGrab.pivot);
   cameraGrab = null;
   levelCameraHorizon();
   controls.update();
   if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grab';
+  if (suppressClick) {
+    suppressNextBoardClick = true;
+    window.setTimeout(() => { suppressNextBoardClick = false; }, 0);
+  }
 }
 
 function onBoardDoubleClick(event: MouseEvent) {
@@ -6242,7 +6685,7 @@ function resize() {
   renderedBoardWidth = width;
   renderedBoardHeight = height;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
-  fitCameraToArena(visualBoardWidth(), visualBoardHeight());
+  fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
 }
 
 let browserCharacter: SelectableCharacter = CHARACTER_BROWSER_ORDER[0];
