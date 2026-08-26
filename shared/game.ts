@@ -3036,6 +3036,10 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
   if (perk.id === 'relocate') {
     const replicas = spectreReplicas(state, player.id);
     if (replicas.length === 0) { state.log.unshift('Relocate found no replica and had no effect.'); return; }
+    if (replicas.length === 1) {
+      resolveSpectreRelocate(state, player, replicas[0], level);
+      return;
+    }
     (state as SpectreTargetingState).spectrePerkOrigin = { casterId: player.id, perkId: 'relocate', level, origin: 'replica', replicaId: replicas[0].id, undo: null };
     state.phase = 'choosing-spectre-perk-origin';
     state.log.unshift(`Relocate level ${level}: choose a replica to swap with, then confirm.`);

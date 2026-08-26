@@ -3431,6 +3431,9 @@ function updateCameraMovement(deltaSeconds: number) {
   const appliedMovement = nextTarget.sub(controls.target);
   camera.position.add(appliedMovement);
   controls.target.add(appliedMovement);
+  // Mouse-drag rotation uses its own pivot snapshot. Move that snapshot with
+  // the camera so the next pointer event does not snap back to the old pivot.
+  cameraGrab?.pivot.add(appliedMovement);
 }
 
 function cameraMovementRadius() {
@@ -3548,6 +3551,17 @@ function createCell(cell: Cell) {
     ramp.userData.cell = cell;
     mesh.add(ramp);
   }
+}
+
+function ensureCharacterHitArea(root: THREE.Group) {
+  if (root.getObjectByName('CharacterHitArea')) return;
+  const hitArea = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.72, 0.72, 3.2, 12),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }),
+  );
+  hitArea.name = 'CharacterHitArea';
+  hitArea.position.y = 1.6;
+  root.add(hitArea);
 }
 
 function createDummy(color: number) {
@@ -4604,6 +4618,12 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     disposeTemporaryCharacterBody(body);
     persistentEffects.forEach((child) => body.add(child));
     body.add(model);
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    const objectId = root.userData.objectId as string | undefined;
+    model.traverse((child) => {
+      if (playerId) child.userData.playerId = playerId;
+      if (objectId) child.userData.objectId = objectId;
+    });
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
     const required = ['Alert', 'Arise', 'Casual_Walk', 'RunFast', 'Skill_01'];
     if (required.some((name) => !clips[name])) throw new Error(`Spectre GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
@@ -5675,6 +5695,7 @@ function syncBoard() {
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
+    ensureCharacterHitArea(group);
     const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
     group.visible = !entombed && (gameState.phase !== 'choosing-base-placement' || Boolean(placementState()?.claims[id]));
     if (!group) return;
@@ -5769,6 +5790,7 @@ function syncBoard() {
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
     if (object.kind === 'spectre-replica') {
+      ensureCharacterHitArea(group);
       group.userData.ownerId = object.ownerId;
       const owner = object.ownerId ? dummyGroups.get(object.ownerId) : undefined;
       if (!lastObjectVisualCells.has(object.id) && owner) group.rotation.y = owner.rotation.y;
@@ -6337,12 +6359,15 @@ function updateTargetHighlights(time: number) {
     const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
-    ring.visible = valid;
-    if (valid) {
+    const showRing = target.character === 'spectre' ? validSpectreOrigin : valid;
+    ring.visible = showRing;
+    if (showRing) {
       const pulse = 1 + Math.sin(time * 0.006) * 0.08;
       ring.scale.setScalar(pulse);
       const selectedSpectreOrigin = validSpectreOrigin && spectreOriginChoice!.origin === 'spectre';
-      (ring.material as THREE.MeshBasicMaterial).opacity = validSpectreOrigin ? (selectedSpectreOrigin ? 0.96 : 0.34) : 0.68 + Math.sin(time * 0.006) * 0.22;
+      const ringMaterial = ring.material as THREE.MeshBasicMaterial;
+      if (target.character === 'spectre') ringMaterial.color.setHex(0x9b77ff);
+      ringMaterial.opacity = validSpectreOrigin ? (selectedSpectreOrigin ? 0.96 : 0.34) : 0.68 + Math.sin(time * 0.006) * 0.22;
     }
   });
   objectGroups.forEach((group, objectId) => {
@@ -6546,7 +6571,13 @@ function onBoardClick(event: MouseEvent) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'move', playerId: gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId : gameState.phase === 'shizzle-move' ? gameState.shizzle!.casterId : gameState.activePlayerId, to: cellHit.object.userData.cell });
   } else if (selected.kind === 'attack') {
-    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const directPlayerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const clickedCell = cellHit?.object.userData.cell as Cell | undefined;
+    const playerOnClickedCell = clickedCell
+      ? Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === clickedCell.x && player.position.y === clickedCell.y)
+      : undefined;
+    const playerHit = directPlayerHit ?? playerOnClickedCell?.id;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
     const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);

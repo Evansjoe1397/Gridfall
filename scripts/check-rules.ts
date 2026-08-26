@@ -7495,6 +7495,22 @@ if (shadowOriginStarted.ok) {
   }
 }
 
+const singleReplicaRelocateState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+singleReplicaRelocateState.phase = 'active'; singleReplicaRelocateState.activePlayerId = 'P1';
+singleReplicaRelocateState.players.P1.position = { x: 1, y: 1 };
+singleReplicaRelocateState.players.P1.hand = [{ instanceId: 'single-replica-relocate', cardId: 'relocate' }];
+singleReplicaRelocateState.objects = [
+  { id: 'only-relocate-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 4 } },
+];
+const singleReplicaRelocated = applyGameCommand(singleReplicaRelocateState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'single-replica-relocate', destination: 'direct' });
+assert.equal(singleReplicaRelocated.ok, true, 'Relocate resolves when exactly one replica is available.');
+if (singleReplicaRelocated.ok) {
+  assert.equal(singleReplicaRelocated.state.phase, 'active', 'Relocate skips replica selection when there is only one valid choice.');
+  assert.equal(singleReplicaRelocated.state.spectrePerkOrigin, undefined, 'Single-replica Relocate does not create a redundant origin choice.');
+  assert.deepEqual(singleReplicaRelocated.state.players.P1.position, { x: 4, y: 4 }, 'Spectre immediately swaps with her only replica.');
+  assert.deepEqual(singleReplicaRelocated.state.objects.find((object: any) => object.id === 'only-relocate-replica')?.position, { x: 1, y: 1 }, 'The only replica immediately moves to Spectre’s former Square.');
+}
+
 const multiReplicaRelocateState = createHotseatTestState(true, 'spectre', 'dummy') as any;
 multiReplicaRelocateState.phase = 'active'; multiReplicaRelocateState.activePlayerId = 'P1';
 multiReplicaRelocateState.players.P1.position = { x: 1, y: 1 };
