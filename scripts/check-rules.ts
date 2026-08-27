@@ -3929,6 +3929,7 @@ if (saberAttack.ok && saberAttack.state.pendingAttack) {
   assert.equal(lostCombat.ok, true);
   if (lostCombat.ok) {
     assert.equal(lostCombat.state.players.P2.pinnedStacks, 1);
+    assert.equal(lostCombat.state.players.P1.lightsaberBuff, true, 'Light the Saber activates Lightsaber after combat even when Shinobi loses the combat.');
     assert.equal(lostCombat.state.players.P2.hp, 24);
     assert.equal(lostCombat.state.players.P1.hand.length, lightSaberLossHandSize - 1);
     assert.equal(lostCombat.state.players.P1.discard.some((card) => card.cardId === 'light-the-saber'), true);
@@ -3947,6 +3948,7 @@ if (winningAttack.ok) {
   assert.equal(wonCombat.ok, true);
   if (wonCombat.ok) {
     assert.equal(wonCombat.state.players.P2.pinnedStacks, 1);
+    assert.equal(wonCombat.state.players.P1.lightsaberBuff, true, 'Light the Saber activates Lightsaber after combat when Shinobi wins the combat.');
     assert.equal(wonCombat.state.players.P2.hp, 22);
     assert.equal(wonCombat.state.players.P1.hand.some((card) => card.instanceId === winningCard.instanceId), false);
     assert.equal(wonCombat.state.players.P1.discard.some((card) => card.instanceId === winningCard.instanceId), true);

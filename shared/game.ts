@@ -212,7 +212,7 @@ export const CARDS: readonly Card[] = [
   { id: 'arcane-barrier', name: 'Arcane Barrier', kind: 'defend', value: 2, effectText: "Push the adjacent Attacker 1 Square away. Deal 1 Damage if they can't be pushed." },
   { id: 'counterspell', name: 'Counterspell', kind: 'defend', value: 3, effectText: "If Logan has any stored Mana Points, deal 1 Damage to the attacking Player. Place a Headache Card on top of the enemy's Deck." },
   { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Block all damage in this combat. Remove all Mana Points. If at least 1 Mana Point was removed, Logan Teleports to a currently visible empty Square. Otherwise, discard a Card from your Hand or Deck.' },
-  { id: 'light-the-saber', name: 'Light the Saber', kind: 'attack', value: 2, effectText: 'Add 1 -MOV stack.' },
+  { id: 'light-the-saber', name: 'Light the Saber', kind: 'attack', value: 2, effectText: 'After combat: Add 1 -MOV stack and activate Lightsaber status.' },
   { id: 'dance-through', name: 'Dance Through', kind: 'attack', value: 2, effectText: 'After combat, move Shinobi 1 Square three times. Can move through enemies, Objects, and Wall Objects; apply 1 -MOV stack to each enemy passed through. Must finish on an unoccupied Square.' },
   { id: 'force-disarm', name: 'Force Disarm', kind: 'attack', value: 1, effectText: 'Force the enemy to discard 1 Attack Card. If they have no Attack Cards, reveal their Hand and add an Exhaust Card to it.' },
   { id: 'cut-them-legs', name: 'Cut Them Legs', kind: 'attack', value: 3, effectText: "Add 1 -MOV stack after combat. If this Card wins combat, return it to Shinobi's Hand." },
@@ -4349,6 +4349,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(`Da Blokk generated 1 additional Rage; together with damage Rage, ${defender.name} gained 2 Rage from this combat (${defender.rageStacks} total).`);
   }
   if (!attackEffectsCancelled && pending.cardId === 'light-the-saber') {
+    const attacker = state.players[pending.attackerId];
+    const previousMoveRange = effectiveMoveRange(attacker);
+    attacker.lightsaberBuff = true;
+    attacker.lightsaberMovementProtection = true;
+    adjustUnspentMovementForRangeChange(attacker, previousMoveRange);
+    state.log.unshift(`Light the Saber activated Lightsaber status for ${attacker.name}.`);
     if (!attackCardDebuffsPrevented) {
       if (!blessingShieldBlocksCombatStatus(state, defender, 'pinned')) {
         const pinnedStacks = applyPinned(defender, 1, state, pending.attackerId);
