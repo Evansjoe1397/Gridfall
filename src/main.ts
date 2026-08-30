@@ -2,6 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -516,6 +517,7 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
+  setDawnArenaMode(format === 'duel' && arena === 'nagrand');
   boardVisualKey = '';
   fittedArenaKey = '';
   lobby.classList.add('hidden');
@@ -565,6 +567,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
       if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
+        setDawnArenaMode(onlineArena.id === 'nagrand');
         boardVisualKey = '';
         fittedArenaKey = '';
       }
@@ -2351,7 +2354,7 @@ keyLight.position.set(4, 9, 5); keyLight.castShadow = true; scene.add(keyLight);
 const dawnFillLight = new THREE.DirectionalLight(0xffb56b, 0);
 dawnFillLight.position.set(-8, 3, -6);
 scene.add(dawnFillLight);
-const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.8, 0.42, 8), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
+const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
 
 const dawnSkyDome = new THREE.Mesh(
@@ -2528,6 +2531,9 @@ let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let nagrandOuterRingAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
@@ -2538,6 +2544,10 @@ const objectGroups = new Map<string, THREE.Group>();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
 scene.add(spectreShadowTrailGroup);
+const nagrandOuterRingGroup = new THREE.Group();
+nagrandOuterRingGroup.name = 'NagrandOuterRing';
+scene.add(nagrandOuterRingGroup);
+let nagrandOuterRingModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
 type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
 const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
@@ -3594,32 +3604,71 @@ function createDummy(color: number) {
 
 function createWoodenBox() {
   const root = new THREE.Group();
+  const fallback = new THREE.Group();
+  fallback.name = 'WoodenBoxProceduralFallback';
+  root.add(fallback);
   const wood = new THREE.MeshStandardMaterial({ color: 0x8a542d, roughness: 0.88 });
   const darkWood = new THREE.MeshStandardMaterial({ color: 0x4b2b18, roughness: 0.94 });
   const crate = new THREE.Mesh(new THREE.BoxGeometry(1.12, 1.05, 1.12), wood);
-  crate.position.y = 0.61; crate.castShadow = true; crate.receiveShadow = true; root.add(crate);
+  crate.position.y = 0.61; crate.castShadow = true; crate.receiveShadow = true; fallback.add(crate);
   for (const side of [-1, 1]) {
     const horizontal = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.1), darkWood);
-    horizontal.position.set(0, 0.61, side * 0.57); horizontal.castShadow = true; root.add(horizontal);
+    horizontal.position.set(0, 0.61, side * 0.57); horizontal.castShadow = true; fallback.add(horizontal);
     const diagonal = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.1, 0.11), darkWood);
-    diagonal.position.set(0, 0.61, side * 0.585); diagonal.rotation.z = 0.68 * side; diagonal.castShadow = true; root.add(diagonal);
+    diagonal.position.set(0, 0.61, side * 0.585); diagonal.rotation.z = 0.68 * side; diagonal.castShadow = true; fallback.add(diagonal);
   }
   const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.2), darkWood);
-  top.position.y = 1.17; top.castShadow = true; root.add(top);
+  top.position.y = 1.17; top.castShadow = true; fallback.add(top);
+  void loadArenaCrateAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaCrateImportedModel', new THREE.Vector3(1.38, 1.38, 1.38))).catch((error) => {
+    console.error('Failed to load arena crate; keeping procedural fallback.', error);
+  });
   return root;
 }
 
 function createWoodenPillar() {
   const root = new THREE.Group();
+  const fallback = new THREE.Group();
+  fallback.name = 'WoodenPillarProceduralFallback';
+  root.add(fallback);
   const wood = new THREE.MeshStandardMaterial({ color: 0x68401f, roughness: 0.86 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x352012, roughness: 0.92 });
   const column = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 2.8, 12), wood);
-  column.position.y = 1.45; column.castShadow = true; column.receiveShadow = true; root.add(column);
+  column.position.y = 1.45; column.castShadow = true; column.receiveShadow = true; fallback.add(column);
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.68, 0.28, 12), dark);
-  base.position.y = 0.14; base.castShadow = true; root.add(base);
+  base.position.y = 0.14; base.castShadow = true; fallback.add(base);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.48, 0.34, 12), dark);
-  cap.position.y = 2.92; cap.castShadow = true; root.add(cap);
+  cap.position.y = 2.92; cap.castShadow = true; fallback.add(cap);
+  void loadArenaPillarAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaPillarImportedModel', new THREE.Vector3(1.564, 3.5535, 1.564))).catch((error) => {
+    console.error('Failed to load arena pillar; keeping procedural fallback.', error);
+  });
   return root;
+}
+
+function loadArenaCrateAsset() {
+  return arenaCrateAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-crate-square.glb?v=20260830-1`);
+}
+
+function loadArenaPillarAsset() {
+  return arenaPillarAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-wooden-pillar.glb?v=20260830-1`);
+}
+
+function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>, name: string, targetSize: THREE.Vector3) {
+  if (fallback.parent !== root) return;
+  const model = asset.scene.clone(true) as THREE.Group;
+  model.name = name;
+  const sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+  if (sourceSize.x <= 0 || sourceSize.y <= 0 || sourceSize.z <= 0) throw new Error(`${name} has invalid bounds.`);
+  model.scale.set(targetSize.x / sourceSize.x, targetSize.y / sourceSize.y, targetSize.z / sourceSize.z);
+  const scaledBounds = new THREE.Box3().setFromObject(model);
+  model.position.y -= scaledBounds.min.y;
+  model.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+  disposeTemporaryCharacterBody(fallback);
+  fallback.removeFromParent();
+  root.add(model);
 }
 
 function createSpiritGuardian(level: number) {
@@ -5584,23 +5633,70 @@ function rebuildBoardGeometry(width: number, height: number) {
   boardVisualKey = boardGeometryKey();
   for (let y = 0; y < height; y++) for (let x = 1; x <= width; x++) createCell({ x, y });
   createAxisLabels();
+  syncNagrandOuterRing(width, height);
   fitCameraToArena(width, height);
 }
 
+function loadNagrandOuterRingAsset() {
+  if (nagrandOuterRingAssetPromise) return nagrandOuterRingAssetPromise;
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return nagrandOuterRingAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/nagrand-outer-ring.glb?v=20260830-1`);
+}
+
+function nagrandOuterRingSpan(width: number, height: number) {
+  return Math.max(width, height) * 1.92 + 9.6;
+}
+
+function sizeNagrandOuterRing(model: THREE.Group, width: number, height: number) {
+  const sourceSize = model.userData.sourceSize as THREE.Vector3;
+  const targetOuterSpan = nagrandOuterRingSpan(width, height);
+  model.scale.set(targetOuterSpan / sourceSize.x, 3.2 / sourceSize.y, targetOuterSpan / sourceSize.z);
+}
+
+function syncNagrandOuterRing(width: number, height: number) {
+  const visible = visualArena().id === 'nagrand';
+  nagrandOuterRingGroup.visible = visible;
+  if (!visible) return;
+  const center = boardCenterWorld(width, height);
+  nagrandOuterRingGroup.position.set(center.x, -0.12, center.z);
+  if (nagrandOuterRingModel) {
+    sizeNagrandOuterRing(nagrandOuterRingModel, width, height);
+    return;
+  }
+  void loadNagrandOuterRingAsset().then((asset) => {
+    if (nagrandOuterRingModel) return;
+    const model = asset.scene.clone(true) as THREE.Group;
+    model.name = 'NagrandOuterRingImportedModel';
+    model.userData.sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    sizeNagrandOuterRing(model, width, height);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    nagrandOuterRingModel = model;
+    nagrandOuterRingGroup.add(model);
+  }).catch((error) => {
+    console.error('Failed to load the Nagrand outer ring.', error);
+  });
+}
+
 function fitCameraToArena(width: number, height: number, force = false) {
-  const arenaKey = `${width}x${height}`;
+  const arenaKey = `${visualArena().id}-${width}x${height}`;
   if (!force && fittedArenaKey === arenaKey) return;
   fittedArenaKey = arenaKey;
 
   const spanX = Math.max(1, width - 1) * 1.92;
   const spanZ = Math.max(1, height - 1) * 1.92;
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
-  floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
+  const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
+  floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
 
-  // Face a board axis head-on so rows and columns have an immediately readable orientation.
-  const viewingDirection = new THREE.Vector3(0, 1.32, 1).normalize();
+  // Start every arena slightly off-axis and low for a three-quarter view.
+  const viewingDirection = new THREE.Vector3(0.5, 1.05, 1).normalize();
   const center = boardCenterWorld(width, height);
-  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ);
+  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ) * 1.68;
   controls.target.copy(center);
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
@@ -5711,7 +5807,7 @@ function syncBoard() {
       proceduralDeathAnimations.delete(id);
     }
     if (defeated && !hasRiggedDeathPose) target.y += 0.18;
-    if (gameState.players[id].spectreOnBoxId) target.y += 1.22;
+    if (gameState.players[id].spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
     if (!previousKey) {
@@ -5802,7 +5898,7 @@ function syncBoard() {
       phylacteryAura.name = 'PhylacteryAura'; phylacteryAura.rotation.x = Math.PI / 2; phylacteryAura.position.y = 0.18; group.add(phylacteryAura);
     } else if (!object.phylacteryType && phylacteryAura) group.remove(phylacteryAura);
     const target = worldPosition(object.position);
-    if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.22;
+    if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
     if (!previousKey) {
