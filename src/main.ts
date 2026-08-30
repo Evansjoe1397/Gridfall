@@ -746,6 +746,7 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-flurry-enemy-discard') return gameState.flurry!.attackerId;
   if (gameState.phase === 'mana-blast-offer') return gameState.pendingAttack!.defenderId;
   if (gameState.phase === 'choosing-frostmourne') return (gameState as GameState & { frostmourne?: { playerId: PlayerId } }).frostmourne?.playerId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-lightbringer-swap') return gameState.pendingAttack?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-grimoire-discard') return gameState.pendingAttack!.defenderId;
   return gameState.activePlayerId;
 }
@@ -1432,6 +1433,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">⚔<span class="status-tooltip"><strong>Summon · Attack Ready</strong>Swordcraft has summoned a sword from another realm. Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">DEF<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
+    const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">DEF↩<span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
     const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin may cross characters, Objects, Wall Objects, High Ground, Slides, Trenches, and other restricted Squares, but must end movement on an empty Square.' : ''}</span></div>` : '';
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianMovementIcon = player.character === 'merylin' && player.barbarianIgnoreNegativeMovement ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<span class="status-tooltip"><strong>Barbarian Stance · Unstoppable</strong>Negative effects cannot reduce or annul Merylin's MOV until the end of this turn.</span></div>` : '';
@@ -1454,7 +1456,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1626,6 +1628,17 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  if ((gameState.phase as string) === 'choosing-lightbringer-swap' && gameState.pendingAttack) {
+    const attacker = gameState.players[gameState.pendingAttack.attackerId];
+    const defender = gameState.players[gameState.pendingAttack.defenderId];
+    const visible = viewerId === attacker.id && canLocalAct(attacker.id);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    modal.innerHTML = `<div class="choice-dialog"><span>LIGHTBRINGER · BEFORE COMBAT</span><h2>Change Positions?</h2><p>${escapeHtml(defender.name)} has locked their defense. Decide whether to swap places before the Defend Card is revealed.</p><div class="choice-cards"><button id="lightbringerSwap"><strong>Swap places</strong><small>Exchange Squares with the target</small></button></div><button class="choice-decline" id="lightbringerStay">Keep positions</button></div>`;
+    modal.querySelector('#lightbringerSwap')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: true }));
+    modal.querySelector('#lightbringerStay')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: false }));
+    return;
+  }
   const frostmourne = (gameState as GameState & { frostmourne?: { playerId: PlayerId } | null }).frostmourne;
   if (gameState.phase === 'choosing-frostmourne' && frostmourne) {
     const player = gameState.players[frostmourne.playerId];
@@ -5793,7 +5806,11 @@ function syncBoard() {
     }
     ensureCharacterHitArea(group);
     const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
-    group.visible = !entombed && (gameState.phase !== 'choosing-base-placement' || Boolean(placementState()?.claims[id]));
+    // Keep every FFA character visible while bases are claimed. The state
+    // already gives each unplaced player a provisional base position; hiding
+    // unclaimed models made the final Focus choice look as if the match had
+    // deleted every character and left the board unplayable.
+    group.visible = !entombed;
     if (!group) return;
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
@@ -5910,7 +5927,10 @@ function syncBoard() {
       const travelSquares = Math.max(1, distanceFromWorld(from, target));
       objectMovementAnimations.set(object.id, { from, to: target.clone(), startedAt: performance.now(), duration: 380 + travelSquares * 180, collided: false, dx: 0, dy: 0 });
     }
-    else if (!objectMovementAnimations.has(object.id)) group.position.y = target.y;
+    else if (!objectMovementAnimations.has(object.id)) {
+      if (object.kind === 'orkk-shield') settleOrkkShieldAtRest(group, object.ownerId, target);
+      else group.position.y = target.y;
+    }
     lastObjectVisualCells.set(object.id, targetKey);
     group.traverse((child) => { child.userData.objectId = object.id; });
   });
@@ -6703,11 +6723,7 @@ function onBoardClick(event: MouseEvent) {
       const origin = attacker.character === 'spectre' ? spectreAttackOriginForTarget(attacker, hitObject.position) : 'spectre';
       if (origin) { if (attacker.character === 'spectre') selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: hitObject.id, targetKind: 'replica' }); }
     }
-    else if (playerHit) {
-      const swapBeforeCombat = selectedAttackCard?.cardId === 'lightbringer'
-        && window.confirm(`Lightbringer: swap places with ${gameState.players[playerHit].name} before combat?\n\nOK: swap places.\nCancel: attack without swapping.`);
-      dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player', swapBeforeCombat });
-    }
+    else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
