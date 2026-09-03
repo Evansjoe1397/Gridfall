@@ -347,7 +347,7 @@ export type PlayerState = {
 };
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
 export type CombatModifier = { value: number; source: string };
-export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
+export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
 export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; attackAnimationPlayerId?: PlayerId; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
@@ -689,6 +689,20 @@ export function spectreReplica(state: GameState, ownerId: PlayerId): BoardObject
 }
 export function spectreReplicas(state: GameState, ownerId: PlayerId): BoardObject[] {
   return state.objects.filter((object) => object.kind === 'spectre-replica' && object.ownerId === ownerId);
+}
+function attackedSpectreReplica(state: GameState, pending: PendingAttack): BoardObject | undefined {
+  if (pending.defenderBody !== 'replica') return undefined;
+  const replicas = spectreReplicas(state, pending.defenderId);
+  return replicas.find((replica) => replica.id === pending.defenderReplicaId)
+    ?? replicas.find((replica) => pending.defenderPosition && replica.position.x === pending.defenderPosition.x && replica.position.y === pending.defenderPosition.y)
+    ?? replicas[0];
+}
+function attackingSpectreReplica(state: GameState, pending: PendingAttack): BoardObject | undefined {
+  if (pending.attackerBody !== 'replica') return undefined;
+  const replicas = spectreReplicas(state, pending.attackerId);
+  return replicas.find((replica) => replica.id === pending.attackerReplicaId)
+    ?? replicas.find((replica) => pending.attackerPosition && replica.position.x === pending.attackerPosition.x && replica.position.y === pending.attackerPosition.y)
+    ?? replicas[0];
 }
 function echoStrikeVictims(state: GameState, ownerId: PlayerId): PlayerState[] {
   const replicas = spectreReplicas(state, ownerId);
@@ -2230,7 +2244,8 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
   const attackingFromBox = effectiveOrigin === 'spectre' ? Boolean(attacker.spectreOnBoxId) : Boolean(reachableReplica?.spectreOnBoxId);
   const boxElevationAdvantage = attackingFromBox
     && (state.elevations[cellLabel(origin)] ?? 0) + 1 > (state.elevations[cellLabel(combatTarget)] ?? 0);
-  const highGroundBonus = Number(boxElevationAdvantage || (isHighGround(state, origin) || attackingFromBox) && isLowGroundOrProtected(state, combatTarget));
+  const baseHighGroundBonus = Number(boxElevationAdvantage || (isHighGround(state, origin) || attackingFromBox) && isLowGroundOrProtected(state, combatTarget));
+  const highGroundBonus = baseHighGroundBonus * (card.id === 'lightbringer' ? 3 : 1);
   const exhaustPenalty = Number(attacker.hand.some((entry) => entry.cardId === 'exhaust'));
   const guardianPenalty = spiritGuardianEnemyPenalty(state, { ...attacker, position: origin });
   const temporaryBonus = attacker.spectreAttackBonus ?? 0;
@@ -2246,7 +2261,7 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
   const spiritBonus = attacker.character === 'john-christ' && attacker.spiritForm ? 2 : 0;
   const manaBlastBonus = card.id === 'mana-blast' && attacker.manaMode === 'consume' ? 2 : 0;
   const attackModifiers: CombatModifier[] = [
-    highGroundBonus && { value: highGroundBonus, source: 'High Ground advantage' },
+    highGroundBonus && { value: highGroundBonus, source: card.id === 'lightbringer' ? 'Lightbringer · High Ground ×3' : 'High Ground advantage' },
     temporaryBonus && { value: temporaryBonus, source: 'Spectre temporary ATT' },
     accumulateBonus && { value: accumulateBonus, source: 'Accumulate' },
     lightsaberBonus && { value: lightsaberBonus, source: 'Lightsaber status' },
@@ -2279,6 +2294,8 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
     defenderPosition: { ...combatTarget },
     attackerBody: effectiveOrigin === 'replica' ? 'replica' : 'character',
     defenderBody: targetReplica ? 'replica' : 'character',
+    attackerReplicaId: effectiveOrigin === 'replica' ? reachableReplica?.id : undefined,
+    defenderReplicaId: targetReplica?.id,
     shieldEquippedAtStart: attacker.shieldEquipped,
     rageSpent: rageBonus,
     generatesMana: attacker.character === 'magician' && attacker.manaMode === 'generate',
@@ -3961,22 +3978,32 @@ function resolveLightbringerSwapDecision(state: GameState, playerId: PlayerId, s
   const attacker = state.players[pending.attackerId];
   const defender = state.players[pending.defenderId];
   if (swap) {
-    const attackerOrigin = { ...attacker.position };
-    const defenderOrigin = { ...defender.position };
+    const attackerReplica = attackingSpectreReplica(state, pending);
+    const defenderReplica = attackedSpectreReplica(state, pending);
+    if (pending.attackerBody === 'replica' && !attackerReplica) return fail(state, 'The attacking replica no longer exists.');
+    if (pending.defenderBody === 'replica' && !defenderReplica) return fail(state, 'The attacked replica no longer exists.');
+    const attackerOrigin = { ...(attackerReplica?.position ?? attacker.position) };
+    const defenderOrigin = { ...(defenderReplica?.position ?? defender.position) };
     const oldHighGround = pending.attackModifiers?.find((modifier) => modifier.source.includes('Lightbringer') && modifier.source.includes('High Ground'))?.value ?? 0;
-    attacker.position = defenderOrigin;
-    defender.position = attackerOrigin;
-    attacker.visualMovement = { from: attackerOrigin, path: [{ ...defenderOrigin }] };
-    defender.visualMovement = { from: defenderOrigin, path: [{ ...attackerOrigin }] };
-    pending.attackerPosition = { ...attacker.position };
-    pending.defenderPosition = { ...defender.position };
-    const newHighGround = highGroundAttackValueBonus(state, attacker, defender.position) * 3;
+    if (attackerReplica) moveBoardObject(state, attackerReplica, defenderOrigin);
+    else {
+      attacker.position = defenderOrigin;
+      attacker.visualMovement = { from: attackerOrigin, path: [{ ...defenderOrigin }] };
+    }
+    if (defenderReplica) moveBoardObject(state, defenderReplica, attackerOrigin);
+    else {
+      defender.position = attackerOrigin;
+      defender.visualMovement = { from: defenderOrigin, path: [{ ...attackerOrigin }] };
+    }
+    pending.attackerPosition = { ...(attackerReplica?.position ?? attacker.position) };
+    pending.defenderPosition = { ...(defenderReplica?.position ?? defender.position) };
+    const newHighGround = highGroundAttackValueBonus(state, { ...attacker, position: pending.attackerPosition }, pending.defenderPosition) * 3;
     pending.attackValue += newHighGround - oldHighGround;
     pending.attackModifiers = [
       ...(pending.attackModifiers ?? []).filter((modifier) => !(modifier.source.includes('Lightbringer') && modifier.source.includes('High Ground'))),
       ...(newHighGround ? [{ value: newHighGround, source: 'Lightbringer · High Ground ×3' }] : []),
     ];
-    state.log.unshift(`Lightbringer swapped ${attacker.name} and ${defender.name} after the Defend Card was chosen.`);
+    state.log.unshift(`Lightbringer swapped ${attackerReplica ? `${attacker.name}'s attacking replica` : attacker.name} and ${defenderReplica ? `${defender.name}'s attacked replica` : defender.name} after the Defend Card was chosen.`);
   } else state.log.unshift(`${attacker.name} declined Lightbringer's position swap.`);
   pending.lightbringerSwapResolved = true;
   const defenseCommand = pending.lightbringerDefenseCommand;
@@ -4516,7 +4543,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(replicas.length > 0 ? `Echo Strike blasted ${victims.map((victim) => victim.name).join(', ') || 'no adjacent characters'} around ${replicas.length === 1 ? 'the replica' : `${replicas.length} replicas`}.` : 'Echo Strike found no replica after combat.');
   }
   if (!attackEffectsCancelled && pending.cardId === 'displace' && defender.hp > 0) {
-    const targetObject = pending.defenderBody === 'replica' ? spectreReplica(state, defender.id) : undefined;
+    const targetObject = attackedSpectreReplica(state, pending);
     const targetPosition = targetObject?.position ?? defender.position;
     const attackingBodyPosition = pending.attackerPosition ?? state.players[pending.attackerId].position;
     const dx = Math.sign(targetPosition.x - attackingBodyPosition.x);
@@ -4665,10 +4692,13 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   if (!attackEffectsCancelled && pending.cardId === 'knee-blast') {
     const pushDistance = pending.rageSpent ?? 0;
     const attacker = state.players[pending.attackerId];
-    const dx = Math.sign(defender.position.x - attacker.position.x);
-    const dy = Math.sign(defender.position.y - attacker.position.y);
-    const collided = pushDistance > 0 && pushEntity(state, { kind: 'player', id: defender.id, position: defender.position }, dx, dy, pushDistance, 1, attacker.id, false, 'attack');
-    state.log.unshift(`Knee Blast pushed ${defender.name} ${pushDistance} Square${pushDistance === 1 ? '' : 's'} away from ${attacker.name}${collided ? ' until a collision' : ''}.`);
+    const targetReplica = attackedSpectreReplica(state, pending);
+    const target: PushEntity = targetReplica ? { kind: 'object', id: targetReplica.id, position: targetReplica.position } : { kind: 'player', id: defender.id, position: defender.position };
+    const attackingBodyPosition = pending.attackerPosition ?? attacker.position;
+    const dx = Math.sign(target.position.x - attackingBodyPosition.x);
+    const dy = Math.sign(target.position.y - attackingBodyPosition.y);
+    const collided = pushDistance > 0 && pushEntity(state, target, dx, dy, pushDistance, 1, attacker.id, false, 'attack');
+    state.log.unshift(`Knee Blast pushed ${targetReplica ? `${defender.name}'s attacked replica` : defender.name} ${pushDistance} Square${pushDistance === 1 ? '' : 's'} away from ${attacker.name}${collided ? ' until a collision' : ''}.`);
     if (collided && !attackCardDebuffsPrevented) {
       if (!blessingShieldBlocksCombatStatus(state, defender, 'headache')) {
         addForcedStatusCard(state, defender, 'headache', 'hand', pending.attackerId, 'attack', true);
@@ -4757,22 +4787,33 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (defenseCardId === 'arcane-barrier' && !defenseEffectsCancelled) {
     const attacker = state.players[pending.attackerId];
-    if (distance(defender.position, attacker.position) !== 1) {
+    const attackerReplica = attackingSpectreReplica(state, pending);
+    const attackerPosition = attackerReplica?.position ?? attacker.position;
+    const defenderPosition = pending.defenderPosition ?? defender.position;
+    if (distance(defenderPosition, attackerPosition) !== 1) {
       state.log.unshift(`Arcane Barrier could not affect ${attacker.name} because the attacker was not adjacent to ${defender.name}.`);
     } else {
-      const dx = Math.sign(attacker.position.x - defender.position.x);
-      const dy = Math.sign(attacker.position.y - defender.position.y);
-      const destination = { x: attacker.position.x + dx, y: attacker.position.y + dy };
+      const dx = Math.sign(attackerPosition.x - defenderPosition.x);
+      const dy = Math.sign(attackerPosition.y - defenderPosition.y);
+      const destination = { x: attackerPosition.x + dx, y: attackerPosition.y + dy };
       const blocked = destination.x < 1 || destination.x > boardWidth(state) || destination.y < 0 || destination.y >= boardHeight(state)
-        || Object.values(state.players).some((entry) => entry.id !== attacker.id && entry.position.x === destination.x && entry.position.y === destination.y)
-        || state.objects.some((entry) => entry.position.x === destination.x && entry.position.y === destination.y);
+        || Object.values(state.players).some((entry) => (Boolean(attackerReplica) || entry.id !== attacker.id) && entry.position.x === destination.x && entry.position.y === destination.y)
+        || state.objects.some((entry) => entry.id !== attackerReplica?.id && entry.position.x === destination.x && entry.position.y === destination.y);
       if (blocked) {
         dealCombatCardEffectDamage(state, attacker, 1, defender.id, 'defense');
         state.log.unshift(`Arcane Barrier could not push ${attacker.name} and dealt 1 Damage instead.`);
+      } else if (attackerReplica) {
+        const origin = { ...attackerReplica.position };
+        moveBoardObject(state, attackerReplica, destination);
+        pending.attackerPosition = { ...destination };
+        state.objectPushAnimations.push({ id: `${state.turn}-arcane-barrier-${attackerReplica.id}-${++instanceSequence}`, objectId: attackerReplica.id, from: origin, to: destination, dx, dy, collided: false, path: [destination] });
+        applyElevationDropDamage(state, { kind: 'object', id: attackerReplica.id, position: origin }, origin, destination, defender.id, 'other');
+        state.log.unshift(`Arcane Barrier pushed ${attacker.name}'s attacking replica 1 Square away from ${defender.name}.`);
       } else {
         const origin = { ...attacker.position };
         recordQuestMovement(state, attacker.id, 1, false, destination);
         attacker.position = destination;
+        pending.attackerPosition = { ...destination };
         attacker.visualMovement = { from: origin, path: [{ ...destination }] };
         markCharacterMoved(attacker, 'enemy-ability');
         applyElevationDropDamage(state, { kind: 'player', id: attacker.id, position: origin }, origin, destination, defender.id, 'other');

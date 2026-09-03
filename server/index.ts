@@ -14,6 +14,7 @@ class DuelRoom extends Room {
   private format: GameFormat = 'duel';
   private arena: ArenaId = 'nagrand';
   private seats = new Map<string, PlayerId>();
+  private characterSelections: Partial<Record<PlayerId, CharacterId>> = {};
   private characters: Partial<Record<PlayerId, CharacterId>> = {};
   private combatStackSelections = new Map<PlayerId, string[]>();
 
@@ -24,7 +25,8 @@ class DuelRoom extends Room {
     this.maxClients = this.format === 'ffa' ? 3 : 2;
     this.setPrivate(true);
     this.onMessage('command', (client, raw) => this.handleCommand(client, raw));
-    this.onMessage('choose-character', (client, raw) => this.chooseCharacter(client, raw));
+    this.onMessage('hover-character', (client, raw) => this.previewCharacter(client, raw));
+    this.onMessage('select-character', (client, raw) => this.confirmCharacter(client, raw));
     this.onMessage('ready', (client) => this.sendSnapshot(client));
   }
 
@@ -40,11 +42,24 @@ class DuelRoom extends Room {
     this.broadcastLobby();
   }
 
+  onDrop(client: Client) {
+    this.broadcast('notice', 'A player lost connection. Waiting for them to reconnect.');
+    this.allowReconnection(client, 90);
+  }
+
+  onReconnect(client: Client) {
+    this.broadcast('notice', 'A player reconnected.');
+    this.sendSnapshot(client);
+  }
+
   onLeave(client: Client) {
     const seat = this.seats.get(client.sessionId);
     this.seats.delete(client.sessionId);
-    if (!this.game && seat) delete this.characters[seat];
-    this.broadcast('notice', 'A player disconnected.');
+    if (!this.game && seat) {
+      delete this.characterSelections[seat];
+      delete this.characters[seat];
+    }
+    this.broadcast('notice', 'A player left the room.');
     this.broadcastLobby();
   }
 
@@ -103,13 +118,31 @@ class DuelRoom extends Room {
     if (this.game) this.broadcast('state', this.game);
   }
 
-  private chooseCharacter(client: Client, raw: unknown) {
+  private previewCharacter(client: Client, raw: unknown) {
+    const seat = this.seats.get(client.sessionId);
+    if (!seat || this.game || this.characters[seat]) return;
+    const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
+    if (this.seats.size < requiredPlayerCount) return;
+    if (raw === null) {
+      if (!this.characterSelections[seat]) return;
+      delete this.characterSelections[seat];
+    }
+    else {
+      const parsed = CharacterIdSchema.safeParse(raw);
+      if (!parsed.success) return;
+      if (this.characterSelections[seat] === parsed.data) return;
+      this.characterSelections[seat] = parsed.data;
+    }
+    this.broadcastLobby();
+  }
+
+  private confirmCharacter(client: Client, raw: unknown) {
     const seat = this.seats.get(client.sessionId);
     const parsed = CharacterIdSchema.safeParse(raw);
-    if (!seat || !parsed.success || this.game) return client.send('error', 'Character choice was rejected.');
+    if (!seat || !parsed.success || this.game || this.characters[seat]) return client.send('error', 'Character selection was rejected.');
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     if (this.seats.size < requiredPlayerCount) return client.send('error', `Wait for ${requiredPlayerCount - this.seats.size} more Player${requiredPlayerCount - this.seats.size === 1 ? '' : 's'} to join.`);
-    if (seat === 'P1' && (!this.characters.P2 || (this.format === 'ffa' && !this.characters.P3))) return client.send('error', 'The joining Players choose first.');
+    this.characterSelections[seat] = parsed.data;
     this.characters[seat] = parsed.data;
     this.broadcastLobby();
     const requiredSeats = [...this.seats.values()];
@@ -124,7 +157,7 @@ class DuelRoom extends Room {
   private broadcastLobby() {
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
-    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
+    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
   }
 
   private sendSnapshot(client: Client) {
@@ -132,7 +165,7 @@ class DuelRoom extends Room {
     if (seat) client.send('seat', seat);
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
-    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
+    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
     if (this.game) client.send('state', this.game);
   }
 }

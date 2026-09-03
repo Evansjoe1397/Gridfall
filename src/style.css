@@ -13,6 +13,9 @@ h1, h2, strong, .turn-core, .card b { font-family: 'Barlow Condensed', sans-seri
 h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .connection { color: #94b3aa; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 .connection span { width: 7px; height: 7px; display: inline-block; margin-right: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+.connection.reconnecting span { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); animation: reconnect-pulse .9s ease-in-out infinite alternate; }
+.connection.disconnected span { background: var(--red); box-shadow: 0 0 12px var(--red); }
+@keyframes reconnect-pulse { to { opacity: .35; } }
 .lobby { min-height: calc(100vh - 115px); display: grid; align-content: center; gap: 34px; padding: 54px 0 72px; }
 .lobby-copy { text-align: center; }
 .lobby h2 { font-size: clamp(42px, 6vw, 74px); margin: 8px 0; line-height: .95; }
@@ -111,9 +114,20 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .match-rules span { padding: 10px; border: 1px solid #294c43; color: #6e9b90; font-size: 9px; letter-spacing: .14em; }
 .match-rules strong { display: block; margin-top: 5px; color: white; font-size: 18px; letter-spacing: .04em; }
 .character-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0 12px; }
-.character-choices button { min-height: 115px; border: 1px solid #3a6d60; background: #102a23; cursor: pointer; }
+.character-choices button { position: relative; min-height: 115px; border: 1px solid #3a6d60; background: #102a23; cursor: pointer; }
 .character-choices button:not(:disabled):hover { border-color: var(--cyan); box-shadow: inset 0 0 25px rgba(114,246,215,.08); }
+.character-choices button:has(> .character-selection-frame), .character-choices button:not(:disabled):hover:has(> .character-selection-frame) { border-color: transparent; }
 .character-choices button:disabled { opacity: .35; cursor: not-allowed; }
+.online-waiting .character-choices button:disabled { opacity: 1; }
+.online-waiting .character-choices button:disabled > strong, .online-waiting .character-choices button:disabled > .character-core-stats { opacity: .35; }
+.character-selection-frame { position: absolute; z-index: 2; inset: -1px; border: 2px solid var(--player-color); pointer-events: none; }
+.character-selection-frame.confirmed { inset: -2px; border-width: 3px; box-shadow: inset 0 0 15px color-mix(in srgb, var(--player-color) 15%, transparent); }
+.character-selection-frame.p1 { --player-color: var(--blue); }
+.character-selection-frame.p2 { --player-color: var(--red); }
+.character-selection-frame.p3 { --player-color: #a06cff; }
+.character-selection-frame::after { content: attr(data-player); position: absolute; top: -1px; right: 3px; padding: 1px 4px; background: #07110e; color: var(--player-color); font: 800 8px Inter, sans-serif; letter-spacing: .08em; }
+.character-selection-frame.p2::after { right: 28px; }
+.character-selection-frame.p3::after { right: 53px; }
 .character-choices strong, .character-choices small { display: block; }
 .character-choices strong { font-size: 25px; }.character-choices small { margin-top: 7px; color: #86a79e; }
 .character-core-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 12px 0; }
@@ -1024,6 +1038,16 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
     bottom: calc(clamp(240px, 28vh, 260px) + 34px);
   }
 
+  .game:not(.hidden) .prompt {
+    top: auto;
+    bottom: calc(clamp(240px, 28vh, 260px) + 30px);
+  }
+
+  .game:not(.hidden) .cancel-movement {
+    top: auto;
+    bottom: calc(clamp(240px, 28vh, 260px) + 68px);
+  }
+
   .game:not(.hidden) > .battle-log {
     position: absolute;
     right: 0;
@@ -1061,6 +1085,14 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 
   .game:not(.hidden) .direct-perk {
     bottom: calc(clamp(240px, 30vh, 260px) + 34px);
+  }
+
+  .game:not(.hidden) .prompt {
+    bottom: calc(clamp(240px, 30vh, 260px) + 30px);
+  }
+
+  .game:not(.hidden) .cancel-movement {
+    bottom: calc(clamp(240px, 30vh, 260px) + 68px);
   }
 
   .game:not(.hidden) .action-quest-panel {

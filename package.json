@@ -9,6 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "typecheck": "tsc --noEmit",
     "check:rules": "tsx scripts/check-rules.ts",
+    "check:replicas": "tsx scripts/check-replica-targeting.ts",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "preview": "vite preview"

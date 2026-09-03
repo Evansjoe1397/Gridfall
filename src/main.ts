@@ -162,9 +162,11 @@ let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
 type GameFormat = 'duel' | 'ffa';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
+const ROOM_ID_QUERY_PARAM = 'roomId';
+const RECONNECTION_TOKEN_PREFIX = 'gridfall.reconnection.';
 let combatStackSelectionKey = '';
 let selectedCombatCardIds = new Set<string>();
 let combatStackSubmittedPlayerIds: PlayerId[] = [];
@@ -273,7 +275,7 @@ document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
 document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
 document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () => dispatch({ type: 'mind-tricks-finish', playerId: actingPlayer() }));
 document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
-document.querySelector('#leaveGame')!.addEventListener('click', () => location.reload());
+document.querySelector('#leaveGame')!.addEventListener('click', () => void leaveMatch());
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
   if (!event.repeat && !game.classList.contains('hidden') && !event.metaKey) {
@@ -462,10 +464,10 @@ const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
   shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
   'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich', merylin: 'Knightress Wizard',
 };
-function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
+function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
-  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
+  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
 }
 
 function dummySelectButton(): string {
@@ -530,7 +532,33 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   });
 }
 
-async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand') {
+function multiplayerRoomUrl(roomId: string) {
+  const url = new URL(location.href);
+  url.searchParams.set(ROOM_ID_QUERY_PARAM, roomId);
+  return url.toString();
+}
+
+function updateRoomUrl(roomId: string | null) {
+  const url = new URL(location.href);
+  if (roomId) url.searchParams.set(ROOM_ID_QUERY_PARAM, roomId);
+  else url.searchParams.delete(ROOM_ID_QUERY_PARAM);
+  history.replaceState(null, '', url);
+}
+
+function reconnectionTokenKey(roomId: string) {
+  return `${RECONNECTION_TOKEN_PREFIX}${roomId}`;
+}
+
+async function leaveMatch() {
+  if (room) {
+    sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
+    updateRoomUrl(null);
+    await room.leave().catch(() => undefined);
+  }
+  location.reload();
+}
+
+async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand', preferSavedSession = false) {
   try {
     roomIdAutoSelected = false;
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
@@ -542,11 +570,30 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     } else {
       const roomId = (document.querySelector<HTMLInputElement>('#roomId')!).value.trim();
       if (!roomId) return notify('Enter a room ID first.');
-      room = await client.joinById(roomId, { password });
+      const savedToken = preferSavedSession ? sessionStorage.getItem(reconnectionTokenKey(roomId)) : null;
+      if (savedToken) {
+        try {
+          room = await client.reconnect(savedToken);
+        } catch {
+          sessionStorage.removeItem(reconnectionTokenKey(roomId));
+          room = await client.joinById(roomId, { password });
+        }
+      } else {
+        room = await client.joinById(roomId, { password });
+      }
     }
     mode = 'online';
+    updateRoomUrl(room.roomId);
+    sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
+    room.reconnection.minUptime = 0;
+    room.reconnection.maxRetries = 20;
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
-    room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
+    room.onMessage('lobby-state', (state: OnlineLobbyState) => {
+      const previousState = onlineLobbyState;
+      onlineLobbyState = state;
+      if (previousState && sameLobbyExceptSelections(previousState, state)) renderOnlineSelectionFrames();
+      else renderOnlineLobby();
+    });
     room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
     room.onMessage('orkk-action', (event: OrkkActionEvent) => {
       pendingOnlineOrkkVisualIntent = orkkVisualIntentForAction(event);
@@ -595,13 +642,42 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       notify(message);
     });
     room.onMessage('notice', (message: string) => notify(message));
+    room.onDrop(() => {
+      byId('connection').classList.add('reconnecting');
+      byId('connection').innerHTML = `<span></span> Reconnecting to room ${room?.roomId ?? ''}`;
+      notify('Connection lost. Reconnecting automatically…');
+    });
+    room.onReconnect(() => {
+      if (!room) return;
+      sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
+      byId('connection').classList.remove('reconnecting', 'disconnected');
+      byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
+      room.send('ready');
+      notify('Reconnected to the room.');
+    });
+    room.onLeave(() => {
+      if (!room) return;
+      sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
+      byId('connection').classList.remove('reconnecting');
+      byId('connection').classList.add('disconnected');
+      byId('connection').innerHTML = '<span></span> Disconnected';
+      notify('Could not reconnect to the room. Use the room link to try again.');
+    });
     room.send('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
+    byId('connection').classList.remove('reconnecting', 'disconnected');
     byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
     renderOnlineLobby();
   } catch (error) {
     notify(error instanceof Error ? error.message : 'Could not connect to the room.');
   }
+}
+
+function joinRoomFromUrl() {
+  const roomId = new URL(location.href).searchParams.get(ROOM_ID_QUERY_PARAM)?.trim();
+  if (!roomId) return;
+  (document.querySelector<HTMLInputElement>('#roomId')!).value = roomId;
+  void connectOnline('join', 'duel', 'nagrand', true);
 }
 
 function normalizeOnlineState(state: GameState): GameState {
@@ -650,24 +726,23 @@ function renderOnlineLobby() {
   const state = onlineLobbyState;
   const requiredPlayerCount = state?.requiredPlayerCount ?? 2;
   const joined = (state?.playerCount ?? 1) >= requiredPlayerCount;
-  const joiningPlayersChosen = Boolean(state?.characters.P2) && (requiredPlayerCount < 3 || Boolean(state?.characters.P3));
-  const mayChoose = joined && (localSeat !== 'P1' || joiningPlayersChosen) && !state?.characters[localSeat];
+  const mayChoose = joined && !state?.characters[localSeat];
   const missingPlayers = Math.max(0, requiredPlayerCount - (state?.playerCount ?? 1));
   const orderMessage = !joined ? `Share the Room ID and wait for ${missingPlayers} more Player${missingPlayers === 1 ? '' : 's'}.`
-    : localSeat === 'P2' && !state?.characters.P2 ? 'You joined the room. Choose your Character first.'
-      : localSeat === 'P1' && !joiningPlayersChosen ? 'The joining Player(s) are choosing Characters.'
-        : state?.characters[localSeat] ? 'Character locked. Waiting for the battle to start.' : 'Choose your Character.';
-  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM ID · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomId)}" readonly spellcheck="false" aria-label="Multiplayer Room ID"><button id="copyRoomId" type="button">COPY</button></div><h2>Character Select</h2>
+    : state?.characters[localSeat] ? 'Character confirmed. Waiting for the other Players.'
+      : 'Choose your Character. Everyone may select at the same time.';
+  const roomLink = multiplayerRoomUrl(roomId);
+  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>Character Select</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}</p><div class="character-choices">
-      ${characterSelectButton('orkk', 'data-character', !mayChoose)}
-      ${characterSelectButton('shinobi', 'data-character', !mayChoose)}
-      ${characterSelectButton('magician', 'data-character', !mayChoose)}
-      ${characterSelectButton('john-christ', 'data-character', !mayChoose)}
-      ${characterSelectButton('spectre', 'data-character', !mayChoose)}
-      ${characterSelectButton('wreckna', 'data-character', !mayChoose)}
-      ${characterSelectButton('merylin', 'data-character', !mayChoose)}
-    </div><small>Players may choose the same Character.</small>`;
+      ${characterSelectButton('orkk', 'data-character', !mayChoose, characterSelectionFrames('orkk', state))}
+      ${characterSelectButton('shinobi', 'data-character', !mayChoose, characterSelectionFrames('shinobi', state))}
+      ${characterSelectButton('magician', 'data-character', !mayChoose, characterSelectionFrames('magician', state))}
+      ${characterSelectButton('john-christ', 'data-character', !mayChoose, characterSelectionFrames('john-christ', state))}
+      ${characterSelectButton('spectre', 'data-character', !mayChoose, characterSelectionFrames('spectre', state))}
+      ${characterSelectButton('wreckna', 'data-character', !mayChoose, characterSelectionFrames('wreckna', state))}
+      ${characterSelectButton('merylin', 'data-character', !mayChoose, characterSelectionFrames('merylin', state))}
+    </div>`;
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
   roomIdField.addEventListener('focus', () => roomIdField.select());
@@ -675,8 +750,8 @@ function renderOnlineLobby() {
     roomIdField.focus();
     roomIdField.select();
     try {
-      await navigator.clipboard.writeText(roomId);
-      notify('Room ID copied to clipboard.');
+      await navigator.clipboard.writeText(roomLink);
+      notify('Room link copied to clipboard.');
     } catch {
       notify('Room ID selected. Press Ctrl+C to copy.');
     }
@@ -685,7 +760,40 @@ function renderOnlineLobby() {
     roomIdAutoSelected = true;
     requestAnimationFrame(() => { roomIdField.focus(); roomIdField.select(); });
   }
-  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => button.addEventListener('click', () => room?.send('choose-character', button.dataset.character)));
+  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => {
+    button.addEventListener('pointerenter', () => room?.send('hover-character', button.dataset.character));
+    button.addEventListener('pointerleave', () => room?.send('hover-character', null));
+    button.addEventListener('click', () => room?.send('select-character', button.dataset.character));
+  });
+}
+
+function characterSelectionFrames(character: OnlineCharacter, state: OnlineLobbyState | null) {
+  if (!state) return '';
+  return (['P1', 'P2', 'P3'] as PlayerId[]).flatMap((playerId) => {
+    const confirmed = state.characters[playerId] === character;
+    const selected = state.selections?.[playerId] === character;
+    return confirmed || selected
+      ? [`<span class="character-selection-frame ${playerId.toLowerCase()} ${confirmed ? 'confirmed' : ''}" data-player="${playerId}" aria-label="${playerId} ${confirmed ? 'is ready with' : 'selected'} ${CHARACTER_SELECT_INFO[character].name}"></span>`]
+      : [];
+  }).join('');
+}
+
+function sameLobbyExceptSelections(previous: OnlineLobbyState, next: OnlineLobbyState) {
+  return previous.playerCount === next.playerCount
+    && previous.requiredPlayerCount === next.requiredPlayerCount
+    && previous.arena === next.arena
+    && previous.mode === next.mode
+    && previous.started === next.started
+    && (['P1', 'P2', 'P3'] as PlayerId[]).every((playerId) => previous.characters[playerId] === next.characters[playerId]);
+}
+
+function renderOnlineSelectionFrames() {
+  const panel = byId('onlineWaiting');
+  panel.querySelectorAll('.character-selection-frame').forEach((frame) => frame.remove());
+  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => {
+    const character = button.dataset.character as OnlineCharacter;
+    button.insertAdjacentHTML('afterbegin', characterSelectionFrames(character, onlineLobbyState));
+  });
 }
 
 function actingPlayer(): PlayerId {
@@ -7158,3 +7266,4 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
 }
 
 initializeCharacterBrowser();
+queueMicrotask(joinRoomFromUrl);
