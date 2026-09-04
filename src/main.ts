@@ -395,7 +395,6 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
-  if (gameState.phase === 'choosing-soul-strike-discard') return true;
   if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
   if (gameState.phase === 'choosing-spirit-guardian-square' && (Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian) || Boolean((gameState as any).spectreReplicaPlacement))) return true;
   if (gameState.phase === 'choosing-arkane-arow-target' && Boolean((gameState as any).spectreShadow)) return true;
@@ -455,7 +454,7 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
-  spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
+  spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 22, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: '⚔', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
@@ -833,7 +832,6 @@ function actingPlayer(): PlayerId {
   if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-soul-strike-discard') return (gameState as GameState & { soulStrikeDiscard?: { defenderId: PlayerId } }).soulStrikeDiscard?.defenderId ?? gameState.activePlayerId;
   if (gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
@@ -1048,7 +1046,6 @@ function renderUI() {
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
-  if (gameState.phase === 'choosing-soul-strike-discard') prompt.textContent = 'Soul Strike: the target must discard 1 Card revealed to Spectre';
   if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
   if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
@@ -1586,7 +1583,8 @@ function renderHand() {
         ? `<article class="card attack oracle-revealed-card"><span>ORACLE · ATTACK REVEALED</span><strong>${escapeHtml(attack.name.toUpperCase())}</strong><div><b>${gameState.pendingAttack!.attackValue}</b> ATTACK VALUE</div><small>${escapeHtml(attack.effectText ?? '')}</small></article>`
         : `<button class="card attack" id="oracleReveal" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>ORACLE · WHILE IN HAND</span><strong>REVEAL ATTACK CARD</strong><div><b>${cardBaseValue(oracle)} → ${Math.max(1, cardBaseValue(oracle) - 1)}</b> ORACLE VALUE</div><small>Reveal the played Attack Card. Oracle cannot Defend this combat.</small></button>`
       : '';
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const unavailable = !canLocalAct(viewerId) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -1621,17 +1619,6 @@ function renderHand() {
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
-    return;
-  }
-  if (gameState.phase === 'choosing-soul-strike-discard') {
-    const pending = (gameState as GameState & { soulStrikeDiscard?: { attackerId: PlayerId; defenderId: PlayerId } | null }).soulStrikeDiscard;
-    if (!pending || viewerId !== pending.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Soul Strike.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => {
-      const card = cardDefinition(instance);
-      const eligible = isCardRevealedToOpponents(viewer, instance, pending.attackerId) && !card.cannotBeDiscarded;
-      return `<button class="card ${cardVisualClass(card)}" data-soul-strike-discard="${instance.instanceId}" ${eligible ? '' : 'disabled'}><span>${eligible ? 'SOUL STRIKE · SELECT TO DISCARD' : 'NOT REVEALED TO SPECTRE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
-    }).join('');
-    handElement.querySelectorAll<HTMLButtonElement>('[data-soul-strike-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'soul-strike-discard', playerId: viewerId, cardInstanceId: button.dataset.soulStrikeDiscard! })));
     return;
   }
   if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
@@ -1693,13 +1680,15 @@ function renderHand() {
     return;
   }
   const choosingDiscard = (gameState.phase as string) === 'choosing-hot-potato-discard' || gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard' || gameState.phase === 'choosing-end-discard' || gameState.phase === 'choosing-preparation-discard' || gameState.phase === 'choosing-blink-discard' || gameState.phase === 'choosing-snowball-discard' || gameState.phase === 'choosing-mind-tricks-discard' || gameState.phase === 'choosing-mind-tricks-enemy-discard';
+  const soulStrikeForcedAttacks = viewer.hand.filter((instance) => instance.soulStrikeForcedUse === 'attack');
   byId('hand').innerHTML = viewer.hand.map((instance) => {
     const card = cardDefinition(instance);
     const panicked = viewer.hand.some((entry) => entry.cardId === 'panic');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
     const rewardAction = instance.cardId === 'fireball' || instance.cardId === 'sweet-potato';
-    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const soulStrikeAttackUnavailable = card.kind === 'attack' && soulStrikeForcedAttacks.length > 0 && instance.soulStrikeForcedUse !== 'attack';
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? !soulStrikeAttackUnavailable && (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
@@ -1707,7 +1696,7 @@ function renderHand() {
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const removeOnUseOrDiscard = instance.cardId === 'feint' || instance.cardId === 'weak-feint';
     const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
     return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
@@ -2204,11 +2193,30 @@ function renderCombatReveal() {
     : combatWinner
       ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
       : '';
+  const soulStrikeSummary = reveal.soulStrikeResult
+    ? reveal.soulStrikeResult.cardId
+      ? viewer && !combatPlayers.includes(viewer)
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE REVEALED A PRIVATE CARD</strong><span>VISIBLE ONLY TO THE COMBATANTS</span></div>`
+        : (() => {
+        const revealedCard = cardDefinition({ instanceId: '', cardId: reveal.soulStrikeResult!.cardId! });
+        const outcome = reveal.soulStrikeResult!.outcome === 'discarded-perk'
+          ? 'PERK REVEALED · DISCARDED'
+          : reveal.soulStrikeResult!.outcome === 'forced-attack'
+            ? 'ATTACK REVEALED · MUST ATTACK WITH THIS FIRST'
+            : 'BLOCK REVEALED · MUST BLOCK WITH THIS FIRST';
+        return `<div class="combat-result-summary"><strong>SOUL STRIKE REVEALED: ${escapeHtml(revealedCard.name.toUpperCase())}</strong><span>${outcome}</span></div>`;
+        })()
+      : reveal.soulStrikeResult.outcome === 'prevented'
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE</strong><span>DEVOUR PREVENTED THE ADDITIONAL EFFECT</span></div>`
+        : reveal.soulStrikeResult.outcome === 'damage'
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE: EMPTY HAND</strong><span>${reveal.soulStrikeResult.damage ?? 0} ADDITIONAL DAMAGE DEALT</span></div>`
+        : `<div class="combat-result-summary"><strong>SOUL STRIKE</strong><span>NO PERK, ATTACK, OR BLOCK CARD TO REVEAL</span></div>`
+    : '';
   const breakdown = `<div class="combat-modifier-breakdown"><section><h4>ATTACK VALUE SOURCES</h4><ul>${modifierLines(reveal.attackModifiers)}</ul></section><section><h4>DEFEND VALUE SOURCES</h4><ul>${modifierLines(reveal.defendModifiers)}</ul></section></div>`;
   const appliedCombatCards = reveal.combatStackApplied
     ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${escapeHtml(cardDefinition({ instanceId: '', cardId }).name)}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
     : '';
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
 }
 
@@ -2686,7 +2694,8 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean }>();
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
+const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 type MatchEndPresentation = {
@@ -2777,6 +2786,7 @@ renderer.setAnimationLoop((time) => {
   if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
   updateCharacterMovement(time);
+  updateReplicatePullTethers(time);
   updateWizardLiftedTargets(time);
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
@@ -3209,6 +3219,13 @@ function updateCharacterMovement(time: number) {
   movementAnimations.forEach((animation, playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group) return;
+    if (time < animation.startedAt) return;
+    if (animation.faceToward && !animation.facingApplied) {
+      const dx = animation.faceToward.x - group.position.x;
+      const dz = animation.faceToward.z - group.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+      animation.facingApplied = true;
+    }
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
@@ -5880,6 +5897,59 @@ function syncSpectreShadowTrail() {
   });
 }
 
+function replicatePullChestPosition(sourceCell: Cell, sourceObjectId?: string) {
+  const replicaGroup = sourceObjectId ? objectGroups.get(sourceObjectId) : undefined;
+  const chestBone = replicaGroup?.getObjectByName('Spine');
+  if (chestBone) return chestBone.getWorldPosition(new THREE.Vector3());
+  if (replicaGroup) return replicaGroup.localToWorld(new THREE.Vector3(0, 1.35, 0));
+  return worldPosition(sourceCell).add(new THREE.Vector3(0, 1.55, 0));
+}
+
+function spawnReplicatePullTether(targetId: PlayerId, source: Cell, sourceObjectId: string | undefined, sourcePlayerId: PlayerId, startedAt: number, duration: number) {
+  const material = new THREE.LineBasicMaterial({ color: new THREE.Color(playerUiColor(sourcePlayerId)), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const line = new THREE.Line(new THREE.BufferGeometry(), material);
+  line.renderOrder = 92;
+  line.visible = false;
+  scene.add(line);
+  replicatePullAnimations.push({ line, targetId, sourceCell: { ...source }, sourceObjectId, startedAt, duration, seed: Math.random() * Math.PI * 2 });
+}
+
+function updateReplicatePullTethers(time: number) {
+  for (let index = replicatePullAnimations.length - 1; index >= 0; index--) {
+    const animation = replicatePullAnimations[index];
+    const target = dummyGroups.get(animation.targetId);
+    if (time < animation.startedAt) {
+      animation.line.visible = false;
+      continue;
+    }
+    animation.line.visible = true;
+    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    if (!target || progress >= 1) {
+      scene.remove(animation.line);
+      animation.line.geometry.dispose();
+      (animation.line.material as THREE.Material).dispose();
+      replicatePullAnimations.splice(index, 1);
+      continue;
+    }
+    const source = replicatePullChestPosition(animation.sourceCell, animation.sourceObjectId);
+    const destination = target.position.clone().add(new THREE.Vector3(0, 1.15, 0));
+    const direction = destination.clone().sub(source);
+    const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
+    if (sideways.lengthSq() > 0.0001) sideways.normalize();
+    const points = Array.from({ length: 15 }, (_, pointIndex) => {
+      const t = pointIndex / 14;
+      const envelope = Math.sin(Math.PI * t);
+      const twitch = Math.sin(time * 0.031 + pointIndex * 2.31 + animation.seed) * 0.105
+        + Math.sin(time * 0.057 - pointIndex * 1.17) * 0.045;
+      return source.clone().lerp(destination, t)
+        .addScaledVector(sideways, twitch * envelope)
+        .add(new THREE.Vector3(0, Math.sin(time * 0.044 + pointIndex * 1.83) * 0.075 * envelope, 0));
+    });
+    animation.line.geometry.setFromPoints(points);
+    (animation.line.material as THREE.LineBasicMaterial).opacity = progress < 0.82 ? 0.95 : 0.95 * (1 - progress) / 0.18;
+  }
+}
+
 function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
   if (gameState.players[playerId]?.hp <= 0) return;
   let nearestPosition: THREE.Vector3 | undefined;
@@ -5963,18 +6033,29 @@ function syncBoard() {
         const visualPath = walkingPath.map(worldPosition);
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
-        const duration = !forced && character === 'shinobi'
-          ? obiWanMovementDuration(travelSquares)
-          : !forced && character === 'orkk'
-            ? orkkMovementDuration(travelSquares)
-            : 320 + travelSquares * 150;
+        const replicatePull = recordedMovement?.kind === 'replicate-pull';
+        const duration = replicatePull
+          ? recordedMovement.durationMs ?? 1000
+          : !forced && character === 'shinobi'
+            ? obiWanMovementDuration(travelSquares)
+            : !forced && character === 'orkk'
+              ? orkkMovementDuration(travelSquares)
+              : 320 + travelSquares * 150;
         const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
           impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
         }
-        else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
+        else {
+          const pullDelay = replicatePull ? recordedMovement.delayMs ?? 0 : 0;
+          const movementStartedAt = performance.now() + pullDelay;
+          const pullSource = replicatePull && recordedMovement.source ? worldPosition(recordedMovement.source) : undefined;
+          movementAnimations.set(id, { ...movement, startedAt: movementStartedAt, faceToward: pullSource });
+          if (replicatePull && recordedMovement.source && recordedMovement.sourcePlayerId) {
+            spawnReplicatePullTether(id, recordedMovement.tetherSource ?? recordedMovement.source, recordedMovement.sourceObjectId, recordedMovement.sourcePlayerId, movementStartedAt, duration);
+          }
+        }
         delete gameState.players[id].visualMovementCause;
       }
     } else if (!movementAnimations.has(id) && Math.abs(group.position.y - target.y) > 0.001) {
@@ -6447,8 +6528,8 @@ function highlightCells() {
     const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject;
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
-    const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell } | undefined;
-    const replacingOwnReplica = Boolean(spectrePlacement) && objectOnCell?.kind === 'spectre-replica' && objectOnCell.ownerId === spectrePlacement!.casterId;
+    const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell; source?: 'replicate' | 'split' } | undefined;
+    const replacingOwnReplica = spectrePlacement?.source === 'replicate' && objectOnCell?.kind === 'spectre-replica' && objectOnCell.ownerId === spectrePlacement.casterId;
     const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && !occupiedByPlayer && (!occupiedByObject || replacingOwnReplica) && (
       Boolean(guardianPending) && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId])
       || Boolean(spectrePlacement) && distance(spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell) <= spectrePlacement!.range && hasReplicaPlacementLineOfSight(gameState, spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell, Boolean(gameState.players[spectrePlacement!.casterId].spectreOnBoxId) && !spectrePlacement!.origin)
