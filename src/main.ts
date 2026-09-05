@@ -46,10 +46,12 @@ import {
   movementPath,
   movementCost,
   orkkActionEventForCommand,
+  perkUseEventForCommand,
   phaseCardCandidates,
   kykDirectionAllowed,
   pinnedCount,
   shieldRecallEnemyCount,
+  spectreActionEventForCommand,
   spectreReplica,
   spectreReplicas,
   spiritGuardianEnemyPenalty,
@@ -62,6 +64,8 @@ import {
   type GameState,
   type ForcePowerActionEvent,
   type OrkkActionEvent,
+  type PerkUseEvent,
+  type SpectreActionEvent,
   type WizardActionEvent,
   type PlayerId,
 } from '../shared/game.ts';
@@ -176,6 +180,7 @@ let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
 let healthBarsVisible = true;
+let perkLabelsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
 let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
@@ -195,6 +200,8 @@ type ObiWanPowerVisualIntent =
 let pendingOnlineObiWanPowerVisualIntents: ObiWanPowerVisualIntent[] = [];
 type OrkkVisualIntent = { playerId: PlayerId; animation: 'Encourage' | 'ShieldThrow'; target?: THREE.Vector3 };
 let pendingOnlineOrkkVisualIntent: OrkkVisualIntent | null = null;
+type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
+let pendingOnlineSpectreVisualIntent: SpectreVisualIntent | null = null;
 selection.subscribe(() => renderUI());
 
 const lobby = byId('lobby');
@@ -387,6 +394,12 @@ window.addEventListener('keydown', (event) => {
     healthBarsVisible = !healthBarsVisible;
     updateCharacterHealthBars();
     notify(`Character HP bars ${healthBarsVisible ? 'shown' : 'hidden'}.`);
+  }
+  if (event.code === 'KeyJ' && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    perkLabelsVisible = !perkLabelsVisible;
+    if (!perkLabelsVisible) clearPerkUseLabels();
+    notify(`Perk labels ${perkLabelsVisible ? 'enabled' : 'disabled'}.`);
   }
   if (event.code === 'KeyC' && !game.classList.contains('hidden')) {
     const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
@@ -603,6 +616,10 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.onMessage('force-power-action', (event: ForcePowerActionEvent) => {
       pendingOnlineObiWanPowerVisualIntents.push(obiWanPowerVisualIntentForAction(event));
     });
+    room.onMessage('spectre-action', (event: SpectreActionEvent) => {
+      pendingOnlineSpectreVisualIntent = spectreVisualIntentForAction(event);
+    });
+    room.onMessage('perk-used', (event: PerkUseEvent) => spawnPerkUseLabel(event));
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const arenaChanged = gameState.boardSize !== state.boardSize;
@@ -624,10 +641,13 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       pendingOnlineObiWanPowerVisualIntents = [];
       const orkkVisualIntent = pendingOnlineOrkkVisualIntent;
       pendingOnlineOrkkVisualIntent = null;
+      const spectreVisualIntent = pendingOnlineSpectreVisualIntent;
+      pendingOnlineSpectreVisualIntent = null;
       if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
       lobby.classList.add('hidden'); game.classList.remove('hidden'); renderAll();
       if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
       obiWanPowerVisualIntents.forEach(applyObiWanPowerVisualIntent);
+      if (spectreVisualIntent) applySpectreVisualIntent(spectreVisualIntent);
       if (shouldFitCamera) requestAnimationFrame(() => {
         resize();
         fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
@@ -637,6 +657,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       pendingOnlineWizardPowerVisualIntent = null;
       pendingOnlineObiWanPowerVisualIntents = [];
       pendingOnlineOrkkVisualIntent = null;
+      pendingOnlineSpectreVisualIntent = null;
       if (localSeat) pendingMovementCancellationTargets.delete(localSeat);
       notify(message);
     });
@@ -909,10 +930,21 @@ function orkkVisualIntentForAction(event: OrkkActionEvent): OrkkVisualIntent {
     : { playerId: event.playerId, animation: 'Encourage' };
 }
 
+function spectreVisualIntentForCommand(state: GameState, command: GameCommand): SpectreVisualIntent | null {
+  const event = spectreActionEventForCommand(state, command);
+  return event ? spectreVisualIntentForAction(event) : null;
+}
+
+function spectreVisualIntentForAction(event: SpectreActionEvent): SpectreVisualIntent {
+  return { playerId: event.playerId, animation: 'Fear' };
+}
+
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
+  const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
+  const perkUseEvent = perkUseEventForCommand(gameState, command);
   const movementCancellationTarget = command.type === 'cancel-movement' ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
@@ -927,6 +959,8 @@ function dispatch(command: GameCommand) {
   if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
+  if (perkUseEvent) spawnPerkUseLabel(perkUseEvent);
+  if (spectreVisualIntent) applySpectreVisualIntent(spectreVisualIntent);
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
   if (obiWanPowerVisualIntent && (obiWanPowerVisualIntent.kind !== 'start' || gameState.forceThrow || gameState.forcePull)) {
     applyObiWanPowerVisualIntent(obiWanPowerVisualIntent);
@@ -2669,6 +2703,11 @@ const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
+type PerkUseLabel = { element: HTMLDivElement; cardId: CardTypeId; startedAt: number; fadeStartedAt?: number; fadeDuration: number; cellKey: string };
+const perkUseLabels = new Map<PlayerId, PerkUseLabel>();
+const PERK_LABEL_HOLD_MS = 1900;
+const PERK_LABEL_FADE_MS = 850;
+const PERK_LABEL_MOVE_FADE_MS = 360;
 const objectGroups = new Map<string, THREE.Group>();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
@@ -2694,8 +2733,9 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
+const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; startedAt: number; duration: number; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 type MatchEndPresentation = {
@@ -2879,6 +2919,7 @@ renderer.setAnimationLoop((time) => {
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
+  updatePerkUseLabels(time);
   renderer.render(scene, camera);
 });
 
@@ -3229,6 +3270,7 @@ function updateCharacterMovement(time: number) {
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
+      || (group.userData.character === 'spectre' && !animation.forced)
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     const eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
@@ -3570,7 +3612,7 @@ function updateCameraMovement(deltaSeconds: number) {
   if (cameraKeys.has('KeyD')) movement.add(right);
   if (cameraKeys.has('KeyA')) movement.sub(right);
   if (movement.lengthSq() === 0) return;
-  movement.normalize().multiplyScalar(5 * deltaSeconds);
+  movement.normalize().multiplyScalar(6.25 * deltaSeconds);
   const nextTarget = controls.target.clone().add(movement);
   const movementRadius = cameraMovementRadius();
   const boardCenter = boardCenterWorld();
@@ -3588,7 +3630,7 @@ function cameraMovementRadius() {
   const halfWidth = Math.max(1, visualBoardWidth() - 1) * 0.96;
   const halfHeight = Math.max(1, visualBoardHeight() - 1) * 0.96;
   const boardRadius = Math.max(halfWidth, halfHeight);
-  return boardRadius * 4 + 8;
+  return (boardRadius * 4 + 8) * 1.75;
 }
 
 function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight()) {
@@ -4721,6 +4763,12 @@ function loadSpectreAsset() {
 }
 
 type SpectreAnimationName = 'Idle' | 'Walk' | 'Run' | 'Fear' | 'Arise';
+const SPECTRE_LOCOMOTION_FPS = 24;
+const SPECTRE_WALK_FRAMES_PER_CELL = 24;
+const SPECTRE_WALK_TIME_SCALE = 1;
+const SPECTRE_RUN_FRAMES_PER_CELL = 6;
+const SPECTRE_RUN_TIME_SCALE = 1.1;
+const SPECTRE_RELOCATE_SWAP_MS = 280;
 type SpectreAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<SpectreAnimationName, THREE.AnimationAction>;
@@ -4728,6 +4776,70 @@ type SpectreAnimationState = {
   oneShot?: 'Fear' | 'Arise';
   idlePauseUntil?: number;
 };
+
+function spectreMovementDuration(travelSquares: number) {
+  const squares = Math.max(1, travelSquares);
+  const framesPerCell = squares >= 3 ? SPECTRE_RUN_FRAMES_PER_CELL : SPECTRE_WALK_FRAMES_PER_CELL;
+  const timeScale = squares >= 3 ? SPECTRE_RUN_TIME_SCALE : SPECTRE_WALK_TIME_SCALE;
+  return squares * framesPerCell / SPECTRE_LOCOMOTION_FPS / timeScale * 1000;
+}
+
+const perkLabelScreenPosition = new THREE.Vector3();
+function spawnPerkUseLabel(event: PerkUseEvent) {
+  if (!perkLabelsVisible) return;
+  perkUseLabels.get(event.playerId)?.element.remove();
+  const element = document.createElement('div');
+  element.className = 'perk-use-label';
+  element.style.setProperty('--player-color', playerUiColor(event.playerId));
+  element.textContent = event.level ? `${event.name} - lvl${event.level}` : event.name;
+  overheadStatusLayer.appendChild(element);
+  perkUseLabels.set(event.playerId, {
+    element,
+    cardId: event.cardId,
+    startedAt: performance.now(),
+    fadeDuration: PERK_LABEL_FADE_MS,
+    cellKey: cellLabel(gameState.players[event.playerId].position),
+  });
+}
+
+function clearPerkUseLabels() {
+  perkUseLabels.forEach((label) => label.element.remove());
+  perkUseLabels.clear();
+}
+
+function fadePerkUseLabelForMovement(playerId: PlayerId, cellKey: string, cause?: GameState['players'][PlayerId]['visualMovementCause'], sourceCardId?: CardTypeId) {
+  const label = perkUseLabels.get(playerId);
+  if (!label || label.cellKey === cellKey) return;
+  label.cellKey = cellKey;
+  if (cause === 'own-card' && sourceCardId === label.cardId) return;
+  label.fadeStartedAt ??= performance.now();
+  label.fadeDuration = PERK_LABEL_MOVE_FADE_MS;
+}
+
+function updatePerkUseLabels(time: number) {
+  perkUseLabels.forEach((label, playerId) => {
+    const group = dummyGroups.get(playerId);
+    const healthBar = characterHealthBars.get(playerId);
+    if (!perkLabelsVisible || !group?.visible || !healthBar) {
+      label.element.classList.add('hidden');
+      return;
+    }
+    const naturalFadeAt = label.startedAt + PERK_LABEL_HOLD_MS;
+    if (!label.fadeStartedAt && time >= naturalFadeAt) label.fadeStartedAt = naturalFadeAt;
+    const opacity = label.fadeStartedAt ? 1 - (time - label.fadeStartedAt) / label.fadeDuration : 1;
+    if (opacity <= 0) {
+      label.element.remove();
+      perkUseLabels.delete(playerId);
+      return;
+    }
+    perkLabelScreenPosition.copy(healthBar.position).project(camera);
+    const onScreen = perkLabelScreenPosition.z >= -1 && perkLabelScreenPosition.z <= 1;
+    label.element.classList.toggle('hidden', !onScreen);
+    label.element.style.left = `${(perkLabelScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
+    label.element.style.top = `${(-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight}px`;
+    label.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
+  });
+}
 
 function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fade = 0.12) {
   const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
@@ -4741,6 +4853,17 @@ function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fa
   state.idlePauseUntil = undefined;
 }
 
+function applySpectreVisualIntent(intent: SpectreVisualIntent) {
+  const group = dummyGroups.get(intent.playerId);
+  if (!group) return;
+  const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
+  if (!state) {
+    group.userData.pendingSpectreAnimation = intent.animation;
+    return;
+  }
+  playSpectreAnimation(group, intent.animation);
+}
+
 function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefined, deltaSeconds: number) {
   const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
   if (!state) return;
@@ -4751,11 +4874,10 @@ function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefin
     return;
   }
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
-  const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced);
+  const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced && !movement.teleport);
   if (locomoting && movement) {
     const travelSquares = movement.travelSquares ?? movement.path?.length ?? 1;
     const movementName: SpectreAnimationName = travelSquares >= 3 ? 'Run' : 'Walk';
-    state.actions[movementName].timeScale = state.actions[movementName].getClip().duration / (movement.duration / 1000);
     if (state.current !== movementName) playSpectreAnimation(group, movementName);
     return;
   }
@@ -4822,6 +4944,8 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
       Fear: mixer.clipAction(clips.Skill_01),
       Arise: mixer.clipAction(clips.Arise),
     };
+    actions.Walk.timeScale = SPECTRE_WALK_TIME_SCALE;
+    actions.Run.timeScale = SPECTRE_RUN_TIME_SCALE;
     actions.Idle.setLoop(THREE.LoopOnce, 1); actions.Idle.clampWhenFinished = true;
     actions.Fear.setLoop(THREE.LoopOnce, 1); actions.Fear.clampWhenFinished = true;
     actions.Arise.setLoop(THREE.LoopOnce, 1); actions.Arise.clampWhenFinished = true;
@@ -5820,6 +5944,37 @@ function syncNagrandOuterRing(width: number, height: number) {
   });
 }
 
+type CameraViewportCenter = { x: number; y: number };
+
+function configureCameraProjectionForLayout(): CameraViewportCenter {
+  const width = renderer.domElement.clientWidth;
+  const height = renderer.domElement.clientHeight;
+  if (width < 1 || height < 1) return { x: 0, y: 0 };
+
+  camera.aspect = width / height;
+  const boardRect = boardEl.getBoundingClientRect();
+  const hudRect = game.querySelector<HTMLElement>(':scope > .hud')?.getBoundingClientRect();
+  const commandDeckRect = game.querySelector<HTMLElement>(':scope > .command-deck')?.getBoundingClientRect();
+  const overlapsBoardWidth = (rect: DOMRect | undefined) => Boolean(rect && rect.right > boardRect.left && rect.left < boardRect.right);
+  const topInset = overlapsBoardWidth(hudRect)
+    ? THREE.MathUtils.clamp(hudRect!.bottom - boardRect.top, 0, height)
+    : 0;
+  const bottomInset = overlapsBoardWidth(commandDeckRect)
+    ? THREE.MathUtils.clamp(boardRect.bottom - commandDeckRect!.top, 0, height)
+    : 0;
+  const hasUsableViewport = height - topInset - bottomInset >= 120;
+  const visibleCenterY = hasUsableViewport
+    ? (topInset + height - bottomInset) / 2
+    : height / 2;
+  const offsetY = height / 2 - visibleCenterY;
+
+  // Render the same full-size canvas through an offset frustum. The arena's
+  // optical center then lands in the space that is not covered by the HUD and
+  // command deck, regardless of viewport height or Windows display scaling.
+  camera.setViewOffset(width, height, 0, offsetY, width, height);
+  return { x: 0, y: offsetY * 2 / height };
+}
+
 function fitCameraToArena(width: number, height: number, force = false) {
   const arenaKey = `${visualArena().id}-${width}x${height}`;
   if (!force && fittedArenaKey === arenaKey) return;
@@ -5834,14 +5989,15 @@ function fitCameraToArena(width: number, height: number, force = false) {
   // Start every arena slightly off-axis and low for a three-quarter view.
   const viewingDirection = new THREE.Vector3(0.5, 1.05, 1).normalize();
   const center = boardCenterWorld(width, height);
-  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ) * 1.68;
+  const viewportCenter = configureCameraProjectionForLayout();
+  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ, viewportCenter) * 1.68;
   controls.target.copy(center);
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
 }
 
-function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vector3, spanX: number, spanZ: number) {
+function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vector3, spanX: number, spanZ: number, viewportCenter: CameraViewportCenter) {
   const margin = 1.25;
   const corners = [
     new THREE.Vector3(center.x - spanX / 2 - margin, 0, center.z - spanZ / 2 - margin),
@@ -5858,7 +6014,7 @@ function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vec
     camera.updateMatrixWorld(true);
     const fits = corners.every((corner) => {
       const projected = corner.clone().project(camera);
-      return Math.abs(projected.x) <= .9 && Math.abs(projected.y) <= .86;
+      return Math.abs(projected.x - viewportCenter.x) <= .9 && Math.abs(projected.y - viewportCenter.y) <= .86;
     });
     if (fits) far = distance;
     else near = distance;
@@ -5905,13 +6061,47 @@ function replicatePullChestPosition(sourceCell: Cell, sourceObjectId?: string) {
   return worldPosition(sourceCell).add(new THREE.Vector3(0, 1.55, 0));
 }
 
-function spawnReplicatePullTether(targetId: PlayerId, source: Cell, sourceObjectId: string | undefined, sourcePlayerId: PlayerId, startedAt: number, duration: number) {
-  const material = new THREE.LineBasicMaterial({ color: new THREE.Color(playerUiColor(sourcePlayerId)), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+function createSpectreTetherLine() {
+  const material = new THREE.LineBasicMaterial({ color: 0x9b6dff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
   const line = new THREE.Line(new THREE.BufferGeometry(), material);
   line.renderOrder = 92;
   line.visible = false;
   scene.add(line);
+  return line;
+}
+
+function spectreChestPosition(group: THREE.Group) {
+  const chestBone = group.getObjectByName('Spine');
+  return chestBone
+    ? chestBone.getWorldPosition(new THREE.Vector3())
+    : group.localToWorld(new THREE.Vector3(0, 1.35, 0));
+}
+
+function updateTwitchingTether(line: THREE.Line, source: THREE.Vector3, destination: THREE.Vector3, time: number, seed: number, progress: number) {
+  const direction = destination.clone().sub(source);
+  const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
+  if (sideways.lengthSq() > 0.0001) sideways.normalize();
+  const points = Array.from({ length: 15 }, (_, pointIndex) => {
+    const t = pointIndex / 14;
+    const envelope = Math.sin(Math.PI * t);
+    const twitch = Math.sin(time * 0.031 + pointIndex * 2.31 + seed) * 0.105
+      + Math.sin(time * 0.057 - pointIndex * 1.17) * 0.045;
+    return source.clone().lerp(destination, t)
+      .addScaledVector(sideways, twitch * envelope)
+      .add(new THREE.Vector3(0, Math.sin(time * 0.044 + pointIndex * 1.83) * 0.075 * envelope, 0));
+  });
+  line.geometry.setFromPoints(points);
+  (line.material as THREE.LineBasicMaterial).opacity = progress < 0.82 ? 0.95 : 0.95 * (1 - progress) / 0.18;
+}
+
+function spawnReplicatePullTether(targetId: PlayerId, source: Cell, sourceObjectId: string | undefined, startedAt: number, duration: number) {
+  const line = createSpectreTetherLine();
   replicatePullAnimations.push({ line, targetId, sourceCell: { ...source }, sourceObjectId, startedAt, duration, seed: Math.random() * Math.PI * 2 });
+}
+
+function spawnSpectreRelocateTether(playerId: PlayerId, replicaId: string) {
+  const line = createSpectreTetherLine();
+  spectreRelocateTethers.push({ line, playerId, replicaId, startedAt: performance.now(), duration: 1000, seed: Math.random() * Math.PI * 2 });
 }
 
 function updateReplicatePullTethers(time: number) {
@@ -5933,20 +6123,22 @@ function updateReplicatePullTethers(time: number) {
     }
     const source = replicatePullChestPosition(animation.sourceCell, animation.sourceObjectId);
     const destination = target.position.clone().add(new THREE.Vector3(0, 1.15, 0));
-    const direction = destination.clone().sub(source);
-    const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
-    if (sideways.lengthSq() > 0.0001) sideways.normalize();
-    const points = Array.from({ length: 15 }, (_, pointIndex) => {
-      const t = pointIndex / 14;
-      const envelope = Math.sin(Math.PI * t);
-      const twitch = Math.sin(time * 0.031 + pointIndex * 2.31 + animation.seed) * 0.105
-        + Math.sin(time * 0.057 - pointIndex * 1.17) * 0.045;
-      return source.clone().lerp(destination, t)
-        .addScaledVector(sideways, twitch * envelope)
-        .add(new THREE.Vector3(0, Math.sin(time * 0.044 + pointIndex * 1.83) * 0.075 * envelope, 0));
-    });
-    animation.line.geometry.setFromPoints(points);
-    (animation.line.material as THREE.LineBasicMaterial).opacity = progress < 0.82 ? 0.95 : 0.95 * (1 - progress) / 0.18;
+    updateTwitchingTether(animation.line, source, destination, time, animation.seed, progress);
+  }
+  for (let index = spectreRelocateTethers.length - 1; index >= 0; index--) {
+    const animation = spectreRelocateTethers[index];
+    const spectre = dummyGroups.get(animation.playerId);
+    const replica = objectGroups.get(animation.replicaId);
+    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    if (!spectre || !replica || progress >= 1) {
+      scene.remove(animation.line);
+      animation.line.geometry.dispose();
+      (animation.line.material as THREE.Material).dispose();
+      spectreRelocateTethers.splice(index, 1);
+      continue;
+    }
+    animation.line.visible = true;
+    updateTwitchingTether(animation.line, spectreChestPosition(spectre), spectreChestPosition(replica), time, animation.seed, progress);
   }
 }
 
@@ -6009,6 +6201,7 @@ function syncBoard() {
       group.position.copy(target);
       faceCharacterTowardNearestOpponent(group, id);
     } else if (previousKey !== targetKey) {
+      fadePerkUseLabelForMovement(id, targetKey, gameState.players[id].visualMovementCause, gameState.players[id].visualMovement?.sourceCardId);
       const cancellationReturn = character === 'shinobi' && (
         gameState.players[id].visualMovementCause === 'movement-cancelled'
         || pendingMovementCancellationTargets.get(id) === targetKey
@@ -6034,14 +6227,19 @@ function syncBoard() {
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
+        const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
         const duration = replicatePull
           ? recordedMovement.durationMs ?? 1000
+          : spectreRelocate
+            ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
           : !forced && character === 'shinobi'
             ? obiWanMovementDuration(travelSquares)
-            : !forced && character === 'orkk'
+          : !forced && character === 'orkk'
               ? orkkMovementDuration(travelSquares)
+              : !forced && character === 'spectre'
+                ? spectreMovementDuration(travelSquares)
               : 320 + travelSquares * 150;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced };
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -6053,7 +6251,10 @@ function syncBoard() {
           const pullSource = replicatePull && recordedMovement.source ? worldPosition(recordedMovement.source) : undefined;
           movementAnimations.set(id, { ...movement, startedAt: movementStartedAt, faceToward: pullSource });
           if (replicatePull && recordedMovement.source && recordedMovement.sourcePlayerId) {
-            spawnReplicatePullTether(id, recordedMovement.tetherSource ?? recordedMovement.source, recordedMovement.sourceObjectId, recordedMovement.sourcePlayerId, movementStartedAt, duration);
+            spawnReplicatePullTether(id, recordedMovement.tetherSource ?? recordedMovement.source, recordedMovement.sourceObjectId, movementStartedAt, duration);
+          }
+          if (spectreRelocate && recordedMovement.sourceObjectId) {
+            spawnSpectreRelocateTether(id, recordedMovement.sourceObjectId);
           }
         }
         delete gameState.players[id].visualMovementCause;
@@ -6226,7 +6427,7 @@ function syncBoard() {
       // begins at source frame 23 (the clip is authored at 24 fps).
       boxAttackDelay = (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
     }
-    const duration = shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
+    const duration = event.id.includes('-spectre-relocate-') ? SPECTRE_RELOCATE_SWAP_MS : shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
     const impactDamage = pendingDamageVisuals.get(event.id);
     pendingDamageVisuals.delete(event.id);
     const visualPath = event.path?.map((cell) => {

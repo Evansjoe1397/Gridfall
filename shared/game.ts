@@ -340,7 +340,7 @@ export type PlayerState = {
   spellsingerExtraAttacks?: number;
   necronomiconAttackBonus?: number;
   decayMovementBonus?: number;
-  visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; delayMs?: number; durationMs?: number };
+  visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
   visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability' | 'movement-cancelled';
   matchStats?: MatchStats;
 };
@@ -370,6 +370,43 @@ export type ForcePowerActionEvent =
   | { playerId: PlayerId; action: 'target-confirmed'; perk: 'force-throw' | 'force-pull'; target: Cell; targetKind: 'player' | 'object'; targetId: string; resolves: boolean }
   | { playerId: PlayerId; action: 'power-resolved'; perk: 'force-throw' }
   | { playerId: PlayerId; action: 'targeting-cancelled'; perk: 'force-throw' | 'force-pull' };
+export type SpectreActionEvent = { playerId: PlayerId; action: 'consume-replica' };
+export type PerkUseEvent = { playerId: PlayerId; cardId: CardTypeId; name: string; level?: 1 | 2 | 3 };
+
+export function perkUseEventForCommand(state: GameState, command: GameCommand): PerkUseEvent | null {
+  const player = state.players[command.playerId];
+  if (!player) return null;
+  let instance: CardInstance | null = null;
+  let level: 1 | 2 | 3 | undefined;
+  if (command.type === 'play-perk') {
+    instance = player.hand.find((card) => card.instanceId === command.cardInstanceId) ?? null;
+    const definition = instance ? cardDefinition(instance) : null;
+    if (definition?.levelEffects) level = 1;
+  } else if (command.type === 'use-echo-perk') {
+    instance = player.spellEcho[command.position - 1];
+    const definition = instance ? cardDefinition(instance) : null;
+    if (definition?.levelEffects) level = command.position as 1 | 2 | 3;
+  } else if (command.type === 'play-free-action') {
+    const candidate = player.hand.find((card) => card.instanceId === command.cardInstanceId) ?? null;
+    if (candidate?.cardId === 'portal') instance = candidate;
+  }
+  if (!instance) return null;
+  const definition = cardDefinition(instance);
+  if (definition.kind !== 'perk' && instance.cardId !== 'portal') return null;
+  return level
+    ? { playerId: player.id, cardId: instance.cardId, name: definition.name, level }
+    : { playerId: player.id, cardId: instance.cardId, name: definition.name };
+}
+
+export function spectreActionEventForCommand(state: GameState, command: GameCommand): SpectreActionEvent | null {
+  const player = state.players[command.playerId];
+  if (!player || player.character !== 'spectre') return null;
+  if (command.type !== 'play-perk' && command.type !== 'use-echo-perk') return null;
+  const card = command.type === 'play-perk'
+    ? player.hand.find((entry) => entry.instanceId === command.cardInstanceId)
+    : player.spellEcho[command.position - 1];
+  return card?.cardId === 'consume-replica' ? { playerId: command.playerId, action: 'consume-replica' } : null;
+}
 
 export function orkkActionEventForCommand(state: GameState, command: GameCommand): OrkkActionEvent | null {
   const player = state.players[command.playerId];
@@ -5651,7 +5688,10 @@ function resolvePortalTeleport(state: GameState, playerId: PlayerId, to: Cell): 
   if (Object.values(state.players).some((player) => player.hp > 0 && player.position.x === to.x && player.position.y === to.y) || state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Portal requires an empty Square.');
   const player = state.players[playerId]; const from = { ...player.position };
   if (!hasLineOfSight(state, from, to)) return fail(state, 'Portal can only land on a Square currently visible from its caster.');
-  recordQuestMovement(state, playerId, 1, true, to); player.position = { ...to };
+  recordQuestMovement(state, playerId, 1, true, to);
+  player.visualMovement = { from, path: [{ ...to }], sourceCardId: pending.source ?? 'portal' };
+  player.position = { ...to };
+  markCharacterMoved(player, 'own-card');
   extended.portal = null; state.phase = 'active';
   state.log.unshift(`${player.name} used Portal as ${pending.source === 'portal-perk' ? 'a Perk' : 'a Free Action'} to teleport from ${cellLabel(from)} to ${cellLabel(to)}${pending.source === 'portal-perk' ? '.' : '. Portal was Removed from the game.'}`);
   return ok(state);
@@ -5792,6 +5832,7 @@ function resolvePreparationTeleport(state: GameState, playerId: PlayerId, object
   const objectOrigin = { ...object.position };
   recordQuestMovement(state, player.id, 1, true, objectOrigin);
   player.position = objectOrigin;
+  player.visualMovement = { from: playerOrigin, path: [{ ...objectOrigin }], sourceCardId: 'preparation' };
   moveBoardObject(state, object, playerOrigin);
   markCharacterMoved(player, 'own-card');
   state.objectPushAnimations.push({ id: `${state.turn}-preparation-swap-${object.id}-${state.objectPushAnimations.length}`, objectId: object.id, from: objectOrigin, to: playerOrigin, dx: 0, dy: 0, collided: false, teleport: true });
@@ -6553,7 +6594,7 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   const passedEnemies = shizzle.level >= 2 ? Object.values(state.players).filter((entry) => entry.id !== playerId && path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
   recordQuestMovement(state, player.id, steps, false, to);
   const enteredFrom = path.length > 1 ? path[path.length - 2] : { ...player.position };
-  player.visualMovement = { from: { ...player.position }, path: path.map((cell) => ({ ...cell })) };
+  player.visualMovement = { from: { ...player.position }, path: path.map((cell) => ({ ...cell })), sourceCardId: 'shizzle' };
   player.position = { ...to };
   applySlideSquare(state, player, enteredFrom);
   markCharacterMoved(player, 'own-card');
@@ -6577,7 +6618,7 @@ function moveShizzle(state: GameState, player: PlayerState, to: Cell): CommandRe
   const passedEnemy = shizzle.enemyUnderfoot ? state.players[shizzle.enemyUnderfoot] : null;
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
-  player.visualMovement = { from: enteredFrom, path: [{ ...to }] };
+  player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'shizzle' };
   player.position = { ...to };
   applySlideSquare(state, player, enteredFrom);
   markCharacterMoved(player, 'own-card');
@@ -6883,12 +6924,22 @@ function resolveSpectreHaunt(state: GameState, player: PlayerState, level: numbe
 
 function resolveSpectreRelocate(state: GameState, player: PlayerState, replica: BoardObject, level: number): CommandResult {
   const origin = { ...player.position };
+  const replicaOrigin = { ...replica.position };
   const originBoxId = player.spectreOnBoxId ?? null;
-  player.position = { ...replica.position };
+  player.position = replicaOrigin;
   player.spectreOnBoxId = replica.spectreOnBoxId ?? null;
   replica.position = origin;
   replica.spectreOnBoxId = originBoxId;
-  player.visualMovement = { from: origin, path: [{ ...player.position }] };
+  player.visualMovement = { from: origin, path: [{ ...player.position }], kind: 'relocate', sourceObjectId: replica.id, sourceCardId: 'relocate', durationMs: 280 };
+  state.objectPushAnimations.push({
+    id: `${state.turn}-spectre-relocate-${replica.id}-${state.objectPushAnimations.length}`,
+    objectId: replica.id,
+    from: replicaOrigin,
+    to: origin,
+    dx: 0,
+    dy: 0,
+    collided: false,
+  });
   markCharacterMoved(player, 'own-card');
   grantMovement(player, 1);
   if (level >= 2) player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + 1;

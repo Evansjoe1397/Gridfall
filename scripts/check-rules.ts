@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, perkUseEventForCommand, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 import { grantMerylinSummon } from '../shared/game.ts';
 import { addForcedStatusCard, forcedStatusCount } from '../shared/game.ts';
 
@@ -16,6 +16,17 @@ const applyCommand = (source: any, command: any): any => {
   resolved.combatReveal = reveal;
   return { ok: true, state: resolved };
 };
+
+const perkLabelState = createGameInitialState();
+perkLabelState.players.P1.hand = [
+  { instanceId: 'label-leveled', cardId: 'echo-pulse' },
+  { instanceId: 'label-portal', cardId: 'portal' },
+];
+perkLabelState.players.P1.spellEcho = [null, { instanceId: 'label-echo', cardId: 'echo-pulse' }, null];
+assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'label-leveled', destination: 'direct' }), { playerId: 'P1', cardId: 'echo-pulse', name: 'Echo Pulse', level: 1 }, 'A directly used leveled Perk announces level 1.');
+assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'use-echo-perk', playerId: 'P1', position: 2 }), { playerId: 'P1', cardId: 'echo-pulse', name: 'Echo Pulse', level: 2 }, 'A Spell Echo Perk announces its occupied level.');
+assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'label-portal' }), { playerId: 'P1', cardId: 'portal', name: 'Portal' }, 'Portal announces without a level suffix.');
+assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'label-leveled', destination: 'echo' }), { playerId: 'P1', cardId: 'echo-pulse', name: 'Echo Pulse', level: 1 }, 'Placing a Perk into Spell Echo announces the level 1 effects that are used immediately.');
 
 const noCombatAcknowledgement = createGameInitialState();
 assert.equal(applyGameCommand(noCombatAcknowledgement, { type: 'ack-combat', playerId: 'P1', combatExpiresAt: 123 }).ok, true, 'A delayed acknowledgement is idempotent after its combat result has already closed.');
