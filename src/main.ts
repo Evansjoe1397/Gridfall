@@ -4114,7 +4114,7 @@ function updateWizardOrbitalAnimation(state: WizardAnimationState, deltaSeconds:
 }
 
 function loadSpectreAsset() {
-  return spectreAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/spectre-optimized.glb?v=20260818-2`);
+  return spectreAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/spectre-optimized.glb?v=20260905-1`);
 }
 
 type SpectreAnimationName = 'Idle' | 'Walk' | 'Run' | 'Fear' | 'Arise';
@@ -4161,7 +4161,7 @@ function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefin
     return;
   }
   if (state.current !== 'Idle' || !currentAction.paused) return;
-  state.idlePauseUntil ??= performance.now() + 2000;
+  state.idlePauseUntil ??= performance.now() + 5000;
   if (performance.now() >= state.idlePauseUntil) playSpectreAnimation(group, 'Idle', 0);
 }
 
