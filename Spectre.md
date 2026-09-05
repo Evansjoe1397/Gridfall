@@ -6,7 +6,7 @@ Spectre is a melee skirmisher who projects an immobile replica, attacks from eit
 
 ## Core stats
 
-- Hit Points: 17
+- Hit Points: 18
 - Move: 3
 - Attack Range: 1 (melee)
 
@@ -61,16 +61,16 @@ Create or improve Spectre's replica.
   - Placement requires line of sight, obeys normal board bounds, and requires an unoccupied destination. Wooden Boxes block Replicate's placement line of sight in addition to Columns and other Wall Objects, even though ordinary Attack line of sight may pass through a Box.
   - High Ground terrain between Spectre and the destination blocks line of sight. On The Trench, a Spectre inside the central trench cannot place a replica on Rows 2 or 7 through the intervening High Ground ridges.
   - The destination may be a normal High Ground Square, Base, or yellow draw Square, but cannot be a Box or a Square occupied by another entity.
-- **Level 2:** Increase the creation Range by 1, to Range 3. Add one Panic Card to the Hand of every enemy adjacent to the newly created replica.
-  - Example: enemies on orthogonally or diagonally adjacent Squares each receive one Panic; non-adjacent enemies do not.
-- **Level 3:** Increase the creation Range by 1 again, to Range 4. Every enemy affected by the Level 2 Panic effect reveals one Card.
-  - Refinement: “affected” currently means enemies adjacent to the newly created replica, even if another rule prevents the Panic Card from being added.
+- **Level 2:** Increase the creation Range by 1, to Range 3. Pull every enemy within Range 2 of the newly created replica exactly one Square toward it. After all pulls resolve, add one Panic Card to the Hand of every enemy adjacent to the replica.
+  - Enemies already adjacent remain in place. If the direct Square is blocked, the enemy uses the first legal one-Square step of the shortest route toward the replica; if no route exists, that enemy remains in place.
+  - Pulled enemies turn to face the replica and move over approximately one second. During the pull, a twitching energy line colored like the replica links the newly created replica's chest to each moving enemy.
+- **Level 3:** Increase the creation Range by 1 again, to Range 4. Gain 1 Action unconditionally.
 
 ### Relocate
 
 Exchange Spectre's position with the replica and cleanse Spectre.
 
-- **Level 1:** Swap Spectre and the replica. Remove one negative Status Card from Spectre's Hand.
+- **Level 1:** Swap Spectre and the replica. Remove one negative Status Card from Spectre's Hand and gain +1 MOV.
   - Example: this is a true exchange; both destinations were already occupied by the two bodies, so neither needs to be an empty Square.
   - Refinement: the negative Status should be chosen by the Spectre player when more than one is eligible.
 - **Level 2:** Spectre gains +1 ATT until the end of the turn.
@@ -148,11 +148,11 @@ Gain +2 ATT if the target has no adjacent Objects or characters other than Spect
 
 ### Deja Vu — 1 ATT
 
-If Spectre controls a replica when this Attack is played, gain 1 Action and draw 1 Card. Otherwise, return Deja Vu to Spectre's Hand.
+If Spectre controls a replica when this Attack is played, gain 1 Action and draw 1 Card. Otherwise, create a copy of Deja Vu and shuffle it into Spectre's Deck.
 
 - Refinement: check for the replica at Attack declaration. The reward should not be lost if the replica is destroyed later in the same combat.
 - The replica branch restores the Action and draws before combat resolution.
-- Without a replica, return the same Deja Vu Card instance to Hand immediately after declaring the Attack. The Attack still costs its Action and resolves normally.
+- Without a replica, the played Deja Vu is discarded normally and a new copy is immediately created and shuffled into Spectre's Deck. The Attack still costs its Action and resolves normally.
 
 ### Echo Strike — 2 ATT
 
@@ -167,13 +167,16 @@ After combat, the replica deals 1 Damage to every adjacent character.
 
 ### Soul Strike — 3 ATT
 
-**Before combat:**
+- The enemy first chooses a Block Card or chooses to take the hit. Any intervening combat choices finish, then Soul Strike checks the Cards remaining in their Hand only once the selected defense is committed.
+- If the enemy has no Cards in Hand, deal 2 additional Damage. Therefore, an enemy who uses their only Block Card receives the additional Damage.
+- Otherwise, reveal 1 random Perk, Attack, or Block Card from their remaining Hand privately to Spectre. Status and Free Action Cards are not eligible for this random reveal.
+- If the revealed Card is a Perk, discard it.
+- If the revealed Card is an Attack, mark it. The enemy must use a marked Attack before any unmarked Attack the next time they choose to Attack.
+- If the revealed Card is a Block, mark it. In later combat, only the marked Block is available; all other Block Cards are disabled. The enemy may still choose to take the hit instead.
+- A marked Card may still be discarded for the Hand limit or by another effect. Its forced-use marker ends as soon as it leaves the Hand.
+- The combat resolution dialogue identifies the Card Soul Strike revealed and whether it was discarded or marked.
 
-- If the enemy has any Cards in Hand when Soul Strike is declared, deal 1 additional Damage.
-- If the attacked enemy has any discardable Card revealed to Spectre in their Hand, they must choose and discard one. Otherwise, reveal 1 random previously unrevealed Card from their Hand privately to Spectre.
-- Because these effects resolve before the defender chooses a Defend Card, cancelling the Attack Card effect during combat does not undo them.
-
-### Displace — 2 ATT
+### Displace — 3 ATT
 
 Push the attacked enemy one Square directly away from the body that performed the Attack. If Spectre attacked, push away from Spectre; if the replica attacked, push away from the replica. If the enemy cannot be pushed, deal 1 additional Damage.
 
@@ -187,16 +190,18 @@ Push the attacked enemy one Square directly away from the body that performed th
 
 ### Devour — 1 DEF
 
-If Spectre controls a replica, destroy it and prevent all Damage from this combat. Add one Headache Card to Spectre's Hand.
+Destroy a replica. Prevent all Damage, negative effects, and Status Cards from this combat. Add Headache to your Hand.
 
-- “All Damage” means combat Damage plus every Attack- or Defend-card-effect Damage event belonging to this combat. Unrelated external Damage events are not covered.
-- Refinement: the replica should be consumed before damage is applied, and the Headache is still added even when the prevented Damage would have been zero.
+- Devour can only resolve while Spectre controls at least one replica. If there is exactly one, it is destroyed automatically. If there are several, Spectre chooses one after combat.
+- Its protection covers combat Damage and negative Attack or combat effects, including forced movement, forced discards, and Status Cards. Unrelated external effects are not covered.
+- The Headache created by Devour itself is the sole exception and is always added, even when the prevented Damage would have been zero.
 
 ### Split — 2 DEF
 
-After combat, create a replica on an empty Square within Range 1. The replica can attack and defend but cannot move. Remove and replace an existing replica.
+After combat, create an additional replica on an empty Square within Range 1 of Spectre. Existing replicas remain.
 
-- Refinement: Range should be measured from Spectre, and the Spectre player should choose the destination.
+- The replica can attack and defend but cannot move.
+- Range is measured from Spectre, and the Spectre player chooses the destination.
 - Refinement: if no legal Square exists, the effect does nothing rather than delaying combat completion.
 
 ### Anguish — 2 DEF
@@ -273,27 +278,28 @@ The current opening setup empties all piles, shuffles the eight non-Reserve defa
 
 ### Reveals and other card timing
 
-1. For Replicate Level 3, who chooses the Card revealed privately to Spectre: the affected enemy, Spectre, or random selection in the web version?
-2. Does Relocate's ATT bonus apply to replica-origin attacks? Does its cleanse remove a player-chosen negative Status, and may Relocate be used with no negative Status in Hand?
-3. How is “standing atop a Box” entered and exited? Can any character attack Spectre there, can Spectre attack normally, and can another entity occupy the underlying Box Square?
-4. Does Deja Vu grant its Action and draw before combat, after combat, or only if the Attack resolves? Can the gained Action exceed the normal maximum of two?
-5. For Split, does Spectre choose the replica Square after combat, and what happens if combat ends the match or no legal adjacent Square exists?
-6. Does Accumulate have an overall combined ATT cap after stacking, and does the resulting bonus apply to every Attack during the next turn?
+1. Does Relocate's ATT bonus apply to replica-origin attacks? Does its cleanse remove a player-chosen negative Status, and may Relocate be used with no negative Status in Hand?
+2. How is “standing atop a Box” entered and exited? Can any character attack Spectre there, can Spectre attack normally, and can another entity occupy the underlying Box Square?
+3. Does Deja Vu grant its Action and draw before combat, after combat, or only if the Attack resolves? Can the gained Action exceed the normal maximum of two?
+4. For Split, does Spectre choose the replica Square after combat, and what happens if combat ends the match or no legal adjacent Square exists?
+5. Does Accumulate have an overall combined ATT cap after stacking, and does the resulting bonus apply to every Attack during the next turn?
 
 ## Current implementation findings and provisional rulings
 
 The first playable implementation uses the following precise rulings. They are recorded here so the code and design document cannot silently diverge:
 
 - Web-only private reveals choose a random eligible unrevealed Card and store viewer-specific visibility for Spectre. Public reveals continue to use the existing global reveal flag.
-- Relocate's ATT applies to both Spectre- and replica-origin Attacks. If negative Status Cards exist, Spectre must choose one; if none exist, the swap completes without a choice. Its extra Action may exceed two.
-- Deja Vu checks for the replica when the Attack is declared, then immediately restores one Action and draws one Card. The restored Action may exceed two.
+- Replicate Level 2 waits 0.5 seconds after the replica appears before its pull animation begins. Enemies turn toward the replica and the energy tethers appear when the pull starts. It resolves every one-Square enemy pull before checking adjacency and adding Panic. Occupied destinations and forbidden uphill Slide edges block individual pulls. Level 3 then grants its Action unconditionally.
+- Soul Strike resolves after the defender locks in a Block Card or takes the hit and all intervening combat choices are complete. It checks the remaining Hand, deals 2 additional Damage when empty, otherwise privately reveals a random eligible Perk/Attack/Block Card, and carries the revealed Card and outcome into the combat summary. Revealed Perks are discarded; revealed Attack and Block Cards remain marked until used or otherwise discarded. While a Block is marked, the UI disables every unmarked Block in later combat, while still allowing the defender to take the hit.
+- Relocate's ATT applies to both Spectre- and replica-origin Attacks. Level 1 grants +1 available MOV. If negative Status Cards exist, Spectre must choose one; if none exist, the swap completes without a choice. Its extra Action may exceed two.
+- Deja Vu checks for a replica when the Attack is declared. With one, it immediately restores one Action and draws one Card; without one, it immediately creates a new copy in the shuffled Deck. The restored Action may exceed two.
 - Shadow Dagger first serializes a Spectre-or-replica origin choice, then measures its direction and complete trail from that selected body's captured position. `Tab` switches, `Enter` confirms, clicking either body selects it, and cancellation remains available through direction selection. Spectre may then transit through characters and all Objects while following the trail. Entering a character or non-Box Object Square—including a Column, Shield, Tomb, or the replica—costs normal MOV; the next transition leaving it along the trail costs 0 MOV. Entering a Wooden Box always costs normal MOV. The UI accepts a transit-only Square as an intermediate movement destination, but Spectre must leave it before ending the turn. A turn may end only on an empty legal Square or atop a Wooden Box.
 - Shadow trail movement overrides forbidden terrain edges such as Trench-to-High-Ground ascent. The trail is retained in serialized state through the end of Spectre's turn, then the trail and its temporary MOV penalties are cleared together.
 - Box-top occupancy is explicit Spectre state. Entering a Box along the trail costs normal MOV, raises the Three.js model, and adds one elevation level for Spectre-origin combat. A High Ground Box is therefore above ordinary High Ground and grants +1 ATT against ordinary High Ground targets, while Attack Range still uses the underlying Square's normal grid distance and terrain rules. Destroying the supporting Box clears that state, deals 1 falling Damage even when the underlying Square is High Ground, and immediately animates Spectre falling vertically to the underlying terrain without changing her Square.
 - Haunt replaces all existing replicas, then derives each enemy's facing from its closest living enemy and creates a replica in the best available adjacent Square behind it. A Wooden Box is a legal destination and supports the replica as High Ground. Level 2 privately reveals one random Card per enemy, and Level 3 grants 1 Action.
 - Relocate swaps Box-top state along with position, so Spectre inherits a Haunt replica's supporting Box and a replica moved to Spectre's former Square inherits any Box that supported Spectre there.
 - Displace measures “away” from the body that originated the Attack: Spectre when she can legally reach the target, otherwise the replica when it is the only body that can reach. Spectre has priority when both bodies can reach. The serialized `attackerPosition` fixes that origin through after-combat resolution. Displace follows the general terrain restriction that a character cannot be pushed directly from a Slide or Trench Square onto High Ground. A blocked one-Square push deals exactly 1 extra card-effect Damage and does not also invoke generic collision Damage. The combat feed reports the attempted destination and whether terrain, a character, an Object, or the board edge blocked it.
-- Split placement is measured from the body that defended, matching other attacked-body positional effects. Combat remains pending until the placement is resolved.
+- Split placement is measured from Spectre, even when a replica was attacked. It creates another replica without removing or replacing existing replicas, and combat remains pending until placement resolves.
 - Accumulate's per-use storage is capped at +3, but the combined stored total is not capped. The full combined bonus applies to every Attack during Spectre's next turn and expires at its end.
 - Consume Replica Level 3 restores the Action spent to use it and resets Spectre's once-per-turn Perk restriction, allowing one additional Perk this turn.
 - The replica is serialized as an owned HP-less Board entity plus combat-proxy metadata. This keeps it out of turn order while allowing movement/line-of-sight blocking, Object movement effects, and combat against the owner's shared HP and Hand.

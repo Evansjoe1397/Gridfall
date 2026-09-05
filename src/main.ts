@@ -2,6 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -137,7 +138,7 @@ app.innerHTML = `
       </div>
       <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
-        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS (H)</button></div>
+        <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
@@ -161,9 +162,11 @@ let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
 type GameFormat = 'duel' | 'ffa';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let roomIdAutoSelected = false;
+const ROOM_ID_QUERY_PARAM = 'roomId';
+const RECONNECTION_TOKEN_PREFIX = 'gridfall.reconnection.';
 let combatStackSelectionKey = '';
 let selectedCombatCardIds = new Set<string>();
 let combatStackSubmittedPlayerIds: PlayerId[] = [];
@@ -172,6 +175,7 @@ let actionQuestCollapsed = false;
 let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
+let healthBarsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
 let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
@@ -221,6 +225,13 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   const browser = document.querySelector('.character-browser');
   browser?.classList.remove('hidden');
   browser?.scrollIntoView({ block: 'start' });
+  // The preview renderer is created while this panel is display:none. Rebuild
+  // its render targets after layout has a real size; ResizeObserver callbacks
+  // are not consistently delivered for this transition at every browser zoom.
+  requestAnimationFrame(() => {
+    resizeCharacterPreview();
+    characterPreviewComposer?.render();
+  });
 });
 document.querySelector('#closeCharacterBrowser')!.addEventListener('click', () => {
   document.querySelector('.character-browser')?.classList.add('hidden');
@@ -264,9 +275,29 @@ document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
 document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
 document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () => dispatch({ type: 'mind-tricks-finish', playerId: actingPlayer() }));
 document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
-document.querySelector('#leaveGame')!.addEventListener('click', () => location.reload());
+document.querySelector('#leaveGame')!.addEventListener('click', () => void leaveMatch());
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if (!event.repeat && !game.classList.contains('hidden') && !event.metaKey) {
+    const digitMatch = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+    const hotkeyNumber = digitMatch ? Number(digitMatch[1]) : 0;
+    if (event.altKey && !event.ctrlKey && !event.shiftKey && hotkeyNumber > 0) {
+      const handCard = byId('hand').querySelectorAll<HTMLButtonElement>(':scope > .card')[hotkeyNumber - 1];
+      if (handCard && !handCard.disabled) {
+        event.preventDefault();
+        handCard.click();
+        return;
+      }
+    } else if (!event.altKey && !event.ctrlKey && !event.shiftKey && hotkeyNumber >= 1 && hotkeyNumber <= 3) {
+      const viewerId = actingPlayer();
+      const echoSlot = document.querySelector<HTMLButtonElement>(`[data-echo-owner="${viewerId}"][data-echo-position="${hotkeyNumber}"]`);
+      if (echoSlot && !echoSlot.disabled) {
+        event.preventDefault();
+        echoSlot.click();
+        return;
+      }
+    }
+  }
   if (event.code === 'Escape' && hintsOpen) {
     event.preventDefault(); hintsOpen = false; renderHintsModal(); return;
   }
@@ -353,8 +384,9 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'KeyH' && !game.classList.contains('hidden')) {
     event.preventDefault();
-    hintsOpen = !hintsOpen;
-    renderHintsModal();
+    healthBarsVisible = !healthBarsVisible;
+    updateCharacterHealthBars();
+    notify(`Character HP bars ${healthBarsVisible ? 'shown' : 'hidden'}.`);
   }
   if (event.code === 'KeyC' && !game.classList.contains('hidden')) {
     const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
@@ -363,7 +395,6 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
-  if (gameState.phase === 'choosing-soul-strike-discard') return true;
   if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
   if (gameState.phase === 'choosing-spirit-guardian-square' && (Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian) || Boolean((gameState as any).spectreReplicaPlacement))) return true;
   if (gameState.phase === 'choosing-arkane-arow-target' && Boolean((gameState as any).spectreShadow)) return true;
@@ -381,6 +412,8 @@ function isWaitingForSelectedCardTarget() {
 
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
+let combatRevealWasVisible = false;
+let deathAnimationNotBefore = 0;
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
   combatAckRequestFor = revealExpiresAt;
@@ -421,7 +454,7 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
-  spectre: { name: 'Spectre', hp: 17, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
+  spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 22, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: '⚔', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
@@ -430,10 +463,10 @@ const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
   shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
   'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich', merylin: 'Knightress Wizard',
 };
-function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false): string {
+function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
-  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}><strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
+  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
 }
 
 function dummySelectButton(): string {
@@ -457,7 +490,7 @@ function showOnlineArenaSelect() {
 function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
   const panel = byId('onlineWaiting');
   const arenaName = format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}${format === 'duel' ? characterSelectButton('john-christ', 'data-hotseat-character') : ''}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as HotseatCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character, arena);
@@ -485,6 +518,7 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
+  setDawnArenaMode(format === 'duel' && arena === 'nagrand');
   boardVisualKey = '';
   fittedArenaKey = '';
   lobby.classList.add('hidden');
@@ -497,7 +531,33 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   });
 }
 
-async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand') {
+function multiplayerRoomUrl(roomId: string) {
+  const url = new URL(location.href);
+  url.searchParams.set(ROOM_ID_QUERY_PARAM, roomId);
+  return url.toString();
+}
+
+function updateRoomUrl(roomId: string | null) {
+  const url = new URL(location.href);
+  if (roomId) url.searchParams.set(ROOM_ID_QUERY_PARAM, roomId);
+  else url.searchParams.delete(ROOM_ID_QUERY_PARAM);
+  history.replaceState(null, '', url);
+}
+
+function reconnectionTokenKey(roomId: string) {
+  return `${RECONNECTION_TOKEN_PREFIX}${roomId}`;
+}
+
+async function leaveMatch() {
+  if (room) {
+    sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
+    updateRoomUrl(null);
+    await room.leave().catch(() => undefined);
+  }
+  location.reload();
+}
+
+async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand', preferSavedSession = false) {
   try {
     roomIdAutoSelected = false;
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
@@ -509,11 +569,30 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     } else {
       const roomId = (document.querySelector<HTMLInputElement>('#roomId')!).value.trim();
       if (!roomId) return notify('Enter a room ID first.');
-      room = await client.joinById(roomId, { password });
+      const savedToken = preferSavedSession ? sessionStorage.getItem(reconnectionTokenKey(roomId)) : null;
+      if (savedToken) {
+        try {
+          room = await client.reconnect(savedToken);
+        } catch {
+          sessionStorage.removeItem(reconnectionTokenKey(roomId));
+          room = await client.joinById(roomId, { password });
+        }
+      } else {
+        room = await client.joinById(roomId, { password });
+      }
     }
     mode = 'online';
+    updateRoomUrl(room.roomId);
+    sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
+    room.reconnection.minUptime = 0;
+    room.reconnection.maxRetries = 20;
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
-    room.onMessage('lobby-state', (state: OnlineLobbyState) => { onlineLobbyState = state; renderOnlineLobby(); });
+    room.onMessage('lobby-state', (state: OnlineLobbyState) => {
+      const previousState = onlineLobbyState;
+      onlineLobbyState = state;
+      if (previousState && sameLobbyExceptSelections(previousState, state)) renderOnlineSelectionFrames();
+      else renderOnlineLobby();
+    });
     room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
     room.onMessage('orkk-action', (event: OrkkActionEvent) => {
       pendingOnlineOrkkVisualIntent = orkkVisualIntentForAction(event);
@@ -534,6 +613,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
       if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
+        setDawnArenaMode(onlineArena.id === 'nagrand');
         boardVisualKey = '';
         fittedArenaKey = '';
       }
@@ -561,13 +641,42 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       notify(message);
     });
     room.onMessage('notice', (message: string) => notify(message));
+    room.onDrop(() => {
+      byId('connection').classList.add('reconnecting');
+      byId('connection').innerHTML = `<span></span> Reconnecting to room ${room?.roomId ?? ''}`;
+      notify('Connection lost. Reconnecting automatically…');
+    });
+    room.onReconnect(() => {
+      if (!room) return;
+      sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
+      byId('connection').classList.remove('reconnecting', 'disconnected');
+      byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
+      room.send('ready');
+      notify('Reconnected to the room.');
+    });
+    room.onLeave(() => {
+      if (!room) return;
+      sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
+      byId('connection').classList.remove('reconnecting');
+      byId('connection').classList.add('disconnected');
+      byId('connection').innerHTML = '<span></span> Disconnected';
+      notify('Could not reconnect to the room. Use the room link to try again.');
+    });
     room.send('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
+    byId('connection').classList.remove('reconnecting', 'disconnected');
     byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
     renderOnlineLobby();
   } catch (error) {
     notify(error instanceof Error ? error.message : 'Could not connect to the room.');
   }
+}
+
+function joinRoomFromUrl() {
+  const roomId = new URL(location.href).searchParams.get(ROOM_ID_QUERY_PARAM)?.trim();
+  if (!roomId) return;
+  (document.querySelector<HTMLInputElement>('#roomId')!).value = roomId;
+  void connectOnline('join', 'duel', 'nagrand', true);
 }
 
 function normalizeOnlineState(state: GameState): GameState {
@@ -616,24 +725,23 @@ function renderOnlineLobby() {
   const state = onlineLobbyState;
   const requiredPlayerCount = state?.requiredPlayerCount ?? 2;
   const joined = (state?.playerCount ?? 1) >= requiredPlayerCount;
-  const joiningPlayersChosen = Boolean(state?.characters.P2) && (requiredPlayerCount < 3 || Boolean(state?.characters.P3));
-  const mayChoose = joined && (localSeat !== 'P1' || joiningPlayersChosen) && !state?.characters[localSeat];
+  const mayChoose = joined && !state?.characters[localSeat];
   const missingPlayers = Math.max(0, requiredPlayerCount - (state?.playerCount ?? 1));
   const orderMessage = !joined ? `Share the Room ID and wait for ${missingPlayers} more Player${missingPlayers === 1 ? '' : 's'}.`
-    : localSeat === 'P2' && !state?.characters.P2 ? 'You joined the room. Choose your Character first.'
-      : localSeat === 'P1' && !joiningPlayersChosen ? 'The joining Player(s) are choosing Characters.'
-        : state?.characters[localSeat] ? 'Character locked. Waiting for the battle to start.' : 'Choose your Character.';
-  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM ID · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomId)}" readonly spellcheck="false" aria-label="Multiplayer Room ID"><button id="copyRoomId" type="button">COPY</button></div><h2>Character Select</h2>
+    : state?.characters[localSeat] ? 'Character confirmed. Waiting for the other Players.'
+      : 'Choose your Character. Everyone may select at the same time.';
+  const roomLink = multiplayerRoomUrl(roomId);
+  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>Character Select</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}</p><div class="character-choices">
-      ${characterSelectButton('orkk', 'data-character', !mayChoose)}
-      ${characterSelectButton('shinobi', 'data-character', !mayChoose)}
-      ${characterSelectButton('magician', 'data-character', !mayChoose)}
-      ${characterSelectButton('john-christ', 'data-character', !mayChoose)}
-      ${characterSelectButton('spectre', 'data-character', !mayChoose)}
-      ${characterSelectButton('wreckna', 'data-character', !mayChoose)}
-      ${characterSelectButton('merylin', 'data-character', !mayChoose)}
-    </div><small>Players may choose the same Character.</small>`;
+      ${characterSelectButton('orkk', 'data-character', !mayChoose, characterSelectionFrames('orkk', state))}
+      ${characterSelectButton('shinobi', 'data-character', !mayChoose, characterSelectionFrames('shinobi', state))}
+      ${characterSelectButton('magician', 'data-character', !mayChoose, characterSelectionFrames('magician', state))}
+      ${characterSelectButton('john-christ', 'data-character', !mayChoose, characterSelectionFrames('john-christ', state))}
+      ${characterSelectButton('spectre', 'data-character', !mayChoose, characterSelectionFrames('spectre', state))}
+      ${characterSelectButton('wreckna', 'data-character', !mayChoose, characterSelectionFrames('wreckna', state))}
+      ${characterSelectButton('merylin', 'data-character', !mayChoose, characterSelectionFrames('merylin', state))}
+    </div>`;
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
   roomIdField.addEventListener('focus', () => roomIdField.select());
@@ -641,8 +749,8 @@ function renderOnlineLobby() {
     roomIdField.focus();
     roomIdField.select();
     try {
-      await navigator.clipboard.writeText(roomId);
-      notify('Room ID copied to clipboard.');
+      await navigator.clipboard.writeText(roomLink);
+      notify('Room link copied to clipboard.');
     } catch {
       notify('Room ID selected. Press Ctrl+C to copy.');
     }
@@ -651,7 +759,40 @@ function renderOnlineLobby() {
     roomIdAutoSelected = true;
     requestAnimationFrame(() => { roomIdField.focus(); roomIdField.select(); });
   }
-  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => button.addEventListener('click', () => room?.send('choose-character', button.dataset.character)));
+  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => {
+    button.addEventListener('pointerenter', () => room?.send('hover-character', button.dataset.character));
+    button.addEventListener('pointerleave', () => room?.send('hover-character', null));
+    button.addEventListener('click', () => room?.send('select-character', button.dataset.character));
+  });
+}
+
+function characterSelectionFrames(character: OnlineCharacter, state: OnlineLobbyState | null) {
+  if (!state) return '';
+  return (['P1', 'P2', 'P3'] as PlayerId[]).flatMap((playerId) => {
+    const confirmed = state.characters[playerId] === character;
+    const selected = state.selections?.[playerId] === character;
+    return confirmed || selected
+      ? [`<span class="character-selection-frame ${playerId.toLowerCase()} ${confirmed ? 'confirmed' : ''}" data-player="${playerId}" aria-label="${playerId} ${confirmed ? 'is ready with' : 'selected'} ${CHARACTER_SELECT_INFO[character].name}"></span>`]
+      : [];
+  }).join('');
+}
+
+function sameLobbyExceptSelections(previous: OnlineLobbyState, next: OnlineLobbyState) {
+  return previous.playerCount === next.playerCount
+    && previous.requiredPlayerCount === next.requiredPlayerCount
+    && previous.arena === next.arena
+    && previous.mode === next.mode
+    && previous.started === next.started
+    && (['P1', 'P2', 'P3'] as PlayerId[]).every((playerId) => previous.characters[playerId] === next.characters[playerId]);
+}
+
+function renderOnlineSelectionFrames() {
+  const panel = byId('onlineWaiting');
+  panel.querySelectorAll('.character-selection-frame').forEach((frame) => frame.remove());
+  panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => {
+    const character = button.dataset.character as OnlineCharacter;
+    button.insertAdjacentHTML('afterbegin', characterSelectionFrames(character, onlineLobbyState));
+  });
 }
 
 function actingPlayer(): PlayerId {
@@ -691,7 +832,6 @@ function actingPlayer(): PlayerId {
   if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-soul-strike-discard') return (gameState as GameState & { soulStrikeDiscard?: { defenderId: PlayerId } }).soulStrikeDiscard?.defenderId ?? gameState.activePlayerId;
   if (gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
@@ -712,6 +852,7 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-flurry-enemy-discard') return gameState.flurry!.attackerId;
   if (gameState.phase === 'mana-blast-offer') return gameState.pendingAttack!.defenderId;
   if (gameState.phase === 'choosing-frostmourne') return (gameState as GameState & { frostmourne?: { playerId: PlayerId } }).frostmourne?.playerId ?? gameState.activePlayerId;
+  if ((gameState.phase as string) === 'choosing-lightbringer-swap') return gameState.pendingAttack?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-grimoire-discard') return gameState.pendingAttack!.defenderId;
   return gameState.activePlayerId;
 }
@@ -794,6 +935,7 @@ function dispatch(command: GameCommand) {
 
 function renderAll() {
   syncBoard();
+  updateCharacterHealthBars(true);
   renderUI();
 }
 
@@ -904,7 +1046,6 @@ function renderUI() {
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
-  if (gameState.phase === 'choosing-soul-strike-discard') prompt.textContent = 'Soul Strike: the target must discard 1 Card revealed to Spectre';
   if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
   if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
@@ -1203,7 +1344,9 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   firebolt: { en: 'Use as a normal Perk to deal 1 Damage at Range 3 and add Burning to the target’s Hand.', ru: 'Используйте как обычный Перк, чтобы нанести 1 урон на дальности 3 и добавить Burning в Руку цели.' },
   portal: { en: 'A one-use Free Action reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card without spending an Action. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение Свободным Действием. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты, не тратя Действие. Portal удаляется из игры после применения или сброса.' },
   'portal-perk': { en: 'The Draw Reward version of Portal uses the normal Perk action and teleports you to a visible empty Square.', ru: 'Версия Portal за ничью используется как обычный Перк и телепортирует на видимую пустую клетку.' },
+  'monarch-flush-perk': { en: "The Gambler Draw Reward uses the normal Perk action to reveal every opponent Hand, then Removes itself from the game.", ru: 'Награда за ничью в The Gambler используется как обычный Перк, раскрывает Руки всех противников и затем удаляется из игры.' },
   'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
+  'vicious-mockery-1': { en: 'The Provocateur Draw Reward adds +1 to an Attack or Defend Card in combat, then Removes itself.', ru: 'Награда за ничью в Provocateur добавляет +1 к карте Атаки или Защиты в бою, затем удаляется.' },
   preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
   'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
   'chain-lightning': { en: 'Best when enemies and destructible Objects are clustered. Higher levels extend and repeat bounces; Consume is strongest in a crowded area where repeated hits can revisit targets.', ru: 'Лучше всего работает в скоплении врагов и разрушаемых Объектов. Высокие уровни удлиняют и повторяют скачки; Consume особенно силён в толпе, где молния может повторно поражать цели.' },
@@ -1240,7 +1383,7 @@ const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: s
   'blessing-shield': { en: 'Apply after reveal for two independent protections during the rest of combat: absorb 1 Damage from an enemy Attack/Defend Card effect and automatically block the first negative Status application. Pre-combat Status effects have already resolved and are unaffected. A Shield generated by Blessed Block arrives next turn; Spirit Form prevents its use.', ru: 'Примените после раскрытия ради двух независимых защит до конца боя: поглотите 1 урон от эффекта вражеской Атаки/Защиты и автоматически заблокируйте первое наложение негативного Статуса. Предбоевые Статусы уже разрешены и не блокируются. Shield от Blessed Block приходит в следующий ход; Spirit Form не позволяет его использовать.' },
   'blessing-swiftness': { en: 'A revealed passive Status granting +1 MOV while in Hand. Keep Hand size at 5 or fewer when ending the turn if you want to retain it; at 6 or more it is Removed at the beginning of the end-turn process. Its creation also grants Stoic Shell.', ru: 'Открытый пассивный Статус, дающий +1 MOV в Руке. Завершайте ход с 5 или менее картами, если хотите сохранить его; при 6+ он удаляется в самом начале процесса окончания хода. Создание также даёт Stoic Shell.' },
   'blessing-faith': { en: 'A revealed one-combat sanctuary. Apply it to negate every Damage instance dealt to both attacker and defender, including combat-value and card-effect Damage. If unused, it expires at the beginning of your next turn, so use it in the current enemy turn when meaningful.', ru: 'Открытое убежище на один бой. Примените, чтобы отменить весь урон обеим сторонам — и от разницы боевых значений, и от эффектов карт. Если не использовать, карта исчезнет в начале вашего следующего хода, поэтому применяйте её во время текущего хода врага, когда это выгодно.' },
-  'light-the-saber': { en: 'An efficient setup Attack. Apply Pinned early to reduce enemy mobility and prepare Calmness, Double Jump, or Hello There for stronger follow-up value.', ru: 'Эффективная подготовительная Атака. Наложите Pinned заранее, чтобы снизить мобильность врага и усилить последующие Calmness, Double Jump или Hello There.' },
+  'light-the-saber': { en: 'An efficient setup Attack. After combat it applies Pinned to reduce enemy mobility and activates Lightsaber for immediate +1 ATT, +1 DEF, and +1 MOV.', ru: 'Эффективная подготовительная Атака. После боя она накладывает Pinned, снижая мобильность врага, и активирует Lightsaber, немедленно давая +1 ATT, +1 DEF и +1 MOV.' },
   'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies, Objects, and Wall Objects to cross blocked lanes or apply Pinned, but reserve the final step for an unoccupied Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов, Объекты и Объекты-Стены, но оставьте последний шаг для незанятой клетки.' },
   'force-disarm': { en: 'Use when the enemy is holding revealed or suspected Attack Cards. It removes their offensive option; if none exists, revealing the Hand provides information and Exhaust weakens future combat.', ru: 'Используйте, когда у врага есть открытые или предполагаемые Карты Атаки. Карта убирает наступательную угрозу; если Атак нет, раскрытие Руки даёт информацию, а Exhaust ослабляет будущие бои.' },
   'cut-them-legs': { en: 'A strong repeatable Attack. Aim for a favourable combat so it returns to Hand, applies Pinned, and can be played again if another Action remains.', ru: 'Сильная повторяемая Атака. Добивайтесь победы в бою, чтобы карта вернулась в Руку, наложила Pinned и могла быть сыграна снова при наличии Действия.' },
@@ -1361,7 +1504,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const exhaustStored = player.deck.concat(player.discard).filter((card) => card.cardId === 'exhaust').length;
     const burning = player.hand.filter((card) => card.cardId === 'burning').length;
     const panic = player.hand.filter((card) => card.cardId === 'panic').length;
-    const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang');
+    const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang' || card.cardId === 'boomerang-draw');
     const phylacteryIcons = player.character === 'wreckna' ? ([
       ['might', 'M', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
       ['wisdom', 'W', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
@@ -1395,6 +1538,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">⚔<span class="status-tooltip"><strong>Summon · Attack Ready</strong>Swordcraft has summoned a sword from another realm. Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">DEF<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
+    const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">DEF↩<span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
     const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin may cross characters, Objects, Wall Objects, High Ground, Slides, Trenches, and other restricted Squares, but must end movement on an empty Square.' : ''}</span></div>` : '';
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianMovementIcon = player.character === 'merylin' && player.barbarianIgnoreNegativeMovement ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<span class="status-tooltip"><strong>Barbarian Stance · Unstoppable</strong>Negative effects cannot reduce or annul Merylin's MOV until the end of this turn.</span></div>` : '';
@@ -1409,7 +1553,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
     const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: { carrierId: PlayerId | null; status: string }[] } | null } }).questPhases?.captureTheFlag;
     const flagCarrier = Boolean(flagState?.flags.some((flag) => flag.status === 'carried' && flag.carrierId === player.id));
-    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and end your turn there to complete Capture the Flag.</span></div>` : '';
+    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and begin a turn there to complete The Conqueror.</span></div>` : '';
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">🔥${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
@@ -1417,7 +1561,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1439,7 +1583,8 @@ function renderHand() {
         ? `<article class="card attack oracle-revealed-card"><span>ORACLE · ATTACK REVEALED</span><strong>${escapeHtml(attack.name.toUpperCase())}</strong><div><b>${gameState.pendingAttack!.attackValue}</b> ATTACK VALUE</div><small>${escapeHtml(attack.effectText ?? '')}</small></article>`
         : `<button class="card attack" id="oracleReveal" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>ORACLE · WHILE IN HAND</span><strong>REVEAL ATTACK CARD</strong><div><b>${cardBaseValue(oracle)} → ${Math.max(1, cardBaseValue(oracle) - 1)}</b> ORACLE VALUE</div><small>Reveal the played Attack Card. Oracle cannot Defend this combat.</small></button>`
       : '';
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const unavailable = !canLocalAct(viewerId) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace('reveal 4 Cards', `reveal ${value} Cards`); return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -1474,17 +1619,6 @@ function renderHand() {
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
-    return;
-  }
-  if (gameState.phase === 'choosing-soul-strike-discard') {
-    const pending = (gameState as GameState & { soulStrikeDiscard?: { attackerId: PlayerId; defenderId: PlayerId } | null }).soulStrikeDiscard;
-    if (!pending || viewerId !== pending.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Soul Strike.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => {
-      const card = cardDefinition(instance);
-      const eligible = isCardRevealedToOpponents(viewer, instance, pending.attackerId) && !card.cannotBeDiscarded;
-      return `<button class="card ${cardVisualClass(card)}" data-soul-strike-discard="${instance.instanceId}" ${eligible ? '' : 'disabled'}><span>${eligible ? 'SOUL STRIKE · SELECT TO DISCARD' : 'NOT REVEALED TO SPECTRE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
-    }).join('');
-    handElement.querySelectorAll<HTMLButtonElement>('[data-soul-strike-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'soul-strike-discard', playerId: viewerId, cardInstanceId: button.dataset.soulStrikeDiscard! })));
     return;
   }
   if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
@@ -1546,22 +1680,25 @@ function renderHand() {
     return;
   }
   const choosingDiscard = (gameState.phase as string) === 'choosing-hot-potato-discard' || gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard' || gameState.phase === 'choosing-end-discard' || gameState.phase === 'choosing-preparation-discard' || gameState.phase === 'choosing-blink-discard' || gameState.phase === 'choosing-snowball-discard' || gameState.phase === 'choosing-mind-tricks-discard' || gameState.phase === 'choosing-mind-tricks-enemy-discard';
+  const soulStrikeForcedAttacks = viewer.hand.filter((instance) => instance.soulStrikeForcedUse === 'attack');
   byId('hand').innerHTML = viewer.hand.map((instance) => {
     const card = cardDefinition(instance);
     const panicked = viewer.hand.some((entry) => entry.cardId === 'panic');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
     const rewardAction = instance.cardId === 'fireball' || instance.cardId === 'sweet-potato';
-    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const soulStrikeAttackUnavailable = card.kind === 'attack' && soulStrikeForcedAttacks.length > 0 && instance.soulStrikeForcedUse !== 'attack';
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? !soulStrikeAttackUnavailable && (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || Boolean(viewer.merylinSummonActive)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
-    const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const removeOnUseOrDiscard = instance.cardId === 'feint' || instance.cardId === 'weak-feint';
+    const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
+    const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
-    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace('reveal 4 Cards', `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
+    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-instance]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     if (gameState.phase === 'choosing-preparation-discard') dispatch({ type: 'preparation-discard', playerId: viewerId, cardInstanceId: button.dataset.instance! });
@@ -1588,6 +1725,17 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  if ((gameState.phase as string) === 'choosing-lightbringer-swap' && gameState.pendingAttack) {
+    const attacker = gameState.players[gameState.pendingAttack.attackerId];
+    const defender = gameState.players[gameState.pendingAttack.defenderId];
+    const visible = viewerId === attacker.id && canLocalAct(attacker.id);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    modal.innerHTML = `<div class="choice-dialog"><span>LIGHTBRINGER · BEFORE COMBAT</span><h2>Change Positions?</h2><p>${escapeHtml(defender.name)} has locked their defense. Decide whether to swap places before the Defend Card is revealed.</p><div class="choice-cards"><button id="lightbringerSwap"><strong>Swap places</strong><small>Exchange Squares with the target</small></button></div><button class="choice-decline" id="lightbringerStay">Keep positions</button></div>`;
+    modal.querySelector('#lightbringerSwap')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: true }));
+    modal.querySelector('#lightbringerStay')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: false }));
+    return;
+  }
   const frostmourne = (gameState as GameState & { frostmourne?: { playerId: PlayerId } | null }).frostmourne;
   if (gameState.phase === 'choosing-frostmourne' && frostmourne) {
     const player = gameState.players[frostmourne.playerId];
@@ -1809,7 +1957,7 @@ function renderActionQuestPanel() {
   const remaining = Math.max(0, current.endsAfterRound - gameState.turn + 1);
   const definition = ACTION_QUEST_POOL.find((quest) => quest.id === current.id);
   const condition = actionQuestConditionWithEndRound(current.id, definition?.condition ?? '', current.endsAfterRound);
-  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : current.id === 'tank-junior' ? 'mythril-helmet' : current.id === 'the-elephant' ? 'boomerang' : current.id === 'the-gambler' ? 'monarch-flush' : current.id === 'hot-potato' ? 'sweet-potato' : null;
+  const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : current.id === 'tank-junior' ? 'mythril-helmet' : current.id === 'the-elephant' ? 'boomerang' : current.id === 'the-gambler' ? 'monarch-flush' : current.id === 'the-spy' ? 'feint' : current.id === 'hot-potato' ? 'sweet-potato' : null;
   const rewardCard = rewardCardId ? cardDefinition({ instanceId: '', cardId: rewardCardId as any }) : null;
   const rewardHidden = hiddenQuestRewardId === current.id;
   const highest = Math.max(1, ...Object.values(gameState.players).map((player) => current.progress[player.id] ?? 0));
@@ -1838,7 +1986,7 @@ function actionQuestConditionWithEndRound(questId: string, fallback: string, end
   if (questId === 'tank-junior') return `Block the most combat Damage until Round ${endRound}. Defend Value and damage prevented by Defend Card effects both count.`;
   if (questId === 'rabbit-run') return `Move the greatest distance until Round ${endRound}. Teleports count as 1.`;
   if (questId === 'provocateur') return `Spend the most Rounds starting and ending the same turn on High Ground until Round ${endRound}.`;
-  if (questId === 'capture-the-flag') return `Each player's Flag begins between their two painted Base Squares. Occupy either enemy Base Square to grab its Flag, then end a turn on either Square of your own Base while carrying it. A defeated carrier drops the Flag on their death Square, where another character can grab it. Each Flag can leave its Base only once. Complete this Quest by Round ${endRound}.`;
+  if (questId === 'capture-the-flag') return `Each player's Flag begins between their two painted Base Squares. Occupy either enemy Base Square to grab its Flag, then begin a turn on either Square of your own Base while carrying it. If reciprocal enemy Flag carriers are both on their own Bases at that turn-start check, the Quest is a Draw. A defeated carrier drops the Flag on their death Square, where another character can grab it. Each Flag can leave its Base only once. Complete this Quest by Round ${endRound}.`;
   if (questId === 'the-elephant') return `Destroy the most Objects until Round ${endRound}.`;
   if (questId === 'the-gambler') return `Add the most Cards to your Discard Deck until Round ${endRound}. Removed Cards do not count.`;
   const withoutRelativeDuration = fallback.replace(/(?:in|during) the next \d+ Rounds?/i, `until Round ${endRound}`);
@@ -1882,7 +2030,16 @@ function renderCombatReveal() {
   const modal = byId('combatRevealModal');
   const reveal = gameState.combatReveal;
   modal.classList.toggle('hidden', !reveal);
-  if (!reveal) { modal.innerHTML = ''; return; }
+  if (!reveal) {
+    if (combatRevealWasVisible && Object.keys(gameState.players).length === 3) {
+      deathAnimationNotBefore = performance.now() + 1000;
+    }
+    combatRevealWasVisible = false;
+    modal.innerHTML = '';
+    return;
+  }
+  if (Object.keys(gameState.players).length === 3) deathAnimationNotBefore = Number.POSITIVE_INFINITY;
+  combatRevealWasVisible = true;
   const attack = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
@@ -1892,7 +2049,7 @@ function renderCombatReveal() {
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
     ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}</b> from ${escapeHtml(item.source)}</li>`).join('')
     : '<li class="neutral">No bonus values applied</li>';
-  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml((defend.effectText ?? '').replace('reveal 4 Cards', `reveal ${reveal.defendBase} Cards`))}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml((defend.effectText ?? '').replace(/reveal \d+ Cards/, `reveal ${reveal.defendBase} Cards`))}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
   if (gameState.phase === 'choosing-combat-stack' && gameState.pendingAttack && (localSeat || mode === 'hotseat')) {
     const pending = gameState.pendingAttack;
     const combatants = [pending.attackerId, pending.defenderId];
@@ -1926,7 +2083,7 @@ function renderCombatReveal() {
     const optionResult = (instance: (typeof player.hand)[number]) => {
       const definition = cardDefinition(instance);
       const ownValue = attacker ? reveal.attackTotal : reveal.defendTotal;
-      if (instance.cardId === 'vicious-mockery') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 2}`;
+      if (instance.cardId === 'vicious-mockery' || instance.cardId === 'vicious-mockery-1') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + definition.value}`;
       if (instance.cardId === 'exhaust') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue - 2} · attached Exhaust replaces its held -1 with -3`;
       if (instance.cardId === 'blessing-might') return `ATT ${reveal.attackTotal} → ${reveal.attackTotal + 2}`;
       if (instance.cardId === 'blessing-light') return `Enemy DEF ${reveal.defendTotal} → ${reveal.defendTotal - 1}`;
@@ -1935,7 +2092,7 @@ function renderCombatReveal() {
     };
     const cardButtons = applicable.map((instance) => {
       const card = cardDefinition(instance);
-      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>USE ${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
@@ -2036,11 +2193,30 @@ function renderCombatReveal() {
     : combatWinner
       ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
       : '';
+  const soulStrikeSummary = reveal.soulStrikeResult
+    ? reveal.soulStrikeResult.cardId
+      ? viewer && !combatPlayers.includes(viewer)
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE REVEALED A PRIVATE CARD</strong><span>VISIBLE ONLY TO THE COMBATANTS</span></div>`
+        : (() => {
+        const revealedCard = cardDefinition({ instanceId: '', cardId: reveal.soulStrikeResult!.cardId! });
+        const outcome = reveal.soulStrikeResult!.outcome === 'discarded-perk'
+          ? 'PERK REVEALED · DISCARDED'
+          : reveal.soulStrikeResult!.outcome === 'forced-attack'
+            ? 'ATTACK REVEALED · MUST ATTACK WITH THIS FIRST'
+            : 'BLOCK REVEALED · MUST BLOCK WITH THIS FIRST';
+        return `<div class="combat-result-summary"><strong>SOUL STRIKE REVEALED: ${escapeHtml(revealedCard.name.toUpperCase())}</strong><span>${outcome}</span></div>`;
+        })()
+      : reveal.soulStrikeResult.outcome === 'prevented'
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE</strong><span>DEVOUR PREVENTED THE ADDITIONAL EFFECT</span></div>`
+        : reveal.soulStrikeResult.outcome === 'damage'
+        ? `<div class="combat-result-summary"><strong>SOUL STRIKE: EMPTY HAND</strong><span>${reveal.soulStrikeResult.damage ?? 0} ADDITIONAL DAMAGE DEALT</span></div>`
+        : `<div class="combat-result-summary"><strong>SOUL STRIKE</strong><span>NO PERK, ATTACK, OR BLOCK CARD TO REVEAL</span></div>`
+    : '';
   const breakdown = `<div class="combat-modifier-breakdown"><section><h4>ATTACK VALUE SOURCES</h4><ul>${modifierLines(reveal.attackModifiers)}</ul></section><section><h4>DEFEND VALUE SOURCES</h4><ul>${modifierLines(reveal.defendModifiers)}</ul></section></div>`;
   const appliedCombatCards = reveal.combatStackApplied
     ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${escapeHtml(cardDefinition({ instanceId: '', cardId }).name)}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
     : '';
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
 }
 
@@ -2077,7 +2253,7 @@ function renderSpellEchoBars() {
       const canPlace = ownerId === viewerId && selected.kind === 'perk' && position === 1;
       const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
       const tooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
-      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" title="${escapeHtml(tooltip ?? '')}" data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
+      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
     }).join('');
     const leftEcho = fixedHotseatDuel ? ownerId === 'P1' : ownerId === viewerId;
     const seatClass = leftEcho ? 'own-echo' : `opponent-echo seat-${ownerId.toLowerCase()}`;
@@ -2095,7 +2271,8 @@ function renderSpellEchoBars() {
     } else dispatch({ type: 'use-echo-perk', playerId: ownerId, position });
   }));
   document.querySelectorAll<HTMLElement>('[data-echo-preview]').forEach((slot) => {
-    slot.addEventListener('pointerenter', () => showCardPreview(slot.dataset.echoPreview!));
+    slot.addEventListener('pointerenter', (event) => showCardPreview(slot.dataset.echoPreview!, event));
+    slot.addEventListener('pointermove', positionCardPreview);
     slot.addEventListener('pointerleave', hideCardPreview);
   });
 }
@@ -2271,9 +2448,10 @@ function escapeHtml(value: string) { const node = document.createElement('span')
 
 // Three.js board -------------------------------------------------------------
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x07100e);
+const darkArenaBackground = new THREE.Color(0x07100e);
+scene.background = darkArenaBackground;
 scene.fog = new THREE.Fog(0x07100e, 72, 120);
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000);
 camera.position.set(14.5, 18.5, 15.5);
 camera.lookAt(0, 0, 0);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -2282,6 +2460,9 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 boardEl.appendChild(renderer.domElement);
+const overheadStatusLayer = document.createElement('div');
+overheadStatusLayer.className = 'overhead-status-layer';
+boardEl.appendChild(overheadStatusLayer);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -2295,25 +2476,207 @@ controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
 controls.mouseButtons.RIGHT = null;
 controls.target.set(0, 0, 0);
 controls.update();
-scene.add(new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6));
+const hemisphereLight = new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6);
+scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
 keyLight.position.set(4, 9, 5); keyLight.castShadow = true; scene.add(keyLight);
-const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.8, 0.42, 8), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
+const dawnFillLight = new THREE.DirectionalLight(0xffb56b, 0);
+dawnFillLight.position.set(-8, 3, -6);
+scene.add(dawnFillLight);
+const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
+
+const dawnSkyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(1500, 64, 32),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    vertexShader: `
+      varying vec3 vDirection;
+      void main() {
+        vDirection = normalize((modelMatrix * vec4(position, 0.0)).xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vDirection;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float value = 0.0;
+        value += noise(p) * .50; p = p * 2.02 + 3.1;
+        value += noise(p) * .25; p = p * 2.03 + 1.7;
+        value += noise(p) * .125; p = p * 2.01 + 5.4;
+        value += noise(p) * .0625;
+        return value;
+      }
+      void main() {
+        vec3 direction = normalize(vDirection);
+        vec3 zenith = vec3(.055, .018, .018);
+        vec3 horizon = vec3(.24, .075, .035);
+        vec3 lowerSky = vec3(.035, .012, .015);
+        vec3 sky = mix(lowerSky, horizon, smoothstep(-.72, .02, direction.y));
+        sky = mix(sky, zenith, smoothstep(.02, .78, direction.y));
+
+        vec3 lightDirection = normalize(vec3(-.72, .18, -.66));
+        float distantGlow = pow(max(dot(direction, lightDirection), 0.0), 4.0);
+        sky += vec3(.18, .065, .018) * distantGlow;
+
+        vec2 skyUv = vec2(atan(direction.z, direction.x) / 6.2831853 + .5, asin(clamp(direction.y, -1.0, 1.0)) / 3.1415926 + .5);
+        float cloudNoise = fbm(vec2(skyUv.x * 9.0, skyUv.y * 5.0));
+        float cloudShape = smoothstep(.49, .68, cloudNoise);
+        float cloudBand = exp(-pow((direction.y - .16) * 2.65, 2.0));
+        sky = mix(sky, vec3(.28, .105, .055), cloudShape * cloudBand * .16);
+
+        float highWisps = smoothstep(.56, .72, fbm(vec2(skyUv.x * 15.0 + 8.0, skyUv.y * 7.0)))
+                        * smoothstep(.08, .58, direction.y);
+        sky = mix(sky, vec3(.20, .075, .048), highWisps * .10);
+
+        float haze = exp(-abs(direction.y) * 7.0);
+        sky = mix(sky, vec3(.31, .095, .045), haze * .30);
+
+        gl_FragColor = vec4(sky, 1.0);
+      }
+    `,
+  }),
+);
+dawnSkyDome.visible = false;
+dawnSkyDome.renderOrder = -1000;
+scene.add(dawnSkyDome);
+
+const horizonGrid = new THREE.Mesh(
+  new THREE.PlaneGeometry(360, 360),
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vWorldPosition;
+      float gridLine(float coordinate, float spacing, float width) {
+        float lineDistance = abs(fract(coordinate / spacing + .5) - .5) * spacing;
+        return 1.0 - smoothstep(width, width * 1.8, lineDistance);
+      }
+      void main() {
+        float minor = max(gridLine(vWorldPosition.x, 2.4, .018), gridLine(vWorldPosition.z, 2.4, .018));
+        float major = max(gridLine(vWorldPosition.x, 12.0, .045), gridLine(vWorldPosition.z, 12.0, .045));
+        float distanceFromArena = length(vWorldPosition.xz);
+        float outerFade = 1.0 - smoothstep(80.0, 175.0, distanceFromArena);
+        float innerFade = smoothstep(13.0, 25.0, distanceFromArena);
+        vec3 color = mix(vec3(.24, .055, .025), vec3(.50, .13, .045), major);
+        float alpha = max(minor * .12, major * .25) * outerFade * innerFade;
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+  }),
+);
+horizonGrid.rotation.x = -Math.PI / 2;
+horizonGrid.position.y = -15;
+horizonGrid.visible = false;
+scene.add(horizonGrid);
+
+const dawnStarPositions: number[] = [];
+const dawnStarSizes: number[] = [];
+const dawnStarCount = 900;
+for (let index = 0; index < dawnStarCount; index++) {
+  const vertical = 1 - 2 * ((index + .5) / dawnStarCount);
+  const horizontalRadius = Math.sqrt(1 - vertical * vertical);
+  const angle = index * Math.PI * (3 - Math.sqrt(5)) + .37;
+  const radius = 1400;
+  dawnStarPositions.push(Math.cos(angle) * horizontalRadius * radius, vertical * radius, Math.sin(angle) * horizontalRadius * radius);
+  dawnStarSizes.push(3.1 + (index * 11 % 8) * .38);
+}
+const dawnStarGeometry = new THREE.BufferGeometry();
+dawnStarGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dawnStarPositions, 3));
+dawnStarGeometry.setAttribute('size', new THREE.Float32BufferAttribute(dawnStarSizes, 1));
+const dawnStarField = new THREE.Points(
+  dawnStarGeometry,
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float size;
+      varying float vBrightness;
+      void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size;
+        vBrightness = .7 + fract(size * 1.91) * .3;
+      }
+    `,
+    fragmentShader: `
+      varying float vBrightness;
+      void main() {
+        float distanceFromCenter = length(gl_PointCoord - vec2(.5));
+        if (distanceFromCenter > .5) discard;
+        float core = 1.0 - smoothstep(.04, .2, distanceFromCenter);
+        float glow = 1.0 - smoothstep(.14, .5, distanceFromCenter);
+        vec3 color = mix(vec3(1.0, .3, .055), vec3(1.0, .86, .48), core);
+        gl_FragColor = vec4(color, (core * .8 + glow * .42) * vBrightness);
+      }
+    `,
+  }),
+);
+dawnStarField.frustumCulled = false;
+dawnStarField.renderOrder = 10;
+dawnStarField.visible = false;
+scene.add(dawnStarField);
+
+let dawnArenaMode = false;
+function setDawnArenaMode(enabled: boolean) {
+  dawnArenaMode = enabled;
+  scene.background = enabled ? null : darkArenaBackground;
+  scene.fog = new THREE.Fog(enabled ? 0x241014 : 0x07100e, enabled ? 76 : 72, enabled ? 200 : 120);
+  hemisphereLight.color.setHex(enabled ? 0xe6b69b : 0xbde8dc);
+  hemisphereLight.groundColor.setHex(enabled ? 0x17080a : 0x07100e);
+  hemisphereLight.intensity = enabled ? 1.45 : 1.6;
+  keyLight.color.setHex(enabled ? 0xfff0d2 : 0xffffff);
+  keyLight.intensity = enabled ? 3.35 : 2.8;
+  keyLight.position.set(enabled ? -7 : 4, enabled ? 11 : 9, enabled ? -4 : 5);
+  dawnFillLight.intensity = enabled ? .75 : 0;
+  dawnSkyDome.visible = enabled;
+  horizonGrid.visible = enabled;
+  dawnStarField.visible = enabled;
+  (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? 0x21332f : 0x0d1b18);
+  boardEl.closest('.arena-frame')?.classList.toggle('dawn-mode', enabled);
+}
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let nagrandOuterRingAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
+const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
+const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
 const objectGroups = new Map<string, THREE.Group>();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
 scene.add(spectreShadowTrailGroup);
+const nagrandOuterRingGroup = new THREE.Group();
+nagrandOuterRingGroup.name = 'NagrandOuterRing';
+scene.add(nagrandOuterRingGroup);
+let nagrandOuterRingModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
 type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
 const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
@@ -2331,7 +2694,8 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean }>();
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
+const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 type MatchEndPresentation = {
@@ -2343,6 +2707,7 @@ type MatchEndPresentation = {
 };
 let matchEndPresentation: MatchEndPresentation | null = null;
 const pendingDeathAnimationIds = new Set<PlayerId>();
+const proceduralDeathAnimations = new Map<PlayerId, { startedAt: number; duration: number; fromRotation: number }>();
 const pendingMovementCancellationTargets = new Map<PlayerId, string>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
@@ -2351,7 +2716,8 @@ let questFlagVisualKey = '';
 let hotPotatoModel: THREE.Group | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
-let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; focusDistance: number } | null = null;
+let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt'; dragDistance: number } | null = null;
+let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
   const arenaId = (gameState as GameState & { arenaId?: ArenaId }).arenaId;
   if (arenaId === 'trench') return THE_TRENCH_ARENA;
@@ -2372,7 +2738,7 @@ renderer.domElement.addEventListener('pointermove', onCameraGrabMove);
 renderer.domElement.addEventListener('pointerup', finishCameraGrab);
 renderer.domElement.addEventListener('pointercancel', finishCameraGrab);
 renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab);
-renderer.domElement.addEventListener('pointerdown', onBoardClick);
+renderer.domElement.addEventListener('click', onBoardClick);
 renderer.domElement.addEventListener('dblclick', onBoardDoubleClick);
 renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
 let renderedBoardWidth = 0;
@@ -2383,6 +2749,12 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (event.ctrlKey && event.code === 'KeyK') {
+    setDawnArenaMode(!dawnArenaMode);
+    notify(dawnArenaMode ? 'Dawn arena lighting enabled.' : 'Dark arena lighting restored.');
+    event.preventDefault();
+    return;
+  }
   if (event.code === 'Home') {
     fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
     cameraKeys.clear();
@@ -2414,6 +2786,7 @@ renderer.setAnimationLoop((time) => {
   if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
   updateCharacterMovement(time);
+  updateReplicatePullTethers(time);
   updateWizardLiftedTargets(time);
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
@@ -2432,12 +2805,22 @@ renderer.setAnimationLoop((time) => {
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
+      const proceduralDeath = proceduralDeathAnimations.get(id);
+      if (proceduralDeath) {
+        const progress = THREE.MathUtils.clamp((time - proceduralDeath.startedAt) / proceduralDeath.duration, 0, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        group.rotation.z = THREE.MathUtils.lerp(proceduralDeath.fromRotation, Math.PI / 2, eased);
+        if (progress >= 1) proceduralDeathAnimations.delete(id);
+      }
       return;
     }
     const moving = movementAnimations.has(id);
     updateWizardAnimation(group, moving, deltaSeconds);
     updateObiWanAnimation(group, id, moving, deltaSeconds);
-    if (group.userData.character === 'shinobi') updateObiWanLightsaberLightPosition(group);
+    if (group.userData.character === 'shinobi') {
+      updateObiWanLightsaberAnimation(group, deltaSeconds);
+      updateObiWanLightsaberLightPosition(group);
+    }
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
@@ -2495,8 +2878,164 @@ renderer.setAnimationLoop((time) => {
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
+  updateCharacterHealthBars();
   renderer.render(scene, camera);
 });
+
+function createCharacterHealthBar(playerId: PlayerId) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 384;
+  canvas.height = 64;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = 'CharacterHealthBar';
+  sprite.scale.set(1.9, 0.317, 1);
+  sprite.renderOrder = 110;
+  sprite.userData.playerId = playerId;
+  sprite.userData.healthKey = '';
+  scene.add(sprite);
+  characterHealthBars.set(playerId, sprite);
+  return sprite;
+}
+
+const characterVisibleBounds = new THREE.Box3();
+const characterPartBounds = new THREE.Box3();
+function visibleCharacterTop(character: THREE.Group) {
+  const visualRoot = character.children[0] ?? character;
+  const boundsSourceKey = visualRoot.children.map((child) => child.uuid).join(':');
+  if (character.userData.healthBoundsSourceKey === boundsSourceKey && Number.isFinite(character.userData.healthVisualTopOffset)) {
+    return character.position.y + Number(character.userData.healthVisualTopOffset);
+  }
+  character.updateWorldMatrix(true, true);
+  characterVisibleBounds.makeEmpty();
+  visualRoot.traverse((part) => {
+    if (!(part instanceof THREE.Mesh) || !part.visible) return;
+    let ancestor: THREE.Object3D | null = part.parent;
+    while (ancestor && ancestor !== visualRoot) {
+      if (!ancestor.visible) return;
+      ancestor = ancestor.parent;
+    }
+    if (part instanceof THREE.SkinnedMesh) {
+      part.computeBoundingBox();
+      if (!part.boundingBox) return;
+      characterPartBounds.copy(part.boundingBox).applyMatrix4(part.matrixWorld);
+    } else {
+      const geometry = part.geometry as THREE.BufferGeometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (!geometry.boundingBox) return;
+      characterPartBounds.copy(geometry.boundingBox).applyMatrix4(part.matrixWorld);
+    }
+    characterVisibleBounds.union(characterPartBounds);
+  });
+  const top = characterVisibleBounds.isEmpty() ? character.position.y + 2.8 : characterVisibleBounds.max.y;
+  character.userData.healthBoundsSourceKey = boundsSourceKey;
+  character.userData.healthVisualTopOffset = top - character.position.y;
+  return top;
+}
+
+function updateCharacterHealthBars(refreshContents = false) {
+  const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
+  characterHealthBars.forEach((sprite, playerId) => {
+    if (playerIds.has(playerId)) return;
+    scene.remove(sprite);
+    const material = sprite.material as THREE.SpriteMaterial;
+    material.map?.dispose();
+    material.dispose();
+    characterHealthBars.delete(playerId);
+  });
+  playerIds.forEach((playerId) => {
+    const player = gameState.players[playerId];
+    const character = dummyGroups.get(playerId);
+    const sprite = characterHealthBars.get(playerId) ?? createCharacterHealthBar(playerId);
+    sprite.visible = healthBarsVisible && Boolean(character?.visible);
+    if (!character) return;
+    sprite.position.copy(character.position);
+    const minimumTopOffset = player.character === 'shinobi' ? 2.35 : player.character === 'spectre' ? 2.45 : 0;
+    const measuredTop = visibleCharacterTop(character);
+    const characterTop = Math.max(measuredTop, character.position.y + minimumTopOffset);
+    const headClearance = player.character === 'orkk' ? 1.15 : 0.83;
+    sprite.position.y = characterTop + headClearance;
+    if (!refreshContents && sprite.userData.healthKey) return;
+    const healthKey = `${player.hp}/${player.maxHp}`;
+    if (sprite.userData.healthKey === healthKey) return;
+    sprite.userData.healthKey = healthKey;
+    const material = sprite.material as THREE.SpriteMaterial;
+    const canvas = material.map!.image as HTMLCanvasElement;
+    const context = canvas.getContext('2d')!;
+    const ratio = THREE.MathUtils.clamp(player.hp / Math.max(1, player.maxHp), 0, 1);
+    const fill = playerId === 'P1' ? '#169bd3' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'rgba(3, 9, 8, 0.9)';
+    context.fillRect(5, 8, 374, 48);
+    context.strokeStyle = fill;
+    context.lineWidth = 4;
+    context.strokeRect(7, 10, 370, 44);
+    context.fillStyle = 'rgba(19, 31, 28, 0.96)';
+    context.fillRect(14, 17, 356, 30);
+    if (ratio > 0) {
+      context.fillStyle = fill;
+      context.fillRect(14, 17, 356 * ratio, 30);
+    }
+    context.font = "800 25px 'Barlow Condensed', Arial";
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = 5;
+    context.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+    context.strokeText(`${player.hp} / ${player.maxHp}`, 192, 32);
+    context.fillStyle = '#ffffff';
+    context.fillText(`${player.hp} / ${player.maxHp}`, 192, 32);
+    material.map!.needsUpdate = true;
+  });
+  updateOverheadStatusRows(refreshContents);
+}
+
+const overheadStatusScreenPosition = new THREE.Vector3();
+const overheadStatusCameraDirection = new THREE.Vector3();
+const overheadStatusCameraOffset = new THREE.Vector3();
+function updateOverheadStatusRows(refreshContents = false) {
+  const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
+  overheadStatusRows.forEach((row, playerId) => {
+    if (playerIds.has(playerId)) return;
+    row.remove();
+    overheadStatusRows.delete(playerId);
+  });
+  playerIds.forEach((playerId) => {
+    const player = gameState.players[playerId];
+    const character = dummyGroups.get(playerId);
+    const healthBar = characterHealthBars.get(playerId);
+    let row = overheadStatusRows.get(playerId);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'overhead-character-statuses';
+      row.style.setProperty('--player-color', playerUiColor(playerId));
+      overheadStatusLayer.appendChild(row);
+      overheadStatusRows.set(playerId, row);
+      refreshContents = true;
+    }
+    if (refreshContents) {
+      const statusHtml = playerStatusIcons(player);
+      if (row.dataset.statusHtml !== statusHtml) {
+        row.dataset.statusHtml = statusHtml;
+        row.innerHTML = statusHtml;
+      }
+    }
+    const visible = healthBarsVisible && Boolean(character?.visible) && Boolean(healthBar?.visible) && row.childElementCount > 0;
+    row.classList.toggle('hidden', !visible);
+    if (!visible || !healthBar) return;
+    overheadStatusScreenPosition.copy(healthBar.position).project(camera);
+    row.style.left = `${(overheadStatusScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
+    row.style.top = `${(-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight}px`;
+    camera.getWorldDirection(overheadStatusCameraDirection);
+    const cameraDepth = Math.max(0.1, overheadStatusCameraOffset.copy(healthBar.position).sub(camera.position).dot(overheadStatusCameraDirection));
+    const pixelsPerWorldUnit = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * cameraDepth);
+    const scale = THREE.MathUtils.clamp(pixelsPerWorldUnit * 0.46 / 64, 0.28, 1.15);
+    row.style.setProperty('--overhead-scale', String(scale));
+    row.style.setProperty('--overhead-inverse-scale', String(1 / scale));
+  });
+}
 
 function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean) {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
@@ -2680,6 +3219,13 @@ function updateCharacterMovement(time: number) {
   movementAnimations.forEach((animation, playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group) return;
+    if (time < animation.startedAt) return;
+    if (animation.faceToward && !animation.facingApplied) {
+      const dx = animation.faceToward.x - group.position.x;
+      const dz = animation.faceToward.z - group.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
+      animation.facingApplied = true;
+    }
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
@@ -2745,6 +3291,7 @@ function updateWizardLiftedTargets(time: number) {
 function updateCharacterFacing(deltaSeconds: number) {
   dummyGroups.forEach((group, playerId) => {
     if (!group.userData.facingSide) return;
+    if (gameState.players[playerId]?.hp <= 0) return;
     if (movementAnimations.has(playerId)) return;
     const orkkAnimation = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
@@ -3032,6 +3579,9 @@ function updateCameraMovement(deltaSeconds: number) {
   const appliedMovement = nextTarget.sub(controls.target);
   camera.position.add(appliedMovement);
   controls.target.add(appliedMovement);
+  // Mouse-drag rotation uses its own pivot snapshot. Move that snapshot with
+  // the camera so the next pointer event does not snap back to the old pivot.
+  cameraGrab?.pivot.add(appliedMovement);
 }
 
 function cameraMovementRadius() {
@@ -3151,6 +3701,17 @@ function createCell(cell: Cell) {
   }
 }
 
+function ensureCharacterHitArea(root: THREE.Group) {
+  if (root.getObjectByName('CharacterHitArea')) return;
+  const hitArea = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.72, 0.72, 3.2, 12),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }),
+  );
+  hitArea.name = 'CharacterHitArea';
+  hitArea.position.y = 1.6;
+  root.add(hitArea);
+}
+
 function createDummy(color: number) {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
@@ -3181,32 +3742,71 @@ function createDummy(color: number) {
 
 function createWoodenBox() {
   const root = new THREE.Group();
+  const fallback = new THREE.Group();
+  fallback.name = 'WoodenBoxProceduralFallback';
+  root.add(fallback);
   const wood = new THREE.MeshStandardMaterial({ color: 0x8a542d, roughness: 0.88 });
   const darkWood = new THREE.MeshStandardMaterial({ color: 0x4b2b18, roughness: 0.94 });
   const crate = new THREE.Mesh(new THREE.BoxGeometry(1.12, 1.05, 1.12), wood);
-  crate.position.y = 0.61; crate.castShadow = true; crate.receiveShadow = true; root.add(crate);
+  crate.position.y = 0.61; crate.castShadow = true; crate.receiveShadow = true; fallback.add(crate);
   for (const side of [-1, 1]) {
     const horizontal = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.1), darkWood);
-    horizontal.position.set(0, 0.61, side * 0.57); horizontal.castShadow = true; root.add(horizontal);
+    horizontal.position.set(0, 0.61, side * 0.57); horizontal.castShadow = true; fallback.add(horizontal);
     const diagonal = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.1, 0.11), darkWood);
-    diagonal.position.set(0, 0.61, side * 0.585); diagonal.rotation.z = 0.68 * side; diagonal.castShadow = true; root.add(diagonal);
+    diagonal.position.set(0, 0.61, side * 0.585); diagonal.rotation.z = 0.68 * side; diagonal.castShadow = true; fallback.add(diagonal);
   }
   const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.2), darkWood);
-  top.position.y = 1.17; top.castShadow = true; root.add(top);
+  top.position.y = 1.17; top.castShadow = true; fallback.add(top);
+  void loadArenaCrateAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaCrateImportedModel', new THREE.Vector3(1.38, 1.38, 1.38))).catch((error) => {
+    console.error('Failed to load arena crate; keeping procedural fallback.', error);
+  });
   return root;
 }
 
 function createWoodenPillar() {
   const root = new THREE.Group();
+  const fallback = new THREE.Group();
+  fallback.name = 'WoodenPillarProceduralFallback';
+  root.add(fallback);
   const wood = new THREE.MeshStandardMaterial({ color: 0x68401f, roughness: 0.86 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x352012, roughness: 0.92 });
   const column = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 2.8, 12), wood);
-  column.position.y = 1.45; column.castShadow = true; column.receiveShadow = true; root.add(column);
+  column.position.y = 1.45; column.castShadow = true; column.receiveShadow = true; fallback.add(column);
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.68, 0.28, 12), dark);
-  base.position.y = 0.14; base.castShadow = true; root.add(base);
+  base.position.y = 0.14; base.castShadow = true; fallback.add(base);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.48, 0.34, 12), dark);
-  cap.position.y = 2.92; cap.castShadow = true; root.add(cap);
+  cap.position.y = 2.92; cap.castShadow = true; fallback.add(cap);
+  void loadArenaPillarAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaPillarImportedModel', new THREE.Vector3(1.564, 3.5535, 1.564))).catch((error) => {
+    console.error('Failed to load arena pillar; keeping procedural fallback.', error);
+  });
   return root;
+}
+
+function loadArenaCrateAsset() {
+  return arenaCrateAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-crate-square.glb?v=20260830-1`);
+}
+
+function loadArenaPillarAsset() {
+  return arenaPillarAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-wooden-pillar.glb?v=20260830-1`);
+}
+
+function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>, name: string, targetSize: THREE.Vector3) {
+  if (fallback.parent !== root) return;
+  const model = asset.scene.clone(true) as THREE.Group;
+  model.name = name;
+  const sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+  if (sourceSize.x <= 0 || sourceSize.y <= 0 || sourceSize.z <= 0) throw new Error(`${name} has invalid bounds.`);
+  model.scale.set(targetSize.x / sourceSize.x, targetSize.y / sourceSize.y, targetSize.z / sourceSize.z);
+  const scaledBounds = new THREE.Box3().setFromObject(model);
+  model.position.y -= scaledBounds.min.y;
+  model.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+  disposeTemporaryCharacterBody(fallback);
+  fallback.removeFromParent();
+  root.add(model);
 }
 
 function createSpiritGuardian(level: number) {
@@ -3508,6 +4108,7 @@ function resetMatchEndPresentation() {
     }
   });
   pendingDeathAnimationIds.clear();
+  proceduralDeathAnimations.clear();
   matchEndPresentation = null;
 }
 
@@ -3538,7 +4139,7 @@ function finishingBlowVisualsActive(time: number) {
 }
 
 function updatePendingDeathAnimations(time: number) {
-  if (pendingDeathAnimationIds.size === 0 || finishingBlowVisualsActive(time)) return;
+  if (pendingDeathAnimationIds.size === 0 || time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
   pendingDeathAnimationIds.forEach((playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group || gameState.players[playerId]?.hp > 0) {
@@ -3557,7 +4158,7 @@ function updateMatchEndPresentation(time: number) {
   const presentation = matchEndPresentation;
   if (!presentation || presentation.phase === 'ready') return;
   if (presentation.phase === 'effects') {
-    if (finishingBlowVisualsActive(time)) return;
+    if (time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
     const defeated = presentation.defeatedId ? gameState.players[presentation.defeatedId] : null;
     const group = presentation.defeatedId ? dummyGroups.get(presentation.defeatedId) : undefined;
     if (defeated && group?.userData.characterModelLoadSettled === false) return;
@@ -3934,6 +4535,8 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     actions.Walk.timeScale = 1.8;
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
+    actions.Death.setLoop(THREE.LoopOnce, 1);
+    actions.Death.clampWhenFinished = true;
     actions.Idle.play();
     const orbitalController = model.getObjectByName('Wizard_Orbital_Controller');
     root.userData.wizardAnimation = {
@@ -4202,6 +4805,12 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     disposeTemporaryCharacterBody(body);
     persistentEffects.forEach((child) => body.add(child));
     body.add(model);
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    const objectId = root.userData.objectId as string | undefined;
+    model.traverse((child) => {
+      if (playerId) child.userData.playerId = playerId;
+      if (objectId) child.userData.objectId = objectId;
+    });
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
     const required = ['Alert', 'Arise', 'Casual_Walk', 'RunFast', 'Skill_01'];
     if (required.some((name) => !clips[name])) throw new Error(`Spectre GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
@@ -4711,6 +5320,46 @@ function alignObiWanLocomotionRoot(source: THREE.AnimationClip, idle: THREE.Anim
   return clip;
 }
 
+function lightsaberGeometryPart(geometry: THREE.BufferGeometry, blade: boolean, bladeBase: number) {
+  const source = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+  const position = source.getAttribute('position');
+  const keptTriangles: number[] = [];
+  for (let vertex = 0; vertex < position.count; vertex += 3) {
+    const centerY = (position.getY(vertex) + position.getY(vertex + 1) + position.getY(vertex + 2)) / 3;
+    if ((centerY >= bladeBase) === blade) keptTriangles.push(vertex, vertex + 1, vertex + 2);
+  }
+  const result = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    const values: number[] = [];
+    for (const vertex of keptTriangles) {
+      for (let component = 0; component < attribute.itemSize; component += 1) values.push(attribute.getComponent(vertex, component));
+    }
+    result.setAttribute(name, new THREE.Float32BufferAttribute(values, attribute.itemSize, attribute.normalized));
+  }
+  result.computeBoundingBox();
+  result.computeBoundingSphere();
+  source.dispose();
+  return result;
+}
+
+function makeObiWanBladeMaterial(material: THREE.MeshStandardMaterial, bladeLength: number) {
+  const reveal = { value: 0 };
+  material.userData.reveal = reveal;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.saberReveal = reveal;
+    shader.uniforms.saberBladeLength = { value: Math.max(bladeLength, 0.0001) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vSaberBladeY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSaberBladeY = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vSaberBladeY;\nuniform float saberReveal;\nuniform float saberBladeLength;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vSaberBladeY > saberBladeLength * saberReveal) discard;');
+  };
+  material.customProgramCacheKey = () => 'obi-wan-blade-reveal-v1';
+  material.needsUpdate = true;
+  return material;
+}
+
 function enhanceObiWanLightsaber(model: THREE.Group) {
   const saber = model.getObjectByName('Lightsaber');
   if (!saber) return;
@@ -4718,25 +5367,32 @@ function enhanceObiWanLightsaber(model: THREE.Group) {
   saber.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     saberMesh ??= child;
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => {
-      if (!(material instanceof THREE.MeshStandardMaterial)) return;
-      material.emissive.set(0x249cff);
-      material.emissiveMap = material.map;
-      material.emissiveIntensity = 5.5;
-      material.metalness = 0.35;
-      material.roughness = 0.2;
-      material.needsUpdate = true;
-    });
   });
   if (!saberMesh) return;
   saberMesh.geometry.computeBoundingBox();
-  const center = saberMesh.geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
+  const bounds = saberMesh.geometry.boundingBox;
+  if (!bounds) return;
+  const bladeBase = THREE.MathUtils.lerp(bounds.min.y, bounds.max.y, 0.25);
+  const hiltGeometry = lightsaberGeometryPart(saberMesh.geometry, false, bladeBase);
+  const bladeGeometry = lightsaberGeometryPart(saberMesh.geometry, true, bladeBase);
+  // Put the blade's socket at local Y=0 so scaling changes only its length;
+  // the mesh itself remains fixed to the hilt throughout deployment.
+  bladeGeometry.translate(0, -bladeBase, 0);
+  saberMesh.geometry = hiltGeometry;
+  saberMesh.name = 'ObiWanImportedLightsaberHilt';
+  saberMesh.material = new THREE.MeshStandardMaterial({ color: 0x5d666d, metalness: 0.82, roughness: 0.28 });
+  const bladeLength = bladeGeometry.boundingBox?.max.y ?? bounds.max.y - bladeBase;
+  const bladeMaterial = makeObiWanBladeMaterial(new THREE.MeshStandardMaterial({ color: 0xa9e8ff, emissive: 0x249cff, emissiveIntensity: 5.5, metalness: 0.18, roughness: 0.12 }), bladeLength);
+  const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+  blade.name = 'ObiWanImportedLightsaberBlade';
+  blade.position.y = bladeBase;
+  saberMesh.add(blade);
+  const center = bladeGeometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
   const bladeLight = new THREE.PointLight(0x309dff, 0, 3.2, 2);
   bladeLight.name = 'ObiWanLightsaberLight';
   bladeLight.castShadow = false;
   bladeLight.userData.activeIntensity = 5.2;
-  bladeLight.userData.bladeMesh = saberMesh;
+  bladeLight.userData.bladeMesh = blade;
   bladeLight.userData.bladeCenter = center;
   model.add(bladeLight);
 }
@@ -4744,15 +5400,35 @@ function enhanceObiWanLightsaber(model: THREE.Group) {
 function syncObiWanLightsaberVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
   const visible = player.character === 'shinobi' && player.lightsaberBuff;
   group.userData.obiWanLightsaberVisible = visible;
-  const importedLightsaber = group.getObjectByName('Lightsaber');
-  if (importedLightsaber) importedLightsaber.visible = visible;
-  const fallbackLightsaber = group.getObjectByName('ObiWanFallbackLightsaber');
-  fallbackLightsaber?.traverse((child) => {
-    if (child instanceof THREE.Mesh) child.visible = visible;
-  });
+  group.userData.obiWanLightsaberTarget = visible ? 1 : 0;
+  if (group.userData.obiWanLightsaberProgress === undefined) group.userData.obiWanLightsaberProgress = visible ? 1 : 0;
+}
+
+function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: number) {
+  const target = Number(group.userData.obiWanLightsaberTarget ?? 0);
+  const previous = Number(group.userData.obiWanLightsaberProgress ?? target);
+  const step = deltaSeconds / 0.5;
+  const progress = THREE.MathUtils.clamp(previous + Math.sign(target - previous) * Math.min(Math.abs(target - previous), step), 0, 1);
+  group.userData.obiWanLightsaberProgress = progress;
+  const hiltVisible = target > 0 || progress > 0;
+  for (const hiltName of ['ObiWanImportedLightsaberHilt', 'ObiWanFallbackLightsaberHilt']) {
+    const hilt = group.getObjectByName(hiltName);
+    if (hilt) hilt.visible = hiltVisible;
+  }
+  for (const bladeName of ['ObiWanImportedLightsaberBlade', 'ObiWanFallbackLightsaberBlade']) {
+    const blade = group.getObjectByName(bladeName);
+    if (!blade) continue;
+    blade.visible = progress > 0;
+    blade.scale.y = 1;
+    const materials = blade instanceof THREE.Mesh ? (Array.isArray(blade.material) ? blade.material : [blade.material]) : [];
+    materials.forEach((material) => {
+      const reveal = material.userData.reveal as { value: number } | undefined;
+      if (reveal) reveal.value = progress;
+    });
+  }
   for (const lightName of ['ObiWanLightsaberLight', 'ObiWanFallbackLightsaberLight']) {
     const light = group.getObjectByName(lightName) as THREE.PointLight | undefined;
-    if (light) light.intensity = visible ? Number(light.userData.activeIntensity) : 0;
+    if (light) light.intensity = Number(light.userData.activeIntensity ?? 0) * progress;
   }
 }
 
@@ -4803,8 +5479,6 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
   state.current = 'Running';
 }
 
-let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
-
 function loadObiWanAsset() {
   return obiWanAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`);
 }
@@ -4828,10 +5502,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     disposeTemporaryCharacterBody(body);
     body.add(model);
     enhanceObiWanLightsaber(model);
-    const bladeLight = model.getObjectByName('ObiWanLightsaberLight') as THREE.PointLight | undefined;
-    const lightsaber = model.getObjectByName('Lightsaber');
-    if (lightsaber) lightsaber.visible = Boolean(root.userData.obiWanLightsaberVisible);
-    if (bladeLight) bladeLight.intensity = root.userData.obiWanLightsaberVisible ? Number(bladeLight.userData.activeIntensity) : 0;
+    updateObiWanLightsaberAnimation(root, 0);
     const idleClip = asset.animations.find((clip) => clip.name === 'Idle');
     const casualWalkClip = asset.animations.find((clip) => clip.name === 'Casual_Walk');
     const walkingClip = asset.animations.find((clip) => clip.name === 'Walking');
@@ -4857,8 +5528,6 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     actions.RunFast.timeScale = OBI_WAN_RUN_FAST_TIME_SCALE;
     actions.Power.setLoop(THREE.LoopOnce, 1);
     actions.Power.clampWhenFinished = true;
-    actions.Death.setLoop(THREE.LoopOnce, 1);
-    actions.Death.clampWhenFinished = true;
     actions.Dead.setLoop(THREE.LoopOnce, 1);
     actions.Dead.clampWhenFinished = true;
     actions.Idle.play();
@@ -5048,19 +5717,24 @@ function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false)
   fallbackLightsaber.name = 'ObiWanFallbackLightsaber';
   body.add(fallbackLightsaber);
   const hilt = add(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 16), metal, [0.64, 1.15, -0.01], fallbackLightsaber);
+  hilt.name = 'ObiWanFallbackLightsaberHilt';
   hilt.rotation.z = -0.52;
   const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberBlue, [0.99, 1.85, -0.01], fallbackLightsaber);
+  blade.name = 'ObiWanFallbackLightsaberBlade';
   blade.rotation.z = -0.52;
+  const fallbackBladeBase = -0.69;
+  blade.geometry.translate(0, -fallbackBladeBase, 0);
+  blade.position.add(new THREE.Vector3(0, fallbackBladeBase, 0).applyQuaternion(blade.quaternion));
+  blade.material = makeObiWanBladeMaterial(saberBlue, 1.38);
   const bladeGlow = new THREE.PointLight(0x229dff, 2.8, 3.2);
   bladeGlow.name = 'ObiWanFallbackLightsaberLight';
   bladeGlow.userData.activeIntensity = 2.8;
   bladeGlow.intensity = 0;
   bladeGlow.position.set(0.9, 1.65, 0);
   fallbackLightsaber.add(bladeGlow);
-  fallbackLightsaber.traverse((child) => {
-    if (child instanceof THREE.Mesh) child.visible = previewLightsaber;
-  });
-  bladeGlow.intensity = previewLightsaber ? Number(bladeGlow.userData.activeIntensity) : 0;
+  root.userData.obiWanLightsaberTarget = previewLightsaber ? 1 : 0;
+  root.userData.obiWanLightsaberProgress = previewLightsaber ? 1 : 0;
+  updateObiWanLightsaberAnimation(root, 0);
 
   for (const side of [-1, 1]) {
     const leg = add(new THREE.CapsuleGeometry(0.11, 0.52, 5, 10), underRobe, [side * 0.15, 0.32, 0]);
@@ -5097,22 +5771,70 @@ function rebuildBoardGeometry(width: number, height: number) {
   boardVisualKey = boardGeometryKey();
   for (let y = 0; y < height; y++) for (let x = 1; x <= width; x++) createCell({ x, y });
   createAxisLabels();
+  syncNagrandOuterRing(width, height);
   fitCameraToArena(width, height);
 }
 
+function loadNagrandOuterRingAsset() {
+  if (nagrandOuterRingAssetPromise) return nagrandOuterRingAssetPromise;
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return nagrandOuterRingAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/nagrand-outer-ring.glb?v=20260830-1`);
+}
+
+function nagrandOuterRingSpan(width: number, height: number) {
+  return Math.max(width, height) * 1.92 + 9.6;
+}
+
+function sizeNagrandOuterRing(model: THREE.Group, width: number, height: number) {
+  const sourceSize = model.userData.sourceSize as THREE.Vector3;
+  const targetOuterSpan = nagrandOuterRingSpan(width, height);
+  model.scale.set(targetOuterSpan / sourceSize.x, 3.2 / sourceSize.y, targetOuterSpan / sourceSize.z);
+}
+
+function syncNagrandOuterRing(width: number, height: number) {
+  const visible = visualArena().id === 'nagrand';
+  nagrandOuterRingGroup.visible = visible;
+  if (!visible) return;
+  const center = boardCenterWorld(width, height);
+  nagrandOuterRingGroup.position.set(center.x, -0.12, center.z);
+  if (nagrandOuterRingModel) {
+    sizeNagrandOuterRing(nagrandOuterRingModel, width, height);
+    return;
+  }
+  void loadNagrandOuterRingAsset().then((asset) => {
+    if (nagrandOuterRingModel) return;
+    const model = asset.scene.clone(true) as THREE.Group;
+    model.name = 'NagrandOuterRingImportedModel';
+    model.userData.sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    sizeNagrandOuterRing(model, width, height);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    nagrandOuterRingModel = model;
+    nagrandOuterRingGroup.add(model);
+  }).catch((error) => {
+    console.error('Failed to load the Nagrand outer ring.', error);
+  });
+}
+
 function fitCameraToArena(width: number, height: number, force = false) {
-  const arenaKey = `${width}x${height}`;
+  const arenaKey = `${visualArena().id}-${width}x${height}`;
   if (!force && fittedArenaKey === arenaKey) return;
   fittedArenaKey = arenaKey;
 
   const spanX = Math.max(1, width - 1) * 1.92;
   const spanZ = Math.max(1, height - 1) * 1.92;
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
-  floor.scale.set(arenaRadius / 12.4, 1, arenaRadius / 12.4);
+  const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
+  floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
 
-  const viewingDirection = new THREE.Vector3(1, 1.28, 1).normalize();
+  // Start every arena slightly off-axis and low for a three-quarter view.
+  const viewingDirection = new THREE.Vector3(0.5, 1.05, 1).normalize();
   const center = boardCenterWorld(width, height);
-  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ);
+  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ) * 1.68;
   controls.target.copy(center);
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
@@ -5175,6 +5897,59 @@ function syncSpectreShadowTrail() {
   });
 }
 
+function replicatePullChestPosition(sourceCell: Cell, sourceObjectId?: string) {
+  const replicaGroup = sourceObjectId ? objectGroups.get(sourceObjectId) : undefined;
+  const chestBone = replicaGroup?.getObjectByName('Spine');
+  if (chestBone) return chestBone.getWorldPosition(new THREE.Vector3());
+  if (replicaGroup) return replicaGroup.localToWorld(new THREE.Vector3(0, 1.35, 0));
+  return worldPosition(sourceCell).add(new THREE.Vector3(0, 1.55, 0));
+}
+
+function spawnReplicatePullTether(targetId: PlayerId, source: Cell, sourceObjectId: string | undefined, sourcePlayerId: PlayerId, startedAt: number, duration: number) {
+  const material = new THREE.LineBasicMaterial({ color: new THREE.Color(playerUiColor(sourcePlayerId)), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const line = new THREE.Line(new THREE.BufferGeometry(), material);
+  line.renderOrder = 92;
+  line.visible = false;
+  scene.add(line);
+  replicatePullAnimations.push({ line, targetId, sourceCell: { ...source }, sourceObjectId, startedAt, duration, seed: Math.random() * Math.PI * 2 });
+}
+
+function updateReplicatePullTethers(time: number) {
+  for (let index = replicatePullAnimations.length - 1; index >= 0; index--) {
+    const animation = replicatePullAnimations[index];
+    const target = dummyGroups.get(animation.targetId);
+    if (time < animation.startedAt) {
+      animation.line.visible = false;
+      continue;
+    }
+    animation.line.visible = true;
+    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    if (!target || progress >= 1) {
+      scene.remove(animation.line);
+      animation.line.geometry.dispose();
+      (animation.line.material as THREE.Material).dispose();
+      replicatePullAnimations.splice(index, 1);
+      continue;
+    }
+    const source = replicatePullChestPosition(animation.sourceCell, animation.sourceObjectId);
+    const destination = target.position.clone().add(new THREE.Vector3(0, 1.15, 0));
+    const direction = destination.clone().sub(source);
+    const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
+    if (sideways.lengthSq() > 0.0001) sideways.normalize();
+    const points = Array.from({ length: 15 }, (_, pointIndex) => {
+      const t = pointIndex / 14;
+      const envelope = Math.sin(Math.PI * t);
+      const twitch = Math.sin(time * 0.031 + pointIndex * 2.31 + animation.seed) * 0.105
+        + Math.sin(time * 0.057 - pointIndex * 1.17) * 0.045;
+      return source.clone().lerp(destination, t)
+        .addScaledVector(sideways, twitch * envelope)
+        .add(new THREE.Vector3(0, Math.sin(time * 0.044 + pointIndex * 1.83) * 0.075 * envelope, 0));
+    });
+    animation.line.geometry.setFromPoints(points);
+    (animation.line.material as THREE.LineBasicMaterial).opacity = progress < 0.82 ? 0.95 : 0.95 * (1 - progress) / 0.18;
+  }
+}
+
 function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: PlayerId) {
   if (gameState.players[playerId]?.hp <= 0) return;
   let nearestPosition: THREE.Vector3 | undefined;
@@ -5207,17 +5982,27 @@ function syncBoard() {
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
+    ensureCharacterHitArea(group);
     const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
-    group.visible = !entombed && (gameState.phase !== 'choosing-base-placement' || Boolean(placementState()?.claims[id]));
+    // Keep every FFA character visible while bases are claimed. The state
+    // already gives each unplaced player a provisional base position; hiding
+    // unclaimed models made the final Focus choice look as if the match had
+    // deleted every character and left the board unplayable.
+    group.visible = !entombed;
     if (!group) return;
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
     const defeated = gameState.players[id].hp <= 0;
     const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi';
-    if (defeated && group.userData.defeated !== true) pendingDeathAnimationIds.add(id);
-    else if (!defeated) pendingDeathAnimationIds.delete(id);
+    if (defeated && group.userData.defeated !== true) {
+      pendingDeathAnimationIds.add(id);
+      if (!hasRiggedDeathPose) proceduralDeathAnimations.set(id, { startedAt: performance.now(), duration: 700, fromRotation: group.rotation.z });
+    } else if (!defeated) {
+      pendingDeathAnimationIds.delete(id);
+      proceduralDeathAnimations.delete(id);
+    }
     if (defeated && !hasRiggedDeathPose) target.y += 0.18;
-    if (gameState.players[id].spectreOnBoxId) target.y += 1.22;
+    if (gameState.players[id].spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
     if (!previousKey) {
@@ -5248,18 +6033,29 @@ function syncBoard() {
         const visualPath = walkingPath.map(worldPosition);
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
-        const duration = !forced && character === 'shinobi'
-          ? obiWanMovementDuration(travelSquares)
-          : !forced && character === 'orkk'
-            ? orkkMovementDuration(travelSquares)
-            : 320 + travelSquares * 150;
+        const replicatePull = recordedMovement?.kind === 'replicate-pull';
+        const duration = replicatePull
+          ? recordedMovement.durationMs ?? 1000
+          : !forced && character === 'shinobi'
+            ? obiWanMovementDuration(travelSquares)
+            : !forced && character === 'orkk'
+              ? orkkMovementDuration(travelSquares)
+              : 320 + travelSquares * 150;
         const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
           impactTriggeredCharacterMovements.set(recordedMovement.triggerAnimationId, queued);
         }
-        else movementAnimations.set(id, { ...movement, startedAt: performance.now() });
+        else {
+          const pullDelay = replicatePull ? recordedMovement.delayMs ?? 0 : 0;
+          const movementStartedAt = performance.now() + pullDelay;
+          const pullSource = replicatePull && recordedMovement.source ? worldPosition(recordedMovement.source) : undefined;
+          movementAnimations.set(id, { ...movement, startedAt: movementStartedAt, faceToward: pullSource });
+          if (replicatePull && recordedMovement.source && recordedMovement.sourcePlayerId) {
+            spawnReplicatePullTether(id, recordedMovement.tetherSource ?? recordedMovement.source, recordedMovement.sourceObjectId, recordedMovement.sourcePlayerId, movementStartedAt, duration);
+          }
+        }
         delete gameState.players[id].visualMovementCause;
       }
     } else if (!movementAnimations.has(id) && Math.abs(group.position.y - target.y) > 0.001) {
@@ -5267,7 +6063,8 @@ function syncBoard() {
     }
     lastVisualCells.set(id, targetKey);
     group.userData.defeated = defeated;
-    group.rotation.z = defeated && !hasRiggedDeathPose ? Math.PI / 2 : 0;
+    if (!defeated) group.rotation.z = 0;
+    else if (!hasRiggedDeathPose && !proceduralDeathAnimations.has(id)) group.rotation.z = Math.PI / 2;
     const equippedShield = group.getObjectByName('EquippedShield');
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     const throwInFlight = gameState.objectPushAnimations.some((event) => event.id.includes('-arkane-arow-')
@@ -5295,6 +6092,7 @@ function syncBoard() {
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
     if (object.kind === 'spectre-replica') {
+      ensureCharacterHitArea(group);
       group.userData.ownerId = object.ownerId;
       const owner = object.ownerId ? dummyGroups.get(object.ownerId) : undefined;
       if (!lastObjectVisualCells.has(object.id) && owner) group.rotation.y = owner.rotation.y;
@@ -5306,7 +6104,7 @@ function syncBoard() {
       phylacteryAura.name = 'PhylacteryAura'; phylacteryAura.rotation.x = Math.PI / 2; phylacteryAura.position.y = 0.18; group.add(phylacteryAura);
     } else if (!object.phylacteryType && phylacteryAura) group.remove(phylacteryAura);
     const target = worldPosition(object.position);
-    if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.22;
+    if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
     if (!previousKey) {
@@ -5318,7 +6116,10 @@ function syncBoard() {
       const travelSquares = Math.max(1, distanceFromWorld(from, target));
       objectMovementAnimations.set(object.id, { from, to: target.clone(), startedAt: performance.now(), duration: 380 + travelSquares * 180, collided: false, dx: 0, dy: 0 });
     }
-    else if (!objectMovementAnimations.has(object.id)) group.position.y = target.y;
+    else if (!objectMovementAnimations.has(object.id)) {
+      if (object.kind === 'orkk-shield') settleOrkkShieldAtRest(group, object.ownerId, target);
+      else group.position.y = target.y;
+    }
     lastObjectVisualCells.set(object.id, targetKey);
     group.traverse((child) => { child.userData.objectId = object.id; });
   });
@@ -5727,8 +6528,8 @@ function highlightCells() {
     const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject;
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
-    const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell } | undefined;
-    const replacingOwnReplica = Boolean(spectrePlacement) && objectOnCell?.kind === 'spectre-replica' && objectOnCell.ownerId === spectrePlacement!.casterId;
+    const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell; source?: 'replicate' | 'split' } | undefined;
+    const replacingOwnReplica = spectrePlacement?.source === 'replicate' && objectOnCell?.kind === 'spectre-replica' && objectOnCell.ownerId === spectrePlacement.casterId;
     const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && !occupiedByPlayer && (!occupiedByObject || replacingOwnReplica) && (
       Boolean(guardianPending) && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId])
       || Boolean(spectrePlacement) && distance(spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell) <= spectrePlacement!.range && hasReplicaPlacementLineOfSight(gameState, spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell, Boolean(gameState.players[spectrePlacement!.casterId].spectreOnBoxId) && !spectrePlacement!.origin)
@@ -5863,12 +6664,15 @@ function updateTargetHighlights(time: number) {
     const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
-    ring.visible = valid;
-    if (valid) {
+    const showRing = target.character === 'spectre' ? validSpectreOrigin : valid;
+    ring.visible = showRing;
+    if (showRing) {
       const pulse = 1 + Math.sin(time * 0.006) * 0.08;
       ring.scale.setScalar(pulse);
       const selectedSpectreOrigin = validSpectreOrigin && spectreOriginChoice!.origin === 'spectre';
-      (ring.material as THREE.MeshBasicMaterial).opacity = validSpectreOrigin ? (selectedSpectreOrigin ? 0.96 : 0.34) : 0.68 + Math.sin(time * 0.006) * 0.22;
+      const ringMaterial = ring.material as THREE.MeshBasicMaterial;
+      if (target.character === 'spectre') ringMaterial.color.setHex(0x9b77ff);
+      ringMaterial.opacity = validSpectreOrigin ? (selectedSpectreOrigin ? 0.96 : 0.34) : 0.68 + Math.sin(time * 0.006) * 0.22;
     }
   });
   objectGroups.forEach((group, objectId) => {
@@ -5909,7 +6713,8 @@ function updateTargetHighlights(time: number) {
   renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
 }
 
-function onBoardClick(event: PointerEvent) {
+function onBoardClick(event: MouseEvent) {
+  if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
@@ -6071,7 +6876,13 @@ function onBoardClick(event: PointerEvent) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'move', playerId: gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId : gameState.phase === 'shizzle-move' ? gameState.shizzle!.casterId : gameState.activePlayerId, to: cellHit.object.userData.cell });
   } else if (selected.kind === 'attack') {
-    const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const directPlayerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const clickedCell = cellHit?.object.userData.cell as Cell | undefined;
+    const playerOnClickedCell = clickedCell
+      ? Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === clickedCell.x && player.position.y === clickedCell.y)
+      : undefined;
+    const playerHit = directPlayerHit ?? playerOnClickedCell?.id;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
     const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);
@@ -6101,11 +6912,7 @@ function onBoardClick(event: PointerEvent) {
       const origin = attacker.character === 'spectre' ? spectreAttackOriginForTarget(attacker, hitObject.position) : 'spectre';
       if (origin) { if (attacker.character === 'spectre') selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: hitObject.id, targetKind: 'replica' }); }
     }
-    else if (playerHit) {
-      const swapBeforeCombat = selectedAttackCard?.cardId === 'lightbringer'
-        && window.confirm(`Lightbringer: swap places with ${gameState.players[playerHit].name} before combat?\n\nOK: swap places.\nCancel: attack without swapping.`);
-      dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player', swapBeforeCombat });
-    }
+    else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
@@ -6125,41 +6932,41 @@ function onBoardClick(event: PointerEvent) {
 }
 
 function onCameraRotateStart(event: PointerEvent) {
-  if (event.button !== 2) return;
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  const surfaceHit = raycaster.intersectObjects(cellMeshes, false)[0];
-  const pivot = surfaceHit?.point.clone() ?? raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
-  if (!pivot) return;
-
-  const center = boardCenterWorld();
-  const halfWidth = Math.max(1, visualBoardWidth() - 1) * .96 + 2;
-  const halfHeight = Math.max(1, visualBoardHeight() - 1) * .96 + 2;
-  pivot.x = THREE.MathUtils.clamp(pivot.x, center.x - halfWidth, center.x + halfWidth);
-  pivot.z = THREE.MathUtils.clamp(pivot.z, center.z - halfHeight, center.z + halfHeight);
+  if (event.button !== 0 && event.button !== 2) return;
+  const pivot = controls.target.clone();
   cameraGrab = {
     pointerId: event.pointerId,
     pivot,
     lastX: event.clientX,
     lastY: event.clientY,
-    focusDistance: THREE.MathUtils.clamp(camera.position.distanceTo(controls.target), controls.minDistance, controls.maxDistance),
+    mode: event.button === 0 ? 'tilt' : 'orbit',
+    dragDistance: 0,
   };
   renderer.domElement.setPointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grabbing';
-  event.preventDefault();
+  if (event.button === 2) event.preventDefault();
 }
 
 function onCameraGrabMove(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
   const dx = event.clientX - cameraGrab.lastX;
+  const dy = event.clientY - cameraGrab.lastY;
+  cameraGrab.dragDistance += Math.hypot(dx, dy);
   cameraGrab.lastX = event.clientX;
   cameraGrab.lastY = event.clientY;
-  if (dx === 0) return;
+  if (dx === 0 && dy === 0) return;
 
-  const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * .005);
-  rotateCameraPoseAroundPivot(yaw, cameraGrab.pivot);
-  levelCameraHorizon();
+  const offset = camera.position.clone().sub(cameraGrab.pivot);
+  const spherical = new THREE.Spherical().setFromVector3(offset);
+  if (cameraGrab.mode === 'orbit') {
+    spherical.theta -= dx * .005;
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - dy * .004, controls.minPolarAngle, controls.maxPolarAngle);
+  } else {
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - dy * .004, controls.minPolarAngle, controls.maxPolarAngle);
+  }
+  camera.position.copy(cameraGrab.pivot).add(new THREE.Vector3().setFromSpherical(spherical));
+  camera.up.set(0, 1, 0);
+  camera.lookAt(cameraGrab.pivot);
   camera.updateMatrixWorld(true);
   event.preventDefault();
 }
@@ -6177,13 +6984,17 @@ function levelCameraHorizon() {
 
 function finishCameraGrab(event: PointerEvent) {
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
-  const direction = camera.getWorldDirection(new THREE.Vector3());
-  controls.target.copy(camera.position).addScaledVector(direction, cameraGrab.focusDistance);
+  const suppressClick = cameraGrab.mode === 'tilt' && cameraGrab.dragDistance > 4;
+  controls.target.copy(cameraGrab.pivot);
   cameraGrab = null;
   levelCameraHorizon();
   controls.update();
   if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grab';
+  if (suppressClick) {
+    suppressNextBoardClick = true;
+    window.setTimeout(() => { suppressNextBoardClick = false; }, 0);
+  }
 }
 
 function onBoardDoubleClick(event: MouseEvent) {
@@ -6206,7 +7017,7 @@ function resize() {
   renderedBoardWidth = width;
   renderedBoardHeight = height;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
-  fitCameraToArena(visualBoardWidth(), visualBoardHeight());
+  fitCameraToArena(visualBoardWidth(), visualBoardHeight(), true);
 }
 
 let browserCharacter: SelectableCharacter = CHARACTER_BROWSER_ORDER[0];
@@ -6329,6 +7140,18 @@ function updatePerkBrowserControls() {
   byId('perkPosition').textContent = `${browserPerkIndex + 1} / ${count}`;
 }
 
+function resizeCharacterPreview() {
+  if (!characterPreviewRenderer || !characterPreviewCamera) return;
+  const host = byId('characterPreviewCanvas');
+  const width = host.clientWidth;
+  const height = host.clientHeight;
+  if (width < 1 || height < 1) return;
+  characterPreviewRenderer.setSize(width, height, false);
+  characterPreviewComposer?.setSize(width, height);
+  characterPreviewCamera.aspect = width / height;
+  characterPreviewCamera.updateProjectionMatrix();
+}
+
 function setupCharacterPreview() {
   const host = byId('characterPreviewCanvas');
   characterPreviewScene = new THREE.Scene();
@@ -6370,14 +7193,8 @@ function setupCharacterPreview() {
   pedestal.position.y = -.11; pedestal.receiveShadow = true; characterPreviewScene.add(pedestal);
   const glowRing = new THREE.Mesh(new THREE.RingGeometry(.8, 1.02, 64), new THREE.MeshBasicMaterial({ color: 0x72f6d7, transparent: true, opacity: .38, side: THREE.DoubleSide }));
   glowRing.rotation.x = -Math.PI / 2; glowRing.position.y = .002; characterPreviewScene.add(glowRing);
-  const resizePreview = () => {
-    if (!characterPreviewRenderer || !characterPreviewCamera) return;
-    const width = host.clientWidth; const height = host.clientHeight;
-    if (width < 1 || height < 1) return;
-    characterPreviewRenderer.setSize(width, height, false); characterPreviewComposer?.setSize(width, height); characterPreviewCamera.aspect = width / height; characterPreviewCamera.updateProjectionMatrix();
-  };
-  new ResizeObserver(resizePreview).observe(host);
-  resizePreview();
+  new ResizeObserver(resizeCharacterPreview).observe(host);
+  resizeCharacterPreview();
   let previousTime = performance.now();
   characterPreviewRenderer.setAnimationLoop((time) => {
     if (!characterPreviewRenderer || !characterPreviewScene || !characterPreviewCamera || !characterPreviewControls || document.querySelector('.character-browser')?.classList.contains('hidden')) { previousTime = time; return; }
@@ -6530,3 +7347,4 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
 }
 
 initializeCharacterBrowser();
+queueMicrotask(joinRoomFromUrl);
