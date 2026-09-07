@@ -140,7 +140,7 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-trait-panel" id="characterTraitPanel"></div><div class="character-trait-panel trait-p2" id="characterTraitPanelP2"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
       <div class="command-deck">
         <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
@@ -1001,11 +1001,11 @@ function renderUI() {
     button.addEventListener('pointerleave', hideCardPreview);
   });
   const hudPlayerIds = hudSeatPlayerIds();
+  document.querySelector<HTMLElement>('.hud')?.classList.toggle('three-player', hudPlayerIds.length > 2);
   renderFighter(hudPlayerIds[0], 'p1Stats', 'left');
   renderFighter(hudPlayerIds[1], 'p2Stats', 'right');
   byId('p3Stats').classList.toggle('hidden', !hudPlayerIds[2]);
   if (hudPlayerIds[2]) renderFighter(hudPlayerIds[2], 'p3Stats', 'right');
-  renderCharacterTraits();
   renderOpponentHand();
   renderSpellEchoBars();
   renderHand();
@@ -1460,11 +1460,11 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   element.className = `fighter ${side}${elementId === 'p3Stats' ? ' violet' : ''}`;
   element.style.setProperty('--fighter-color', playerUiColor(id));
   const hpPercent = player.hp / player.maxHp * 100;
-  const orkkIndicators = player.character === 'orkk' ? `<div class="header-statuses"><span title="${player.shieldEquipped ? '+1 Defence Value to Defend Cards.' : 'Shield is unequipped and exists as a Board obstacle.'}">&#128737; ${player.shieldEquipped ? 'EQUIPPED' : 'UNEQUIPPED'}</span></div>` : '';
   const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}<small>${player.manaMode === 'consume' ? 'CONSUME' : 'GENERATE'}</small></div>` : '';
   const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
+  const abilityIcon = playerAbilityIcon(player);
   const statusIcons = playerStatusIcons(player);
-  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i></div>${statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} statuses">${statusIcons}</div>` : ''}${mana}${orkkIndicators}`;
+  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
 }
 
 function playerUiColor(playerId: PlayerId) {
@@ -1491,43 +1491,11 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
   turnAnnouncementTimer = window.setTimeout(() => announcement.classList.add('hidden'), 2200);
 }
 
-function renderCharacterTraits() {
-  const player = gameState.players.P1;
-  const playerTwo = gameState.players.P2;
-  if (playerTwo.character === 'shinobi') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
-  else if (playerTwo.character === 'magician') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
-  else if (playerTwo.character === 'orkk') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div></div>`;
-  else if (playerTwo.character === 'john-christ') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div></div>`;
-  else if (playerTwo.character === 'wreckna') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP. Attackers still receive full post-match Damage credit.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
-  else if (playerTwo.character === 'spectre') byId('characterTraitPanelP2').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">◈<span class="trait-tooltip"><b>Replica</b>One immobile replica shares Spectre's Hand, Actions, HP, and combat. Either body can originate melee Attacks; positional rules use the involved body.</span></div></div>`;
-  else byId('characterTraitPanelP2').innerHTML = '';
-  if (player.character === 'shinobi') {
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon lightsaber-trait" tabindex="0">⚡⚔<span class="trait-tooltip"><b>Lightsaber</b>If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait.</span></div></div>`;
-    return;
-  }
-  if (player.character === 'magician') {
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">✦<span class="trait-tooltip"><b>Classic Wizardry</b>Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.</span></div></div>`;
-    return;
-  }
-  if (player.character === 'orkk') {
-    const shield = player.shieldEquipped ? `<div class="trait-icon highground-active" tabindex="0">🛡<span class="trait-tooltip"><b>Iron Shield Equipped</b>Da Orkk's Defend Cards gain +1 Defence Value.</span></div>` : '';
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">👊<span class="trait-tooltip"><b>Rage</b>Gain 1 Rage per damaging card or action. Apply all Rage to an Attack Card and consume it after combat, except against Objects. Remove 1 Rage at turn end.</span></div>${shield}</div>`;
-    return;
-  }
-  if (player.character === 'john-christ') {
-    const shell = player.stoicShell ? `<div class="trait-icon highground-active" tabindex="0">${player.stoicShellStacks}<span class="trait-tooltip"><b>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</b>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. No Stack is gained at maximum HP. HP Damage removes every Stack.</span></div>` : '';
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon holy-spirit-trait" tabindex="0">✝<span class="trait-tooltip"><b>Possessed</b>Damage triggers Spirit Form: +2 ATT, MOV 1, and movement through enemies and Objects with MOV refunds. Attacking or ending the turn exits the form.</span></div>${shell}</div>`;
-    return;
-  }
-  if (player.character === 'spectre') {
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">◈<span class="trait-tooltip"><b>Replica</b>One immobile replica shares Spectre's Hand, Actions, HP, and combat. Either body can originate melee Attacks; positional rules use the involved body.</span></div></div>`;
-    return;
-  }
-  if (player.character === 'wreckna') {
-    byId('characterTraitPanel').innerHTML = `<div class="trait-row"><div class="trait-icon" tabindex="0">☠<span class="trait-tooltip"><b>Phylactery</b>While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP. Attackers still receive full post-match Damage credit.</span></div><div class="trait-icon" tabindex="0">▰<span class="trait-tooltip"><b>Entombed</b>Spend 2 MOV to enter a Tomb. Restore 1 HP when beginning a turn inside it.</span></div></div>`;
-    return;
-  }
-  byId('characterTraitPanel').innerHTML = '';
+function playerAbilityIcon(player: GameState['players'][PlayerId]) {
+  if (!(player.character in CHARACTER_SELECT_INFO)) return '';
+  const info = CHARACTER_SELECT_INFO[player.character as HotseatCharacter];
+  const visualClass = player.character === 'shinobi' ? ' lightsaber-trait' : player.character === 'john-christ' ? ' holy-spirit-trait' : '';
+  return `<div class="trait-icon hud-ability-icon${visualClass}" tabindex="0">${escapeHtml(info.traitIcon)}<span class="trait-tooltip"><b>${escapeHtml(info.trait)}</b>${escapeHtml(info.traitDescription)}</span></div>`;
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
@@ -1544,6 +1512,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
       ['wisdom', 'W', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
       ['ritual', 'R', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
     ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${icon}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
+    const orkkShieldIcon = player.character === 'orkk' ? `<div class="status-icon orkk-shield-status ${player.shieldEquipped ? 'highground-active' : 'inactive'}" tabindex="0">🛡<span class="status-tooltip"><strong>Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}</strong>${player.shieldEquipped ? 'Defend Cards gain +1 Defence Value.' : 'The Shield is currently on the Board as an obstacle.'}</span></div>` : '';
     const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
     const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">×2<span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">🦵<i></i><b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
@@ -1564,9 +1533,9 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const hexBonus = (player.hexMovementBonus ?? 0) + (player.decayMovementBonus ?? 0);
     const hexPenalty = player.hexMovementPenalty ?? 0;
     const shadowMoveBonus = player.spectreShadowMoveBonus ?? 0;
-    const shadowMovePenalty = player.spectreShadowMovePenalty ?? 0;
-    const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">DAG<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Stolen Movement</strong>Spectre stole ${shadowMoveBonus} MOV from enemies hit by Shadow Dagger. Both maximum and unspent MOV increased until the end of this turn.</span></div>` : '';
-    const shadowMovePenaltyIcon = shadowMovePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">DAG<b>-${shadowMovePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Movement Stolen</strong>Maximum and unspent MOV are reduced by ${shadowMovePenalty} until the end of Spectre's turn.</span></div>` : '';
+    const shadowDefensePenalty = player.spectreShadowDefensePenalty ?? 0;
+    const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">DAG<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
+    const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">DAG<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">🧊<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
     const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">RNG<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
     const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
@@ -1595,7 +1564,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
-    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowMovePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -2065,14 +2034,14 @@ function renderCombatReveal() {
   const reveal = gameState.combatReveal;
   modal.classList.toggle('hidden', !reveal);
   if (!reveal) {
-    if (combatRevealWasVisible && Object.keys(gameState.players).length === 3) {
+    if (combatRevealWasVisible) {
       deathAnimationNotBefore = performance.now() + 1000;
     }
     combatRevealWasVisible = false;
     modal.innerHTML = '';
     return;
   }
-  if (Object.keys(gameState.players).length === 3) deathAnimationNotBefore = Number.POSITIVE_INFINITY;
+  deathAnimationNotBefore = Number.POSITIVE_INFINITY;
   combatRevealWasVisible = true;
   const attack = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
@@ -2492,7 +2461,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 const hologramShaderTime = { value: 0 };
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 boardEl.appendChild(renderer.domElement);
 const overheadStatusLayer = document.createElement('div');
 overheadStatusLayer.className = 'overhead-status-layer';
@@ -2513,16 +2482,38 @@ controls.update();
 const hemisphereLight = new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6);
 scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
-keyLight.position.set(4, 9, 5); keyLight.castShadow = true; scene.add(keyLight);
+keyLight.position.set(4, 18, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.left = -24;
+keyLight.shadow.camera.right = 24;
+keyLight.shadow.camera.top = 24;
+keyLight.shadow.camera.bottom = -24;
+keyLight.shadow.camera.near = 0.5;
+keyLight.shadow.camera.far = 60;
+keyLight.shadow.bias = -0.00025;
+keyLight.shadow.normalBias = 0.035;
+scene.add(keyLight);
 const dawnFillLight = new THREE.DirectionalLight(0xffb56b, 0);
 dawnFillLight.position.set(-8, 3, -6);
 scene.add(dawnFillLight);
-const floor = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
+const floor: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
+floor.userData.geometryKind = 'circle';
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
 
+const dawnSkyUniforms = {
+  zenithColor: { value: new THREE.Color(0x0e0505) },
+  horizonColor: { value: new THREE.Color(0x3d1309) },
+  lowerSkyColor: { value: new THREE.Color(0x090304) },
+  glowColor: { value: new THREE.Color(0x2e1105) },
+  cloudColor: { value: new THREE.Color(0x471b0e) },
+  wispColor: { value: new THREE.Color(0x33130c) },
+  hazeColor: { value: new THREE.Color(0x4f170b) },
+};
 const dawnSkyDome = new THREE.Mesh(
   new THREE.SphereGeometry(1500, 64, 32),
   new THREE.ShaderMaterial({
+    uniforms: dawnSkyUniforms,
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
@@ -2535,6 +2526,13 @@ const dawnSkyDome = new THREE.Mesh(
     `,
     fragmentShader: `
       varying vec3 vDirection;
+      uniform vec3 zenithColor;
+      uniform vec3 horizonColor;
+      uniform vec3 lowerSkyColor;
+      uniform vec3 glowColor;
+      uniform vec3 cloudColor;
+      uniform vec3 wispColor;
+      uniform vec3 hazeColor;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -2551,28 +2549,25 @@ const dawnSkyDome = new THREE.Mesh(
       }
       void main() {
         vec3 direction = normalize(vDirection);
-        vec3 zenith = vec3(.055, .018, .018);
-        vec3 horizon = vec3(.24, .075, .035);
-        vec3 lowerSky = vec3(.035, .012, .015);
-        vec3 sky = mix(lowerSky, horizon, smoothstep(-.72, .02, direction.y));
-        sky = mix(sky, zenith, smoothstep(.02, .78, direction.y));
+        vec3 sky = mix(lowerSkyColor, horizonColor, smoothstep(-.72, .02, direction.y));
+        sky = mix(sky, zenithColor, smoothstep(.02, .78, direction.y));
 
         vec3 lightDirection = normalize(vec3(-.72, .18, -.66));
         float distantGlow = pow(max(dot(direction, lightDirection), 0.0), 4.0);
-        sky += vec3(.18, .065, .018) * distantGlow;
+        sky += glowColor * distantGlow;
 
         vec2 skyUv = vec2(atan(direction.z, direction.x) / 6.2831853 + .5, asin(clamp(direction.y, -1.0, 1.0)) / 3.1415926 + .5);
         float cloudNoise = fbm(vec2(skyUv.x * 9.0, skyUv.y * 5.0));
         float cloudShape = smoothstep(.49, .68, cloudNoise);
         float cloudBand = exp(-pow((direction.y - .16) * 2.65, 2.0));
-        sky = mix(sky, vec3(.28, .105, .055), cloudShape * cloudBand * .16);
+        sky = mix(sky, cloudColor, cloudShape * cloudBand * .16);
 
         float highWisps = smoothstep(.56, .72, fbm(vec2(skyUv.x * 15.0 + 8.0, skyUv.y * 7.0)))
                         * smoothstep(.08, .58, direction.y);
-        sky = mix(sky, vec3(.20, .075, .048), highWisps * .10);
+        sky = mix(sky, wispColor, highWisps * .10);
 
         float haze = exp(-abs(direction.y) * 7.0);
-        sky = mix(sky, vec3(.31, .095, .045), haze * .30);
+        sky = mix(sky, hazeColor, haze * .30);
 
         gl_FragColor = vec4(sky, 1.0);
       }
@@ -2583,9 +2578,14 @@ dawnSkyDome.visible = false;
 dawnSkyDome.renderOrder = -1000;
 scene.add(dawnSkyDome);
 
+const horizonGridUniforms = {
+  minorColor: { value: new THREE.Color(0x3d0e06) },
+  majorColor: { value: new THREE.Color(0x80210b) },
+};
 const horizonGrid = new THREE.Mesh(
   new THREE.PlaneGeometry(360, 360),
   new THREE.ShaderMaterial({
+    uniforms: horizonGridUniforms,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -2599,6 +2599,8 @@ const horizonGrid = new THREE.Mesh(
     `,
     fragmentShader: `
       varying vec3 vWorldPosition;
+      uniform vec3 minorColor;
+      uniform vec3 majorColor;
       float gridLine(float coordinate, float spacing, float width) {
         float lineDistance = abs(fract(coordinate / spacing + .5) - .5) * spacing;
         return 1.0 - smoothstep(width, width * 1.8, lineDistance);
@@ -2609,7 +2611,7 @@ const horizonGrid = new THREE.Mesh(
         float distanceFromArena = length(vWorldPosition.xz);
         float outerFade = 1.0 - smoothstep(80.0, 175.0, distanceFromArena);
         float innerFade = smoothstep(13.0, 25.0, distanceFromArena);
-        vec3 color = mix(vec3(.24, .055, .025), vec3(.50, .13, .045), major);
+        vec3 color = mix(minorColor, majorColor, major);
         float alpha = max(minor * .12, major * .25) * outerFade * innerFade;
         gl_FragColor = vec4(color, alpha);
       }
@@ -2635,9 +2637,14 @@ for (let index = 0; index < dawnStarCount; index++) {
 const dawnStarGeometry = new THREE.BufferGeometry();
 dawnStarGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dawnStarPositions, 3));
 dawnStarGeometry.setAttribute('size', new THREE.Float32BufferAttribute(dawnStarSizes, 1));
+const dawnStarUniforms = {
+  glowColor: { value: new THREE.Color(0xff4d0e) },
+  coreColor: { value: new THREE.Color(0xffdb7a) },
+};
 const dawnStarField = new THREE.Points(
   dawnStarGeometry,
   new THREE.ShaderMaterial({
+    uniforms: dawnStarUniforms,
     transparent: true,
     depthTest: true,
     depthWrite: false,
@@ -2653,12 +2660,14 @@ const dawnStarField = new THREE.Points(
     `,
     fragmentShader: `
       varying float vBrightness;
+      uniform vec3 glowColor;
+      uniform vec3 coreColor;
       void main() {
         float distanceFromCenter = length(gl_PointCoord - vec2(.5));
         if (distanceFromCenter > .5) discard;
         float core = 1.0 - smoothstep(.04, .2, distanceFromCenter);
         float glow = 1.0 - smoothstep(.14, .5, distanceFromCenter);
-        vec3 color = mix(vec3(1.0, .3, .055), vec3(1.0, .86, .48), core);
+        vec3 color = mix(glowColor, coreColor, core);
         gl_FragColor = vec4(color, (core * .8 + glow * .42) * vBrightness);
       }
     `,
@@ -2669,23 +2678,53 @@ dawnStarField.renderOrder = 10;
 dawnStarField.visible = false;
 scene.add(dawnStarField);
 
+const DAWN_LIGHT_LEVEL_MIN = .5;
+const DAWN_LIGHT_LEVEL_MAX = 2;
+const DAWN_LIGHT_LEVEL_STEP = .1;
 let dawnArenaMode = false;
+let dawnLightLevel = 1;
+
+function applyArenaLightLevel() {
+  hemisphereLight.intensity = dawnArenaMode ? 1.45 * dawnLightLevel : 1.6;
+  keyLight.intensity = dawnArenaMode ? 3.35 * dawnLightLevel : 2.8;
+  dawnFillLight.intensity = dawnArenaMode ? .75 * dawnLightLevel : 0;
+}
+
+function adjustDawnLightLevel(direction: -1 | 1) {
+  dawnLightLevel = Math.round(THREE.MathUtils.clamp(dawnLightLevel + direction * DAWN_LIGHT_LEVEL_STEP, DAWN_LIGHT_LEVEL_MIN, DAWN_LIGHT_LEVEL_MAX) * 10) / 10;
+  applyArenaLightLevel();
+  notify(`Dawn arena light level: ${Math.round(dawnLightLevel * 100)}%.`);
+}
+
 function setDawnArenaMode(enabled: boolean) {
   dawnArenaMode = enabled;
+  const lordaeronPalette = enabled && visualArena().id === 'lordaeron';
   scene.background = enabled ? null : darkArenaBackground;
-  scene.fog = new THREE.Fog(enabled ? 0x241014 : 0x07100e, enabled ? 76 : 72, enabled ? 200 : 120);
-  hemisphereLight.color.setHex(enabled ? 0xe6b69b : 0xbde8dc);
-  hemisphereLight.groundColor.setHex(enabled ? 0x17080a : 0x07100e);
-  hemisphereLight.intensity = enabled ? 1.45 : 1.6;
-  keyLight.color.setHex(enabled ? 0xfff0d2 : 0xffffff);
-  keyLight.intensity = enabled ? 3.35 : 2.8;
+  scene.fog = new THREE.Fog(enabled ? (lordaeronPalette ? 0x082b20 : 0x241014) : 0x07100e, enabled ? (lordaeronPalette ? 68 : 76) : 72, enabled ? (lordaeronPalette ? 180 : 200) : 120);
+  hemisphereLight.color.setHex(enabled ? (lordaeronPalette ? 0x75d8bb : 0xe6b69b) : 0xbde8dc);
+  hemisphereLight.groundColor.setHex(enabled ? (lordaeronPalette ? 0x061b12 : 0x17080a) : 0x07100e);
+  keyLight.color.setHex(enabled ? (lordaeronPalette ? 0xc4f2df : 0xfff0d2) : 0xffffff);
+  dawnFillLight.color.setHex(lordaeronPalette ? 0x4bd27c : 0xffb56b);
   keyLight.position.set(enabled ? -7 : 4, enabled ? 11 : 9, enabled ? -4 : 5);
-  dawnFillLight.intensity = enabled ? .75 : 0;
+  dawnSkyUniforms.zenithColor.value.setHex(lordaeronPalette ? 0x07351f : 0x0e0505);
+  dawnSkyUniforms.horizonColor.value.setHex(lordaeronPalette ? 0x176b3c : 0x3d1309);
+  dawnSkyUniforms.lowerSkyColor.value.setHex(lordaeronPalette ? 0x03160f : 0x090304);
+  dawnSkyUniforms.glowColor.value.setHex(lordaeronPalette ? 0x1f9a4b : 0x2e1105);
+  dawnSkyUniforms.cloudColor.value.setHex(lordaeronPalette ? 0x155b42 : 0x471b0e);
+  dawnSkyUniforms.wispColor.value.setHex(lordaeronPalette ? 0x1b7464 : 0x33130c);
+  dawnSkyUniforms.hazeColor.value.setHex(lordaeronPalette ? 0x23834b : 0x4f170b);
+  horizonGridUniforms.minorColor.value.setHex(lordaeronPalette ? 0x0b4a35 : 0x3d0e06);
+  horizonGridUniforms.majorColor.value.setHex(lordaeronPalette ? 0x27a35c : 0x80210b);
+  dawnStarUniforms.glowColor.value.setHex(lordaeronPalette ? 0x35cf77 : 0xff4d0e);
+  dawnStarUniforms.coreColor.value.setHex(lordaeronPalette ? 0xb8ffe0 : 0xffdb7a);
+  applyArenaLightLevel();
   dawnSkyDome.visible = enabled;
   horizonGrid.visible = enabled;
   dawnStarField.visible = enabled;
-  (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? 0x21332f : 0x0d1b18);
-  boardEl.closest('.arena-frame')?.classList.toggle('dawn-mode', enabled);
+  (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? (lordaeronPalette ? 0x102c22 : 0x21332f) : 0x0d1b18);
+  const arenaFrame = boardEl.closest('.arena-frame');
+  arenaFrame?.classList.toggle('dawn-mode', enabled);
+  arenaFrame?.classList.toggle('lordaeron-dawn-mode', lordaeronPalette);
 }
 
 const raycaster = new THREE.Raycaster();
@@ -2696,7 +2735,10 @@ let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let lordaeronPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let nagrandOuterRingAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let lordaeronPerimeterAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let lordaeronTombAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 const axisLabels: THREE.Sprite[] = [];
@@ -2716,6 +2758,14 @@ const nagrandOuterRingGroup = new THREE.Group();
 nagrandOuterRingGroup.name = 'NagrandOuterRing';
 scene.add(nagrandOuterRingGroup);
 let nagrandOuterRingModel: THREE.Group | null = null;
+const lordaeronPerimeterGroup = new THREE.Group();
+lordaeronPerimeterGroup.name = 'LordaeronPerimeter';
+scene.add(lordaeronPerimeterGroup);
+let lordaeronPerimeterModel: THREE.Group | null = null;
+const lordaeronTombGroup = new THREE.Group();
+lordaeronTombGroup.name = 'LordaeronHighgroundTomb';
+scene.add(lordaeronTombGroup);
+let lordaeronTombModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
 type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
 const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
@@ -2756,6 +2806,7 @@ let questFlagVisualKey = '';
 let hotPotatoModel: THREE.Group | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
+let lightingArenaId: ArenaId | null = null;
 let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt'; dragDistance: number } | null = null;
 let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
@@ -2789,9 +2840,17 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  const lightIncreaseHotkey = event.altKey && !event.ctrlKey && !event.metaKey && (event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd');
+  const lightDecreaseHotkey = event.altKey && !event.ctrlKey && !event.metaKey && (event.key === '-' || event.code === 'Minus' || event.code === 'NumpadSubtract');
+  if (!event.repeat && !game.classList.contains('hidden') && (lightIncreaseHotkey || lightDecreaseHotkey)) {
+    event.preventDefault();
+    if (dawnArenaMode) adjustDawnLightLevel(lightIncreaseHotkey ? 1 : -1);
+    else notify('Light-level adjustment is available in dawn lighting mode. Press Ctrl+K to enable it.');
+    return;
+  }
   if (event.ctrlKey && event.code === 'KeyK') {
     setDawnArenaMode(!dawnArenaMode);
-    notify(dawnArenaMode ? 'Dawn arena lighting enabled.' : 'Dark arena lighting restored.');
+    notify(dawnArenaMode ? `Dawn arena lighting enabled at ${Math.round(dawnLightLevel * 100)}%.` : 'Dark arena lighting restored.');
     event.preventDefault();
     return;
   }
@@ -3067,8 +3126,10 @@ function updateOverheadStatusRows(refreshContents = false) {
     row.classList.toggle('hidden', !visible);
     if (!visible || !healthBar) return;
     overheadStatusScreenPosition.copy(healthBar.position).project(camera);
-    row.style.left = `${(overheadStatusScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
-    row.style.top = `${(-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight}px`;
+    const screenX = Math.round((overheadStatusScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth);
+    const screenY = Math.round((-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight);
+    row.style.setProperty('--overhead-x', `${screenX}px`);
+    row.style.setProperty('--overhead-y', `${screenY}px`);
     camera.getWorldDirection(overheadStatusCameraDirection);
     const cameraDepth = Math.max(0.1, overheadStatusCameraOffset.copy(healthBar.position).sub(camera.position).dot(overheadStatusCameraDirection));
     const pixelsPerWorldUnit = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * cameraDepth);
@@ -3132,7 +3193,7 @@ function updateDamageVisuals(time: number) {
     body.rotation.y = Math.sin(progress * Math.PI * 8) * strength * 1.8;
   });
   for (let index = damageNumbers.length - 1; index >= 0; index--) {
-    const entry = damageNumbers[index]; const progress = (time - entry.startedAt) / 1100;
+    const entry = damageNumbers[index]; const progress = (time - entry.startedAt) / 1400;
     if (progress >= 1) {
       scene.remove(entry.sprite); (entry.sprite.material.map as THREE.Texture | null)?.dispose(); entry.sprite.material.dispose(); damageNumbers.splice(index, 1); continue;
     }
@@ -3639,6 +3700,11 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
   return first.add(last).multiplyScalar(.5).setY(.12);
 }
 
+const LORDAERON_TOMB_BASE_Y = 0.005;
+const LORDAERON_HIGHGROUND_TOP_Y = 0.98;
+const LORDAERON_HIGHGROUND_ENTITY_Y = 1.06;
+const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
+
 function createSlideRamp(cell: Cell, color: number): THREE.Group {
   const root = new THREE.Group();
   const arena = visualArena();
@@ -3731,10 +3797,34 @@ function createCell(cell: Cell) {
   const claimedColor = claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
   const color = unclaimedPlacementBase ? 0xc21f35 : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : drawSquare ? 0x665a25 : highGround ? 0x285046 : trenchSquare ? 0xb1845c : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
   const emissive = unclaimedPlacementBase ? 0xff1638 : claimant === 'P1' ? 0x07374f : claimant === 'P2' ? 0x3d0f18 : claimant === 'P3' ? 0x291a45 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? 0.54 : 0.16, 1.72), new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : 0.35, roughness: 0.72, metalness: 0.15 }));
-  mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? 0.19 : 0;
+  const material = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : 0.35, roughness: 0.72, metalness: 0.15 });
+  const lordaeronTombCell = lordaeron && highGround;
+  if (lordaeronTombCell) {
+    material.transparent = true;
+    material.opacity = 0;
+    material.depthWrite = false;
+    material.colorWrite = false;
+  }
+  const highGroundHeight = lordaeron ? LORDAERON_HIGHGROUND_TOP_Y + 0.08 : 0.54;
+  const highGroundCenterY = lordaeron ? (LORDAERON_HIGHGROUND_TOP_Y - 0.08) * 0.5 : 0.19;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? highGroundHeight : 0.16, 1.72), material);
+  mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? highGroundCenterY : 0;
   mesh.receiveShadow = true;
   mesh.userData.cell = cell;
+  if (lordaeronTombCell) {
+    const highlight = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.72, 1.72),
+      new THREE.MeshBasicMaterial({ color: 0x19d3a2, transparent: true, opacity: 0.46, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    highlight.name = `LordaeronTombCellHighlight-${label}`;
+    highlight.rotation.x = -Math.PI * 0.5;
+    highlight.position.y = LORDAERON_HIGHGROUND_TOP_Y + 0.02 - highGroundCenterY;
+    highlight.renderOrder = 5;
+    highlight.visible = false;
+    highlight.userData.cell = cell;
+    mesh.userData.tombHighlight = highlight;
+    mesh.add(highlight);
+  }
   scene.add(mesh); cellMeshes.push(mesh);
   if (slideSquare) {
     const ramp = createSlideRamp(cell, color);
@@ -3752,6 +3842,16 @@ function ensureCharacterHitArea(root: THREE.Group) {
   hitArea.name = 'CharacterHitArea';
   hitArea.position.y = 1.6;
   root.add(hitArea);
+}
+
+function hitUserData<T>(hit: THREE.Intersection, key: string): T | undefined {
+  // Imported GLBs may complete after a board sync. Resolve identity from their
+  // owning group as well as the hit mesh so a freshly loaded model is clickable.
+  for (let object: THREE.Object3D | null = hit.object; object; object = object.parent) {
+    const value = object.userData[key] as T | undefined;
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 function createDummy(color: number) {
@@ -3805,21 +3905,26 @@ function createWoodenBox() {
   return root;
 }
 
-function createWoodenPillar() {
+function createArenaPillar() {
+  const variant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
   const root = new THREE.Group();
+  root.name = variant === 'nagrand' ? 'Pillar - Nagrand' : 'Pillar - Lordaeron';
+  root.userData.pillarVariant = variant;
   const fallback = new THREE.Group();
-  fallback.name = 'WoodenPillarProceduralFallback';
+  fallback.name = variant === 'nagrand' ? 'NagrandPillarProceduralFallback' : 'LordaeronPillarProceduralFallback';
   root.add(fallback);
-  const wood = new THREE.MeshStandardMaterial({ color: 0x68401f, roughness: 0.86 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x352012, roughness: 0.92 });
+  const wood = new THREE.MeshStandardMaterial({ color: variant === 'nagrand' ? 0x68401f : 0x514d47, roughness: 0.86 });
+  const dark = new THREE.MeshStandardMaterial({ color: variant === 'nagrand' ? 0x352012 : 0x292724, roughness: 0.92 });
   const column = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 2.8, 12), wood);
   column.position.y = 1.45; column.castShadow = true; column.receiveShadow = true; fallback.add(column);
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.68, 0.28, 12), dark);
   base.position.y = 0.14; base.castShadow = true; fallback.add(base);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.48, 0.34, 12), dark);
   cap.position.y = 2.92; cap.castShadow = true; fallback.add(cap);
-  void loadArenaPillarAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaPillarImportedModel', new THREE.Vector3(1.564, 3.5535, 1.564))).catch((error) => {
-    console.error('Failed to load arena pillar; keeping procedural fallback.', error);
+  const assetPromise = variant === 'nagrand' ? loadArenaPillarAsset() : loadLordaeronPillarAsset();
+  const targetSize = variant === 'nagrand' ? new THREE.Vector3(1.564, 3.5535, 1.564) : new THREE.Vector3(1.6456, 4.2108, 1.6456);
+  void assetPromise.then((asset) => installArenaProp(root, fallback, asset, variant === 'nagrand' ? 'NagrandPillarImportedModel' : 'LordaeronPillarImportedModel', targetSize)).catch((error) => {
+    console.error(`Failed to load the ${variant} arena pillar; keeping procedural fallback.`, error);
   });
   return root;
 }
@@ -3832,10 +3937,35 @@ function loadArenaPillarAsset() {
   return arenaPillarAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-wooden-pillar.glb?v=20260830-1`);
 }
 
-function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>, name: string, targetSize: THREE.Vector3) {
+function loadLordaeronPillarAsset() {
+  return lordaeronPillarAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arena-lordaeron-pillar.glb?v=20260906-3`);
+}
+
+function improveImportedTextureQuality(root: THREE.Object3D) {
+  const anisotropy = renderer.capabilities.getMaxAnisotropy();
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      const textures = [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.aoMap, material.emissiveMap, material.alphaMap];
+      textures.forEach((texture) => {
+        if (!texture) return;
+        texture.anisotropy = anisotropy;
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.generateMipmaps = true;
+        texture.needsUpdate = true;
+      });
+    });
+  });
+}
+
+function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>, name: string, targetSize: THREE.Vector3, castShadow = true) {
   if (fallback.parent !== root) return;
   const model = asset.scene.clone(true) as THREE.Group;
   model.name = name;
+  improveImportedTextureQuality(model);
   const sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
   if (sourceSize.x <= 0 || sourceSize.y <= 0 || sourceSize.z <= 0) throw new Error(`${name} has invalid bounds.`);
   model.scale.set(targetSize.x / sourceSize.x, targetSize.y / sourceSize.y, targetSize.z / sourceSize.z);
@@ -3843,7 +3973,7 @@ function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Await
   model.position.y -= scaledBounds.min.y;
   model.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    child.castShadow = true;
+    child.castShadow = castShadow;
     child.receiveShadow = true;
   });
   disposeTemporaryCharacterBody(fallback);
@@ -4115,7 +4245,7 @@ function ensureMatchEndPresentation() {
   const defeatedIds = (Object.keys(gameState.players) as PlayerId[]).filter((id) => gameState.players[id].hp <= 0);
   const key = `${gameState.turn}:${gameState.winner ?? 'none'}:${defeatedIds.join(',')}`;
   if (matchEndPresentation?.key === key) return;
-  const newlyDefeatedId = defeatedIds.find((id) => pendingDeathAnimationIds.has(id)) ?? null;
+  const newlyDefeatedId = defeatedIds.find((id) => pendingDeathAnimationIds.has(id)) ?? defeatedIds[0] ?? null;
   matchEndPresentation = {
     key,
     defeatedId: newlyDefeatedId,
@@ -4156,17 +4286,21 @@ function resetMatchEndPresentation() {
 
 function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
   const group = dummyGroups.get(playerId);
-  if (!group?.userData.deathAnimationAvailable) return null;
+  if (!group) return null;
   if (group.userData.character === 'magician') return playWizardDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'orkk') return playOrkkDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'shinobi') return playObiWanDeathAnimation(playerId, startedAt);
-  return null;
+  const existing = proceduralDeathAnimations.get(playerId);
+  if (existing) return existing.startedAt + existing.duration;
+  const duration = 700;
+  proceduralDeathAnimations.set(playerId, { startedAt, duration, fromRotation: group.rotation.z });
+  return startedAt + duration;
 }
 
 function finishingBlowVisualsActive(time: number) {
   if (spellProjectileAnimations.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
   if (objectMovementAnimations.size > 0 || movementAnimations.size > 0 || objectImpactAnimations.size > 0 || impactAnimations.size > 0) return true;
-  if (stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
+  if (damageNumbers.length > 0 || stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
   for (const group of dummyGroups.values()) {
     const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
     if (wizard?.power) return true;
@@ -4181,7 +4315,7 @@ function finishingBlowVisualsActive(time: number) {
 }
 
 function updatePendingDeathAnimations(time: number) {
-  if (pendingDeathAnimationIds.size === 0 || time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
+  if (gameState.phase === 'finished' || pendingDeathAnimationIds.size === 0 || time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
   pendingDeathAnimationIds.forEach((playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group || gameState.players[playerId]?.hp > 0) {
@@ -5582,7 +5716,6 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
   if (!group) return;
   const target = worldPosition(targetCell);
   const from = group.position.clone();
-  from.y = target.y;
   const travelSquares = distanceFromWorld(from, target);
   pendingMovementCancellationTargets.set(playerId, cellLabel(targetCell));
   movementAnimations.set(playerId, {
@@ -5896,6 +6029,8 @@ function rebuildBoardGeometry(width: number, height: number) {
   for (let y = 0; y < height; y++) for (let x = 1; x <= width; x++) createCell({ x, y });
   createAxisLabels();
   syncNagrandOuterRing(width, height);
+  syncLordaeronPerimeter(width, height);
+  syncLordaeronTomb();
   fitCameraToArena(width, height);
 }
 
@@ -5944,6 +6079,133 @@ function syncNagrandOuterRing(width: number, height: number) {
   });
 }
 
+function loadLordaeronPerimeterAsset() {
+  if (lordaeronPerimeterAssetPromise) return lordaeronPerimeterAssetPromise;
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return lordaeronPerimeterAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/lordaeron-cemetery-perimeter.glb?v=20260907-4`);
+}
+
+function lordaeronPerimeterSpan(width: number, height: number) {
+  // The source perimeter is square. Uniform scaling preserves its proportions while
+  // leaving decorative/non-walkable space beside a rectangular 8x11 board.
+  return Math.max(width, height) * 1.92 + 11.3;
+}
+
+function sizeLordaeronPerimeter(model: THREE.Group, width: number, height: number) {
+  const sourceSize = model.userData.sourceSize as THREE.Vector3;
+  const sourceCenter = model.userData.sourceCenter as THREE.Vector3;
+  const sourceMinY = model.userData.sourceMinY as number;
+  const scale = lordaeronPerimeterSpan(width, height) / Math.max(sourceSize.x, sourceSize.z);
+  model.scale.setScalar(scale);
+  model.position.set(-sourceCenter.x * scale, 0.02 - sourceMinY * scale, -sourceCenter.z * scale);
+}
+
+function syncLordaeronPerimeter(width: number, height: number) {
+  const visible = visualArena().id === 'lordaeron';
+  lordaeronPerimeterGroup.visible = visible;
+  if (!visible) return;
+  const center = boardCenterWorld(width, height);
+  lordaeronPerimeterGroup.position.set(center.x, 0, center.z);
+  if (lordaeronPerimeterModel) {
+    sizeLordaeronPerimeter(lordaeronPerimeterModel, width, height);
+    return;
+  }
+  void loadLordaeronPerimeterAsset().then((asset) => {
+    if (lordaeronPerimeterModel) return;
+    const model = asset.scene.clone(true) as THREE.Group;
+    model.name = 'LordaeronPerimeterImportedModel';
+    improveImportedTextureQuality(model);
+    const sourceBounds = new THREE.Box3().setFromObject(model);
+    model.userData.sourceSize = sourceBounds.getSize(new THREE.Vector3());
+    model.userData.sourceCenter = sourceBounds.getCenter(new THREE.Vector3());
+    model.userData.sourceMinY = sourceBounds.min.y;
+    sizeLordaeronPerimeter(model, width, height);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    lordaeronPerimeterModel = model;
+    lordaeronPerimeterGroup.add(model);
+  }).catch((error) => {
+    console.error('Failed to load the Lordaeron cemetery perimeter.', error);
+  });
+}
+
+function loadLordaeronTombAsset() {
+  if (lordaeronTombAssetPromise) return lordaeronTombAssetPromise;
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return lordaeronTombAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/lordaeron-cemetery-tomb.glb?v=20260906-3`);
+}
+
+function lordaeronHighgroundFootprint() {
+  const positions = LORDAERON_ARENA.highground.map((label) => worldPosition({
+    x: label.charCodeAt(0) - 64,
+    y: Number(label.slice(1)) - 1,
+  }));
+  const minX = Math.min(...positions.map((position) => position.x));
+  const maxX = Math.max(...positions.map((position) => position.x));
+  const minZ = Math.min(...positions.map((position) => position.z));
+  const maxZ = Math.max(...positions.map((position) => position.z));
+  return {
+    centerX: (minX + maxX) * 0.5,
+    centerZ: (minZ + maxZ) * 0.5,
+    sizeX: maxX - minX + 1.72,
+    sizeZ: maxZ - minZ + 1.72,
+  };
+}
+
+function sizeLordaeronTomb(model: THREE.Group) {
+  const content = model.children[0] as THREE.Group;
+  const sourceSize = model.userData.sourceSize as THREE.Vector3;
+  const sourceCenter = model.userData.sourceCenter as THREE.Vector3;
+  const sourceMinY = model.userData.sourceMinY as number;
+  const footprint = lordaeronHighgroundFootprint();
+  const scaleX = footprint.sizeZ * LORDAERON_TOMB_OVERHANG_SCALE / sourceSize.x;
+  const scaleY = (LORDAERON_HIGHGROUND_TOP_Y - LORDAERON_TOMB_BASE_Y) / sourceSize.y;
+  const scaleZ = footprint.sizeX * LORDAERON_TOMB_OVERHANG_SCALE / sourceSize.z;
+  content.scale.set(scaleX, scaleY, scaleZ);
+  content.rotation.y = Math.PI * 0.5;
+  const transformedCenter = new THREE.Vector3(sourceCenter.x * scaleX, 0, sourceCenter.z * scaleZ)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), content.rotation.y);
+  content.position.set(-transformedCenter.x, -sourceMinY * scaleY, -transformedCenter.z);
+  lordaeronTombGroup.position.set(footprint.centerX, LORDAERON_TOMB_BASE_Y, footprint.centerZ);
+}
+
+function syncLordaeronTomb() {
+  const visible = visualArena().id === 'lordaeron';
+  lordaeronTombGroup.visible = visible;
+  if (!visible) return;
+  if (lordaeronTombModel) {
+    sizeLordaeronTomb(lordaeronTombModel);
+    return;
+  }
+  void loadLordaeronTombAsset().then((asset) => {
+    if (lordaeronTombModel) return;
+    const content = asset.scene.clone(true) as THREE.Group;
+    improveImportedTextureQuality(content);
+    const sourceBounds = new THREE.Box3().setFromObject(content);
+    const model = new THREE.Group();
+    model.name = 'LordaeronHighgroundTombImportedModel';
+    model.userData.sourceSize = sourceBounds.getSize(new THREE.Vector3());
+    model.userData.sourceCenter = sourceBounds.getCenter(new THREE.Vector3());
+    model.userData.sourceMinY = sourceBounds.min.y;
+    content.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    model.add(content);
+    sizeLordaeronTomb(model);
+    lordaeronTombModel = model;
+    lordaeronTombGroup.add(model);
+  }).catch((error) => {
+    console.error('Failed to load the Lordaeron high-ground tomb.', error);
+  });
+}
+
 type CameraViewportCenter = { x: number; y: number };
 
 function configureCameraProjectionForLayout(): CameraViewportCenter {
@@ -5975,6 +6237,29 @@ function configureCameraProjectionForLayout(): CameraViewportCenter {
   return { x: 0, y: offsetY * 2 / height };
 }
 
+function sizeArenaFloor(width: number, height: number) {
+  if (visualArena().id === 'lordaeron') {
+    if (floor.userData.geometryKind !== 'rectangle') {
+      floor.geometry.dispose();
+      floor.geometry = new THREE.BoxGeometry(1, 0.42, 1);
+      floor.userData.geometryKind = 'rectangle';
+    }
+    // Use the same per-axis decorative margin as the cemetery perimeter.
+    floor.scale.set(width * 1.92 + 11.3, 1, height * 1.92 + 11.3);
+    return;
+  }
+  if (floor.userData.geometryKind !== 'circle') {
+    floor.geometry.dispose();
+    floor.geometry = new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64);
+    floor.userData.geometryKind = 'circle';
+  }
+  const spanX = Math.max(1, width - 1) * 1.92;
+  const spanZ = Math.max(1, height - 1) * 1.92;
+  const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
+  const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
+  floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
+}
+
 function fitCameraToArena(width: number, height: number, force = false) {
   const arenaKey = `${visualArena().id}-${width}x${height}`;
   if (!force && fittedArenaKey === arenaKey) return;
@@ -5982,9 +6267,7 @@ function fitCameraToArena(width: number, height: number, force = false) {
 
   const spanX = Math.max(1, width - 1) * 1.92;
   const spanZ = Math.max(1, height - 1) * 1.92;
-  const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
-  const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
-  floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
+  sizeArenaFloor(width, height);
 
   // Start every arena slightly off-axis and low for a three-quarter view.
   const viewingDirection = new THREE.Vector3(0.5, 1.05, 1).normalize();
@@ -6024,8 +6307,10 @@ function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vec
 
 function worldPosition(cell: Cell) {
   const highGround = (gameState.elevations[cellLabel(cell)] ?? 0) > 0;
-  const slide = visualArena().slideSquares?.includes(cellLabel(cell)) ?? false;
-  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? 0.54 : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  const arena = visualArena();
+  const slide = arena.slideSquares?.includes(cellLabel(cell)) ?? false;
+  const highGroundY = arena.id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : 0.54;
+  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
 function syncSpectreShadowTrail() {
@@ -6162,6 +6447,11 @@ function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: Player
 }
 
 function syncBoard() {
+  const arenaId = visualArena().id;
+  if (lightingArenaId !== arenaId) {
+    lightingArenaId = arenaId;
+    setDawnArenaMode(arenaId === 'lordaeron');
+  }
   if (boardVisualKey !== boardGeometryKey()) rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
   syncSpectreShadowTrail();
   (Object.keys(gameState.players) as PlayerId[]).forEach((id) => {
@@ -6174,6 +6464,7 @@ function syncBoard() {
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
+    group.userData.playerId = id;
     ensureCharacterHitArea(group);
     const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
     // Keep every FFA character visible while bases are claimed. The state
@@ -6188,7 +6479,6 @@ function syncBoard() {
     const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi';
     if (defeated && group.userData.defeated !== true) {
       pendingDeathAnimationIds.add(id);
-      if (!hasRiggedDeathPose) proceduralDeathAnimations.set(id, { startedAt: performance.now(), duration: 700, fromRotation: group.rotation.z });
     } else if (!defeated) {
       pendingDeathAnimationIds.delete(id);
       proceduralDeathAnimations.delete(id);
@@ -6214,7 +6504,6 @@ function syncBoard() {
         delete gameState.players[id].visualMovementCause;
       } else {
         const from = group.position.clone();
-        from.y = target.y;
         const previousCell = { x: previousKey.charCodeAt(0) - 64, y: Number(previousKey.slice(1)) - 1 };
         const recordedMovement = gameState.players[id].visualMovement;
         const recordedPathMatches = recordedMovement
@@ -6265,7 +6554,7 @@ function syncBoard() {
     lastVisualCells.set(id, targetKey);
     group.userData.defeated = defeated;
     if (!defeated) group.rotation.z = 0;
-    else if (!hasRiggedDeathPose && !proceduralDeathAnimations.has(id)) group.rotation.z = Math.PI / 2;
+    else if (!hasRiggedDeathPose && !pendingDeathAnimationIds.has(id) && !proceduralDeathAnimations.has(id)) group.rotation.z = Math.PI / 2;
     const equippedShield = group.getObjectByName('EquippedShield');
     const recallInFlight = gameState.objectPushAnimations.some((event) => event.equipPlayerId === id && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     const throwInFlight = gameState.objectPushAnimations.some((event) => event.id.includes('-arkane-arow-')
@@ -6290,7 +6579,8 @@ function syncBoard() {
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
-    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createWoodenPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
+    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
+    group.userData.objectId = object.id;
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
     if (object.kind === 'spectre-replica') {
       ensureCharacterHitArea(group);
@@ -6332,6 +6622,9 @@ function syncBoard() {
       return;
     }
     if (event.damage) {
+      // Combat damage is calculated before the reveal dialog opens. Keep its
+      // counter queued so it appears over the victim only after confirmation.
+      if (gameState.combatReveal) return;
       processedObjectPushAnimations.add(event.id);
       const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, triggerRouteProgress: event.damage.triggerRouteProgress };
       if (event.damage.triggerAnimationId) {
@@ -6669,7 +6962,8 @@ function highlightCells() {
   cellMeshes.forEach((mesh) => {
     const cell = mesh.userData.cell as Cell;
     const playerOnCell = Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y);
-    const objectOnCell = gameState.objects.find((object) => object.position.x === cell.x && object.position.y === cell.y);
+    const objectsOnCell = gameState.objects.filter((object) => object.position.x === cell.x && object.position.y === cell.y);
+    const objectOnCell = objectsOnCell[0];
     const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
     const occupiedByPlayer = Boolean(playerOnCell && playerOnCell.id !== actor.id);
     const occupiedByObject = Boolean(objectOnCell);
@@ -6731,7 +7025,8 @@ function highlightCells() {
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
     const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell; source?: 'replicate' | 'split' } | undefined;
     const replacingOwnReplica = spectrePlacement?.source === 'replicate' && objectOnCell?.kind === 'spectre-replica' && objectOnCell.ownerId === spectrePlacement.casterId;
-    const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && !occupiedByPlayer && (!occupiedByObject || replacingOwnReplica) && (
+    const replicaCanUseBox = spectrePlacement?.source === 'replicate' && objectsOnCell.every((object) => object.kind === 'wooden-box' || (object.kind === 'spectre-replica' && object.ownerId === spectrePlacement.casterId));
+    const guardianPlacementValid = gameState.phase === 'choosing-spirit-guardian-square' && !occupiedByPlayer && (!occupiedByObject || replacingOwnReplica || replicaCanUseBox) && (
       Boolean(guardianPending) && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId])
       || Boolean(spectrePlacement) && distance(spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell) <= spectrePlacement!.range && hasReplicaPlacementLineOfSight(gameState, spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell, Boolean(gameState.players[spectrePlacement!.casterId].spectreOnBoxId) && !spectrePlacement!.origin)
     );
@@ -6796,7 +7091,13 @@ function highlightCells() {
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
     const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    material.emissive.set(forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const tombHighlight = mesh.userData.tombHighlight as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | undefined;
+    if (tombHighlight) {
+      tombHighlight.visible = valid;
+      tombHighlight.material.color.setHex(highlightColor);
+    }
   });
   updateTargetHighlights(performance.now());
 }
@@ -6921,6 +7222,12 @@ function onBoardClick(event: MouseEvent) {
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(scene.children, true);
+  hits.forEach((hit) => {
+    const playerId = hitUserData<PlayerId>(hit, 'playerId');
+    const objectId = hitUserData<string>(hit, 'objectId');
+    if (playerId) hit.object.userData.playerId = playerId;
+    if (objectId) hit.object.userData.objectId = objectId;
+  });
   const selected = selection.getSnapshot().context.selection;
   if (selectedTestObjectId) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
@@ -7305,8 +7612,10 @@ function renderCharacterBrowserProfile() {
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
   const definition = STARTING_DECKS[character];
   const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase];
-  const available = new Set<CardTypeId>(ids);
-  return CARDS.filter((card) => available.has(card.id) && card.kind === kind);
+  return ids.flatMap((id) => {
+    const card = CARDS.find((candidate) => candidate.id === id);
+    return card?.kind === kind ? [card] : [];
+  });
 }
 
 function renderCharacterBrowserCards() {

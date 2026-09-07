@@ -137,6 +137,33 @@ assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-gambler')?.rewa
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-spy')?.durationRounds, 4);
 assert.equal(ACTION_QUEST_POOL.find((quest) => quest.id === 'the-spy')?.reward, 'Feint');
 
+const occupiedBaseOnQuestStart = createGameInitialState() as any;
+occupiedBaseOnQuestStart.objects = [];
+occupiedBaseOnQuestStart.turn = 5;
+occupiedBaseOnQuestStart.players.P1.position = { x: 8, y: 3 };
+occupiedBaseOnQuestStart.players.P1.hand = [];
+occupiedBaseOnQuestStart.players.P2.hand = [];
+occupiedBaseOnQuestStart.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['damage-contest'], currentQuest: { id: 'damage-contest', announcedRound: 1, endsAfterRound: 5, winners: [], progress: {} }, lastQuestWinners: [], progression: {}, phaseReward: null, turnStartedOnHighGround: {}, captureTheFlag: null };
+const availableQuestIds = ACTION_QUEST_POOL.filter((quest) => quest.id !== 'damage-contest').map((quest) => quest.id);
+const captureQuestIndex = availableQuestIds.indexOf('capture-the-flag');
+const originalRandom = Math.random;
+let announcedConqueror: any;
+try {
+  Math.random = () => (captureQuestIndex + 0.5) / availableQuestIds.length;
+  const firstEnd = applyCommand(occupiedBaseOnQuestStart, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(firstEnd.ok, true);
+  if (!firstEnd.ok) throw new Error(firstEnd.error);
+  announcedConqueror = applyCommand(firstEnd.state, { type: 'end-turn', playerId: 'P2' });
+} finally {
+  Math.random = originalRandom;
+}
+assert.equal(announcedConqueror.ok, true);
+if (announcedConqueror.ok) {
+  const flags = announcedConqueror.state.questPhases.captureTheFlag.flags;
+  assert.equal(announcedConqueror.state.questPhases.currentQuest.id, 'capture-the-flag', 'The Conqueror starts at the phase boundary.');
+  assert.equal(flags.find((flag: any) => flag.ownerId === 'P2').carrierId, 'P1', 'A player already occupying an enemy Base square grabs its Flag when The Conqueror starts.');
+}
+
 const captureFlagState = createGameInitialState() as any;
 captureFlagState.activePlayerId = 'P1';
 captureFlagState.players.P1.position = { x: 7, y: 3 };
@@ -6967,27 +6994,33 @@ assert.equal(spectreState.players.P1.hp, 18, 'Spectre starts with 18 HP.');
 assert.equal(spectreState.players.P1.moveRange, 3, 'Spectre starts with 3 MOV.');
 assert.equal(spectreState.players.P1.attackRange, 1, 'Spectre is melee Range 1.');
 assert.equal(STARTING_DECKS.spectre.reserve, 'replicate');
+assert.equal(STARTING_DECKS.spectre.defaults.includes('displace'), true, 'Displace is a default Spectre Attack.');
+assert.equal(STARTING_DECKS.spectre.defaults.includes('solitude'), false, 'Solitude is no longer a default Spectre Attack.');
+assert.deepEqual(STARTING_DECKS.spectre.attackFocus, ['soul-strike', 'solitude'], 'Solitude replaces Displace among Spectre extra Attack choices.');
 for (const cardId of ['replicate', 'relocate', 'shadow-dagger', 'consume-replica', 'haunt', 'solitude', 'deja-vu', 'echo-strike', 'soul-strike', 'displace', 'devour', 'split', 'anguish', 'dispersion', 'accumulate'] as CardTypeId[]) assert.equal(cardDefinition({ instanceId: `spectre-${cardId}`, cardId }).id, cardId);
-assert.equal(cardDefinition({ instanceId: 'spectre-solitude-value', cardId: 'solitude' }).value, 2, 'Solitude has 2 base ATT.');
+assert.equal(cardDefinition({ instanceId: 'spectre-solitude-value', cardId: 'solitude' }).value, 3, 'Solitude has 3 base ATT.');
 assert.equal(cardDefinition({ instanceId: 'spectre-deja-value', cardId: 'deja-vu' }).value, 1, 'Deja Vu has 1 base ATT.');
-assert.match(cardDefinition({ instanceId: 'spectre-deja-text', cardId: 'deja-vu' }).effectText!, /create a copy of Deja Vu and shuffle it into your Deck/, 'Deja Vu tooltip includes its no-replica copy branch.');
+assert.match(cardDefinition({ instanceId: 'spectre-deja-text', cardId: 'deja-vu' }).effectText!, /return Deja Vu to your Hand/, 'Deja Vu tooltip includes its no-replica return-to-Hand branch.');
+assert.match(cardDefinition({ instanceId: 'spectre-echo-text', cardId: 'echo-strike' }).effectText!, /every enemy character/, 'Echo Strike targets enemy characters only.');
+assert.doesNotMatch(cardDefinition({ instanceId: 'spectre-echo-friendly-fire-text', cardId: 'echo-strike' }).effectText!, /allies|Spectre/i, 'Echo Strike no longer advertises friendly fire.');
 assert.match(cardDefinition({ instanceId: 'spectre-anguish-text', cardId: 'anguish' }).effectText!, /^After combat: if you suffered Damage, draw 1 Card\./, 'Anguish identifies both effects as post-combat effects.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-tooltip', cardId: 'replicate' }).levelEffects![0], /Range 2/, 'Replicate tooltip states its new Level 1 Range.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-draw-tooltip', cardId: 'replicate' }).levelEffects![0], /draw 1 Card/i, 'Replicate tooltip states its Level 1 draw.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-pull-tooltip', cardId: 'replicate' }).levelEffects![1], /Pull each enemy within Range 2 one Square/, 'Replicate Level 2 tooltip states its one-Square pull.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-panic-tooltip', cardId: 'replicate' }).levelEffects![1], /After the pull, add Panic to every adjacent enemy/, 'Replicate Level 2 tooltip states that Panic follows the pull.');
-assert.match(cardDefinition({ instanceId: 'spectre-replicate-action-tooltip', cardId: 'replicate' }).levelEffects![2], /Gain 1 Action/, 'Replicate Level 3 tooltip states its unconditional Action gain.');
+assert.match(cardDefinition({ instanceId: 'spectre-replicate-damage-tooltip', cardId: 'replicate' }).levelEffects![2], /deal 1 Damage to adjacent enemies/i, 'Replicate Level 3 tooltip states its adjacent-enemy damage.');
 assert.match(cardDefinition({ instanceId: 'spectre-relocate-movement-tooltip', cardId: 'relocate' }).levelEffects![0], /gain \+1 MOV/, 'Relocate Level 1 tooltip states its movement gain.');
+assert.match(cardDefinition({ instanceId: 'spectre-relocate-tether-tooltip', cardId: 'relocate' }).levelEffects![1], /Deal 1 Damage to every enemy between Spectre and the chosen replica/, 'Relocate Level 2 tooltip states its tether damage.');
 assert.match(cardDefinition({ instanceId: 'spectre-haunt-tooltip', cardId: 'haunt' }).levelEffects![0], /behind each enemy/i, 'Haunt Level 1 tooltip describes replica creation.');
+assert.match(cardDefinition({ instanceId: 'spectre-haunt-block-tooltip', cardId: 'haunt' }).levelEffects![1], /random Block Card.*must use that Card to Block/i, 'Haunt Level 2 tooltip describes its forced Block reveal.');
 assert.match(cardDefinition({ instanceId: 'spectre-shadow-trail-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /forbidden terrain/i, 'Shadow Dagger tooltip describes its trail traversal.');
 assert.match(cardDefinition({ instanceId: 'spectre-shadow-movement-tooltip', cardId: 'shadow-dagger' }).levelEffects![0], /gains \+1 MOV/, 'Shadow Dagger tooltip states its Level 1 movement bonus.');
 assert.match(cardDefinition({ instanceId: 'spectre-consume-replica-level-three-tooltip', cardId: 'consume-replica' }).levelEffects![2], /another Perk/i, 'Consume Replica Level 3 tooltip states that it permits another Perk.');
 assert.doesNotMatch(cardDefinition({ instanceId: 'spectre-soul-strike-timing-tooltip', cardId: 'soul-strike' }).effectText!, /Before combat:/, 'Soul Strike no longer labels its effect as Before combat.');
 assert.match(cardDefinition({ instanceId: 'spectre-soul-strike-damage-tooltip', cardId: 'soul-strike' }).effectText!, /no Cards in Hand, deal 2 additional Damage/, 'Soul Strike states its increased Damage against an empty Hand.');
-assert.equal(cardDefinition({ instanceId: 'spectre-displace-value', cardId: 'displace' }).value, 3, 'Displace has 3 base ATT.');
+assert.equal(cardDefinition({ instanceId: 'spectre-displace-value', cardId: 'displace' }).value, 2, 'Displace has 2 base ATT.');
 assert.match(cardDefinition({ instanceId: 'spectre-split-origin-tooltip', cardId: 'split' }).effectText!, /Range 1 of Spectre/, 'Split states that placement is centered on actual Spectre.');
-assert.match(cardDefinition({ instanceId: 'spectre-split-additional-tooltip', cardId: 'split' }).effectText!, /additional replica/, 'Split states that it creates an additional replica.');
-assert.match(cardDefinition({ instanceId: 'spectre-split-existing-tooltip', cardId: 'split' }).effectText!, /Existing replicas remain/, 'Split states that existing replicas are preserved.');
+assert.equal(cardDefinition({ instanceId: 'spectre-split-tooltip', cardId: 'split' }).effectText, 'After combat, create a replica on an empty Square within Range 1 of Spectre.', 'Split uses the simplified description.');
 assert.match(cardDefinition({ instanceId: 'spectre-devour-protection-tooltip', cardId: 'devour' }).effectText!, /all Damage, negative effects, and Status Cards/, 'Devour states the full scope of its combat protection.');
 
 const solitudeShadowColumnState = createHotseatTestState(true, 'spectre', 'dummy') as any;
@@ -6999,11 +7032,11 @@ solitudeShadowColumnState.spectreShadow = { casterId: 'P1', level: 1, origin: 's
 const solitudeFromColumn = applyGameCommand(solitudeShadowColumnState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'solitude-inside-column', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
 assert.equal(solitudeFromColumn.ok, true, 'Spectre may use Solitude while traversing a Column with Shadow Dagger.');
 if (solitudeFromColumn.ok) {
-  assert.equal(solitudeFromColumn.state.pendingAttack?.attackValue, 2, 'Solitude waits until the before-combat stage to apply its conditional bonus.');
+  assert.equal(solitudeFromColumn.state.pendingAttack?.attackValue, 3, 'Solitude waits until the before-combat stage to apply its conditional bonus.');
   const solitudeFromColumnResolved = applyCommand(solitudeFromColumn.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(solitudeFromColumnResolved.ok, true);
   if (solitudeFromColumnResolved.ok) {
-    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackTotal, 4, 'The traversed Column is ignored and Solitude gains +2 ATT before combat.');
+    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackTotal, 5, 'The traversed Column is ignored and Solitude gains +2 ATT before combat.');
     assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), true, 'The combat preview identifies the Solitude bonus.');
   }
 }
@@ -7093,6 +7126,21 @@ replicateBoxLosState.objects = [{ id: 'replicate-los-box', name: 'Wooden Box', k
 assert.equal(hasLineOfSight(replicateBoxLosState, { x: 2, y: 1 }, { x: 4, y: 1 }), true, 'A Wooden Box still does not block ordinary combat line of sight.');
 assert.equal(hasReplicaPlacementLineOfSight(replicateBoxLosState, { x: 2, y: 1 }, { x: 4, y: 1 }), false, 'A Wooden Box blocks Replicate placement line of sight.');
 
+const replicateOnBoxState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+replicateOnBoxState.phase = 'active'; replicateOnBoxState.activePlayerId = 'P1'; replicateOnBoxState.players.P1.position = { x: 1, y: 1 };
+replicateOnBoxState.players.P1.hand = [{ instanceId: 'replicate-on-box', cardId: 'replicate' }];
+replicateOnBoxState.objects = [{ id: 'replicate-support-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 1 } }];
+const replicateOnBoxPlay = applyGameCommand(replicateOnBoxState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'replicate-on-box', destination: 'direct' });
+assert.equal(replicateOnBoxPlay.ok, true, 'Replicate can begin targeting a Wooden Box.');
+if (replicateOnBoxPlay.ok) {
+  const replicateOnBoxPlaced = applyGameCommand(replicateOnBoxPlay.state, { type: 'spectre-replica-square', playerId: 'P1', to: { x: 3, y: 1 } });
+  assert.equal(replicateOnBoxPlaced.ok, true, 'Replicate can create a replica on a Wooden Box.');
+  if (replicateOnBoxPlaced.ok) {
+    const replica = replicateOnBoxPlaced.state.objects.find((object) => object.kind === 'spectre-replica' && object.ownerId === 'P1');
+    assert.equal(replica?.spectreOnBoxId, 'replicate-support-box', 'A Replica created on a Box retains its support Box identity.');
+  }
+}
+
 const replicatePullState = createHotseatTestState(true, 'spectre', 3, 'dummy') as any;
 replicatePullState.phase = 'active'; replicatePullState.activePlayerId = 'P1'; replicatePullState.objects = [];
 replicatePullState.players.P1.position = { x: 1, y: 1 }; replicatePullState.players.P2.position = { x: 4, y: 1 }; replicatePullState.players.P3.position = { x: 4, y: 3 };
@@ -7119,24 +7167,13 @@ replicateActionState.players.P1.hand = []; replicateActionState.players.P1.spell
 const replicateActionPlay = applyGameCommand(replicateActionState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(replicateActionPlay.ok, true);
 if (replicateActionPlay.ok) {
+  const targetHp = replicateActionPlay.state.players.P2.hp;
   const replicateActionPlaced = applyGameCommand(replicateActionPlay.state, { type: 'spectre-replica-square', playerId: 'P1', to: { x: 2, y: 1 } });
   assert.equal(replicateActionPlaced.ok, true);
   if (replicateActionPlaced.ok) {
     assert.deepEqual(replicateActionPlaced.state.players.P2.position, { x: 3, y: 1 }, 'Replicate Level 3 resolves its cumulative Level 2 pull first.');
-    assert.equal(replicateActionPlaced.state.players.P1.actionsRemaining, 2, 'Replicate Level 3 restores 1 Action after its cumulative Level 2 effects.');
+    assert.equal(replicateActionPlaced.state.players.P2.hp, targetHp - 1, 'Replicate Level 3 deals 1 Damage to enemies adjacent after the pull.');
   }
-}
-
-const replicateUnconditionalActionState = createHotseatTestState(true, 'spectre', 'dummy') as any;
-replicateUnconditionalActionState.phase = 'active'; replicateUnconditionalActionState.activePlayerId = 'P1'; replicateUnconditionalActionState.objects = [];
-replicateUnconditionalActionState.players.P1.position = { x: 1, y: 1 }; replicateUnconditionalActionState.players.P2.position = { x: 8, y: 7 };
-replicateUnconditionalActionState.players.P1.hand = []; replicateUnconditionalActionState.players.P1.spellEcho = [null, null, { instanceId: 'replicate-unconditional-action', cardId: 'replicate' }];
-const replicateUnconditionalActionPlay = applyGameCommand(replicateUnconditionalActionState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
-assert.equal(replicateUnconditionalActionPlay.ok, true);
-if (replicateUnconditionalActionPlay.ok) {
-  const replicateUnconditionalActionPlaced = applyGameCommand(replicateUnconditionalActionPlay.state, { type: 'spectre-replica-square', playerId: 'P1', to: { x: 2, y: 1 } });
-  assert.equal(replicateUnconditionalActionPlaced.ok, true);
-  if (replicateUnconditionalActionPlaced.ok) assert.equal(replicateUnconditionalActionPlaced.state.players.P1.actionsRemaining, 2, 'Replicate Level 3 gains 1 Action even when no enemy is adjacent.');
 }
 
 const replicateObstaclePullState = createHotseatTestState(true, 'spectre', 'dummy') as any;
@@ -7287,15 +7324,13 @@ const dejaCopyState = createHotseatTestState(true, 'spectre', 'dummy');
 dejaCopyState.phase = 'active'; dejaCopyState.activePlayerId = 'P1'; dejaCopyState.objects = [];
 dejaCopyState.players.P1.position = { x: 3, y: 3 }; dejaCopyState.players.P2.position = { x: 4, y: 3 };
 dejaCopyState.players.P1.hand = [{ instanceId: 'deja-copy-player', cardId: 'deja-vu' }];
-const playerDejaCopiesBefore = dejaCopyState.players.P1.deck.filter((card) => card.cardId === 'deja-vu').length;
+const playerDejaDeckBefore = [...dejaCopyState.players.P1.deck];
 const dejaCopied = applyGameCommand(dejaCopyState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-copy-player', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
 assert.equal(dejaCopied.ok, true);
 if (dejaCopied.ok) {
-  assert.equal(dejaCopied.state.players.P1.hand.some((card) => card.instanceId === 'deja-copy-player'), false, 'The played Deja Vu does not return to Hand when Spectre has no replica.');
-  assert.equal(dejaCopied.state.players.P1.discard.some((card) => card.instanceId === 'deja-copy-player'), true, 'The played Deja Vu is discarded normally.');
-  assert.equal(dejaCopied.state.players.P1.deck.filter((card) => card.cardId === 'deja-vu').length, playerDejaCopiesBefore + 1, 'Deja Vu creates and shuffles one new copy into the Deck.');
-  assert.equal(dejaCopied.state.players.P1.deck.some((card) => card.cardId === 'deja-vu' && card.instanceId !== 'deja-copy-player'), true, 'The shuffled Deja Vu is a new Card instance.');
-  assert.equal(dejaCopied.state.players.P1.knownTopCardId, null, 'Shuffling the Deja Vu copy clears knowledge of the top Deck Card.');
+  assert.equal(dejaCopied.state.players.P1.hand.some((card) => card.instanceId === 'deja-copy-player'), true, 'The played Deja Vu returns to Hand when Spectre has no replica.');
+  assert.equal(dejaCopied.state.players.P1.discard.some((card) => card.instanceId === 'deja-copy-player'), false, 'The returned Deja Vu does not remain in Discard.');
+  assert.deepEqual(dejaCopied.state.players.P1.deck, playerDejaDeckBefore, 'Returning Deja Vu does not change or shuffle the Deck.');
   assert.equal(dejaCopied.state.players.P1.actionsRemaining, 1, 'The no-replica Deja Vu still costs one Action.');
 }
 
@@ -7304,12 +7339,13 @@ dejaObjectCopyState.phase = 'active'; dejaObjectCopyState.activePlayerId = 'P1';
 dejaObjectCopyState.players.P1.position = { x: 3, y: 3 };
 dejaObjectCopyState.players.P1.hand = [{ instanceId: 'deja-copy-object', cardId: 'deja-vu' }];
 dejaObjectCopyState.objects = [{ id: 'deja-target-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } }];
-const objectDejaCopiesBefore = dejaObjectCopyState.players.P1.deck.filter((card) => card.cardId === 'deja-vu').length;
+const objectDejaDeckBefore = [...dejaObjectCopyState.players.P1.deck];
 const dejaObjectCopied = applyGameCommand(dejaObjectCopyState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-copy-object', origin: 'spectre', targetKind: 'object', targetId: 'deja-target-box' });
 assert.equal(dejaObjectCopied.ok, true);
 if (dejaObjectCopied.ok) {
-  assert.equal(dejaObjectCopied.state.players.P1.discard.some((card) => card.instanceId === 'deja-copy-object'), true, 'Object-targeting Deja Vu is discarded normally.');
-  assert.equal(dejaObjectCopied.state.players.P1.deck.filter((card) => card.cardId === 'deja-vu').length, objectDejaCopiesBefore + 1, 'Object-targeting Deja Vu also shuffles a new copy into the Deck without a replica.');
+  assert.equal(dejaObjectCopied.state.players.P1.hand.some((card) => card.instanceId === 'deja-copy-object'), true, 'Object-targeting Deja Vu returns to Hand without a replica.');
+  assert.equal(dejaObjectCopied.state.players.P1.discard.some((card) => card.instanceId === 'deja-copy-object'), false, 'Object-targeting Deja Vu does not remain in Discard.');
+  assert.deepEqual(dejaObjectCopied.state.players.P1.deck, objectDejaDeckBefore, 'Object-targeting Deja Vu does not change or shuffle the Deck.');
 }
 
 const solitudeBeforeCombatState = createHotseatTestState(true, 'spectre', 'dummy');
@@ -7319,12 +7355,12 @@ solitudeBeforeCombatState.players.P1.hand = [{ instanceId: 'solitude-before-comb
 const solitudeBeforeCombatAttack = applyGameCommand(solitudeBeforeCombatState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'solitude-before-combat', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
 assert.equal(solitudeBeforeCombatAttack.ok, true);
 if (solitudeBeforeCombatAttack.ok) {
-  assert.equal(solitudeBeforeCombatAttack.state.pendingAttack?.attackValue, 2, 'Solitude does not preload its conditional bonus before the Defend response.');
+  assert.equal(solitudeBeforeCombatAttack.state.pendingAttack?.attackValue, 3, 'Solitude does not preload its conditional bonus before the Defend response.');
   const defenderHp = solitudeBeforeCombatAttack.state.players.P2.hp;
   const solitudeResolved = applyCommand(solitudeBeforeCombatAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(solitudeResolved.ok, true);
   if (solitudeResolved.ok) {
-    assert.equal(solitudeResolved.state.players.P2.hp, defenderHp - 4, 'Solitude applies +2 ATT during the before-combat stage when its target is isolated.');
+    assert.equal(solitudeResolved.state.players.P2.hp, defenderHp - 5, 'Solitude applies +2 ATT during the before-combat stage when its target is isolated.');
     assert.equal(solitudeResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), true);
   }
 }
@@ -7340,7 +7376,7 @@ if (blockedSolitudeAttack.ok) {
   const blockedSolitude = applyCommand(blockedSolitudeAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'solitude-block' });
   assert.equal(blockedSolitude.ok, true);
   if (blockedSolitude.ok) {
-    assert.equal(blockedSolitude.state.players.P2.hp, defenderHp, 'Block cancels Solitude before combat, leaving its base 2 ATT against 2 DEF.');
+    assert.equal(blockedSolitude.state.players.P2.hp, defenderHp - 1, 'Block cancels Solitude before combat, leaving its base 3 ATT against 2 DEF.');
     assert.equal(blockedSolitude.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), false);
   }
 }
@@ -7530,7 +7566,7 @@ hauntState.objects = [{ id: 'old-haunt-replica', name: "Spectre's Replica", kind
 hauntState.players.P1.hand = [];
 hauntState.players.P1.actionsRemaining = 1;
 hauntState.players.P1.spellEcho = [null, null, { instanceId: 'haunt-level-three', cardId: 'haunt' }];
-hauntState.players.P2.hand = [{ instanceId: 'haunt-reveal-p2', cardId: 'attack-2' }];
+hauntState.players.P2.hand = [{ instanceId: 'haunt-non-block-p2', cardId: 'attack-2' }, { instanceId: 'haunt-reveal-p2', cardId: 'defend-1' }];
 hauntState.players.P3.hand = [{ instanceId: 'haunt-reveal-p3', cardId: 'defend-1' }];
 const haunted = applyGameCommand(hauntState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(haunted.ok, true, 'Haunt resolves immediately from Spell Echo.');
@@ -7538,8 +7574,10 @@ if (haunted.ok) {
   assert.deepEqual(spectreReplicas(haunted.state, 'P1').map((replica) => replica.position), [{ x: 5, y: 2 }, { x: 2, y: 5 }], 'Haunt replaces old replicas and creates one directly behind each enemy.');
   assert.equal(haunted.state.objects.some((object: any) => object.id === 'old-haunt-replica'), false, 'Haunt removes existing replicas.');
   assert.equal(haunted.state.players.P1.spectreAttackBonus, 1, 'Haunt Level 1 grants +1 ATT until turn end.');
-  assert.deepEqual(haunted.state.players.P2.hand[0].revealedToPlayerIds, ['P1'], 'Haunt Level 2 privately reveals one Card from P2 to Spectre.');
+  assert.deepEqual(haunted.state.players.P2.hand.find((card: any) => card.instanceId === 'haunt-reveal-p2')?.revealedToPlayerIds, ['P1'], 'Haunt Level 2 privately reveals one Block Card from P2 to Spectre.');
+  assert.equal(haunted.state.players.P2.hand.find((card: any) => card.instanceId === 'haunt-reveal-p2')?.soulStrikeForcedUse, 'defend', 'Haunt Level 2 marks P2’s revealed Block for forced use.');
   assert.deepEqual(haunted.state.players.P3.hand[0].revealedToPlayerIds, ['P1'], 'Haunt Level 2 privately reveals one Card from P3 to Spectre.');
+  assert.equal(haunted.state.players.P3.hand[0].soulStrikeForcedUse, 'defend', 'Haunt Level 2 marks P3’s revealed Block for forced use.');
   assert.equal(haunted.state.players.P1.actionsRemaining, 1, 'Haunt Level 3 restores the Action spent to use it.');
   haunted.state.players.P1.hand.push({ instanceId: 'haunt-second-replica-attack', cardId: 'attack-2' });
   const hauntReplicaAttack = applyGameCommand(haunted.state, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'haunt-second-replica-attack', origin: 'replica', targetKind: 'player', targetId: 'P3' });
@@ -7557,7 +7595,9 @@ hauntEchoStrikeState.players.P2.hand = []; hauntEchoStrikeState.players.P3.hand 
 hauntEchoStrikeState.objects = [
   { id: 'haunt-echo-replica-p2', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 5, y: 2 } },
   { id: 'haunt-echo-replica-p3', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 2, y: 5 } },
+  { id: 'haunt-echo-replica-owner', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 2, y: 1 } },
 ];
+const hauntEchoSpectreHp = hauntEchoStrikeState.players.P1.hp;
 const hauntEchoP2Hp = hauntEchoStrikeState.players.P2.hp;
 const hauntEchoP3Hp = hauntEchoStrikeState.players.P3.hp;
 const hauntEchoAttack = applyGameCommand(hauntEchoStrikeState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'haunt-echo-strike', origin: 'replica', targetKind: 'player', targetId: 'P2' });
@@ -7566,6 +7606,7 @@ if (hauntEchoAttack.ok) {
   const hauntEchoResolved = applyCommand(hauntEchoAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(hauntEchoResolved.ok, true, 'Echo Strike resolves with several Haunt replicas.');
   if (hauntEchoResolved.ok) {
+    assert.equal(hauntEchoResolved.state.players.P1.hp, hauntEchoSpectreHp, 'Echo Strike does not damage Spectre when she is adjacent to her own replica.');
     assert.equal(hauntEchoResolved.state.players.P2.hp, hauntEchoP2Hp - 3, 'The attacked dummy receives 2 combat Damage and 1 Echo Strike Damage from its adjacent replica.');
     assert.equal(hauntEchoResolved.state.players.P3.hp, hauntEchoP3Hp - 1, 'A dummy adjacent to another Haunt replica also receives 1 Echo Strike Damage.');
   }
@@ -7762,6 +7803,22 @@ if (singleReplicaRelocated.ok) {
   assert.equal(singleReplicaRelocated.state.players.P1.movementRemaining, 1, 'Relocate Level 1 grants +1 MOV after the swap.');
 }
 
+const relocateTetherDamageState = createHotseatTestState(true, 'spectre', 3, 'dummy') as any;
+relocateTetherDamageState.phase = 'active'; relocateTetherDamageState.activePlayerId = 'P1';
+relocateTetherDamageState.players.P1.position = { x: 1, y: 1 };
+relocateTetherDamageState.players.P2.position = { x: 3, y: 1 };
+relocateTetherDamageState.players.P3.position = { x: 3, y: 2 };
+relocateTetherDamageState.players.P1.hand = []; relocateTetherDamageState.players.P1.spellEcho = [null, { instanceId: 'relocate-tether-damage', cardId: 'relocate' }, null];
+relocateTetherDamageState.objects = [{ id: 'relocate-tether-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 5, y: 1 } }];
+const relocateTetherTargetHp = relocateTetherDamageState.players.P2.hp;
+const relocateOffLineTargetHp = relocateTetherDamageState.players.P3.hp;
+const relocateTetherDamaged = applyGameCommand(relocateTetherDamageState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(relocateTetherDamaged.ok, true, 'Level 2 Relocate resolves with a selected replica.');
+if (relocateTetherDamaged.ok) {
+  assert.equal(relocateTetherDamaged.state.players.P2.hp, relocateTetherTargetHp - 1, 'Relocate Level 2 deals 1 Damage to an enemy on the tether between Spectre and the replica.');
+  assert.equal(relocateTetherDamaged.state.players.P3.hp, relocateOffLineTargetHp, 'Relocate Level 2 does not damage enemies outside the tether line.');
+}
+
 const multiReplicaRelocateState = createHotseatTestState(true, 'spectre', 'dummy') as any;
 multiReplicaRelocateState.phase = 'active'; multiReplicaRelocateState.activePlayerId = 'P1';
 multiReplicaRelocateState.players.P1.position = { x: 1, y: 1 };
@@ -7930,19 +7987,36 @@ shadowStealState.spectreShadow = { casterId: 'P1', level: 2, trail: [], undo: nu
 const shadowSteal = applyGameCommand(shadowStealState, { type: 'spectre-shadow-direction', playerId: 'P1', to: { x: 2, y: 1 } });
 assert.equal(shadowSteal.ok, true, 'Shadow Dagger resolves its selected direction.');
 if (shadowSteal.ok) {
-  assert.equal(shadowSteal.state.players.P1.spectreShadowMoveBonus, 3, 'Spectre gains +1 MOV at Level 1 plus 1 MOV per enemy hit at Level 2.');
-  assert.equal(shadowSteal.state.players.P1.movementRemaining, 5, 'The Level 1 and stolen MOV are immediately added to Spectre’s unspent movement.');
-  assert.equal(shadowSteal.state.players.P2.spectreShadowMovePenalty, 1, 'The first enemy loses 1 maximum MOV.');
-  assert.equal(shadowSteal.state.players.P3.spectreShadowMovePenalty, 1, 'The second enemy loses 1 maximum MOV.');
-  assert.equal(shadowSteal.state.players.P2.movementRemaining, 1, 'The first enemy immediately loses 1 unspent MOV.');
-  assert.equal(shadowSteal.state.players.P3.movementRemaining, 1, 'The second enemy immediately loses 1 unspent MOV.');
-  assert.equal(effectiveMoveRange(shadowSteal.state.players.P1), shadowSteal.state.players.P1.moveRange + 3, 'Spectre’s maximum MOV includes its Level 1 and stolen movement.');
+  assert.equal(shadowSteal.state.players.P1.spectreShadowMoveBonus, 1, 'Spectre gains only Shadow Dagger Level 1’s +1 MOV.');
+  assert.equal(shadowSteal.state.players.P1.movementRemaining, 3, 'Shadow Dagger Level 2 does not add unspent MOV.');
+  assert.equal(shadowSteal.state.players.P2.spectreShadowDefensePenalty, 1, 'The first enemy has -1 DEF until the end of Spectre’s turn.');
+  assert.equal(shadowSteal.state.players.P3.spectreShadowDefensePenalty, 1, 'The second enemy has -1 DEF until the end of Spectre’s turn.');
+  assert.equal(shadowSteal.state.players.P2.movementRemaining, 2, 'Shadow Dagger Level 2 does not change enemy MOV.');
+  assert.equal(shadowSteal.state.players.P3.movementRemaining, 2, 'Shadow Dagger Level 2 does not change enemy MOV.');
+  assert.equal(effectiveMoveRange(shadowSteal.state.players.P1), shadowSteal.state.players.P1.moveRange + 1, 'Spectre’s maximum MOV includes only the Level 1 bonus.');
   const shadowExpired = applyGameCommand(shadowSteal.state, { type: 'end-turn', playerId: 'P1' });
   assert.equal(shadowExpired.ok, true, 'Spectre may end the turn after Shadow Dagger.');
   if (shadowExpired.ok) {
-    assert.equal(shadowExpired.state.players.P1.spectreShadowMoveBonus, 0, 'Stolen MOV expires at the end of Spectre’s turn.');
-    assert.equal(shadowExpired.state.players.P2.spectreShadowMovePenalty, 0, 'Enemy Shadow Dagger penalties expire at the end of Spectre’s turn.');
-    assert.equal(shadowExpired.state.players.P3.spectreShadowMovePenalty, 0, 'All enemy Shadow Dagger penalties expire together.');
+    assert.equal(shadowExpired.state.players.P1.spectreShadowMoveBonus, 0, 'Shadow Dagger MOV expires at the end of Spectre’s turn.');
+    assert.equal(shadowExpired.state.players.P2.spectreShadowDefensePenalty, 0, 'Enemy Shadow Dagger DEF penalties expire at the end of Spectre’s turn.');
+    assert.equal(shadowExpired.state.players.P3.spectreShadowDefensePenalty, 0, 'All enemy Shadow Dagger DEF penalties expire together.');
+  }
+}
+
+const shadowDaggerDefenseState = createHotseatTestState(true, 'spectre', 'dummy') as any;
+shadowDaggerDefenseState.phase = 'active'; shadowDaggerDefenseState.activePlayerId = 'P1';
+shadowDaggerDefenseState.players.P1.position = { x: 1, y: 1 }; shadowDaggerDefenseState.players.P2.position = { x: 2, y: 1 };
+shadowDaggerDefenseState.players.P1.hand = [{ instanceId: 'shadow-dagger-defense-attack', cardId: 'attack-2' }];
+shadowDaggerDefenseState.players.P2.hand = [{ instanceId: 'shadow-dagger-defense-card', cardId: 'defend-1' }];
+shadowDaggerDefenseState.players.P2.spectreShadowDefensePenalty = 1;
+const shadowDaggerDefenseAttack = applyGameCommand(shadowDaggerDefenseState, { type: 'attack', playerId: 'P1', cardInstanceId: 'shadow-dagger-defense-attack', targetKind: 'player', targetId: 'P2' });
+assert.equal(shadowDaggerDefenseAttack.ok, true, 'A Shadow Dagger-marked enemy can still be attacked normally.');
+if (shadowDaggerDefenseAttack.ok) {
+  const shadowDaggerDefense = applyGameCommand(shadowDaggerDefenseAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'shadow-dagger-defense-card' });
+  assert.equal(shadowDaggerDefense.ok, true, 'A Shadow Dagger-marked enemy may still choose a Defend Card.');
+  if (shadowDaggerDefense.ok) {
+    assert.equal(shadowDaggerDefense.state.combatReveal?.defendTotal, 0, 'Shadow Dagger Level 2 reduces the chosen 1-DEF card to 0.');
+    assert.equal(shadowDaggerDefense.state.combatReveal?.defendModifiers?.some((modifier) => modifier.source === 'Shadow Dagger' && modifier.value === -1), true, 'The combat reveal identifies Shadow Dagger as a Defend Card penalty.');
   }
 }
 

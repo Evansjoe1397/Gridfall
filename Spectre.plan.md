@@ -40,7 +40,7 @@ Update `shared/game.ts`:
 - Add `SPECTRE_CARD_IDS` and a Spectre entry in `STARTING_DECKS`:
   - defaults: the three starting Attacks, three starting Defends, and three starting Perks;
   - reserve: `replicate`;
-  - attack focus: `soul-strike`, `displace`;
+  - attack focus: `soul-strike`, `solitude`;
   - defend focus: `dispersion`, `accumulate`;
   - perk phase: `consume-replica`, `fear`.
 - Extend `createPlayer()` with 16 HP, Move 3, Range 1, Spectre's card collection, and initial Spectre-specific transient state.
@@ -170,10 +170,10 @@ Tests should cover each card from Spectre and replica origins, with and without 
 - **Devour:** add a pre-damage combat prevention flag covering combat Damage and every Attack/Defend card-effect Damage event belonging to that combat, destroy the replica, and add Headache. Integrate with combat preview, statistics, Attack-effect cancellation, and deferred acknowledgement.
 - **Split:** enter replica-placement after combat without losing the serialized deferred state.
 - **Anguish:** after combat, optionally move one Spectre-chosen Pinned, Headache, Exhaust, Burning, or Panic Card instance from the shared Spectre Hand to the attacker's Hand. Resolve with no effect when none is eligible. Treat the transfer as applying a negative Status: Blessing: Shield or equivalent protection can block it, in which case the Card remains with Spectre. Reveal a successful transfer publicly to every player. Skip the transfer if the attacker has already reached 0 HP and ended the match.
-- **Dispersion:** use actual received combat Damage, clamp the copied amount to 3 per adjacent enemy, center the blast on whichever body was attacked, and classify it as defensive retaliation Damage.
+- **Dispersion:** use actual received combat Damage, clamp the copied amount to 4 per adjacent enemy, center the blast on whichever body was attacked, and classify it as defensive retaliation Damage.
 - **Accumulate:** store each clamped received-combat-Damage bonus independently, stack all pending bonuses for the next Spectre turn, activate them at turn start, and expire them at turn end. Apply the resolved overall cap and per-attack duration.
 
-Tests should cover zero Damage, prevented Damage, lethal combat, effect cancellation, Anguish transfers and protection, replica-centered Dispersion, self/allied adjacency exclusions, the cap of 3 per enemy, stacked Accumulate effects, and multiplayer acknowledgement timing.
+Tests should cover zero Damage, prevented Damage, lethal combat, effect cancellation, Anguish transfers and protection, replica-centered Dispersion, self/allied adjacency exclusions, the cap of 4 per enemy, stacked Accumulate effects, and multiplayer acknowledgement timing.
 
 ## Phase 9 — client rendering, controls, and feedback
 
