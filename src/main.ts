@@ -531,7 +531,9 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
-  setDawnArenaMode(format === 'duel' && arena === 'nagrand');
+  const startedArenaId = visualArena().id;
+  lightingArenaId = startedArenaId;
+  setDawnArenaMode(startedArenaId !== 'trench');
   boardVisualKey = '';
   fittedArenaKey = '';
   lobby.classList.add('hidden');
@@ -622,15 +624,18 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.onMessage('perk-used', (event: PerkUseEvent) => spawnPerkUseLabel(event));
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
-      const arenaChanged = gameState.boardSize !== state.boardSize;
-      const shouldFitCamera = enteringBattle || arenaChanged;
+      const previousArenaId = visualArena().id;
+      const previousBoardSize = gameState.boardSize;
       gameState = normalizeOnlineState(state);
+      const arenaChanged = previousArenaId !== visualArena().id || previousBoardSize !== gameState.boardSize;
+      const shouldFitCamera = enteringBattle || arenaChanged;
       if (gameState.phase !== 'choosing-combat-stack') { combatStackSelectionKey = ''; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
       const onlineArena = (gameState as GameState & { arenaId?: ArenaId }).arenaId === 'trench' ? THE_TRENCH_ARENA : gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA : NAGRAND_ARENA;
       const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
       if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
-        setDawnArenaMode(onlineArena.id === 'nagrand');
+        lightingArenaId = onlineArena.id;
+        setDawnArenaMode(onlineArena.id !== 'trench');
         boardVisualKey = '';
         fittedArenaKey = '';
       }
@@ -2501,7 +2506,26 @@ const floor: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> = new 
 floor.userData.geometryKind = 'circle';
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
 
+// Shared by the sky and stars so clouds and the moon also obscure starlight.
+const arenaSkyDetails = `
+  uniform float time;
+  uniform bool hauntedSky;
+  vec3 moonDirection() { return normalize(vec3(-.85, .08, -.5)); }
+  float nebulaDensity(vec3 d) {
+    float drift = time * .008;
+    float band = exp(-pow((d.y + .24 * d.x - .1) * 2.3, 2.0));
+    float folds = sin(d.x * 9.0 + d.z * 5.0 + drift)
+      + .5 * sin(d.z * 17.0 - d.y * 8.0 - drift * .6);
+    return band * smoothstep(-.3, 1.35, folds);
+  }
+  float moonDisc(vec3 d) {
+    return 1.0 - smoothstep(.065, .068, length(d - moonDirection()));
+  }
+`;
 const dawnSkyUniforms = {
+  time: hologramShaderTime,
+  hauntedSky: { value: false },
+  correctOutputColor: { value: true },
   zenithColor: { value: new THREE.Color(0x0e0505) },
   horizonColor: { value: new THREE.Color(0x3d1309) },
   lowerSkyColor: { value: new THREE.Color(0x090304) },
@@ -2526,6 +2550,7 @@ const dawnSkyDome = new THREE.Mesh(
     `,
     fragmentShader: `
       varying vec3 vDirection;
+      uniform bool correctOutputColor;
       uniform vec3 zenithColor;
       uniform vec3 horizonColor;
       uniform vec3 lowerSkyColor;
@@ -2533,6 +2558,7 @@ const dawnSkyDome = new THREE.Mesh(
       uniform vec3 cloudColor;
       uniform vec3 wispColor;
       uniform vec3 hazeColor;
+      ${arenaSkyDetails}
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -2569,7 +2595,48 @@ const dawnSkyDome = new THREE.Mesh(
         float haze = exp(-abs(direction.y) * 7.0);
         sky = mix(sky, hazeColor, haze * .30);
 
+        float nebula = nebulaDensity(direction);
+        vec3 nebulaColor = hauntedSky ? vec3(.018, .13, .095) : vec3(.07, .022, .08);
+        sky = mix(sky, nebulaColor, nebula * .18);
+
+        float moonDistance = length(direction - moonDirection());
+        float disc = moonDisc(direction);
+        float halo = exp(-pow((moonDistance - .068) / .014, 2.0));
+        vec3 moonTint = hauntedSky ? vec3(.08, .24, .14) : vec3(.3, .19, .12);
+        sky += moonTint * halo * (hauntedSky ? .22 : .09);
+        if (disc > 0.0) {
+          vec3 tangent = normalize(cross(moonDirection(), vec3(0.0, 1.0, 0.0)));
+          vec3 up = cross(tangent, moonDirection());
+          vec2 uv = vec2(dot(direction, tangent), dot(direction, up)) / .067;
+          float surface = .6 + .4 * noise(uv * 13.0);
+          float crack = 1.0 - smoothstep(.025, .06, abs(uv.x + .13 * sin(uv.y * 9.0)));
+          float edgeLight = smoothstep(.72, 1.0, length(uv));
+          vec3 moon = hauntedSky ? moonTint * (.018 + edgeLight * .42)
+            : moonTint * surface * (.45 + .35 * uv.x) * (1.0 - crack * .85);
+          sky = mix(sky, moon, disc);
+        }
+
+        // One short event per 43 seconds; evaluated only during its active window.
+        float eventTime = mod(time, 43.0);
+        if (eventTime > 32.0 && eventTime < 33.6) {
+          float age = (eventTime - 32.0) / 1.6;
+          float seed = floor(time / 43.0);
+          float angle = seed * 2.39996 + 3.7;
+          vec3 start = normalize(vec3(cos(angle), .16, sin(angle)));
+          vec3 travel = normalize(cross(start, vec3(0.0, 1.0, 0.0)) + vec3(0.0, -.3, 0.0));
+          vec3 head = normalize(start + travel * age * .28);
+          float along = dot(direction - head, travel);
+          float across = length((direction - head) - along * travel);
+          float tail = exp(-across * across / .000006)
+            * smoothstep(-.12, 0.0, along) * (1.0 - smoothstep(0.0, .004, along));
+          sky += (hauntedSky ? vec3(.18, .5, .34) : vec3(.7, .48, .22))
+            * tail * sin(age * 3.14159265) * .65;
+        }
+
         gl_FragColor = vec4(sky, 1.0);
+        if (correctOutputColor) {
+          #include <colorspace_fragment>
+        }
       }
     `,
   }),
@@ -2603,17 +2670,19 @@ const horizonGrid = new THREE.Mesh(
       uniform vec3 majorColor;
       float gridLine(float coordinate, float spacing, float width) {
         float lineDistance = abs(fract(coordinate / spacing + .5) - .5) * spacing;
-        return 1.0 - smoothstep(width, width * 1.8, lineDistance);
+        float aa = max(fwidth(coordinate), width);
+        return (1.0 - smoothstep(width, width + aa, lineDistance)) * width / aa;
       }
       void main() {
         float minor = max(gridLine(vWorldPosition.x, 2.4, .018), gridLine(vWorldPosition.z, 2.4, .018));
         float major = max(gridLine(vWorldPosition.x, 12.0, .045), gridLine(vWorldPosition.z, 12.0, .045));
         float distanceFromArena = length(vWorldPosition.xz);
-        float outerFade = 1.0 - smoothstep(80.0, 175.0, distanceFromArena);
+        float outerFade = 1.0 - smoothstep(35.0, 115.0, distanceFromArena);
         float innerFade = smoothstep(13.0, 25.0, distanceFromArena);
         vec3 color = mix(minorColor, majorColor, major);
         float alpha = max(minor * .12, major * .25) * outerFade * innerFade;
         gl_FragColor = vec4(color, alpha);
+        #include <colorspace_fragment>
       }
     `,
   }),
@@ -2623,23 +2692,95 @@ horizonGrid.position.y = -15;
 horizonGrid.visible = false;
 scene.add(horizonGrid);
 
+// A single transparent sheet beneath the platform: no volumetric ray marching.
+const arenaMist = new THREE.Mesh(
+  new THREE.PlaneGeometry(90, 90),
+  new THREE.ShaderMaterial({
+    uniforms: { time: hologramShaderTime, hauntedSky: dawnSkyUniforms.hauntedSky },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec2 mistPosition;
+      void main() {
+        mistPosition = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      uniform bool hauntedSky;
+      varying vec2 mistPosition;
+      void main() {
+        float radius = length(mistPosition);
+        float envelope = smoothstep(8.0, 17.0, radius) * (1.0 - smoothstep(22.0, 43.0, radius));
+        vec2 p = mistPosition * .18;
+        float waves = sin(p.x + sin(p.y * 1.4 + time * .04))
+          * sin(p.y * .8 - time * .025) + .35 * sin(p.x * 2.4 + p.y * 1.7 + time * .03);
+        float wisps = smoothstep(-.25, 1.2, waves);
+        vec3 color = hauntedSky ? vec3(.045, .12, .09) : vec3(.12, .07, .05);
+        gl_FragColor = vec4(color, envelope * wisps * .14);
+        #include <colorspace_fragment>
+      }
+    `,
+  }),
+);
+arenaMist.rotation.x = -Math.PI / 2;
+arenaMist.position.y = -1.4;
+arenaMist.visible = false;
+scene.add(arenaMist);
+
 const dawnStarPositions: number[] = [];
 const dawnStarSizes: number[] = [];
-const dawnStarCount = 900;
+const dawnStarBrightness: number[] = [];
+const dawnStarTwinklePhase: number[] = [];
+const dawnStarTwinkleStrength: number[] = [];
+const dawnStarCount = 5200;
+let dawnStarSeed = 0x6d2b79f5;
+const dawnStarRandom = () => {
+  dawnStarSeed |= 0;
+  dawnStarSeed = dawnStarSeed + 0x6d2b79f5 | 0;
+  let value = Math.imul(dawnStarSeed ^ dawnStarSeed >>> 15, 1 | dawnStarSeed);
+  value = value + Math.imul(value ^ value >>> 7, 61 | value) ^ value;
+  return ((value ^ value >>> 14) >>> 0) / 4294967296;
+};
+const randomSkyDirection = () => {
+  const vertical = THREE.MathUtils.lerp(-1, 1, dawnStarRandom());
+  const angle = dawnStarRandom() * Math.PI * 2;
+  const horizontalRadius = Math.sqrt(Math.max(0, 1 - vertical * vertical));
+  return new THREE.Vector3(Math.cos(angle) * horizontalRadius, vertical, Math.sin(angle) * horizontalRadius);
+};
 for (let index = 0; index < dawnStarCount; index++) {
-  const vertical = 1 - 2 * ((index + .5) / dawnStarCount);
-  const horizontalRadius = Math.sqrt(1 - vertical * vertical);
-  const angle = index * Math.PI * (3 - Math.sqrt(5)) + .37;
+  // Broad density variation, with a populated background in every direction.
+  // Sample the entire sphere because the board camera usually looks downward.
+  let direction: THREE.Vector3;
+  let density: number;
+  do {
+    direction = randomSkyDirection();
+    const variation = Math.sin(direction.x * 7 + direction.y * 3)
+      * Math.sin(direction.z * 6 - direction.y * 4 + 1.7);
+    density = .72 + .24 * variation;
+  } while (dawnStarRandom() > density);
   const radius = 1400;
-  dawnStarPositions.push(Math.cos(angle) * horizontalRadius * radius, vertical * radius, Math.sin(angle) * horizontalRadius * radius);
-  dawnStarSizes.push(3.1 + (index * 11 % 8) * .38);
+  const brightness = .3 + Math.pow(dawnStarRandom(), 2.3) * .7;
+  dawnStarPositions.push(direction.x * radius, direction.y * radius, direction.z * radius);
+  dawnStarSizes.push(1.7 + Math.pow(dawnStarRandom(), 5) * 3.8);
+  dawnStarBrightness.push(brightness);
+  dawnStarTwinklePhase.push(dawnStarRandom() * Math.PI * 2);
+  dawnStarTwinkleStrength.push(brightness > .72 ? Math.pow((brightness - .72) / .28, 1.7) * (.1 + dawnStarRandom() * .16) : 0);
 }
 const dawnStarGeometry = new THREE.BufferGeometry();
 dawnStarGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dawnStarPositions, 3));
 dawnStarGeometry.setAttribute('size', new THREE.Float32BufferAttribute(dawnStarSizes, 1));
+dawnStarGeometry.setAttribute('brightness', new THREE.Float32BufferAttribute(dawnStarBrightness, 1));
+dawnStarGeometry.setAttribute('twinklePhase', new THREE.Float32BufferAttribute(dawnStarTwinklePhase, 1));
+dawnStarGeometry.setAttribute('twinkleStrength', new THREE.Float32BufferAttribute(dawnStarTwinkleStrength, 1));
 const dawnStarUniforms = {
+  hauntedSky: dawnSkyUniforms.hauntedSky,
   glowColor: { value: new THREE.Color(0xff4d0e) },
   coreColor: { value: new THREE.Color(0xffdb7a) },
+  time: hologramShaderTime,
+  pixelRatio: { value: renderer.getPixelRatio() },
 };
 const dawnStarField = new THREE.Points(
   dawnStarGeometry,
@@ -2651,24 +2792,37 @@ const dawnStarField = new THREE.Points(
     blending: THREE.AdditiveBlending,
     vertexShader: `
       attribute float size;
+      attribute float brightness;
+      attribute float twinklePhase;
+      attribute float twinkleStrength;
       varying float vBrightness;
+      varying float vHorizonFade;
+      ${arenaSkyDetails}
+      uniform float pixelRatio;
       void main() {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size;
-        vBrightness = .7 + fract(size * 1.91) * .3;
+        gl_PointSize = max(3.0, size * 1.8) * pixelRatio;
+        float twinkle = 1.0 + sin(time * .7 + twinklePhase) * twinkleStrength;
+        vBrightness = brightness * twinkle * (1.0 - .4 * nebulaDensity(normalize(position)))
+          * (1.0 - moonDisc(normalize(position)));
+        // Gentle haze at the horizon; retain stars in the lower sky backdrop.
+        vHorizonFade = mix(.65, 1.0, smoothstep(0.0, .25, abs(normalize(position).y)));
       }
     `,
     fragmentShader: `
       varying float vBrightness;
+      varying float vHorizonFade;
       uniform vec3 glowColor;
       uniform vec3 coreColor;
       void main() {
         float distanceFromCenter = length(gl_PointCoord - vec2(.5));
         if (distanceFromCenter > .5) discard;
-        float core = 1.0 - smoothstep(.04, .2, distanceFromCenter);
-        float glow = 1.0 - smoothstep(.14, .5, distanceFromCenter);
+        float core = exp(-32.0 * distanceFromCenter * distanceFromCenter);
+        float glow = exp(-12.0 * distanceFromCenter * distanceFromCenter)
+          * (1.0 - smoothstep(.35, .5, distanceFromCenter));
         vec3 color = mix(glowColor, coreColor, core);
-        gl_FragColor = vec4(color, (core * .8 + glow * .42) * vBrightness);
+        gl_FragColor = vec4(color, (core * .82 + glow * .34) * vBrightness * vHorizonFade);
+        #include <colorspace_fragment>
       }
     `,
   }),
@@ -2699,6 +2853,9 @@ function adjustDawnLightLevel(direction: -1 | 1) {
 function setDawnArenaMode(enabled: boolean) {
   dawnArenaMode = enabled;
   const lordaeronPalette = enabled && visualArena().id === 'lordaeron';
+  dawnSkyUniforms.hauntedSky.value = lordaeronPalette;
+  // Preserve the approved green sky; restore the original warm sky brightness.
+  dawnSkyUniforms.correctOutputColor.value = !lordaeronPalette;
   scene.background = enabled ? null : darkArenaBackground;
   scene.fog = new THREE.Fog(enabled ? (lordaeronPalette ? 0x082b20 : 0x241014) : 0x07100e, enabled ? (lordaeronPalette ? 68 : 76) : 72, enabled ? (lordaeronPalette ? 180 : 200) : 120);
   hemisphereLight.color.setHex(enabled ? (lordaeronPalette ? 0x75d8bb : 0xe6b69b) : 0xbde8dc);
@@ -2720,6 +2877,7 @@ function setDawnArenaMode(enabled: boolean) {
   applyArenaLightLevel();
   dawnSkyDome.visible = enabled;
   horizonGrid.visible = enabled;
+  arenaMist.visible = enabled;
   dawnStarField.visible = enabled;
   (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? (lordaeronPalette ? 0x102c22 : 0x21332f) : 0x0d1b18);
   const arenaFrame = boardEl.closest('.arena-frame');
@@ -2818,7 +2976,7 @@ const visualArena = (): ArenaDefinition => {
 const visualBoardWidth = () => visualArena().width;
 const visualBoardHeight = () => gameState.boardSize;
 const placementState = () => (gameState as GameState & { lordaeronPlacement?: { availableBaseIds: ('P1' | 'P2' | 'P3')[]; claims: Partial<Record<PlayerId, 'P1' | 'P2' | 'P3'>> } }).lordaeronPlacement;
-const boardGeometryKey = () => `${visualBoardWidth()}x${visualBoardHeight()}-${JSON.stringify(placementState()?.claims ?? {})}`;
+const boardGeometryKey = () => `${visualArena().id}-${visualBoardWidth()}x${visualBoardHeight()}-${JSON.stringify(placementState()?.claims ?? {})}`;
 rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
 dummyGroups.set('P1', createDaOrkk(0x169bd3));
 dummyGroups.set('P2', createObiWanShinobi(0xff5d68));
@@ -2979,6 +3137,9 @@ renderer.setAnimationLoop((time) => {
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
   updatePerkUseLabels(time);
+  // Sky has infinite apparent distance: camera dolly must not move its stars.
+  dawnSkyDome.position.copy(camera.position);
+  dawnStarField.position.copy(camera.position);
   renderer.render(scene, camera);
 });
 
@@ -6023,6 +6184,8 @@ function addLabel(text: string, x: number, z: number) {
 }
 
 function rebuildBoardGeometry(width: number, height: number) {
+  const mistCenter = boardCenterWorld(width, height);
+  arenaMist.position.set(mistCenter.x, -1.4, mistCenter.z);
   cellMeshes.splice(0).forEach((mesh) => { scene.remove(mesh); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
   axisLabels.splice(0).forEach((label) => { scene.remove(label); label.material.map?.dispose(); label.material.dispose(); });
   boardVisualKey = boardGeometryKey();
@@ -6450,7 +6613,7 @@ function syncBoard() {
   const arenaId = visualArena().id;
   if (lightingArenaId !== arenaId) {
     lightingArenaId = arenaId;
-    setDawnArenaMode(arenaId === 'lordaeron');
+    setDawnArenaMode(arenaId !== 'trench');
   }
   if (boardVisualKey !== boardGeometryKey()) rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
   syncSpectreShadowTrail();
