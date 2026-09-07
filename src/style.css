@@ -196,7 +196,36 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .pass-through-status { border-color: #7bc8ff; background: rgba(11,39,60,.96); color: #a8ddff; text-shadow: 0 0 8px #55bfff; }
 .flag-carrier-status { border-color: #ffd166; background: rgba(67,49,8,.96); color: #ffe59a; text-shadow: 0 0 8px #ffd166; }
 .rage-status { border-color: #ff7a35; background: rgba(91,31,12,.96); color: #ffb25c; text-shadow: 0 0 8px #ff5a24; }
-.orkk-shield-status.inactive { border-color: #5c6d68; background: rgba(19, 29, 26, .94); color: #78908a; filter: grayscale(.8); }
+.orkk-shield-status.inactive { border-color: #5c6d68; background: rgba(19, 29, 26, .94); color: #78908a; }
+/* Compact transparent glyphs share one visual style across traits and statuses. */
+.game-icon {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  object-fit: contain;
+  pointer-events: none;
+}
+.status-icon > .game-icon, .trait-icon > .game-icon {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 2px;
+}
+.status-icon, .trait-icon {
+  box-sizing: border-box;
+  padding: 1px;
+  border-radius: 3px;
+}
+.status-icon.inactive > .game-icon { filter: grayscale(1); opacity: .4; }
+.status-icon:hover, .trait-icon:hover { border-color: #e9cc8e; }
+.status-icon:focus-visible, .trait-icon:focus-visible {
+  outline: 2px solid #e9cc8e;
+  outline-offset: 2px;
+}
+.status-icon > b { z-index: 1; }
+.character-select-trait-icon > .game-icon { width: 24px; height: 24px; }
 .character-trait-panel { position: absolute; top: 12px; left: 12px; z-index: 8; padding: 7px 9px; border: 1px solid rgba(55,91,81,.65); background: rgba(4,12,10,.78); backdrop-filter: blur(5px); }.character-trait-panel > span { display: block; margin-bottom: 5px; color: #668f84; font-size: 7px; letter-spacing: .14em; }.character-trait-panel .trait-row { padding: 0; }.character-trait-panel .trait-icon { width: 56px; height: 48px; font-size: 25px; }.character-trait-panel .trait-tooltip { top: calc(100% + 8px); }
 .character-trait-panel.trait-p2 { left: auto; right: 250px; }
 .character-trait-panel.trait-p2 > span { text-align: right; }
@@ -211,6 +240,14 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 #board { position: absolute; inset: 0; }
 #board > canvas { display: block; width: 100%; height: 100%; }
 .prompt { position: absolute; bottom: 16px; left: 50%; transform: translate(-50%, 12px); opacity: 0; padding: 10px 18px; background: rgba(4,12,10,.9); border: 1px solid #4b806f; color: var(--cyan); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; pointer-events: none; transition: .2s; }.prompt.visible { opacity: 1; transform: translate(-50%, 0); }
+.object-attack-confirm { position: absolute; z-index: 40; width: min(272px, calc(100% - 20px)); padding: 12px; border: 1px solid #d9933e; border-left: 3px solid #ffb454; background: linear-gradient(145deg, rgba(40,25,12,.97), rgba(13,13,10,.97)); box-shadow: 0 12px 34px rgba(0,0,0,.62), 0 0 18px rgba(238,151,48,.16); color: #f5e8d5; }
+.object-attack-confirm > span { display: block; color: #d59b56; font-size: 8px; letter-spacing: .18em; }
+.object-attack-confirm > strong { display: block; margin-top: 3px; color: #fff5e8; font: 800 19px 'Barlow Condensed', sans-serif; letter-spacing: .035em; text-transform: uppercase; }
+.object-attack-confirm > p { margin: 6px 0 10px; color: #cbbba6; font-size: 10px; line-height: 1.4; }
+.object-attack-confirm > div { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.object-attack-confirm button { min-height: 32px; border: 1px solid #76552f; background: #251a10; color: #dec7a9; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.object-attack-confirm button.confirm { border-color: #ce8736; background: #613712; color: #fff0d8; }
+.object-attack-confirm button:hover, .object-attack-confirm button:focus-visible { border-color: #ffc26f; color: white; outline: none; box-shadow: 0 0 10px rgba(255,178,76,.24); }
 .overhead-status-layer { position: absolute; inset: 0; z-index: 20; overflow: visible; pointer-events: none; }
 .perk-use-label { position: absolute; max-width: 280px; padding: 5px 10px 6px; transform: translate(-50%, calc(-100% - 26px)); border: 1px solid color-mix(in srgb, var(--player-color) 70%, white); background: rgba(3, 10, 9, .88); color: var(--player-color); box-shadow: 0 0 14px color-mix(in srgb, var(--player-color) 42%, transparent), 0 5px 16px rgba(0, 0, 0, .55); font: 800 18px 'Barlow Condensed', sans-serif; line-height: 1; letter-spacing: .035em; text-align: center; text-shadow: 0 0 8px color-mix(in srgb, var(--player-color) 72%, transparent); white-space: nowrap; will-change: left, top, opacity; }
 .overhead-character-statuses { position: absolute; top: 0; left: 0; display: flex; gap: 12px; transform: translate3d(var(--overhead-x, -1000px), var(--overhead-y, -1000px), 0) translate(-50%, calc(-100% - 9px)) scale(var(--overhead-scale, .5)); transform-origin: bottom center; pointer-events: none; backface-visibility: hidden; will-change: transform; }

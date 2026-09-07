@@ -1,4 +1,5 @@
 import './style.css';
+import { gameIcon, type GameIconName } from './game-icons.ts';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -140,7 +141,7 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div><section class="object-attack-confirm hidden" id="objectAttackConfirm" role="dialog" aria-modal="false" aria-labelledby="objectAttackConfirmTitle"><span>OBJECT ATTACK</span><strong id="objectAttackConfirmTitle"></strong><p id="objectAttackConfirmMessage"></p><div><button class="confirm" id="objectAttackConfirmYes" type="button">ATTACK</button><button class="cancel" id="objectAttackConfirmNo" type="button">CANCEL</button></div></section></div>
       <div class="command-deck">
         <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
@@ -187,6 +188,7 @@ let discardViewerPlayerId: PlayerId | null = null;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 let selectedSpectreAttackOrigin: 'spectre' | 'replica' = 'spectre';
+let pendingObjectAttackConfirmation: { confirm: () => void } | null = null;
 type WizardPowerVisualIntent =
   | { kind: 'cast'; playerId: PlayerId; target: THREE.Vector3; hold: boolean; targetKind?: 'player' | 'object'; targetId?: string }
   | { kind: 'resolve'; playerId: PlayerId }
@@ -202,7 +204,10 @@ type OrkkVisualIntent = { playerId: PlayerId; animation: 'Encourage' | 'ShieldTh
 let pendingOnlineOrkkVisualIntent: OrkkVisualIntent | null = null;
 type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
 let pendingOnlineSpectreVisualIntent: SpectreVisualIntent | null = null;
-selection.subscribe(() => renderUI());
+selection.subscribe(() => {
+  if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
+  renderUI();
+});
 
 const lobby = byId('lobby');
 const game = byId('game');
@@ -283,6 +288,15 @@ document.querySelector('#cancelMovementButton')!.addEventListener('click', () =>
 document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () => dispatch({ type: 'mind-tricks-finish', playerId: actingPlayer() }));
 document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
 document.querySelector('#leaveGame')!.addEventListener('click', () => void leaveMatch());
+document.querySelector('#objectAttackConfirmYes')!.addEventListener('click', () => {
+  const pending = pendingObjectAttackConfirmation;
+  closeObjectAttackConfirmation();
+  pending?.confirm();
+});
+document.querySelector('#objectAttackConfirmNo')!.addEventListener('click', closeObjectAttackConfirmation);
+document.addEventListener('pointerdown', (event) => {
+  if (pendingObjectAttackConfirmation && !byId('objectAttackConfirm').contains(event.target as Node)) closeObjectAttackConfirmation();
+});
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
   if (!event.repeat && !game.classList.contains('hidden') && !event.metaKey) {
@@ -310,6 +324,9 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'Escape' && discardViewerPlayerId) {
     event.preventDefault(); discardViewerPlayerId = null; renderDiscardModal(); return;
+  }
+  if (event.code === 'Escape' && pendingObjectAttackConfirmation) {
+    event.preventDefault(); closeObjectAttackConfirmation(); return;
   }
   if (event.code === 'Escape' && selectedTestObjectId) {
     event.preventDefault(); selectedTestObjectId = null; renderUI(); notify('Wooden Box movement cancelled.'); return;
@@ -462,14 +479,14 @@ type SelectableCharacter = OnlineCharacter;
 type HotseatCharacter = SelectableCharacter;
 type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench';
-const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: string; traitDescription: string }> = {
-  shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: '⚡⚔', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
-  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: '👊', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
-  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: '✦', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
-  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: '✝', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
-  spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: '◈', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
-  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: '☠', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
-  merylin: { name: 'Merylin Pendragon', hp: 22, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: '⚔', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
+const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
+  shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
+  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
+  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
+  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
+  spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
+  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
+  merylin: { name: 'Merylin Pendragon', hp: 22, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
 const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
@@ -478,7 +495,7 @@ const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
 };
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
-  const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${info.traitIcon}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
+  const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${gameIcon(info.traitIcon)}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
   return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
 }
 
@@ -1210,7 +1227,7 @@ function characterTraitHtml(ru: boolean) {
   const character = player.character as HotseatCharacter;
   const info = CHARACTER_SELECT_INFO[character];
   if (!info.trait) return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'Черты и карты этого персонажа будут добавлены позже.' : 'Traits and Cards for this character will be added later.'}</p>`;
-  if (character === 'merylin') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>Swordcraft</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><p class="character-hint-detail">Attack Cards require an active Summon. Using an Attack consumes the current Summon. If that Attack grants Summon, the new Summon is applied after the spent one and can enable another Attack during the same turn.</p><strong>Current state: ${player.merylinSummonActive ? 'Summon active · Attack enabled' : 'no Summon · Attacks disabled'}.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>MELEE</b></span></footer></article>`;
+  if (character === 'merylin') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>Swordcraft</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><p class="character-hint-detail">Attack Cards require an active Summon. Using an Attack consumes the current Summon. If that Attack grants Summon, the new Summon is applied after the spent one and can enable another Attack during the same turn.</p><strong>Current state: ${player.merylinSummonActive ? 'Summon active · Attack enabled' : 'no Summon · Attacks disabled'}.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>MELEE</b></span></footer></article>`;
   const traitCharacter = character as Exclude<SelectableCharacter, 'merylin'>;
   const copy = {
     shinobi: {
@@ -1278,7 +1295,7 @@ function characterTraitHtml(ru: boolean) {
         : `Current state: ${player.spiritForm ? 'Spirit Form active' : 'normal form'} · Stoic Shell ${player.stoicShell ? 'active' : 'inactive'} · queued Blessings: ${player.queuedBlessingCardIds.length}.`,
     },
   }[traitCharacter];
-  return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>${escapeHtml(copy.trait)}</h3></div></header><p>${escapeHtml(copy.description)}</p>${copy.detail ? `<p class="character-hint-detail">${escapeHtml(copy.detail)}</p>` : ''}<strong>${escapeHtml(copy.status)}</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>${ru ? 'ДАЛЬНОСТЬ АТАКИ' : 'ATTACK RANGE'} <b>${player.attackRange}</b></span></footer></article>`;
+  return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>${escapeHtml(copy.trait)}</h3></div></header><p>${escapeHtml(copy.description)}</p>${copy.detail ? `<p class="character-hint-detail">${escapeHtml(copy.detail)}</p>` : ''}<strong>${escapeHtml(copy.status)}</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>${ru ? 'ДАЛЬНОСТЬ АТАКИ' : 'ATTACK RANGE'} <b>${player.attackRange}</b></span></footer></article>`;
 }
 
 function damageLogHtml(ru: boolean) {
@@ -1499,8 +1516,7 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
 function playerAbilityIcon(player: GameState['players'][PlayerId]) {
   if (!(player.character in CHARACTER_SELECT_INFO)) return '';
   const info = CHARACTER_SELECT_INFO[player.character as HotseatCharacter];
-  const visualClass = player.character === 'shinobi' ? ' lightsaber-trait' : player.character === 'john-christ' ? ' holy-spirit-trait' : '';
-  return `<div class="trait-icon hud-ability-icon${visualClass}" tabindex="0">${escapeHtml(info.traitIcon)}<span class="trait-tooltip"><b>${escapeHtml(info.trait)}</b>${escapeHtml(info.traitDescription)}</span></div>`;
+  return `<div class="trait-icon hud-ability-icon" tabindex="0" aria-label="${escapeHtml(info.trait)}">${gameIcon(info.traitIcon)}<span class="trait-tooltip"><b>${escapeHtml(info.trait)}</b>${escapeHtml(info.traitDescription)}</span></div>`;
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
@@ -1513,62 +1529,62 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const panic = player.hand.filter((card) => card.cardId === 'panic').length;
     const boomerangAway = player.deck.concat(player.discard).some((card) => card.cardId === 'boomerang' || card.cardId === 'boomerang-draw');
     const phylacteryIcons = player.character === 'wreckna' ? ([
-      ['might', 'M', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
-      ['wisdom', 'W', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
-      ['ritual', 'R', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
-    ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${icon}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
-    const orkkShieldIcon = player.character === 'orkk' ? `<div class="status-icon orkk-shield-status ${player.shieldEquipped ? 'highground-active' : 'inactive'}" tabindex="0">🛡<span class="status-tooltip"><strong>Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}</strong>${player.shieldEquipped ? 'Defend Cards gain +1 Defence Value.' : 'The Shield is currently on the Board as an obstacle.'}</span></div>` : '';
-    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0">🔥<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
-    const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">×2<span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
-    const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">🦵<i></i><b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
-    const handHeadacheIcon = headacheInHand > 0 ? `<div class="status-icon headache-status in-hand" tabindex="0">🤕${headacheInHand > 1 ? `<b>${headacheInHand}</b>` : ''}<span class="status-tooltip"><strong>Headache · Hand</strong>${headacheInHand} Headache Card${headacheInHand === 1 ? '' : 's'} currently filling this player's Hand. Filled red while active in Hand.</span></div>` : '';
-    const discardHeadacheIcon = headacheInDiscard > 0 ? `<div class="status-icon headache-status in-discard" tabindex="0">🤕${headacheInDiscard > 1 ? `<b>${headacheInDiscard}</b>` : ''}<span class="status-tooltip"><strong>Headache · Discard</strong>${headacheInDiscard} Headache Card${headacheInDiscard === 1 ? '' : 's'} currently in this player's Discard. Filled orange while discarded.</span></div>` : '';
-    const handExhaustIcon = exhaustInHand > 0 ? `<div class="status-icon exhaust-status in-hand" tabindex="0">🥵${exhaustInHand > 1 ? `<b>${exhaustInHand}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Hand</strong>Cards have -1 Attack and Defend Value per Exhaust. During combat, one may be Removed for a -3 modifier instead.</span></div>` : '';
-    const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">🥵${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
-    const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">✦<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
+      ['might', 'might', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
+      ['wisdom', 'wisdom', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
+      ['ritual', 'ritual', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
+    ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${gameIcon(icon)}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
+    const orkkShieldIcon = player.character === 'orkk' ? `<div class="status-icon orkk-shield-status ${player.shieldEquipped ? 'highground-active' : 'inactive'}" tabindex="0" aria-label="Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}">${gameIcon('shield')}<span class="status-tooltip"><strong>Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}</strong>${player.shieldEquipped ? 'Defend Cards gain +1 Defence Value.' : 'The Shield is currently on the Board as an obstacle.'}</span></div>` : '';
+    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0" aria-label="Rage · ${player.rageStacks} stacks">${gameIcon('rage')}<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
+    const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">${gameIcon('double')}<b>×2</b><span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
+    const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">${gameIcon('pinned')}<b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
+    const handHeadacheIcon = headacheInHand > 0 ? `<div class="status-icon headache-status in-hand" tabindex="0">${gameIcon('headache')}${headacheInHand > 1 ? `<b>${headacheInHand}</b>` : ''}<span class="status-tooltip"><strong>Headache · Hand</strong>${headacheInHand} Headache Card${headacheInHand === 1 ? '' : 's'} currently filling this player's Hand. Filled red while active in Hand.</span></div>` : '';
+    const discardHeadacheIcon = headacheInDiscard > 0 ? `<div class="status-icon headache-status in-discard" tabindex="0">${gameIcon('headache')}${headacheInDiscard > 1 ? `<b>${headacheInDiscard}</b>` : ''}<span class="status-tooltip"><strong>Headache · Discard</strong>${headacheInDiscard} Headache Card${headacheInDiscard === 1 ? '' : 's'} currently in this player's Discard. Filled orange while discarded.</span></div>` : '';
+    const handExhaustIcon = exhaustInHand > 0 ? `<div class="status-icon exhaust-status in-hand" tabindex="0">${gameIcon('exhaust')}${exhaustInHand > 1 ? `<b>${exhaustInHand}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Hand</strong>Cards have -1 Attack and Defend Value per Exhaust. During combat, one may be Removed for a -3 modifier instead.</span></div>` : '';
+    const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">${gameIcon('exhaust')}${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
+    const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">${gameIcon('magic')}<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
     const spectreTemporaryAttack = player.character === 'spectre' ? player.spectreAttackBonus ?? 0 : 0;
     const spectreAccumulateActive = player.character === 'spectre' ? player.spectreAccumulateActive ?? 0 : 0;
     const spectreAccumulateStored = player.character === 'spectre' ? player.spectreAccumulateStored ?? 0 : 0;
-    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">ATT<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Relocate, Consume Replica, and Haunt currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The combined bonus expires at the end of Spectre's turn.</span></div>` : '';
-    const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">Σ<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
-    const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">Σ→<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
+    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">${gameIcon('attack')}<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Relocate, Consume Replica, and Haunt currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The combined bonus expires at the end of Spectre's turn.</span></div>` : '';
+    const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
+    const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
-    const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
-    const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">➜<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
+    const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
+    const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
     const hexBonus = (player.hexMovementBonus ?? 0) + (player.decayMovementBonus ?? 0);
     const hexPenalty = player.hexMovementPenalty ?? 0;
     const shadowMoveBonus = player.spectreShadowMoveBonus ?? 0;
     const shadowDefensePenalty = player.spectreShadowDefensePenalty ?? 0;
-    const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">DAG<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
-    const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">DAG<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
-    const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">🧊<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
-    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">RNG<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
-    const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
-    const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">⚔<span class="status-tooltip"><strong>Summon · Attack Ready</strong>Swordcraft has summoned a sword from another realm. Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.</span></div>` : '';
-    const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">DEF<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
-    const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">DEF↩<span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
-    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin may cross characters, Objects, Wall Objects, High Ground, Slides, Trenches, and other restricted Squares, but must end movement on an empty Square.' : ''}</span></div>` : '';
-    const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
-    const barbarianMovementIcon = player.character === 'merylin' && player.barbarianIgnoreNegativeMovement ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<span class="status-tooltip"><strong>Barbarian Stance · Unstoppable</strong>Negative effects cannot reduce or annul Merylin's MOV until the end of this turn.</span></div>` : '';
-    const kamelotBonusIcon = player.character === 'merylin' && player.kamelotDoubleSquareBonuses ? `<div class="status-icon highground-active" tabindex="0">SQ<b>×2</b><span class="status-tooltip"><strong>Kamelot Stance · Square Bonuses ×2</strong>Numeric bonuses from special Squares are doubled. This includes draw, owned Base DEF, and High Ground ATT bonuses, but not automatic Slide movement. The effect is consumed after Merylin uses an Attack.</span></div>` : '';
-    const kamelotSuppressionIcon = player.kamelotSuppressedZone ? `<div class="status-icon movement-annulled-status" tabindex="0">SQ<span class="status-tooltip"><strong>Kamelot Stance · ${escapeHtml(player.kamelotSuppressedZone.zoneType)} Zone Disabled</strong>This character receives no bonus from the affected connected special-Square zone until the beginning of their turn. A draw-Square bonus is suppressed before this effect expires.</span></div>` : '';
-    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">PERK<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Perk</strong>Merylin may use one additional Perk during this turn. The allowance expires at turn end.</span></div>` : '';
-    const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">ATT<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Attack</strong>After normal Actions are exhausted, Merylin may use one additional Attack during this turn. The allowance expires at turn end.</span></div>` : '';
-    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">MOV<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Drain Strength, or Decay. Decay's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
-    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">MOV<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Drain Strength, or Decay reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
-    const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">⇢<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
-    const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">⚡<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
-    const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">▲<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
+    const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('dagger')}<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
+    const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('dagger')}<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
+    const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('ice')}<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
+    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
+    const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('spellbook')}<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
+    const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · Attack Ready</strong>Swordcraft has summoned a sword from another realm. Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.</span></div>` : '';
+    const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
+    const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shield')}<b>↩</b><span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
+    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin may cross characters, Objects, Wall Objects, High Ground, Slides, Trenches, and other restricted Squares, but must end movement on an empty Square.' : ''}</span></div>` : '';
+    const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
+    const barbarianMovementIcon = player.character === 'merylin' && player.barbarianIgnoreNegativeMovement ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<span class="status-tooltip"><strong>Barbarian Stance · Unstoppable</strong>Negative effects cannot reduce or annul Merylin's MOV until the end of this turn.</span></div>` : '';
+    const kamelotBonusIcon = player.character === 'merylin' && player.kamelotDoubleSquareBonuses ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('square')}<b>×2</b><span class="status-tooltip"><strong>Kamelot Stance · Square Bonuses ×2</strong>Numeric bonuses from special Squares are doubled. This includes draw, owned Base DEF, and High Ground ATT bonuses, but not automatic Slide movement. The effect is consumed after Merylin uses an Attack.</span></div>` : '';
+    const kamelotSuppressionIcon = player.kamelotSuppressedZone ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('square')}<span class="status-tooltip"><strong>Kamelot Stance · ${escapeHtml(player.kamelotSuppressedZone.zoneType)} Zone Disabled</strong>This character receives no bonus from the affected connected special-Square zone until the beginning of their turn. A draw-Square bonus is suppressed before this effect expires.</span></div>` : '';
+    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Perk</strong>Merylin may use one additional Perk during this turn. The allowance expires at turn end.</span></div>` : '';
+    const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Attack</strong>After normal Actions are exhausted, Merylin may use one additional Attack during this turn. The allowance expires at turn end.</span></div>` : '';
+    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Drain Strength, or Decay. Decay's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
+    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Drain Strength, or Decay reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
+    const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">${gameIcon('pass-through')}<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
+    const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">${gameIcon('lightsaber')}<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
+    const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('highground')}<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
     const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: { carrierId: PlayerId | null; status: string }[] } | null } }).questPhases?.captureTheFlag;
     const flagCarrier = Boolean(flagState?.flags.some((flag) => flag.status === 'carried' && flag.carrierId === player.id));
-    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">⚑<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and begin a turn there to complete The Conqueror.</span></div>` : '';
-    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">🔥${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
-    const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">⚠${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
-    const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">✝<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
-    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${player.stoicShellStacks}<span class="status-tooltip"><strong>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</strong>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. At maximum HP, existing Stacks remain but do not increase. HP Damage removes all Stacks.</span></div>` : '';
-    const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">-${player.spiritSiphonedMovement} MOV<span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
-    const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">-1<span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
-    const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">↪<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
+    const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">${gameIcon('flag')}<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and begin a turn there to complete The Conqueror.</span></div>` : '';
+    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
+    const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">${gameIcon('panic')}${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
+    const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">${gameIcon('spirit')}<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
+    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<b>${player.stoicShellStacks}</b><span class="status-tooltip"><strong>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</strong>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. At maximum HP, existing Stacks remain but do not increase. HP Damage removes all Stacks.</span></div>` : '';
+    const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${player.spiritSiphonedMovement}</b><span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
+    const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
+    const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     return `${phylacteryIcons}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
@@ -2451,6 +2467,32 @@ function notify(message: string) {
   window.setTimeout(() => toast.classList.remove('visible'), 2600);
 }
 
+function closeObjectAttackConfirmation() {
+  pendingObjectAttackConfirmation = null;
+  byId('objectAttackConfirm').classList.add('hidden');
+}
+
+function showObjectAttackConfirmation(event: MouseEvent, title: string, message: string, confirm: () => void) {
+  const dialog = byId('objectAttackConfirm');
+  byId('objectAttackConfirmTitle').textContent = title;
+  byId('objectAttackConfirmMessage').textContent = message;
+  pendingObjectAttackConfirmation = { confirm };
+  dialog.classList.remove('hidden');
+
+  const arenaRect = dialog.parentElement!.getBoundingClientRect();
+  const dialogRect = dialog.getBoundingClientRect();
+  const pointerX = event.clientX - arenaRect.left;
+  const pointerY = event.clientY - arenaRect.top;
+  const gap = 14;
+  const edge = 10;
+  const left = pointerX + gap + dialogRect.width <= arenaRect.width - edge
+    ? pointerX + gap
+    : pointerX - dialogRect.width - gap;
+  dialog.style.left = `${Math.max(edge, Math.min(arenaRect.width - dialogRect.width - edge, left))}px`;
+  dialog.style.top = `${Math.max(edge, Math.min(arenaRect.height - dialogRect.height - edge, pointerY - dialogRect.height / 2))}px`;
+  (byId('objectAttackConfirmYes') as HTMLButtonElement).focus({ preventScroll: true });
+}
+
 function byId(id: string) { return document.getElementById(id)!; }
 function escapeHtml(value: string) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
 
@@ -3153,7 +3195,7 @@ function createCharacterHealthBar(playerId: PlayerId) {
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
   const sprite = new THREE.Sprite(material);
   sprite.name = 'CharacterHealthBar';
-  sprite.scale.set(1.9, 0.317, 1);
+  sprite.scale.set(1.65, 0.275, 1);
   sprite.renderOrder = 110;
   sprite.userData.playerId = playerId;
   sprite.userData.healthKey = '';
@@ -3163,7 +3205,7 @@ function createCharacterHealthBar(playerId: PlayerId) {
 }
 
 const characterVisibleBounds = new THREE.Box3();
-const characterPartBounds = new THREE.Box3();
+const characterBoundsVertex = new THREE.Vector3();
 function visibleCharacterTop(character: THREE.Group) {
   const visualRoot = character.children[0] ?? character;
   const boundsSourceKey = visualRoot.children.map((child) => child.uuid).join(':');
@@ -3179,17 +3221,15 @@ function visibleCharacterTop(character: THREE.Group) {
       if (!ancestor.visible) return;
       ancestor = ancestor.parent;
     }
-    if (part instanceof THREE.SkinnedMesh) {
-      part.computeBoundingBox();
-      if (!part.boundingBox) return;
-      characterPartBounds.copy(part.boundingBox).applyMatrix4(part.matrixWorld);
-    } else {
-      const geometry = part.geometry as THREE.BufferGeometry;
-      if (!geometry.boundingBox) geometry.computeBoundingBox();
-      if (!geometry.boundingBox) return;
-      characterPartBounds.copy(geometry.boundingBox).applyMatrix4(part.matrixWorld);
+    // Measure actual posed vertices once per model. Transforming a local AABB
+    // overestimates the top of rotated meshes, especially Logan's long hat.
+    const positions = part.geometry.getAttribute('position');
+    if (!positions) return;
+    if (part instanceof THREE.SkinnedMesh) part.skeleton.update();
+    for (let index = 0; index < positions.count; index++) {
+      part.getVertexPosition(index, characterBoundsVertex).applyMatrix4(part.matrixWorld);
+      characterVisibleBounds.expandByPoint(characterBoundsVertex);
     }
-    characterVisibleBounds.union(characterPartBounds);
   });
   const top = characterVisibleBounds.isEmpty() ? character.position.y + 2.8 : characterVisibleBounds.max.y;
   character.userData.healthBoundsSourceKey = boundsSourceKey;
@@ -3217,7 +3257,9 @@ function updateCharacterHealthBars(refreshContents = false) {
     const minimumTopOffset = player.character === 'shinobi' ? 2.35 : player.character === 'spectre' ? 2.45 : 0;
     const measuredTop = visibleCharacterTop(character);
     const characterTop = Math.max(measuredTop, character.position.y + minimumTopOffset);
-    const headClearance = player.character === 'orkk' ? 1.15 : 0.83;
+    // Tune each silhouette independently: Logan's measured top leaves a large
+    // projected gap, while Orkk needs extra room above his helmet.
+    const headClearance = player.character === 'magician' ? -0.85 : player.character === 'orkk' ? 0.8 : 0.28;
     sprite.position.y = characterTop + headClearance;
     if (!refreshContents && sprite.userData.healthKey) return;
     const healthKey = `${player.hp}/${player.maxHp}`;
@@ -3229,25 +3271,34 @@ function updateCharacterHealthBars(refreshContents = false) {
     const ratio = THREE.MathUtils.clamp(player.hp / Math.max(1, player.maxHp), 0, 1);
     const fill = playerId === 'P1' ? '#169bd3' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = 'rgba(3, 9, 8, 0.9)';
-    context.fillRect(5, 8, 374, 48);
-    context.strokeStyle = fill;
-    context.lineWidth = 4;
-    context.strokeRect(7, 10, 370, 44);
-    context.fillStyle = 'rgba(19, 31, 28, 0.96)';
-    context.fillRect(14, 17, 356, 30);
+    context.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    context.shadowBlur = 6;
+    context.shadowOffsetY = 3;
+    context.fillStyle = 'rgba(10, 17, 22, 0.94)';
+    context.beginPath();
+    context.roundRect(8, 17, 368, 30, 9);
+    context.fill();
+    context.shadowColor = 'transparent';
+    context.strokeStyle = 'rgba(225, 237, 242, 0.28)';
+    context.lineWidth = 2;
+    context.stroke();
+    context.save();
+    context.beginPath();
+    context.roundRect(13, 22, 358, 20, 5);
+    context.clip();
+    context.fillStyle = 'rgba(255, 255, 255, 0.07)';
+    context.fillRect(13, 22, 358, 20);
     if (ratio > 0) {
       context.fillStyle = fill;
-      context.fillRect(14, 17, 356 * ratio, 30);
+      context.fillRect(13, 22, 358 * ratio, 20);
+      const sheen = context.createLinearGradient(0, 22, 0, 42);
+      sheen.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
+      sheen.addColorStop(0.45, 'rgba(255, 255, 255, 0.04)');
+      sheen.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+      context.fillStyle = sheen;
+      context.fillRect(13, 22, 358 * ratio, 20);
     }
-    context.font = "800 25px 'Barlow Condensed', Arial";
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.lineWidth = 5;
-    context.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-    context.strokeText(`${player.hp} / ${player.maxHp}`, 192, 32);
-    context.fillStyle = '#ffffff';
-    context.fillText(`${player.hp} / ${player.maxHp}`, 192, 32);
+    context.restore();
     material.map!.needsUpdate = true;
   });
   updateOverheadStatusRows(refreshContents);
@@ -3278,7 +3329,9 @@ function updateOverheadStatusRows(refreshContents = false) {
     }
     if (refreshContents) {
       const statusHtml = playerStatusIcons(player);
-      if (row.dataset.statusHtml !== statusHtml) {
+      const failedIcon = Array.from(row.querySelectorAll<HTMLImageElement>('img.game-icon'))
+        .some((icon) => icon.complete && icon.naturalWidth === 0);
+      if (row.dataset.statusHtml !== statusHtml || failedIcon) {
         row.dataset.statusHtml = statusHtml;
         row.innerHTML = statusHtml;
       }
@@ -7381,6 +7434,7 @@ function updateTargetHighlights(time: number) {
 function onBoardClick(event: MouseEvent) {
   if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
+  if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
@@ -7588,15 +7642,19 @@ function onBoardClick(event: MouseEvent) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
       const normallyAttackable = object?.kind !== 'wall-pillar' && object?.kind !== 'orkk-shield';
-      const confirmation = moonlightCanTargetWall && object && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield')
-        ? `Attack ${object.name} at ${cellLabel(object.position)} with Moonlight? The Wall Object survives the direct hit and the moonwave forms behind it.`
-        : object ? `Attack ${object.name} at ${cellLabel(object.position)}? A destructible Object is destroyed by the Attack Card.` : '';
-      if (object && (normallyAttackable || moonlightCanTargetWall) && window.confirm(confirmation)) {
-        if (attacker.character === 'spectre') {
-          const origin = spectreAttackOriginForTarget(attacker, object.position);
-          if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: objectHit, targetKind: 'object' }); }
-        }
-        else dispatch({ type: 'attack', playerId: gameState.activePlayerId, cardInstanceId: selected.cardInstanceId, targetId: objectHit, targetKind: 'object' });
+      if (object && (normallyAttackable || moonlightCanTargetWall)) {
+        const targetsWall = moonlightCanTargetWall && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield');
+        const message = targetsWall
+          ? 'Moonlight leaves this Wall Object standing and creates the moonwave behind it.'
+          : 'This destructible Object will be destroyed by the Attack Card.';
+        const attack = () => {
+          if (attacker.character === 'spectre') {
+            const origin = spectreAttackOriginForTarget(attacker, object.position);
+            if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: object.id, targetKind: 'object' }); }
+          }
+          else dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: object.id, targetKind: 'object' });
+        };
+        showObjectAttackConfirmation(event, `${object.name} · ${cellLabel(object.position)}`, message, attack);
       }
     }
   }
@@ -7769,7 +7827,7 @@ function selectBrowserCharacter(character: SelectableCharacter) {
 
 function renderCharacterBrowserProfile() {
   const info = CHARACTER_SELECT_INFO[browserCharacter];
-  byId('characterBrowserProfile').innerHTML = `<span>${escapeHtml(CHARACTER_BROWSER_TITLES[browserCharacter])}</span><h3>${escapeHtml(info.name)}</h3><small>Playable character</small><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${escapeHtml(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
+  byId('characterBrowserProfile').innerHTML = `<span>${escapeHtml(CHARACTER_BROWSER_TITLES[browserCharacter])}</span><h3>${escapeHtml(info.name)}</h3><small>Playable character</small><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
 }
 
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
