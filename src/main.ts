@@ -1,6 +1,7 @@
 import './style.css';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import * as THREE from 'three';
+import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -16,6 +17,7 @@ import { CARD_RULES_RU, UI_RU_EXACT } from './i18n.ts';
 import {
   CARDS,
   ACTION_QUEST_POOL,
+  type GameStateWithQuestPhases,
   STARTING_DECKS,
   activeWrecknaPhylactery,
   attackCardTargetInRange,
@@ -149,7 +151,7 @@ app.innerHTML = `
       </div>
       <aside class="battle-log"><span>COMBAT FEED</span><div id="log"></div></aside>
     </section>
-    <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong><span class="turn-heal-message"></span></div>
+    <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong><span class="turn-heal-message"></span><span class="turn-quest-message"></span></div>
     <div class="choice-modal hidden" id="flurryModal"></div>
     <div class="choice-modal hidden" id="armDaWizModal"></div>
     <div class="choice-modal mana-choice-modal hidden" id="manaModal"></div>
@@ -299,6 +301,19 @@ document.addEventListener('pointerdown', (event) => {
 });
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if (event.code === 'Tab' && !game.classList.contains('hidden') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (activeCombatSummary) {
+        combatSummaryHidden = !combatSummaryHidden;
+        renderCombatReveal();
+      } else if (!gameState.combatReveal && lastCombatSummaryHtml) {
+        lastCombatSummaryOpen = !lastCombatSummaryOpen;
+        renderCombatReveal();
+      }
+    }
+    return;
+  }
   if (!event.repeat && !game.classList.contains('hidden') && !event.metaKey) {
     const digitMatch = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
     const hotkeyNumber = digitMatch ? Number(digitMatch[1]) : 0;
@@ -337,7 +352,7 @@ window.addEventListener('keydown', (event) => {
   }
   const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin && canLocalAct(spectrePerkOrigin.casterId)) {
-    if (event.code === 'Tab') {
+    if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
       event.preventDefault();
       const replicas = spectreReplicas(gameState, spectrePerkOrigin.casterId);
       const options: { origin: 'spectre' | 'replica'; replicaId: string | null }[] = [
@@ -345,7 +360,7 @@ window.addEventListener('keydown', (event) => {
         ...replicas.map((replica) => ({ origin: 'replica' as const, replicaId: replica.id })),
       ];
       const currentIndex = options.findIndex((option) => option.origin === spectrePerkOrigin.origin && option.replicaId === spectrePerkOrigin.replicaId);
-      const next = options[(currentIndex + 1) % options.length];
+      const next = options[(currentIndex + (event.code === 'ArrowLeft' ? options.length - 1 : 1)) % options.length];
       if (next) dispatch({ type: 'spectre-perk-origin-select', playerId: spectrePerkOrigin.casterId, origin: next.origin, replicaId: next.replicaId });
       return;
     }
@@ -443,6 +458,17 @@ function isWaitingForSelectedCardTarget() {
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
 let combatRevealWasVisible = false;
+let activeCombatSummary = false;
+let combatSummaryHidden = false;
+let lastCombatSummaryHtml = '';
+let lastCombatSummaryOpen = false;
+function resetCombatSummary() {
+  activeCombatSummary = false;
+  combatSummaryHidden = false;
+  lastCombatSummaryHtml = '';
+  lastCombatSummaryOpen = false;
+  combatRevealWasVisible = false;
+}
 let deathAnimationNotBefore = 0;
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
@@ -539,6 +565,7 @@ function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: Hot
 }
 
 function startHotseat(character: HotseatCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
+  resetCombatSummary();
   mode = 'hotseat';
   localSeat = null;
   gameState = format === 'duel' && arena === 'trench'
@@ -614,6 +641,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       }
     }
     mode = 'online';
+    resetCombatSummary();
     updateRoomUrl(room.roomId);
     sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
     room.reconnection.minUptime = 0;
@@ -1051,7 +1079,7 @@ function renderUI() {
     const selectedReplica = gameState.objects.find((object) => object.id === spectrePerkOrigin.replicaId);
     const selectedBody = spectrePerkOrigin.origin === 'replica' ? `REPLICA${selectedReplica ? ` AT ${cellLabel(selectedReplica.position)}` : ''}` : 'SPECTRE';
     const choiceLabel = spectrePerkOrigin.perkId === 'devour' ? 'DEVOUR TARGET' : spectrePerkOrigin.perkId === 'relocate' ? 'RELOCATE TARGET' : 'SHADOW DAGGER ORIGIN';
-    prompt.textContent = `${choiceLabel}: ${selectedBody} · Tab or click to switch · Enter to confirm${spectrePerkOrigin.perkId === 'devour' ? '' : ' · Escape to cancel'}`;
+    prompt.textContent = `${choiceLabel}: ${selectedBody} · Left/Right or click to switch · Enter to confirm${spectrePerkOrigin.perkId === 'devour' ? '' : ' · Escape to cancel'}`;
   }
   if (select.kind === 'attack' && actor.character === 'spectre') prompt.textContent = `Preferred attack origin: ${selectedSpectreAttackOrigin === 'replica' ? 'Replica' : 'Spectre'} · targets available to either body are highlighted`;
   if (gameState.phase === 'double-jump') prompt.textContent = `Double Jump: ${gameState.doubleJump?.stepsRemaining ?? 0} one-square steps remain`;
@@ -1506,6 +1534,15 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
   const stoicShellHealed = player.character === 'john-christ' && player.stoicShellHealedTurn === gameState.turn;
   healMessage.textContent = stoicShellHealed ? `Stoic Shell has restored John's ${player.stoicShellHealAmount} HP` : '';
   healMessage.classList.toggle('visible', stoicShellHealed);
+  const questMessage = announcement.querySelector<HTMLElement>('.turn-quest-message')!;
+  const result = (gameState as GameStateWithQuestPhases).questPhases?.lastQuestResult;
+  const showQuestResult = result?.turn === gameState.turn && result.activePlayerId === player.id && result.winners.length > 0;
+  if (showQuestResult) {
+    const questName = ACTION_QUEST_POOL.find((quest) => quest.id === result.questId)?.name ?? result.questId;
+    const names = result.winners.map((id) => gameState.players[id].name).join(' and ');
+    questMessage.textContent = result.winners.length > 1 ? `${questName}: Draw — ${names}` : `${names} won the Quest: ${questName}`;
+  } else questMessage.textContent = '';
+  questMessage.classList.toggle('visible', showQuestResult);
   announcement.classList.remove('hidden', 'visible');
   void announcement.offsetWidth;
   announcement.classList.add('visible');
@@ -2053,15 +2090,24 @@ function renderPhaseRewardModal() {
 function renderCombatReveal() {
   const modal = byId('combatRevealModal');
   const reveal = gameState.combatReveal;
+  activeCombatSummary = false;
   modal.classList.toggle('hidden', !reveal);
   if (!reveal) {
     if (combatRevealWasVisible) {
       deathAnimationNotBefore = performance.now() + 1000;
     }
     combatRevealWasVisible = false;
-    modal.innerHTML = '';
+    combatSummaryHidden = false;
+    modal.innerHTML = lastCombatSummaryOpen ? lastCombatSummaryHtml : '';
+    modal.classList.toggle('hidden', !lastCombatSummaryOpen || !lastCombatSummaryHtml);
+    modal.querySelector('#closeCombatSummary')?.addEventListener('click', () => {
+      lastCombatSummaryOpen = false;
+      renderCombatReveal();
+    });
     return;
   }
+  lastCombatSummaryOpen = false;
+  if (!combatRevealWasVisible) combatSummaryHidden = false;
   deathAnimationNotBefore = Number.POSITIVE_INFINITY;
   combatRevealWasVisible = true;
   const attack = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
@@ -2242,6 +2288,16 @@ function renderCombatReveal() {
     : '';
   modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
+  activeCombatSummary = true;
+  modal.classList.toggle('hidden', combatSummaryHidden);
+  // Retain the viewer's rendered summary, without live combat controls or timers.
+  const summary = modal.firstElementChild!.cloneNode(true) as HTMLElement;
+  summary.querySelectorAll('.combat-countdown, .combat-ack-status, #combatRevealOk').forEach((element) => element.remove());
+  const closeButton = document.createElement('button');
+  closeButton.id = 'closeCombatSummary';
+  closeButton.textContent = 'CLOSE · TAB';
+  summary.append(closeButton);
+  lastCombatSummaryHtml = summary.outerHTML;
 }
 
 function acknowledgeCombatReveal() {
@@ -2313,7 +2369,7 @@ function renderOpponentHand() {
     const ownerColor = playerUiColor(opponentId);
     const cards = opponent.hand.map((instance) => {
       const card = cardDefinition(instance);
-      if (!isCardRevealedToOpponents(opponent, instance, viewerId) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"><i></i><b>G</b></div>`;
+      if (!isCardRevealedToOpponents(opponent, instance, viewerId) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"></div>`;
       return `<div class="opponent-card revealed ${cardVisualClass(card)}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${opponent.hand.length} CARD${opponent.hand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
@@ -2396,6 +2452,8 @@ function translateInterfaceValue(value: string): string {
   let translated = core
     .replace(/^ROUND (\d+)$/i, 'РАУНД $1')
     .replace(/^(.+)'s turn$/i, 'Ход: $1')
+    .replace(/^(.+) won the Quest: (.+)$/, '$1 побеждает в квесте: $2')
+    .replace(/^(.+): Draw — (.+)$/, '$1: ничья — $2')
     .replace(/^(.+) wins$/i, '$1 побеждает')
     .replace(/^Level (\d+): /gim, 'Уровень $1: ')
     .replace(/\bAttack Value\b/gi, 'значение Атаки')
@@ -2522,7 +2580,7 @@ controls.maxDistance = 58;
 controls.minPolarAngle = 0.38;
 controls.maxPolarAngle = Math.PI / 2.15;
 controls.mouseButtons.LEFT = null;
-controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+controls.mouseButtons.MIDDLE = null;
 controls.mouseButtons.RIGHT = null;
 controls.target.set(0, 0, 0);
 controls.update();
@@ -3007,7 +3065,10 @@ let hotPotatoModel: THREE.Group | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
 let lightingArenaId: ArenaId | null = null;
-let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt'; dragDistance: number } | null = null;
+let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt' | 'pan'; dragDistance: number } | null = null;
+const cameraTouches = new Map<number, THREE.Vector2>();
+let touchCameraPan = false;
+let suppressTouchBoardSelection = false;
 let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
   const arenaId = (gameState as GameState & { arenaId?: ArenaId }).arenaId;
@@ -3025,10 +3086,10 @@ dummyGroups.set('P2', createObiWanShinobi(0xff5d68));
 scene.add(dummyGroups.get('P1')!, dummyGroups.get('P2')!);
 
 renderer.domElement.addEventListener('pointerdown', onCameraRotateStart, { capture: true });
-renderer.domElement.addEventListener('pointermove', onCameraGrabMove);
-renderer.domElement.addEventListener('pointerup', finishCameraGrab);
-renderer.domElement.addEventListener('pointercancel', finishCameraGrab);
-renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab);
+renderer.domElement.addEventListener('pointermove', onCameraGrabMove, { capture: true });
+renderer.domElement.addEventListener('pointerup', finishCameraGrab, { capture: true });
+renderer.domElement.addEventListener('pointercancel', finishCameraGrab, { capture: true });
+renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab, { capture: true });
 renderer.domElement.addEventListener('click', onBoardClick);
 renderer.domElement.addEventListener('dblclick', onBoardDoubleClick);
 renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -3069,6 +3130,12 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => cameraKeys.delete(event.code));
 window.addEventListener('blur', () => {
   cameraKeys.clear();
+  const touchIds = [...cameraTouches.keys()];
+  cameraTouches.clear();
+  touchCameraPan = false;
+  for (const pointerId of touchIds) {
+    if (renderer.domElement.hasPointerCapture(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
+  }
   if (cameraGrab) {
     const pointerId = cameraGrab.pointerId;
     cameraGrab = null;
@@ -3081,6 +3148,7 @@ renderer.setAnimationLoop((time) => {
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   hologramShaderTime.value = time / 1000;
+  if (nagrandOuterRingGroup.visible) updateNagrandBrazierFire(time);
   updateCameraMovement(deltaSeconds);
   if (!cameraGrab) controls.update();
   updateTargetHighlights(time);
@@ -3888,6 +3956,10 @@ function updateCameraMovement(deltaSeconds: number) {
   if (cameraKeys.has('KeyA')) movement.sub(right);
   if (movement.lengthSq() === 0) return;
   movement.normalize().multiplyScalar(6.25 * deltaSeconds);
+  translateCamera(movement);
+}
+
+function translateCamera(movement: THREE.Vector3) {
   const nextTarget = controls.target.clone().add(movement);
   const movementRadius = cameraMovementRadius();
   const boardCenter = boardCenterWorld();
@@ -6289,6 +6361,7 @@ function syncNagrandOuterRing(width: number, height: number) {
       child.receiveShadow = true;
     });
     nagrandOuterRingModel = model;
+    addNagrandBrazierFire(model);
     nagrandOuterRingGroup.add(model);
   }).catch((error) => {
     console.error('Failed to load the Nagrand outer ring.', error);
@@ -7432,6 +7505,7 @@ function updateTargetHighlights(time: number) {
 }
 
 function onBoardClick(event: MouseEvent) {
+  if (suppressTouchBoardSelection) return;
   if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
@@ -7661,29 +7735,100 @@ function onBoardClick(event: MouseEvent) {
 }
 
 function onCameraRotateStart(event: PointerEvent) {
-  if (event.button !== 0 && event.button !== 2) return;
+  if (event.pointerType === 'touch') {
+    // Own touch input so OrbitControls cannot rotate during a two-finger pan.
+    event.stopImmediatePropagation();
+    if (cameraTouches.size === 0) {
+      touchCameraPan = false;
+      suppressTouchBoardSelection = false;
+      suppressNextBoardClick = false;
+    }
+    cameraTouches.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
+    renderer.domElement.setPointerCapture(event.pointerId);
+    if (cameraTouches.size >= 2) {
+      touchCameraPan = true;
+      suppressTouchBoardSelection = true;
+      suppressNextBoardClick = true;
+      startTouchCameraPan();
+      event.preventDefault();
+      return;
+    }
+  } else {
+    if (cameraGrab || cameraTouches.size > 0) return;
+    suppressTouchBoardSelection = false;
+    suppressNextBoardClick = false;
+  }
+  if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
   const pivot = controls.target.clone();
   cameraGrab = {
     pointerId: event.pointerId,
     pivot,
     lastX: event.clientX,
     lastY: event.clientY,
-    mode: event.button === 0 ? 'tilt' : 'orbit',
+    mode: event.button === 1 ? 'pan' : event.button === 0 ? 'tilt' : 'orbit',
     dragDistance: 0,
   };
   renderer.domElement.setPointerCapture(event.pointerId);
   renderer.domElement.style.cursor = 'grabbing';
-  if (event.button === 2) event.preventDefault();
+  if (event.button !== 0) event.preventDefault();
+}
+
+function touchCameraCenter() {
+  const [first, second] = [...cameraTouches.values()];
+  return first.clone().add(second).multiplyScalar(0.5);
+}
+
+function startTouchCameraPan() {
+  const center = touchCameraCenter();
+  cameraGrab = {
+    pointerId: cameraTouches.keys().next().value!,
+    pivot: controls.target.clone(),
+    lastX: center.x,
+    lastY: center.y,
+    mode: 'pan',
+    dragDistance: 0,
+  };
+  renderer.domElement.style.cursor = 'grabbing';
 }
 
 function onCameraGrabMove(event: PointerEvent) {
-  if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
-  const dx = event.clientX - cameraGrab.lastX;
-  const dy = event.clientY - cameraGrab.lastY;
+  if (touchCameraPan && event.pointerType !== 'touch') return;
+  let x = event.clientX;
+  let y = event.clientY;
+  if (event.pointerType === 'touch') {
+    event.stopImmediatePropagation();
+    const touch = cameraTouches.get(event.pointerId);
+    if (!touch) return;
+    touch.set(x, y);
+    if (touchCameraPan) {
+      event.preventDefault();
+      if (cameraTouches.size < 2) return;
+      const center = touchCameraCenter();
+      x = center.x;
+      y = center.y;
+    }
+  }
+  if (!cameraGrab || (!touchCameraPan && cameraGrab.pointerId !== event.pointerId)) return;
+  const dx = x - cameraGrab.lastX;
+  const dy = y - cameraGrab.lastY;
   cameraGrab.dragDistance += Math.hypot(dx, dy);
-  cameraGrab.lastX = event.clientX;
-  cameraGrab.lastY = event.clientY;
+  cameraGrab.lastX = x;
+  cameraGrab.lastY = y;
   if (dx === 0 && dy === 0) return;
+
+  if (cameraGrab.mode === 'pan') {
+    const forward = camera.getWorldDirection(new THREE.Vector3());
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+    const unitsPerPixel = 2 * camera.position.distanceTo(controls.target)
+      * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+      / Math.max(1, renderer.domElement.clientHeight);
+    translateCamera(right.multiplyScalar(-dx * unitsPerPixel).addScaledVector(forward, dy * unitsPerPixel));
+    camera.updateMatrixWorld(true);
+    event.preventDefault();
+    return;
+  }
 
   const offset = camera.position.clone().sub(cameraGrab.pivot);
   const spherical = new THREE.Spherical().setFromVector3(offset);
@@ -7712,6 +7857,22 @@ function levelCameraHorizon() {
 }
 
 function finishCameraGrab(event: PointerEvent) {
+  if (event.pointerType === 'touch') {
+    event.stopImmediatePropagation();
+    if (!cameraTouches.delete(event.pointerId)) return;
+    if (touchCameraPan) {
+      cameraGrab = null;
+      if (cameraTouches.size >= 2) startTouchCameraPan();
+      else {
+        controls.update();
+        renderer.domElement.style.cursor = 'grab';
+      }
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
+      // Keep the remaining finger from tilting or selecting until all fingers lift.
+      if (cameraTouches.size === 0) touchCameraPan = false;
+      return;
+    }
+  }
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
   const suppressClick = cameraGrab.mode === 'tilt' && cameraGrab.dragDistance > 4;
   controls.target.copy(cameraGrab.pivot);
@@ -7727,6 +7888,7 @@ function finishCameraGrab(event: PointerEvent) {
 }
 
 function onBoardDoubleClick(event: MouseEvent) {
+  if (suppressNextBoardClick || suppressTouchBoardSelection || touchCameraPan) return;
   if (gameState.phase !== 'active') return;
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);

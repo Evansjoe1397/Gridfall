@@ -633,6 +633,7 @@ export type QuestPhaseState = {
   usedQuestIds: string[];
   currentQuest: { id: string; announcedRound: number; endsAfterRound: number; winners: PlayerId[]; progress: Partial<Record<PlayerId, number>> } | null;
   lastQuestWinners: PlayerId[];
+  lastQuestResult?: { questId: string; winners: PlayerId[]; turn: number; activePlayerId: PlayerId };
   progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend'; chosenFocusCard: CardTypeId }>>;
   phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; selectedCardId?: CardTypeId; selectedCardInstanceId?: string; phaseThreeDuplicated?: boolean; phaseThreeRemoved?: boolean } | null;
   turnStartedOnHighGround: Partial<Record<PlayerId, boolean>>;
@@ -1165,6 +1166,7 @@ function resolveCurrentActionQuest(state: GameState): void {
     const definition = ACTION_QUEST_POOL.find((quest) => quest.id === active.id);
     const winners = active.winners.length > 0 ? active.winners : definition?.determineWinners?.(state, active.progress) ?? [];
     questState.lastQuestWinners = [...new Set(winners)];
+    questState.lastQuestResult = { questId: active.id, winners: [...questState.lastQuestWinners], turn: state.turn, activePlayerId: state.activePlayerId };
     const tied = questState.lastQuestWinners.length > 1;
     const drawRewardId: CardTypeId | null = active.id === 'damage-contest' ? 'firebolt' : active.id === 'rabbit-run' ? 'portal-perk' : active.id === 'provocateur' ? 'vicious-mockery-1' : active.id === 'capture-the-flag' ? 'banner-draw' : active.id === 'tank-junior' ? 'helmet' : active.id === 'the-elephant' ? 'boomerang-draw' : active.id === 'the-gambler' ? 'monarch-flush-perk' : active.id === 'the-spy' ? 'weak-feint' : null;
     for (const winnerId of questState.lastQuestWinners) {
