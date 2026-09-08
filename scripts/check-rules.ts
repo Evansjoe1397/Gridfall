@@ -991,6 +991,12 @@ assert.deepEqual(LORDAERON_ARENA.bases.P3, ['G7', 'G8']);
 const lordMultiplayer = createLordaeronMultiplayerState({ P1: 'magician', P2: 'orkk', P3: 'shinobi' }) as LordaeronGameState;
 assert.equal(lordMultiplayer.phase, 'choosing-focus');
 assert.equal(Object.keys(lordMultiplayer.players).length, 3);
+const independentFfaFocus = applyCommand(lordMultiplayer, { type: 'choose-focus-card', playerId: 'P2', cardId: 'shield-bash' });
+assert.equal(independentFfaFocus.ok, true, 'An FFA Player may choose their opening Focus without waiting for another Player.');
+if (independentFfaFocus.ok) {
+  assert.equal((independentFfaFocus.state as any).openingSetup.pendingPlayerIds.includes('P2'), false, 'The independently completed Player leaves the pending Focus list.');
+  assert.equal((independentFfaFocus.state as any).openingSetup.pendingPlayerIds.includes('P1'), true, 'Other FFA Players remain free to complete their own Focus choices.');
+}
 const lordOpeningOrder = lordMultiplayer.lordaeronPlacement!.order;
 assert.deepEqual(lordMultiplayer.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)).sort(), ['B3', 'D10', 'F5'], 'Three-player multiplayer loads every Lordaeron box.');
 let lordReady = lordMultiplayer as any;
@@ -1285,8 +1291,8 @@ if (wrecknaOpening.ok) {
 const merylinHotseat = createHotseatTestState(false, 'merylin', 2);
 assert.equal(merylinHotseat.players.P1.character, 'merylin', 'Merylin Pendragon is available in Hotseat test mode.');
 assert.equal(merylinHotseat.players.P1.name, 'Merylin Pendragon');
-assert.equal(merylinHotseat.players.P1.maxHp, 22);
-assert.equal(merylinHotseat.players.P1.hp, 22);
+assert.equal(merylinHotseat.players.P1.maxHp, 20);
+assert.equal(merylinHotseat.players.P1.hp, 20);
 assert.equal(merylinHotseat.players.P1.moveRange, 2);
 assert.equal(merylinHotseat.players.P1.attackRange, 1, 'Merylin has melee Attack Range.');
 assert.equal(merylinHotseat.phase, 'choosing-focus', 'Merylin uses the same opening Focus selection in test mode as in multiplayer.');
@@ -1347,7 +1353,7 @@ if (moonlightAttack.ok) {
   assert.equal(moonlightResolved.ok, true);
   if (moonlightResolved.ok) {
     assert.equal(moonlightResolved.state.objects.some((object: any) => object.id === 'moonlight-first-box'), false, 'Moonlight destroys an Object crossed on its first wave Square.');
-    assert.equal(moonlightResolved.state.players.P3.hp, secondSquareHp - 3, 'Moonlight deals 3 Damage on its second wave Square.');
+    assert.equal(moonlightResolved.state.players.P3.hp, secondSquareHp - 2, 'Moonlight deals 2 Damage on its second wave Square.');
     assert.equal(moonlightResolved.state.spellProjectiles.some((projectile: any) => projectile.style === 'moonwave' && projectile.path.length === 2), true, 'Moonlight emits a two-Square moonwave animation event.');
   }
 }
@@ -1379,7 +1385,7 @@ assert.equal(moonlightWallAttack.ok, true, 'Moonlight can directly target a Wall
 if (moonlightWallAttack.ok) {
   assert.equal(moonlightWallAttack.state.objects.some((object) => object.id === 'moonlight-column'), true, 'Moonlight does not destroy the directly struck Column.');
   assert.equal(moonlightWallAttack.state.objects.some((object) => object.id === 'moonlight-behind-box'), false, 'The moonwave destroys an Object behind the struck Wall.');
-  assert.equal(moonlightWallAttack.state.players.P2.hp, wallTargetHp - 3, 'The second wave Square deals 3 Damage after a Wall Object target.');
+  assert.equal(moonlightWallAttack.state.players.P2.hp, wallTargetHp - 2, 'The second wave Square deals 2 Damage after a Wall Object target.');
 }
 
 const stingNearbyState = createHotseatTestState(true, 'merylin', 3);
@@ -1427,8 +1433,8 @@ assert.equal(lightbringerSwap.ok, true, 'Lightbringer can choose to swap places 
 if (lightbringerSwap.ok) {
   assert.deepEqual(lightbringerSwap.state.players.P1.position, { x: 3, y: 2 }, 'Lightbringer moves Merylin onto the target\'s original Square.');
   assert.deepEqual(lightbringerSwap.state.players.P2.position, { x: 2, y: 2 }, 'Lightbringer moves the target onto Merylin\'s original Square.');
-  assert.equal(lightbringerSwap.state.pendingAttack?.attackValue, 7, 'Lightbringer adds a tripled base High Ground bonus of 3 to its Attack Value 4 after swapping onto High Ground.');
-  assert.equal(lightbringerSwap.state.pendingAttack?.attackModifiers?.some((modifier) => modifier.value === 3 && modifier.source.includes('High Ground')), true, 'Lightbringer records its High Ground x3 as one additive +3 modifier.');
+  assert.equal(lightbringerSwap.state.pendingAttack?.attackValue, 6, 'Lightbringer adds a doubled base High Ground bonus of 2 to its Attack Value 4 after swapping onto High Ground.');
+  assert.equal(lightbringerSwap.state.pendingAttack?.attackModifiers?.some((modifier) => modifier.value === 2 && modifier.source.includes('High Ground')), true, 'Lightbringer records its High Ground x2 as one additive +2 modifier.');
 }
 
 const frostmourneState = createHotseatTestState(true, 'merylin', 2);
@@ -1450,6 +1456,7 @@ if (frostmourneAttack.ok) {
     if (frostmournePaid.ok) {
       assert.equal(frostmournePaid.state.players.P1.hp, 21, 'Frostmourne sacrifices 1 Hit Point from Merylin.');
       assert.equal(frostmournePaid.state.players.P1.actionsRemaining, 2, 'Frostmourne restores 1 Action after the Attack spent one.');
+      assert.equal(frostmournePaid.state.players.P1.merylinSummonActive, true, 'Paying Frostmourne\'s sacrifice grants Summon for Merylin\'s next Attack.');
       assert.equal(frostmournePaid.state.players.P1.deck.at(-1)?.instanceId, 'frostmourne-use', 'The exact used Frostmourne is placed on top of Merylin\'s Deck.');
       assert.equal(frostmournePaid.state.players.P1.knownTopCardId, 'frostmourne');
     }
@@ -1491,6 +1498,7 @@ if (redirectAttack.ok) {
   const redirectDefense = applyCommand(redirectAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'redirect-defense' });
   assert.equal(redirectDefense.ok, true);
   if (redirectDefense.ok) {
+    assert.equal(redirectDefense.state.combatReveal?.defendBase, 2, 'Redirect has base Defend Value 2.');
     assert.equal(redirectDefense.state.players.P2.hp, redirectTargetHp - 1, 'Redirect blocks 1 combat Damage first and 1 post-combat effect Damage second.');
     assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-combat-object'), false, 'The first adjacent Object is destroyed after absorbing the redirected combat Damage.');
     assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-effect-object'), false, 'The second adjacent Object is destroyed after absorbing the redirected post-combat effect Damage.');
@@ -1555,7 +1563,7 @@ assert.equal(tacticianStandingHighAttack.ok, true);
 if (tacticianStandingHighAttack.ok) {
   const tacticianStandingHighDefense = applyCommand(tacticianStandingHighAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tactician-standing-high-defense' });
   assert.equal(tacticianStandingHighDefense.ok, true);
-  if (tacticianStandingHighDefense.ok) assert.equal(tacticianStandingHighDefense.state.combatReveal?.defendTotal, 1, 'Tactician remains Value 1 when Merylin herself is standing on High Ground.');
+  if (tacticianStandingHighDefense.ok) assert.equal(tacticianStandingHighDefense.state.combatReveal?.defendTotal, 1, 'Tactician remains at its base Value 1 when Merylin herself is standing on High Ground.');
 }
 
 const tacticianHeadacheState = createHotseatTestState(false, 'shinobi', 2);
@@ -1569,7 +1577,7 @@ if (tacticianHeadacheAttack.ok) {
   const tacticianHeadacheDefense = applyCommand(tacticianHeadacheAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tactician-headache-defense' });
   assert.equal(tacticianHeadacheDefense.ok, true);
   if (tacticianHeadacheDefense.ok) {
-    assert.equal(tacticianHeadacheDefense.state.combatReveal?.defendTotal, 1, 'A diagonally adjacent High Ground Square does not empower Tactician.');
+    assert.equal(tacticianHeadacheDefense.state.combatReveal?.defendTotal, 1, 'A diagonally adjacent High Ground Square does not empower Tactician above its base Value 1.');
     assert.equal(tacticianHeadacheDefense.state.players.P1.deck.at(-1)?.cardId, 'headache', 'Unempowered Tactician adds Headache on top of the attacker\'s Deck.');
     assert.equal(tacticianHeadacheDefense.state.players.P1.knownTopCardId, 'headache');
   }
@@ -1723,14 +1731,14 @@ windwalkerLevelThreeState.players.P1.spellEcho = [null, null, { instanceId: 'win
 const windwalkerLevelThree = applyGameCommand(windwalkerLevelThreeState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(windwalkerLevelThree.ok, true);
 if (windwalkerLevelThree.ok) {
-  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerMoveBonus, 2, 'Windwalker Stance level 2 contributes a second MOV at level 3.');
+  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerMoveBonus, 3, 'Windwalker Stance level 2 adds +2 MOV for +3 MOV total at level 3.');
   assert.equal(windwalkerLevelThree.state.players.P1.windwalkerUnrestrictedMovement, true, 'Windwalker Stance level 3 enables unrestricted traversal.');
   assert.equal(applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 0 } }).ok, false, 'Windwalker cannot end movement on an occupied Square.');
   const crossedEverything = applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 5, y: 0 } });
   assert.equal(crossedEverything.ok, true);
   if (crossedEverything.ok) {
     assert.deepEqual(crossedEverything.state.players.P1.position, { x: 5, y: 0 }, 'Windwalker crosses Walls, characters, Objects, and restricted terrain to an empty destination.');
-    assert.equal(crossedEverything.state.players.P1.movementRemaining, 2, 'Windwalker traversal still costs 1 MOV per crossed Square.');
+    assert.equal(crossedEverything.state.players.P1.movementRemaining, 3, 'Windwalker traversal still costs 1 MOV per crossed Square.');
   }
 }
 
@@ -2068,40 +2076,29 @@ decayState.players.P1.position = { x: 2, y: 2 };
 decayState.players.P2.position = { x: 4, y: 2 };
 decayState.players.P1.hand = [];
 decayState.players.P1.spellEcho = [null, null, { instanceId: 'decay-three', cardId: 'decay' }];
-decayState.players.P2.deck = [{ instanceId: 'decay-deck-exhaust', cardId: 'exhaust' }];
-decayState.players.P2.discard = [{ instanceId: 'decay-discard-exhaust', cardId: 'exhaust' }];
-decayState.players.P2.hand = [
-  { instanceId: 'decay-hand-exhaust', cardId: 'exhaust' },
-  { instanceId: 'decay-hand-one', cardId: 'attack-2' },
-  { instanceId: 'decay-hand-two', cardId: 'attack-3' },
-  { instanceId: 'decay-hand-three', cardId: 'defend-1' },
-];
+decayState.players.P2.hand = [{ instanceId: 'curse-existing-card', cardId: 'attack-2' }];
 const decayThree = applyGameCommand(decayState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 const decayTargeted = decayThree.ok ? applyGameCommand(decayThree.state, { type: 'decay-target', playerId: 'P1', targetId: 'P2' }) : decayThree;
 assert.equal(decayTargeted.ok, true);
 if (decayTargeted.ok) {
-  assert.equal(decayTargeted.state.players.P2.discard.filter((card) => card.cardId === 'exhaust').length, 2, 'Decay Level 1 adds a new Exhaust to the target\'s existing Discard.');
-  assert.equal(decayTargeted.state.players.P1.decayMovementBonus, 1, 'Decay grants Wreckna 1 MOV until Wreckna\'s turn ends.');
-  assert.equal(decayTargeted.state.players.P1.movementRemaining, 3, 'Decay applies its stolen MOV after automatically resolving Free Move + Draw.');
-  assert.equal(decayTargeted.state.players.P2.hexMovementPenalty, 1, 'Decay applies -1 MOV through the target\'s next turn.');
-  assert.equal((decayTargeted.state as any).decay.remaining, 4, 'Decay counts Exhaust in Deck, existing Discard, newly added Discard, and Hand before requesting discards.');
-  let decayDiscardResult = decayTargeted;
-  for (const instanceId of ['decay-hand-exhaust', 'decay-hand-one', 'decay-hand-two', 'decay-hand-three']) {
-    if (decayDiscardResult.ok) decayDiscardResult = applyGameCommand(decayDiscardResult.state, { type: 'decay-discard', playerId: 'P2', cardInstanceId: instanceId });
-  }
-  assert.equal(decayDiscardResult.ok, true);
-  if (decayDiscardResult.ok) {
-    assert.equal(decayDiscardResult.state.players.P2.hand.length, 0, 'Decay Level 3 makes the target manually discard once per counted Exhaust, limited by available Hand Cards.');
-    const decayCasterTurnEnded = applyGameCommand(decayDiscardResult.state, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(decayTargeted.state.players.P1.decayMovementBonus, 1, 'Curse grants Wreckna 1 stolen MOV until Wreckna\'s turn ends.');
+  assert.equal(decayTargeted.state.players.P1.movementRemaining, 3, 'Curse applies its stolen MOV after automatically resolving Free Move + Draw.');
+  assert.equal(decayTargeted.state.players.P2.hexMovementPenalty, 1, 'Curse applies -1 MOV through the target\'s next turn.');
+  assert.equal(decayTargeted.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Curse Level 2 adds Headache to the target\'s Hand.');
+  assert.equal(decayTargeted.state.players.P2.traitBlocked, true, 'Curse Level 3 blocks the target\'s Trait.');
+  const decayCasterTurnEnded = applyGameCommand(decayTargeted.state, { type: 'end-turn', playerId: 'P1' });
     assert.equal(decayCasterTurnEnded.ok, true);
     if (decayCasterTurnEnded.ok) {
-      assert.equal(decayCasterTurnEnded.state.players.P1.decayMovementBonus, 0, 'Decay\'s positive MOV expires at Wreckna\'s turn end.');
-      assert.equal(decayCasterTurnEnded.state.players.P2.hexMovementPenalty, 1, 'Decay\'s target penalty remains during the target\'s next turn.');
+      assert.equal(decayCasterTurnEnded.state.players.P1.decayMovementBonus, 0, 'Curse\'s positive MOV expires at Wreckna\'s turn end.');
+      assert.equal(decayCasterTurnEnded.state.players.P2.hexMovementPenalty, 1, 'Curse\'s target penalty remains during the target\'s next turn.');
+      assert.equal(decayCasterTurnEnded.state.players.P2.traitBlocked, true, 'Curse remains active throughout the target\'s turn.');
       const decayTargetTurnEnded = applyGameCommand(decayCasterTurnEnded.state, { type: 'end-turn', playerId: 'P2' });
       assert.equal(decayTargetTurnEnded.ok, true);
-      if (decayTargetTurnEnded.ok) assert.equal(decayTargetTurnEnded.state.players.P2.hexMovementPenalty, 0, 'Decay\'s target penalty expires at the end of the target\'s next turn.');
+      if (decayTargetTurnEnded.ok) {
+        assert.equal(decayTargetTurnEnded.state.players.P2.hexMovementPenalty, 0, 'Curse\'s target penalty expires at the end of the target\'s next turn.');
+        assert.equal(decayTargetTurnEnded.state.players.P2.traitBlocked, false, 'Curse restores the target\'s Trait at the end of their turn.');
+      }
     }
-  }
 }
 const wrecknaTombState = createHotseatTestState(true, 'wreckna', 2);
 wrecknaTombState.objects = [];
@@ -5893,6 +5890,60 @@ assert.equal(john.attackRange, 1, 'Spirit Form gives John Christ melee Attack Ra
 assert.equal(john.movementRemaining, 1, 'Entering Spirit Form caps unspent movement at 1.');
 assert.equal(john.stoicShell, false, 'HP Damage removes Stoic Shell.');
 assert.equal(john.stoicShellStacks, 0, 'HP Damage removes every Stoic Shell Stack at once.');
+assert.equal(john.hand.filter((card) => card.cardId === 'judgement').length, 1, 'Entering Spirit Form adds exactly one Judgement to John\'s Hand.');
+dealDamage(johnState, john, 1);
+assert.equal(john.hand.filter((card) => card.cardId === 'judgement').length, 1, 'Taking more Damage while already in Spirit Form cannot add a second Judgement.');
+
+const judgementPaymentState = structuredClone(johnState);
+judgementPaymentState.phase = 'choosing-guard-discard';
+const judgementPayment = judgementPaymentState.players.P1.hand.find((card) => card.cardId === 'judgement')!;
+assert.equal(applyGameCommand(judgementPaymentState, { type: 'discard-card', playerId: 'P1', cardInstanceId: judgementPayment.instanceId }).ok, false, 'Judgement cannot pay for Guard.');
+judgementPaymentState.phase = 'choosing-dash-discard';
+assert.equal(applyGameCommand(judgementPaymentState, { type: 'discard-card', playerId: 'P1', cardInstanceId: judgementPayment.instanceId }).ok, false, 'Judgement cannot pay for Dash.');
+
+const judgementExpiryState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+judgementExpiryState.players.P1.hand = [{ instanceId: 'judgement-expiry', cardId: 'judgement' }];
+const judgementExpiry = applyGameCommand(judgementExpiryState, { type: 'end-turn', playerId: 'P1' });
+assert.equal(judgementExpiry.ok, true);
+if (judgementExpiry.ok) assert.equal(judgementExpiry.state.players.P1.hand.some((card) => card.cardId === 'judgement'), false, 'Unused Judgement is automatically Removed at the end of John\'s turn.');
+
+const judgementCombatState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+judgementCombatState.objects = [];
+judgementCombatState.players.P1.position = { x: 2, y: 2 };
+judgementCombatState.players.P2.position = { x: 3, y: 2 };
+judgementCombatState.players.P1.spiritForm = true;
+judgementCombatState.players.P1.attackRange = 1;
+judgementCombatState.players.P1.hand = [{ instanceId: 'judgement-combat', cardId: 'judgement' }];
+const judgementAttack = applyGameCommand(judgementCombatState, { type: 'attack', playerId: 'P1', cardInstanceId: 'judgement-combat', targetId: 'P2' });
+assert.equal(judgementAttack.ok, true);
+if (judgementAttack.ok) {
+  const judgementResult = applyCommand(judgementAttack.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(judgementResult.ok, true);
+  if (judgementResult.ok) {
+    assert.equal(judgementResult.state.players.P1.stoicShell, true, 'Winning combat with Judgement grants Stoic Shell.');
+    assert.equal([...judgementResult.state.players.P1.hand, ...judgementResult.state.players.P1.deck, ...judgementResult.state.players.P1.discard].some((card) => card.cardId === 'judgement'), false, 'Used Judgement is Removed instead of entering Deck or Discard.');
+  }
+}
+
+const feedSpiritScalingState = createHotseatTestState(true, 'dummy', 2, 'john-christ');
+feedSpiritScalingState.objects = [];
+feedSpiritScalingState.players.P1.position = { x: 2, y: 2 };
+feedSpiritScalingState.players.P2.position = { x: 3, y: 2 };
+feedSpiritScalingState.players.P1.hand = [{ instanceId: 'feed-scaling-attack', cardId: 'attack-3' }];
+feedSpiritScalingState.players.P2.hp = 10;
+feedSpiritScalingState.players.P2.hand = [{ instanceId: 'feed-scaling-defense', cardId: 'feed-the-spirit' }, { instanceId: 'feed-scaling-blessing', cardId: 'blessing-light' }];
+const feedScalingAttack = applyGameCommand(feedSpiritScalingState, { type: 'attack', playerId: 'P1', cardInstanceId: 'feed-scaling-attack', targetId: 'P2' });
+assert.equal(feedScalingAttack.ok, true);
+if (feedScalingAttack.ok) {
+  const feedScalingDefense = applyCommand(feedScalingAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'feed-scaling-defense' });
+  assert.equal(feedScalingDefense.ok, true);
+  if (feedScalingDefense.ok) {
+    assert.equal(feedScalingDefense.state.players.P2.hp, 9, 'Feed the Spirit first restores 2 HP after John loses 3 HP from combat Damage.');
+    const feedScalingChoice = applyGameCommand(feedScalingDefense.state, { type: 'feed-spirit-decision', playerId: 'P2', cardInstanceId: 'feed-scaling-blessing' });
+    assert.equal(feedScalingChoice.ok, true);
+    if (feedScalingChoice.ok) assert.equal(feedScalingChoice.state.players.P2.hp, 12, 'Removing a Blessing restores the exact 3 HP lost from combat Damage.');
+  }
+}
 johnState.objects = [];
 john.position = { x: 2, y: 2 };
 johnState.players.P2.position = { x: 4, y: 2 };
