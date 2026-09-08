@@ -1510,7 +1510,8 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   element.className = `fighter ${side}${elementId === 'p3Stats' ? ' violet' : ''}`;
   element.style.setProperty('--fighter-color', playerUiColor(id));
   const hpPercent = player.hp / player.maxHp * 100;
-  const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}<small>${player.manaMode === 'consume' ? 'CONSUME' : 'GENERATE'}</small></div>` : '';
+  const manaMode = player.manaMode === 'consume' ? '<small>CONSUME</small>' : '';
+  const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}${manaMode}</div>` : '';
   const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
   const abilityIcon = playerAbilityIcon(player);
   const statusIcons = playerStatusIcons(player);
@@ -3039,7 +3040,15 @@ scene.add(lordaeronTombGroup);
 let lordaeronTombModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
 type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
-const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
+type ObjectDestructionPiece = {
+  mesh: THREE.Mesh;
+  origin: THREE.Vector3;
+  rotation: THREE.Euler;
+  velocity: THREE.Vector3;
+  angularVelocity: THREE.Vector3;
+  baseOpacity: number;
+};
+const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; destructionPrepared?: boolean; destructionPieces?: ObjectDestructionPiece[]; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
 const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
@@ -3730,6 +3739,10 @@ function updateObjectMovement(time: number) {
     if (!group) { objectMovementAnimations.delete(objectId); return; }
     const elapsed = time - animation.startedAt - (animation.delay ?? 0);
     if (elapsed < 0) { group.visible = !animation.releaseSource; return; }
+    if (animation.destroy && !animation.destructionPrepared) {
+      animation.destructionPieces = prepareObjectDestructionPieces(group);
+      animation.destructionPrepared = true;
+    }
     if (!animation.released && animation.releaseSource) {
       animation.releaseSource.updateWorldMatrix(true, false);
       animation.releaseSource.getWorldPosition(animation.from);
@@ -3852,7 +3865,7 @@ function updateObjectMovement(time: number) {
       group.position.x += animation.dx * 1.92 * recoil;
       group.position.z += animation.dy * 1.92 * recoil;
     }
-    if (!animation.parachute && !animation.releaseQuaternion && !animation.preserveQuaternion) {
+    if (!animation.destroy && !animation.parachute && !animation.releaseQuaternion && !animation.preserveQuaternion) {
       group.position.y += Math.sin(progress * Math.PI) * 0.85;
       group.rotation.x = Math.sin(progress * Math.PI) * 0.32;
       group.rotation.z = Math.sin(progress * Math.PI * 2) * 0.18;
@@ -3862,9 +3875,22 @@ function updateObjectMovement(time: number) {
       group.position.y += Math.sin(progress * Math.PI) * 0.28;
     } else if (animation.parachute) group.rotation.y += 0.012;
     if (animation.destroy) {
-      const collapse = Math.max(.04, 1 - Math.pow(progress, 1.35));
-      group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(collapse);
-      group.rotation.y = progress * Math.PI * 3;
+      const fade = 1 - THREE.MathUtils.smoothstep(progress, 0.38, 1);
+      animation.destructionPieces?.forEach((piece) => {
+        piece.mesh.position.copy(piece.origin).addScaledVector(piece.velocity, progress);
+        piece.mesh.position.y -= 1.25 * progress * progress;
+        piece.mesh.rotation.set(
+          piece.rotation.x + piece.angularVelocity.x * progress,
+          piece.rotation.y + piece.angularVelocity.y * progress,
+          piece.rotation.z + piece.angularVelocity.z * progress,
+        );
+        (piece.mesh.material as THREE.Material & { opacity: number }).opacity = piece.baseOpacity * fade;
+      });
+      if (!animation.destructionPieces) {
+        const collapse = Math.max(.04, 1 - Math.pow(progress, 1.35));
+        group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(collapse);
+        group.rotation.y = progress * Math.PI * 3;
+      }
       group.children.filter((child) => child.name === 'TombDebris').forEach((debris) => {
         const velocity = debris.userData.velocity as THREE.Vector3;
         const origin = debris.userData.origin as THREE.Vector3;
@@ -4001,7 +4027,7 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
 
 const LORDAERON_TOMB_BASE_Y = 0.005;
 const LORDAERON_HIGHGROUND_TOP_Y = 0.98;
-const LORDAERON_HIGHGROUND_ENTITY_Y = 1.06;
+const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
 const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 
 function createSlideRamp(cell: Cell, color: number): THREE.Group {
@@ -4261,7 +4287,7 @@ function improveImportedTextureQuality(root: THREE.Object3D) {
 }
 
 function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>, name: string, targetSize: THREE.Vector3, castShadow = true) {
-  if (fallback.parent !== root) return;
+  if (fallback.parent !== root || root.userData.destroying) return;
   const model = asset.scene.clone(true) as THREE.Group;
   model.name = name;
   improveImportedTextureQuality(model);
@@ -4871,7 +4897,7 @@ function characterFacingRotation(group: THREE.Group, dx: number, dz: number) {
 }
 
 function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) {
-  if (root.userData.importedOrkkShield) return;
+  if (root.userData.importedOrkkShield || root.userData.destroying) return;
   const source = asset.scene.getObjectByName('Ironbound_Obelisk');
   const socket = asset.scene.getObjectByName('Shield_Release_Socket');
   if (!(source instanceof THREE.Mesh) || !socket) return;
@@ -6748,6 +6774,60 @@ function faceCharacterTowardNearestOpponent(group: THREE.Group, playerId: Player
   if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
 }
 
+function fadingDestructionMaterial(color: number, roughness: number, metalness = 0) {
+  return new THREE.MeshStandardMaterial({ color, roughness, metalness, transparent: true });
+}
+
+function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPiece[] | undefined {
+  const kind = group.userData.objectKind as string | undefined;
+  if (kind !== 'wooden-box' && kind !== 'orkk-shield') return undefined;
+  group.userData.destroying = true;
+  group.children.forEach((child) => { child.visible = false; });
+  const pieces: ObjectDestructionPiece[] = [];
+  const addPiece = (mesh: THREE.Mesh, position: THREE.Vector3, velocity: THREE.Vector3, angularVelocity: THREE.Vector3) => {
+    mesh.name = 'ObjectDestructionPiece';
+    mesh.position.copy(position);
+    mesh.castShadow = true;
+    group.add(mesh);
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    pieces.push({ mesh, origin: position.clone(), rotation: mesh.rotation.clone(), velocity, angularVelocity, baseOpacity: material.opacity });
+  };
+  if (kind === 'wooden-box') {
+    const woodColors = [0x9a6034, 0x75411f, 0x4d2b18];
+    for (let index = 0; index < 7; index++) {
+      const side = index % 2 === 0 ? -1 : 1;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(index < 2 ? 1.02 : 0.64, 0.13, index < 2 ? 0.3 : 0.22),
+        fadingDestructionMaterial(woodColors[index % woodColors.length], 0.9),
+      );
+      mesh.rotation.set((index % 3 - 1) * 0.18, index * 0.74, index % 2 ? 0.45 : -0.38);
+      addPiece(
+        mesh,
+        new THREE.Vector3((index % 3 - 1) * 0.28, 0.3 + (index % 4) * 0.22, side * (0.12 + (index % 3) * 0.12)),
+        new THREE.Vector3(side * (0.45 + index * 0.06), 0.35 + (index % 3) * 0.18, (index % 3 - 1) * 0.55),
+        new THREE.Vector3(2.1 + index * 0.22, side * (1.5 + index * 0.17), side * 2.4),
+      );
+    }
+  } else {
+    const pieceCount = 6;
+    for (let index = 0; index < pieceCount; index++) {
+      const angle = index / pieceCount * Math.PI * 2;
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.58, 0.58, 0.12, 5, 1, false, angle - 0.34, 0.68),
+        fadingDestructionMaterial(index % 2 ? 0x545c60 : 0x737d80, 0.48, 0.72),
+      );
+      mesh.rotation.x = Math.PI / 2;
+      addPiece(
+        mesh,
+        new THREE.Vector3(0, 0.58, 0),
+        new THREE.Vector3(Math.cos(angle) * 0.82, 0.28 + (index % 2) * 0.18, Math.sin(angle) * 0.82),
+        new THREE.Vector3(Math.sin(angle) * 2.8, 1.4 + index * 0.18, Math.cos(angle) * 2.8),
+      );
+    }
+  }
+  return pieces;
+}
+
 function syncBoard() {
   const arenaId = visualArena().id;
   if (lightingArenaId !== arenaId) {
@@ -6934,6 +7014,10 @@ function syncBoard() {
       } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision);
       return;
     }
+    // Redirect and other combat effects can destroy an Object before the combat
+    // result is acknowledged. Leave the event unprocessed so the intact visual
+    // remains on the Board and the break animation begins when the summary closes.
+    if (event.destroy && gameState.combatReveal) return;
     if (event.teleport) {
       processedObjectPushAnimations.add(event.id);
       spawnTeleportSquareVisual(event.from);
@@ -6982,9 +7066,9 @@ function syncBoard() {
     // A thrown Shield's root is offset from its logical cell so that the visible
     // mesh rests on the floor. Preserve that offset during Recall; snapping the
     // root back to the cell center can put the mesh beside or below the Board.
-    const from = isOrkkRecall && !reconstructedRecallShield ? group.position.clone() : logicalFrom.clone();
+    const from = event.destroy || (isOrkkRecall && !reconstructedRecallShield) ? group.position.clone() : logicalFrom.clone();
     const recallRootOffset = from.clone().sub(logicalFrom);
-    let to = isOrkkRecall ? logicalTo.clone().add(recallRootOffset) : logicalTo.clone();
+    let to = event.destroy ? from.clone() : isOrkkRecall ? logicalTo.clone().add(recallRootOffset) : logicalTo.clone();
     const recallSocket = isOrkkRecall && event.equipPlayerId
       ? recallOrkkGroup?.getObjectByName('Shield_Release_Socket')
       : undefined;
@@ -7022,7 +7106,7 @@ function syncBoard() {
       // begins at source frame 23 (the clip is authored at 24 fps).
       boxAttackDelay = (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
     }
-    const duration = event.id.includes('-spectre-relocate-') ? SPECTRE_RELOCATE_SWAP_MS : shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 560 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
+    const duration = event.id.includes('-spectre-relocate-') ? SPECTRE_RELOCATE_SWAP_MS : shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 900 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
     const impactDamage = pendingDamageVisuals.get(event.id);
     pendingDamageVisuals.delete(event.id);
     const visualPath = event.path?.map((cell) => {
@@ -7339,7 +7423,7 @@ function highlightCells() {
     const dakkothCaster = dakkoth ? gameState.players[dakkoth.casterId] : null;
     const dakkothTombSquareValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-square' && Boolean(dakkothCaster) && !occupiedByPlayer && !occupiedByObject
       && distance(dakkothCaster!.position, cell) <= effectiveAttackRange(gameState, dakkothCaster!);
-    const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || (objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'orkk-shield'));
+    const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || objectOnCell!.kind !== 'wall-pillar');
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = activePlayer.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(activePlayer, cell))
@@ -7484,7 +7568,7 @@ function updateTargetHighlights(time: number) {
     const attackObjectReachable = object && (attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, object.position))
       : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, object.position) && hasLineOfSight(gameState, attacker.position, object.position) && canAttackTargetSquare(gameState, attacker.position, object.position));
-    const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || (object!.kind !== 'wall-pillar' && object!.kind !== 'orkk-shield'))
+    const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || object!.kind !== 'wall-pillar')
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
     const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryCaster = testPhylactery ? gameState.players[testPhylactery.casterId] : null;
@@ -7728,7 +7812,7 @@ function onBoardClick(event: MouseEvent) {
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
-      const normallyAttackable = object?.kind !== 'wall-pillar' && object?.kind !== 'orkk-shield';
+      const normallyAttackable = object?.kind !== 'wall-pillar';
       if (object && (normallyAttackable || moonlightCanTargetWall)) {
         const targetsWall = moonlightCanTargetWall && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield');
         const message = targetsWall

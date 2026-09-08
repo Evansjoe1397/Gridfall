@@ -158,6 +158,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .fighter strong { font-size: 22px; letter-spacing: .05em; }
 .mana-storage { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; padding-top: 1px; }
 .fighter.right .mana-storage { justify-content: flex-end; }
+.hud.three-player .mana-storage { justify-content: flex-end; }
 .mana-storage i { width: 14px; height: 14px; border: 2px solid #58879d; border-radius: 50%; background: rgba(18,37,49,.7); box-shadow: inset 0 0 5px rgba(0,0,0,.7); }
 .mana-storage i.filled { border-color: #62c9ff; background: #2b9de0; box-shadow: 0 0 11px #3bb9ff, inset 0 0 5px #d8f6ff; }
 .mana-storage small { margin-left: 4px; color: #77a9bc; font-size: 8px; letter-spacing: .14em; }
