@@ -3037,7 +3037,7 @@ function adjustDawnLightLevel(direction: -1 | 1) {
 
 function setDawnArenaMode(enabled: boolean) {
   dawnArenaMode = enabled;
-  const lordaeronPalette = enabled && visualArena().id === 'lordaeron';
+  const lordaeronPalette = enabled && (visualArena().id === 'lordaeron' || visualArena().id === 'trench');
   dawnSkyUniforms.hauntedSky.value = lordaeronPalette;
   // Preserve the approved green sky; restore the original warm sky brightness.
   dawnSkyUniforms.correctOutputColor.value = !lordaeronPalette;
