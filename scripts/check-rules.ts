@@ -42,6 +42,19 @@ if (nonStackingExhaustAttack.ok) {
   assert.deepEqual(nonStackingExhaustAttack.state.pendingAttack?.attackModifiers?.filter((modifier) => modifier.source.includes('Exhaust')), [{ value: -1, source: 'one or more Exhaust Cards in Hand' }]);
 }
 
+const nonStackingExhaustDefenseState = createGameInitialState() as any;
+nonStackingExhaustDefenseState.phase = 'active'; nonStackingExhaustDefenseState.activePlayerId = 'P1'; nonStackingExhaustDefenseState.objects = []; nonStackingExhaustDefenseState.elevations = {}; nonStackingExhaustDefenseState.simultaneousCombatStack = true;
+nonStackingExhaustDefenseState.players.P1.position = { x: 2, y: 2 }; nonStackingExhaustDefenseState.players.P2.position = { x: 3, y: 2 };
+nonStackingExhaustDefenseState.players.P1.hand = [{ instanceId: 'non-stacking-defense-attack', cardId: 'attack-2' }];
+nonStackingExhaustDefenseState.players.P2.hand = [{ instanceId: 'non-stacking-defense-block', cardId: 'block' }, { instanceId: 'non-stacking-defense-exhaust-1', cardId: 'exhaust' }, { instanceId: 'non-stacking-defense-exhaust-2', cardId: 'exhaust' }];
+const nonStackingDefenseAttack = applyGameCommand(nonStackingExhaustDefenseState, { type: 'attack', playerId: 'P1', cardInstanceId: 'non-stacking-defense-attack', targetId: 'P2', targetKind: 'player' });
+const nonStackingDefense = nonStackingDefenseAttack.ok ? applyGameCommand(nonStackingDefenseAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'non-stacking-defense-block' }) : nonStackingDefenseAttack;
+assert.equal(nonStackingDefense.ok, true);
+if (nonStackingDefense.ok) {
+  assert.equal(nonStackingDefense.state.combatReveal?.defendTotal, 1, 'Multiple Exhaust Cards in Hand apply only one passive -1 Defend Value penalty.');
+  assert.deepEqual(applicableCombatCardInstanceIds(nonStackingDefense.state, 'P2'), ['non-stacking-defense-exhaust-1', 'non-stacking-defense-exhaust-2'], 'Either Exhaust remains available to attach while the resolved Defend Value is positive.');
+}
+
 const arcaneBarrierPushState = createGameInitialState('shinobi-vs-magician');
 arcaneBarrierPushState.objects = [];
 arcaneBarrierPushState.players.P1.position = { x: 2, y: 2 };
@@ -519,6 +532,7 @@ arcaneBoltConsumeState.players.P1.hand = [{ instanceId: 'consume-arcane-bolt', c
 const consumedArcaneBolt = applyCommand(arcaneBoltConsumeState, { type: 'attack', playerId: 'P1', cardInstanceId: 'consume-arcane-bolt', targetId: 'P2' });
 assert.equal(consumedArcaneBolt.ok, true);
 if (consumedArcaneBolt.ok) {
+  assert.equal(consumedArcaneBolt.state.pendingAttack?.attackerUsedManaConsume, true, 'Combat summaries retain that Logan used Consume for this Attack Card.');
   assert.equal(consumedArcaneBolt.state.players.P1.movementRemaining, 0, 'Arcane Bolt Consume no longer grants MOV.');
   const resolvedConsumedArcaneBolt = applyCommand(consumedArcaneBolt.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(resolvedConsumedArcaneBolt.ok, true);
@@ -766,7 +780,7 @@ if (resolveTankJunior.ok) {
 }
 
 const tiedTankJuniorRewardState = createInitialState() as any;
-tiedTankJuniorRewardState.turn = 4; tiedTankJuniorRewardState.activePlayerId = 'P2'; tiedTankJuniorRewardState.roundFirstPlayerId = 'P1';
+tiedTankJuniorRewardState.turn = 4; tiedTankJuniorRewardState.activePlayerId = 'P2'; tiedTankJuniorRewardState.roundFirstPlayerId = 'P1'; tiedTankJuniorRewardState.players.P2.hand = [];
 tiedTankJuniorRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['tank-junior'], currentQuest: { id: 'tank-junior', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 5, P2: 5 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
 const resolveTankJuniorTie = applyCommand(tiedTankJuniorRewardState, { type: 'end-turn', playerId: 'P2' });
 assert.equal(resolveTankJuniorTie.ok, true);
@@ -777,7 +791,7 @@ if (resolveTankJuniorTie.ok) {
 }
 
 const tiedElephantRewardState = createInitialState() as any;
-tiedElephantRewardState.turn = 4; tiedElephantRewardState.activePlayerId = 'P2'; tiedElephantRewardState.roundFirstPlayerId = 'P1';
+tiedElephantRewardState.turn = 4; tiedElephantRewardState.activePlayerId = 'P2'; tiedElephantRewardState.roundFirstPlayerId = 'P1'; tiedElephantRewardState.players.P2.hand = [];
 tiedElephantRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: ['the-elephant'], currentQuest: { id: 'the-elephant', announcedRound: 1, endsAfterRound: 4, winners: [], progress: { P1: 3, P2: 3 } }, lastQuestWinners: [], progression: {}, phaseReward: null };
 const resolveElephantTie = applyCommand(tiedElephantRewardState, { type: 'end-turn', playerId: 'P2' });
 assert.equal(resolveElephantTie.ok, true);
@@ -884,7 +898,7 @@ if (phaseBoundaryResult.ok) {
   const phaseCard = applyCommand(phaseBoundaryResult.state, { type: 'phase-card-choice', playerId: 'P1', cardId: 'not-a-shinobi' });
   assert.equal(phaseCard.ok, true, 'An Attack-focused Shinobi may select an available Defend Card at Phase One.');
   if (phaseCard.ok) {
-    assert.equal(phaseCard.state.phase, 'choosing-phase-destination', 'The outgoing Action Quest winner receives the Phase reward destination choice.');
+    assert.equal(phaseCard.state.phase, 'choosing-phase-card', 'A winner chooses their destination without blocking other simultaneous Phase reward choices.');
     const phaseCardDestination = applyCommand(phaseCard.state, { type: 'phase-card-destination', playerId: 'P1', destination: 'shuffle' });
     assert.equal(phaseCardDestination.ok, true);
     if (!phaseCardDestination.ok) throw new Error('Phase One destination choice unexpectedly failed.');
@@ -903,12 +917,32 @@ if (phaseBoundaryResult.ok) {
       const perkChoice = applyCommand(phaseTwoBoundary.state, { type: 'phase-card-choice', playerId: 'P1', cardId: 'swiftform' });
       assert.equal(perkChoice.ok, true);
       if (perkChoice.ok) {
-        assert.equal(perkChoice.state.phase, 'choosing-phase-destination', 'The previous Quest winner chooses where to add a Phase Card.');
+        assert.equal(perkChoice.state.phase, 'choosing-phase-card', 'The previous Quest winner chooses where to add a Phase Card within the simultaneous reward stage.');
         const addToHand = applyCommand(perkChoice.state, { type: 'phase-card-destination', playerId: 'P1', destination: 'hand' });
         assert.equal(addToHand.ok, true);
         if (addToHand.ok) assert.equal(addToHand.state.players.P1.hand.some((card) => card.cardId === 'swiftform'), true, 'Winner may add the Phase reward directly to Hand.');
       }
     }
+  }
+}
+
+const simultaneousPhaseRewardState = createHotseatTestState(true, 'shinobi', 2, 'orkk') as any;
+simultaneousPhaseRewardState.phase = 'choosing-phase-card';
+simultaneousPhaseRewardState.questPhases = {
+  actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: ['P1'],
+  progression: { P1: { initialFocus: 'attack', chosenFocusCard: 'cut-them-legs' }, P2: { initialFocus: 'attack', chosenFocusCard: 'fistbolt' } },
+  phaseReward: { phase: 1, pendingPlayerIds: ['P1', 'P2'], completedPlayerIds: [], playerProgress: {} }, turnStartedOnHighGround: {},
+};
+const simultaneousWinnerChoice = applyCommand(simultaneousPhaseRewardState, { type: 'phase-card-choice', playerId: 'P1', cardId: 'not-a-shinobi' });
+assert.equal(simultaneousWinnerChoice.ok, true);
+if (simultaneousWinnerChoice.ok) {
+  const simultaneousOtherChoice = applyCommand(simultaneousWinnerChoice.state, { type: 'phase-card-choice', playerId: 'P2', cardId: 'countaspell' });
+  assert.equal(simultaneousOtherChoice.ok, true, 'Another Player may complete a Phase reward while the Quest winner is still choosing a destination.');
+  if (simultaneousOtherChoice.ok) {
+    assert.deepEqual((simultaneousOtherChoice.state as any).questPhases.phaseReward.pendingPlayerIds, ['P1']);
+    const simultaneousWinnerDestination = applyCommand(simultaneousOtherChoice.state, { type: 'phase-card-destination', playerId: 'P1', destination: 'hand' });
+    assert.equal(simultaneousWinnerDestination.ok, true);
+    if (simultaneousWinnerDestination.ok) assert.equal(simultaneousWinnerDestination.state.phase, 'active', 'Play resumes only after every simultaneous Phase reward choice is complete.');
   }
 }
 
@@ -945,7 +979,7 @@ assert.equal(removedPhaseThreeHand.ok, true);
 if (removedPhaseThreeHand.ok) {
   assert.equal(removedPhaseThreeHand.state.players.P1.hand.length, 0, 'Phase 3 may Remove a Card from Hand.');
   assert.equal(removedPhaseThreeHand.state.phase, 'choosing-phase-three-card', 'After Remove, the independent Duplicate action remains available.');
-  assert.equal(removedPhaseThreeHand.state.questPhases.phaseReward.phaseThreeRemoved, true);
+  assert.equal(removedPhaseThreeHand.state.questPhases.phaseReward.playerProgress.P1.phaseThreeRemoved, true);
   const declineDuplicate = applyCommand(removedPhaseThreeHand.state, { type: 'phase-three-finish', playerId: 'P1' });
   assert.equal(declineDuplicate.ok, true, 'Cancel may decline the remaining Phase 3 action.');
   if (declineDuplicate.ok) assert.equal(declineDuplicate.state.phase, 'active');
@@ -5875,7 +5909,7 @@ johnPhaseRewardState.questPhases = { actionDamageByPlayer: {}, usedQuestIds: [],
 const johnPhaseOneChoice = applyGameCommand(johnPhaseRewardState, { type: 'phase-card-choice', playerId: 'P1', cardId: 'blessed-swiftness' });
 assert.equal(johnPhaseOneChoice.ok, true, 'John can select a newer Defend Card during the Phase 1 reward without command validation rejecting its Card ID.');
 if (johnPhaseOneChoice.ok) {
-  assert.equal(johnPhaseOneChoice.state.phase, 'choosing-phase-destination');
+  assert.equal(johnPhaseOneChoice.state.phase, 'choosing-phase-card');
   const johnPhaseDestination = applyGameCommand(johnPhaseOneChoice.state, { type: 'phase-card-destination', playerId: 'P1', destination: 'hand' });
   assert.equal(johnPhaseDestination.ok, true);
   if (johnPhaseDestination.ok) assert.equal(johnPhaseDestination.state.players.P1.hand.some((card) => card.cardId === 'blessed-swiftness'), true, 'Phase 1 winner can add Blessed Swiftness directly to Hand.');

@@ -350,7 +350,7 @@ export type PlayerState = {
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
 export type CombatModifier = { value: number; source: string };
 export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'discarded-perk' | 'forced-attack' | 'forced-defend' | 'no-eligible' | 'prevented'; damage?: number };
-export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
+export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
 export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; attackAnimationPlayerId?: PlayerId; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
@@ -638,7 +638,22 @@ export type QuestPhaseState = {
   lastQuestWinners: PlayerId[];
   lastQuestResult?: { questId: string; winners: PlayerId[]; turn: number; activePlayerId: PlayerId };
   progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend'; chosenFocusCard: CardTypeId }>>;
-  phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; selectedCardId?: CardTypeId; selectedCardInstanceId?: string; phaseThreeDuplicated?: boolean; phaseThreeRemoved?: boolean } | null;
+  phaseReward: {
+    phase: 1 | 2 | 3;
+    pendingPlayerIds: PlayerId[];
+    completedPlayerIds?: PlayerId[];
+    playerProgress?: Partial<Record<PlayerId, {
+      selectedCardId?: CardTypeId;
+      selectedCardInstanceId?: string;
+      phaseThreeDuplicated?: boolean;
+      phaseThreeRemoved?: boolean;
+    }>>;
+    /** Legacy single-player fields retained for in-progress saved states. */
+    selectedCardId?: CardTypeId;
+    selectedCardInstanceId?: string;
+    phaseThreeDuplicated?: boolean;
+    phaseThreeRemoved?: boolean;
+  } | null;
   turnStartedOnHighGround: Partial<Record<PlayerId, boolean>>;
   captureTheFlag?: { flags: { id: string; ownerId: PlayerId; homeSquares: [Cell, Cell]; homeAnchor: { x: number; y: number }; status: 'home' | 'carried' | 'dropped' | 'captured'; carrierId: PlayerId | null; droppedAt: Cell | null; grabbedFromHome: boolean }[] } | null;
   objectEffectsThisTurn?: Record<string, number>;
@@ -1293,10 +1308,10 @@ function startPhaseReward(state: GameState, phase: 1 | 2 | 3) {
   const alive = (Object.keys(state.players) as PlayerId[]).filter((id) => state.players[id].hp > 0 && state.players[id].character !== 'dummy');
   if (alive.length === 0) return;
   const reward = questPhases(state);
-  reward.phaseReward = { phase, pendingPlayerIds: alive };
+  reward.phaseReward = { phase, pendingPlayerIds: alive, completedPlayerIds: [], playerProgress: {} };
   state.activePlayerId = alive[0];
   state.phase = phase === 3 ? 'choosing-phase-three-card' : 'choosing-phase-card';
-  state.log.unshift(`Phase ${phase} ended. ${state.players[alive[0]].name} chooses a Phase reward.`);
+  state.log.unshift(`Phase ${phase} ended. All eligible Players choose their Phase rewards simultaneously.`);
 }
 
 export function phaseCardCandidates(state: GameState, playerId: PlayerId): CardTypeId[] {
@@ -1318,14 +1333,28 @@ function addPhaseCard(player: PlayerState, cardId: CardTypeId, destination: 'han
   else { player.deck = shuffle([...player.deck, instance]); player.knownTopCardId = null; }
 }
 
-function finishPhasePlayer(state: GameState) {
+function phaseRewardPlayerProgress(reward: NonNullable<QuestPhaseState['phaseReward']>, playerId: PlayerId) {
+  reward.playerProgress ??= {};
+  const progress = reward.playerProgress[playerId] ??= {};
+  if (reward.pendingPlayerIds[0] === playerId) {
+    progress.selectedCardId ??= reward.selectedCardId;
+    progress.selectedCardInstanceId ??= reward.selectedCardInstanceId;
+    progress.phaseThreeDuplicated ??= reward.phaseThreeDuplicated;
+    progress.phaseThreeRemoved ??= reward.phaseThreeRemoved;
+    reward.selectedCardId = undefined;
+    reward.selectedCardInstanceId = undefined;
+    reward.phaseThreeDuplicated = undefined;
+    reward.phaseThreeRemoved = undefined;
+  }
+  return progress;
+}
+
+function finishPhasePlayer(state: GameState, playerId: PlayerId) {
   const questState = questPhases(state);
   const reward = questState.phaseReward!;
-  reward.selectedCardId = undefined; reward.selectedCardInstanceId = undefined;
-  reward.phaseThreeDuplicated = undefined; reward.phaseThreeRemoved = undefined;
-  reward.pendingPlayerIds.shift();
+  reward.completedPlayerIds = [...new Set([...(reward.completedPlayerIds ?? []), playerId])];
+  reward.pendingPlayerIds = reward.pendingPlayerIds.filter((id) => id !== playerId);
   if (reward.pendingPlayerIds.length > 0) {
-    state.activePlayerId = reward.pendingPlayerIds[0];
     state.phase = reward.phase === 3 ? 'choosing-phase-three-card' : 'choosing-phase-card';
   } else {
     questState.phaseReward = null;
@@ -1337,37 +1366,40 @@ function finishPhasePlayer(state: GameState) {
 
 function resolvePhaseCardChoice(state: GameState, playerId: PlayerId, cardId: CardTypeId): CommandResult {
   const questState = questPhases(state); const reward = questState.phaseReward;
-  if (state.phase !== 'choosing-phase-card' || !reward || reward.pendingPlayerIds[0] !== playerId) return fail(state, 'This Player is not choosing a Phase Card.');
+  if (state.phase !== 'choosing-phase-card' || !reward || !reward.pendingPlayerIds.includes(playerId)) return fail(state, 'This Player is not choosing a Phase Card.');
+  const progress = phaseRewardPlayerProgress(reward, playerId);
+  if (progress.selectedCardId) return fail(state, 'This Player already chose a Phase Card and must choose its destination.');
   if (!phaseCardCandidates(state, playerId).includes(cardId)) return fail(state, 'That Card is not an available Phase reward.');
-  reward.selectedCardId = cardId;
-  if (questState.lastQuestWinners.includes(playerId)) state.phase = 'choosing-phase-destination';
-  else { addPhaseCard(state.players[playerId], cardId, 'shuffle'); finishPhasePlayer(state); }
+  if (questState.lastQuestWinners.includes(playerId)) progress.selectedCardId = cardId;
+  else { addPhaseCard(state.players[playerId], cardId, 'shuffle'); finishPhasePlayer(state, playerId); }
   return ok(state);
 }
 
 function resolvePhaseThreeOperation(state: GameState, playerId: PlayerId, cardInstanceId: string, operation: 'duplicate' | 'remove'): CommandResult {
   const questState = questPhases(state); const reward = questState.phaseReward;
-  if (state.phase !== 'choosing-phase-three-card' || reward?.phase !== 3 || reward.pendingPlayerIds[0] !== playerId) return fail(state, 'This Player is not choosing a Phase Three Card.');
+  if (state.phase !== 'choosing-phase-three-card' || reward?.phase !== 3 || !reward.pendingPlayerIds.includes(playerId)) return fail(state, 'This Player is not choosing a Phase Three Card.');
+  const progress = phaseRewardPlayerProgress(reward, playerId);
+  if (progress.selectedCardId) return fail(state, 'Choose the duplicated Card’s destination first.');
   const player = state.players[playerId];
   const card = [...player.deck, ...player.discard, ...player.hand].find((entry) => entry.instanceId === cardInstanceId);
   if (!card) return fail(state, 'Phase Three requires a Card currently in the Deck, Discard, or Hand.');
   if (operation === 'remove') {
-    if (reward.phaseThreeRemoved) return fail(state, 'This Player has already used the Phase Three Remove action.');
+    if (progress.phaseThreeRemoved) return fail(state, 'This Player has already used the Phase Three Remove action.');
     removeCard(player, cardInstanceId);
-    reward.phaseThreeRemoved = true;
+    progress.phaseThreeRemoved = true;
     state.log.unshift(`${player.name} used the Phase Three Remove action.`);
-    if (reward.phaseThreeDuplicated) finishPhasePlayer(state);
+    if (progress.phaseThreeDuplicated) finishPhasePlayer(state, playerId);
   }
   else {
-    if (reward.phaseThreeDuplicated) return fail(state, 'This Player has already used the Phase Three Duplicate action.');
-    reward.phaseThreeDuplicated = true;
-    reward.selectedCardId = card.cardId; reward.selectedCardInstanceId = cardInstanceId;
-    if (questState.lastQuestWinners.includes(playerId)) state.phase = 'choosing-phase-destination';
+    if (progress.phaseThreeDuplicated) return fail(state, 'This Player has already used the Phase Three Duplicate action.');
+    progress.phaseThreeDuplicated = true;
+    progress.selectedCardId = card.cardId; progress.selectedCardInstanceId = cardInstanceId;
+    if (questState.lastQuestWinners.includes(playerId)) return ok(state);
     else {
       addPhaseCard(player, card.cardId, 'shuffle');
-      reward.selectedCardId = undefined; reward.selectedCardInstanceId = undefined;
+      progress.selectedCardId = undefined; progress.selectedCardInstanceId = undefined;
       state.log.unshift(`${player.name} used the Phase Three Duplicate action.`);
-      if (reward.phaseThreeRemoved) finishPhasePlayer(state);
+      if (progress.phaseThreeRemoved) finishPhasePlayer(state, playerId);
     }
   }
   return ok(state);
@@ -1375,22 +1407,25 @@ function resolvePhaseThreeOperation(state: GameState, playerId: PlayerId, cardIn
 
 function finishPhaseThreeChoices(state: GameState, playerId: PlayerId): CommandResult {
   const reward = questPhases(state).phaseReward;
-  if (state.phase !== 'choosing-phase-three-card' || reward?.phase !== 3 || reward.pendingPlayerIds[0] !== playerId) return fail(state, 'This Player cannot finish Phase Three choices now.');
-  state.log.unshift(`${state.players[playerId].name} finished Phase Three refinement${reward.phaseThreeDuplicated || reward.phaseThreeRemoved ? ' and declined the remaining action' : ' without using either action'}.`);
-  finishPhasePlayer(state);
+  if (state.phase !== 'choosing-phase-three-card' || reward?.phase !== 3 || !reward.pendingPlayerIds.includes(playerId)) return fail(state, 'This Player cannot finish Phase Three choices now.');
+  const progress = phaseRewardPlayerProgress(reward, playerId);
+  if (progress.selectedCardId) return fail(state, 'Choose the duplicated Card’s destination first.');
+  state.log.unshift(`${state.players[playerId].name} finished Phase Three refinement${progress.phaseThreeDuplicated || progress.phaseThreeRemoved ? ' and declined the remaining action' : ' without using either action'}.`);
+  finishPhasePlayer(state, playerId);
   return ok(state);
 }
 
 function resolvePhaseDestination(state: GameState, playerId: PlayerId, destination: 'hand' | 'top' | 'shuffle'): CommandResult {
   const reward = questPhases(state).phaseReward;
-  if (state.phase !== 'choosing-phase-destination' || !reward?.selectedCardId || reward.pendingPlayerIds[0] !== playerId) return fail(state, 'No Phase reward destination is pending.');
-  addPhaseCard(state.players[playerId], reward.selectedCardId, destination);
+  if (!reward || !reward.pendingPlayerIds.includes(playerId) || !['choosing-phase-card', 'choosing-phase-three-card'].includes(state.phase)) return fail(state, 'No Phase reward destination is pending.');
+  const progress = phaseRewardPlayerProgress(reward, playerId);
+  if (!progress.selectedCardId) return fail(state, 'No Phase reward destination is pending.');
+  addPhaseCard(state.players[playerId], progress.selectedCardId, destination);
   if (reward.phase === 3) {
-    reward.selectedCardId = undefined; reward.selectedCardInstanceId = undefined;
+    progress.selectedCardId = undefined; progress.selectedCardInstanceId = undefined;
     state.log.unshift(`${state.players[playerId].name} used the Phase Three Duplicate action.`);
-    if (reward.phaseThreeRemoved) finishPhasePlayer(state);
-    else state.phase = 'choosing-phase-three-card';
-  } else finishPhasePlayer(state);
+    if (progress.phaseThreeRemoved) finishPhasePlayer(state, playerId);
+  } else finishPhasePlayer(state, playerId);
   return ok(state);
 }
 
@@ -2855,7 +2890,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       exhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
       guardianPenalty && { value: -guardianPenalty, source: 'adjacent enemy Spirit Guardian' },
     ].filter((modifier): modifier is CombatModifier => Boolean(modifier));
-    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + necronomiconBonus + barbarianBonus + excaliburRangeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
+    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + necronomiconBonus + barbarianBonus + excaliburRangeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
     consumeMerylinKamelotForAttack(state, player);
     const oracle = defender.character === 'merylin' ? defender.hand.find((entry) => entry.cardId === 'oracle') : undefined;
     if (oracle) Object.assign(state.pendingAttack, { oracleInstanceId: oracle.instanceId, oracleValueAtCombatStart: cardBaseValue(oracle), oracleRevealedThisCombat: false, oracleAttackRevealed: false });
@@ -3821,7 +3856,7 @@ function beginMultiplayerCombatStack(state: GameState, command: Extract<GameComm
       + tacticianDefenseBonus(state, defender, defendDefinition.id, defender.position, blessedMightCancelsDefenseCard(pending, defendDefinition.id))
       + (defendDefinition.id === 'double-jump' ? pinnedCount(attacker) : 0)
       + mythrilHelmetDefenseBonus(defender)
-      - defender.hand.filter((card) => card.cardId === 'exhaust').length
+      - Number(defender.hand.some((card) => card.cardId === 'exhaust'))
     : 0;
   state.combatReveal = {
     attackCardId: pending.cardId,
@@ -4328,7 +4363,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (blessing && !attacker.brainFreezeCombatBlocked && !devourProtectsFromNegativeEffects(state, defender)) {
       const instance = defender.hand.find((card) => card.instanceId === command.cardInstanceId)!;
       const definition = cardDefinition(instance);
-      const previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender) + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + mythrilHelmetDefenseBonus(defender) - defender.hand.filter((card) => card.cardId === 'exhaust').length - (defender.spectreShadowDefensePenalty ?? 0);
+      const previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender) + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + mythrilHelmetDefenseBonus(defender) - Number(defender.hand.some((card) => card.cardId === 'exhaust')) - (defender.spectreShadowDefensePenalty ?? 0);
       state.combatReveal = { attackCardId: pending.cardId, defendCardId: instance.cardId, attackBase: cardDefinition({ instanceId: '', cardId: pending.cardId }).value, attackTotal: pending.attackValue, defendBase: cardBaseValue(instance), defendTotal: Math.max(0, previewDefenseTotal), expiresAt: Date.now() + 86_400_000, acknowledged: [], blessingLight: { defenseCommand: command, playerId: attacker.id } };
       state.phase = 'choosing-blessing-light';
       state.log.unshift(`${attacker.name} may apply Blessing: Light to reduce the enemy Defend Card by 1.`);
@@ -4345,7 +4380,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       if (command.type === 'defend') {
         const instance = defender.hand.find((card) => card.instanceId === command.cardInstanceId)!; const definition = cardDefinition(instance);
         previewDefenseCard = instance.cardId; previewDefenseBase = cardBaseValue(instance);
-        previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender) + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + mythrilHelmetDefenseBonus(defender) + (defender.merylinSummonActive ? defender.merylinSummonedDefenseBonus ?? 0 : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length - (defender.spectreShadowDefensePenalty ?? 0);
+        previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender) + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + mythrilHelmetDefenseBonus(defender) + (defender.merylinSummonActive ? defender.merylinSummonedDefenseBonus ?? 0 : 0) - Number(defender.hand.some((card) => card.cardId === 'exhaust')) - (defender.spectreShadowDefensePenalty ?? 0);
       }
       state.combatReveal = { attackCardId: pending.cardId, defendCardId: previewDefenseCard, attackBase: cardDefinition({ instanceId: '', cardId: pending.cardId }).value, attackTotal: pending.attackValue, defendBase: previewDefenseBase, defendTotal: Math.max(0, previewDefenseTotal), expiresAt: Date.now() + 86_400_000, acknowledged: [], viciousMockery: { defenseCommand: command, eligible, decided: [], applied: [], appliedValues: {} } };
       state.phase = 'choosing-vicious-mockery';
@@ -4363,7 +4398,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       if (!instance || cardDefinition(instance).kind !== 'defend') return fail(state, 'That Defend card is not in the hand.');
       const definition = cardDefinition(instance); previewDefenseCard = instance.cardId; previewDefenseBase = cardBaseValue(instance);
       previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender)
-        + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + (defender.hand.some((card) => card.cardId === 'banner') ? 1 : 0) + mythrilHelmetDefenseBonus(defender) + (defender.merylinSummonActive ? defender.merylinSummonedDefenseBonus ?? 0 : 0) - defender.hand.filter((card) => card.cardId === 'exhaust').length - (defender.spectreShadowDefensePenalty ?? 0);
+        + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + (defender.hand.some((card) => card.cardId === 'banner') ? 1 : 0) + mythrilHelmetDefenseBonus(defender) + (defender.merylinSummonActive ? defender.merylinSummonedDefenseBonus ?? 0 : 0) - Number(defender.hand.some((card) => card.cardId === 'exhaust')) - (defender.spectreShadowDefensePenalty ?? 0);
       if (previewDefenseTotal + defenderMockery > 0 && defender.hand.some((card) => card.cardId === 'exhaust')) eligible.push(defender.id);
     }
     if (eligible.length > 0) {
@@ -4402,7 +4437,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     const baseDefenseBonus = ownedDefenseBonus(defender, state, defenderCombatPosition);
     const guardianDefenseBonus = spiritGuardianDefenseBonus(state, defender);
     const guardianEnemyPenalty = spiritGuardianEnemyPenalty(state, defender);
-    const heldExhaustPenalty = defender.hand.filter((card) => card.cardId === 'exhaust').length;
+    const heldExhaustPenalty = Number(defender.hand.some((card) => card.cardId === 'exhaust'));
     const shadowDaggerDefensePenalty = defender.spectreShadowDefensePenalty ?? 0;
     const carianStanceDefenseBonus = defender.merylinSummonActive ? defender.merylinSummonedDefenseBonus ?? 0 : 0;
     const tacticianBonus = tacticianDefenseBonus(state, defender, defenseCard.id, defenderCombatPosition, defenseEffectsCancelled);
@@ -4422,7 +4457,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       carianStanceDefenseBonus && { value: carianStanceDefenseBonus, source: 'Carian Stance while Summoned' },
       tacticianBonus && { value: tacticianBonus, source: 'Tactician terrain adjacency' },
       defenderMockery && { value: defenderMockery, source: `Vicious Mockery +${defenderMockery}` },
-      heldExhaustPenalty && { value: -heldExhaustPenalty, source: `${heldExhaustPenalty} Exhaust Card${heldExhaustPenalty === 1 ? '' : 's'} in Hand` },
+      heldExhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
       shadowDaggerDefensePenalty && { value: -shadowDaggerDefensePenalty, source: 'Shadow Dagger' },
       defenderAttachedExhaust && { value: -3, source: 'attached Exhaust' },
       pending.blessingLightApplied && { value: -1, source: 'Blessing: Light' },
