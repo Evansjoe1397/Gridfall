@@ -1,6 +1,8 @@
 import './style.css';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import * as THREE from 'three';
+import { textureTrenchTile } from './trench-tile-textures.ts';
+import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -3077,8 +3079,10 @@ let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let lordaeronPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+const trenchPillarAssetPromises = new Map<number, ReturnType<GLTFLoader['loadAsync']>>();
 let nagrandOuterRingAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let lordaeronPerimeterAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let trenchPerimeterAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let lordaeronTombAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
@@ -3103,6 +3107,13 @@ const lordaeronPerimeterGroup = new THREE.Group();
 lordaeronPerimeterGroup.name = 'LordaeronPerimeter';
 scene.add(lordaeronPerimeterGroup);
 let lordaeronPerimeterModel: THREE.Group | null = null;
+const trenchPerimeterGroup = new THREE.Group();
+trenchPerimeterGroup.name = 'TrenchPerimeter';
+// Align the opposing arches with the central trench lanes.
+trenchPerimeterGroup.rotation.y = Math.PI * 0.5;
+trenchPerimeterGroup.visible = false;
+scene.add(trenchPerimeterGroup);
+let trenchPerimeterModel: THREE.Group | null = null;
 const lordaeronTombGroup = new THREE.Group();
 lordaeronTombGroup.name = 'LordaeronHighgroundTomb';
 scene.add(lordaeronTombGroup);
@@ -4099,26 +4110,33 @@ const LORDAERON_HIGHGROUND_TOP_Y = 0.98;
 const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
 const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 
+function trenchTileDepth(cell: Cell) {
+  const arena = visualArena();
+  // A subtle recess: much smaller than the 0.38 low/high-ground step.
+  return arena.id === 'trench' && arena.trenchSquares?.includes(cellLabel(cell)) ? 0.10 : 0;
+}
+
 function createSlideRamp(cell: Cell, color: number): THREE.Group {
   const root = new THREE.Group();
   const arena = visualArena();
   const cardinalDirections = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
-  const diagonalDirections = [{ x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 }];
   const highAt = (dx: number, dy: number) => arena.highground.includes(cellLabel({ x: cell.x + dx, y: cell.y + dy }));
   const rise = cardinalDirections.find((direction) => highAt(direction.x, direction.y));
   if (!rise) return root;
-  const diagonal = diagonalDirections.find((direction) => highAt(direction.x, direction.y) && (direction.x === rise.x || direction.y === rise.y));
   const lateral = { x: -rise.y, y: rise.x };
   const segments = 8;
   const lowEdge = -.86;
   const highEdge = .96; // Bridges the narrow grid seam to the orthogonal High Ground Square.
   const halfWidth = .86;
+  const trenchDepth = trenchTileDepth(cell);
   const positions: number[] = [];
   const indices: number[] = [];
   for (let row = 0; row <= segments; row++) {
     const progress = row / segments;
     const along = THREE.MathUtils.lerp(lowEdge, highEdge, progress);
-    const height = THREE.MathUtils.smoothstep(progress, 0, 1) * .375 + .085;
+    // The parent tile is recessed; compensate at the upper end so it still
+    // joins the unchanged high ground, increasing the slope's rise.
+    const height = THREE.MathUtils.smoothstep(progress, 0, 1) * (.375 + trenchDepth) + .085;
     for (let column = 0; column <= segments; column++) {
       const across = THREE.MathUtils.lerp(-halfWidth, halfWidth, column / segments);
       positions.push(lateral.x * across + rise.x * along, height, lateral.y * across + rise.y * along);
@@ -4134,40 +4152,46 @@ function createSlideRamp(cell: Cell, color: number): THREE.Group {
   const rampGeometry = new THREE.BufferGeometry();
   rampGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   rampGeometry.setIndex(indices);
-  rampGeometry.computeVertexNormals();
+  fillRampGeometry(rampGeometry);
   const material = new THREE.MeshStandardMaterial({ color, emissive: 0x123f42, emissiveIntensity: .28, roughness: .68, metalness: .1, side: THREE.DoubleSide });
   const ramp = new THREE.Mesh(rampGeometry, material);
   ramp.receiveShadow = true;
   root.add(ramp);
 
-  if (diagonal) {
-    const shoulderWidth = 1.72 * .35;
-    const dx = diagonal.x;
-    const dz = diagonal.y;
-    const center: [number, number, number] = [dx * .12, .205, dz * .12];
-    const nearX: [number, number, number] = [dx * .86, .405, dz * (.86 - shoulderWidth)];
-    const nearZ: [number, number, number] = [dx * (.86 - shoulderWidth), .405, dz * .86];
-    const corner: [number, number, number] = [dx * 1.06, .466, dz * 1.06];
-    const farX: [number, number, number] = [dx * (1.06 + shoulderWidth), .466, dz * 1.06];
-    const farZ: [number, number, number] = [dx * 1.06, .466, dz * (1.06 + shoulderWidth)];
-    const shoulderGeometry = new THREE.BufferGeometry();
-    shoulderGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
-      ...center, ...nearX, ...nearZ,
-      ...nearX, ...farX, ...corner,
-      ...nearX, ...corner, ...nearZ,
-      ...nearZ, ...corner, ...farZ,
-    ], 3));
-    shoulderGeometry.computeVertexNormals();
-    const shoulderMaterial = material.clone();
-    shoulderMaterial.color.copy(new THREE.Color(color).lerp(new THREE.Color(0x4fb5a2), .3));
-    shoulderMaterial.emissive.setHex(0x174f4d);
-    shoulderMaterial.emissiveIntensity = .42;
-    const shoulder = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
-    shoulder.receiveShadow = true;
-    root.add(shoulder);
-    const outlineGeometry = new THREE.BufferGeometry().setFromPoints([nearX, farX, corner, farZ, nearZ].map(([x, y, z]) => new THREE.Vector3(x, y + .006, z)));
-    const outline = new THREE.Line(outlineGeometry, new THREE.LineBasicMaterial({ color: 0x67e8d1, transparent: true, opacity: .78 }));
-    root.add(outline);
+  // Follow the main solid slope with a centered downhill indicator.
+  root.updateMatrixWorld(true);
+  const surfaces = [...root.children];
+  const ray = new THREE.Raycaster();
+  const silhouette = [
+    [0, -.56], [.30, -.12], [.095, -.12], [.095, .50],
+    [-.095, .50], [-.095, -.12], [-.30, -.12], [0, -.56],
+  ];
+  const arrowPoints: THREE.Vector3[] = [];
+  for (let edge = 0; edge < silhouette.length - 1; edge++) {
+    const [ax, az] = silhouette[edge];
+    const [bx, bz] = silhouette[edge + 1];
+    const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / .025);
+    for (let step = 0; step < steps; step++) {
+      const across = THREE.MathUtils.lerp(ax, bx, step / steps);
+      const along = THREE.MathUtils.lerp(az, bz, step / steps);
+      const x = lateral.x * across + rise.x * along;
+      const z = lateral.y * across + rise.y * along;
+      ray.set(new THREE.Vector3(x, 2, z), new THREE.Vector3(0, -1, 0));
+      const hit = ray.intersectObjects(surfaces, false)[0];
+      if (hit) arrowPoints.push(new THREE.Vector3(x, hit.point.y + .045, z));
+    }
+  }
+  if (arrowPoints.length > 2) {
+    const path = new THREE.CurvePath<THREE.Vector3>();
+    for (let i = 0; i < arrowPoints.length; i++) {
+      path.add(new THREE.LineCurve3(arrowPoints[i], arrowPoints[(i + 1) % arrowPoints.length]));
+    }
+    const arrow = new THREE.Mesh(
+      new THREE.TubeGeometry(path, arrowPoints.length * 2, .012, 5, true),
+      new THREE.MeshBasicMaterial({ color: 0x67e8d1, transparent: true, opacity: .9 }),
+    );
+    arrow.name = 'SlideDirectionArrow';
+    root.add(arrow);
   }
   return root;
 }
@@ -4202,7 +4226,11 @@ function createCell(cell: Cell) {
   const highGroundHeight = lordaeron ? LORDAERON_HIGHGROUND_TOP_Y + 0.08 : 0.54;
   const highGroundCenterY = lordaeron ? (LORDAERON_HIGHGROUND_TOP_Y - 0.08) * 0.5 : 0.19;
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? highGroundHeight : 0.16, 1.72), material);
-  mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? highGroundCenterY : 0;
+  if (arena.id === 'trench') {
+    const preserveColor = !trenchSquare && (ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null);
+    textureTrenchTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), preserveColor);
+  }
+  mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? highGroundCenterY : -trenchTileDepth(cell);
   mesh.receiveShadow = true;
   mesh.userData.cell = cell;
   if (lordaeronTombCell) {
@@ -4222,6 +4250,21 @@ function createCell(cell: Cell) {
   scene.add(mesh); cellMeshes.push(mesh);
   if (slideSquare) {
     const ramp = createSlideRamp(cell, color);
+    if (arena.id === 'trench') {
+      ramp.traverse((child) => {
+        if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
+        const positions = child.geometry.attributes.position;
+        const uv = new Float32Array(positions.count * 2);
+        for (let i = 0; i < positions.count; i++) {
+          uv[i * 2] = (positions.getX(i) + 0.86) / 1.72;
+          uv[i * 2 + 1] = (0.86 - positions.getZ(i)) / 1.72;
+        }
+        child.geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        child.material.emissive.setHex(0x000000);
+        child.userData.slideBaseEmissiveIntensity = child.material.emissiveIntensity;
+        textureTrenchTile(child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>, label, renderer.capabilities.getMaxAnisotropy());
+      });
+    }
     ramp.userData.cell = cell;
     mesh.add(ramp);
   }
@@ -4300,12 +4343,20 @@ function createWoodenBox() {
 }
 
 function createArenaPillar() {
-  const variant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
+  const arenaId = visualArena().id;
+  // Keep the newer extracted Trench columns available as temporary assets,
+  // while The Trench reuses the established Lordaeron pillar model.
+  const variant = arenaId === 'nagrand' ? 'nagrand' : 'lordaeron';
+  const trenchModel = null;
   const root = new THREE.Group();
-  root.name = variant === 'nagrand' ? 'Pillar - Nagrand' : 'Pillar - Lordaeron';
+  root.name = `Pillar - ${arenaId}`;
   root.userData.pillarVariant = variant;
+  root.userData.pillarArena = arenaId;
+  root.userData.trenchModel = trenchModel;
+  // Choose once per spawned column, so game-state updates cannot make it spin.
+  root.rotation.y = Math.random() * Math.PI * 2;
   const fallback = new THREE.Group();
-  fallback.name = variant === 'nagrand' ? 'NagrandPillarProceduralFallback' : 'LordaeronPillarProceduralFallback';
+  fallback.name = `${variant}PillarProceduralFallback`;
   root.add(fallback);
   const wood = new THREE.MeshStandardMaterial({ color: variant === 'nagrand' ? 0x68401f : 0x514d47, roughness: 0.86 });
   const dark = new THREE.MeshStandardMaterial({ color: variant === 'nagrand' ? 0x352012 : 0x292724, roughness: 0.92 });
@@ -4315,9 +4366,9 @@ function createArenaPillar() {
   base.position.y = 0.14; base.castShadow = true; fallback.add(base);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.48, 0.34, 12), dark);
   cap.position.y = 2.92; cap.castShadow = true; fallback.add(cap);
-  const assetPromise = variant === 'nagrand' ? loadArenaPillarAsset() : loadLordaeronPillarAsset();
+  const assetPromise = trenchModel !== null ? loadTrenchPillarAsset(trenchModel) : variant === 'nagrand' ? loadArenaPillarAsset() : loadLordaeronPillarAsset();
   const targetSize = variant === 'nagrand' ? new THREE.Vector3(1.564, 3.5535, 1.564) : new THREE.Vector3(1.6456, 4.2108, 1.6456);
-  void assetPromise.then((asset) => installArenaProp(root, fallback, asset, variant === 'nagrand' ? 'NagrandPillarImportedModel' : 'LordaeronPillarImportedModel', targetSize)).catch((error) => {
+  void assetPromise.then((asset) => installArenaProp(root, fallback, asset, `${variant}PillarImportedModel${trenchModel ?? ''}`, targetSize)).catch((error) => {
     console.error(`Failed to load the ${variant} arena pillar; keeping procedural fallback.`, error);
   });
   return root;
@@ -6426,6 +6477,7 @@ function rebuildBoardGeometry(width: number, height: number) {
   createAxisLabels();
   syncNagrandOuterRing(width, height);
   syncLordaeronPerimeter(width, height);
+  syncTrenchPerimeter(width, height);
   syncLordaeronTomb();
   fitCameraToArena(width, height);
 }
@@ -6527,6 +6579,55 @@ function syncLordaeronPerimeter(width: number, height: number) {
     lordaeronPerimeterGroup.add(model);
   }).catch((error) => {
     console.error('Failed to load the Lordaeron cemetery perimeter.', error);
+  });
+}
+
+// The exported perimeter has a centered 1.47 x 1.46 opening, with its original
+// floor level at y=0. Leave one world unit between the board and each inner wall.
+function trenchPerimeterScale(width: number, height: number) {
+  return (Math.max(width, height) * 1.92 + 2) / 1.46;
+}
+
+function loadTrenchPillarAsset(model: number) {
+  let promise = trenchPillarAssetPromises.get(model);
+  if (!promise) {
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    promise = loader.loadAsync(`${import.meta.env.BASE_URL}models/trench-column-${model}.glb?v=20260909-2`);
+    trenchPillarAssetPromises.set(model, promise);
+    void promise.catch(() => trenchPillarAssetPromises.delete(model));
+  }
+  return promise;
+}
+
+function syncTrenchPerimeter(width: number, height: number) {
+  const visible = visualArena().id === 'trench';
+  trenchPerimeterGroup.visible = visible;
+  if (!visible) return;
+  const center = boardCenterWorld(width, height);
+  trenchPerimeterGroup.position.set(center.x, 0, center.z);
+  trenchPerimeterGroup.scale.setScalar(trenchPerimeterScale(width, height));
+  if (trenchPerimeterModel) return;
+  if (!trenchPerimeterAssetPromise) {
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    trenchPerimeterAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/trench-perimeter.glb?v=20260909-1`);
+  }
+  void trenchPerimeterAssetPromise.then((asset) => {
+    if (trenchPerimeterModel) return;
+    const model = asset.scene.clone(true) as THREE.Group;
+    model.name = 'TrenchPerimeterImportedModel';
+    improveImportedTextureQuality(model);
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    trenchPerimeterModel = model;
+    trenchPerimeterGroup.add(model);
+  }).catch((error) => {
+    trenchPerimeterAssetPromise = null;
+    console.error('Failed to load The Trench perimeter.', error);
   });
 }
 
@@ -6635,14 +6736,20 @@ function configureCameraProjectionForLayout(): CameraViewportCenter {
 }
 
 function sizeArenaFloor(width: number, height: number) {
-  if (visualArena().id === 'lordaeron') {
+  if (visualArena().id === 'lordaeron' || visualArena().id === 'trench') {
     if (floor.userData.geometryKind !== 'rectangle') {
       floor.geometry.dispose();
       floor.geometry = new THREE.BoxGeometry(1, 0.42, 1);
       floor.userData.geometryKind = 'rectangle';
     }
-    // Use the same per-axis decorative margin as the cemetery perimeter.
-    floor.scale.set(width * 1.92 + 11.3, 1, height * 1.92 + 11.3);
+    if (visualArena().id === 'trench') {
+      // Support the cut perimeter at its wall bases, with the outer plants
+      // extending beyond the platform. Keep the playable tiles unchanged.
+      const span = trenchPerimeterScale(width, height) * 1.62;
+      floor.scale.set(span, 1, span);
+    } else {
+      floor.scale.set(width * 1.92 + 11.3, 1, height * 1.92 + 11.3);
+    }
     return;
   }
   if (floor.userData.geometryKind !== 'circle') {
@@ -6707,7 +6814,10 @@ function worldPosition(cell: Cell) {
   const arena = visualArena();
   const slide = arena.slideSquares?.includes(cellLabel(cell)) ?? false;
   const highGroundY = arena.id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : 0.54;
-  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : slide ? 0.26 : 0.08, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  const trenchDepth = trenchTileDepth(cell);
+  const rampCenterProgress = 0.86 / (0.86 + 0.96);
+  const recess = slide ? trenchDepth * (1 - THREE.MathUtils.smoothstep(rampCenterProgress, 0, 1)) : trenchDepth;
+  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : (slide ? 0.26 : 0.08) - recess, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
 function syncSpectreShadowTrail() {
@@ -7038,6 +7148,16 @@ function syncBoard() {
   objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
+    const expectedPillarVariant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
+    if (group && object.kind === 'wall-pillar' && group.userData.pillarVariant !== expectedPillarVariant) {
+      // Arena definitions may reuse obstacle IDs. Never retain a Trench model
+      // when switching to another arena, including while its asset is loading.
+      group.userData.destroying = true;
+      scene.remove(group);
+      objectGroups.delete(object.id);
+      lastObjectVisualCells.delete(object.id);
+      group = undefined;
+    }
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     group.userData.objectId = object.id;
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
@@ -7556,6 +7676,23 @@ function highlightCells() {
     const material = mesh.material as THREE.MeshStandardMaterial;
     const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
     material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
+    if (slideRamp) {
+      slideRamp.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        if (child.name === 'SlideDirectionArrow') {
+          const arrowMaterial = child.material as THREE.MeshBasicMaterial;
+          arrowMaterial.color.setHex(valid ? highlightColor : 0x67e8d1);
+          arrowMaterial.opacity = valid ? 1 : 0.9;
+          arrowMaterial.needsUpdate = true;
+          return;
+        }
+        if (!(child.material instanceof THREE.MeshStandardMaterial)) return;
+        child.material.emissive.setHex(highlightColor);
+        child.material.emissiveIntensity = valid ? Math.max(0.42, material.emissiveIntensity) : 0;
+        child.material.needsUpdate = true;
+      });
+    }
     const tombHighlight = mesh.userData.tombHighlight as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | undefined;
     if (tombHighlight) {
       tombHighlight.visible = valid;
