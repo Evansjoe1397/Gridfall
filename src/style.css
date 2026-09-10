@@ -142,6 +142,24 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .character-select-trait-icon:hover .character-select-trait-tooltip, .character-select-trait-icon:focus .character-select-trait-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .lobby-back-button { margin-top: 4px; padding: 10px 18px; border: 1px solid #3a6d60; background: transparent; color: #9fc7bc; cursor: pointer; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
 .lobby-back-button:hover { border-color: var(--cyan); color: #eafff9; }
+#onlineWaiting { position: relative; overflow: visible; }
+.lobby-model-preview { position: absolute; top: 10%; width: min(420px, calc((100vw - 700px) / 2)); height: 560px; max-height: 75%; pointer-events: none; display: flex; flex-direction: column; justify-content: end; }
+.lobby-model-preview.local { right: calc(100% + 12px); }
+.lobby-model-preview.opponent { left: calc(100% + 12px); }
+.lobby-model-preview canvas { display: block; width: 100%; min-height: 0; }
+.lobby-model-caption { color: var(--blue); text-align: center; font: 700 20px 'Barlow Condensed', sans-serif; text-transform: uppercase; padding: 12px 4px; }
+.opponent .lobby-model-caption { color: var(--red); }
+.lobby-model-preview.multiple { height: 340px; max-height: 45%; top: 0; }
+.lobby-model-preview.opponent-1 { top: 48%; }
+@media (max-width: 1100px) {
+  #onlineWaiting:has(.lobby-model-preview) { padding-top: 260px; }
+  .lobby-model-preview.local, .lobby-model-preview.opponent { top: 0; width: 48%; height: 240px; max-height: none; }
+  .lobby-model-preview.local { left: 0; right: auto; }
+  .lobby-model-preview.opponent { left: 50%; }
+  .lobby-model-preview.multiple { width: 25%; }
+  .lobby-model-preview.opponent-1 { left: 75%; }
+  .lobby-model-caption { font-size: 15px; }
+}
 .game { padding-top: 12px; }
 .hud { display: grid; grid-template-columns: 1fr 250px 1fr 1fr; align-items: center; gap: 16px; margin-bottom: 10px; }
 .hud:has(#p3Stats.hidden) { grid-template-columns: 1fr 270px 1fr; gap: 22px; }

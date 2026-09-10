@@ -2676,11 +2676,14 @@ drainStrengthChoiceState.players.P2.hand = [{ instanceId: 'drain-defend-one', ca
 const drainChoiceAttack = applyGameCommand(drainStrengthChoiceState, { type: 'attack', playerId: 'P1', cardInstanceId: 'drain-choice', targetId: 'P2' });
 assert.equal(drainChoiceAttack.ok, true);
 if (drainChoiceAttack.ok) {
-  assert.equal(drainChoiceAttack.state.phase, 'choosing-force-disarm-discard', 'Drain Strength lets the target choose a Defend Card before choosing combat defense.');
-  const drainChosenDiscard = applyGameCommand(drainChoiceAttack.state, { type: 'force-disarm-discard', playerId: 'P2', cardInstanceId: 'drain-defend-one' });
+  assert.equal(drainChoiceAttack.state.phase, 'defending', 'The target commits its defense before Drain Strength resolves.');
+  const drainLockedDefense = applyGameCommand(drainChoiceAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'drain-defend-one' });
+  assert.equal(drainLockedDefense.ok, true);
+  assert.equal(drainLockedDefense.state.phase, 'choosing-force-disarm-discard');
+  const drainChosenDiscard = applyGameCommand(drainLockedDefense.state, { type: 'force-disarm-discard', playerId: 'P2', cardInstanceId: 'drain-defend-two' });
   assert.equal(drainChosenDiscard.ok, true);
   if (drainChosenDiscard.ok) {
-    assert.equal(drainChosenDiscard.state.phase, 'defending');
+    assert.ok(drainChosenDiscard.state.combatReveal, 'The locked defense resumes automatically after the discard.');
     assert.equal(drainChosenDiscard.state.pendingAttack?.attackValue, 3, 'Drain Strength retains Value 3 when a Defend Card is discarded.');
     assert.equal(drainChosenDiscard.state.players.P2.discard.some((card) => card.instanceId === 'drain-defend-one'), true);
   }
@@ -2696,10 +2699,12 @@ drainStrengthHealState.players.P2.movementRemaining = 2;
 drainStrengthHealState.players.P2.freeMoveUsed = true;
 drainStrengthHealState.players.P1.hand = [{ instanceId: 'drain-heal', cardId: 'drain-strength' }];
 drainStrengthHealState.players.P2.hand = [{ instanceId: 'not-a-defense', cardId: 'attack-2' }];
-const drainHealAttack = applyGameCommand(drainStrengthHealState, { type: 'attack', playerId: 'P1', cardInstanceId: 'drain-heal', targetId: 'P2' });
+const drainHealDeclaration = applyGameCommand(drainStrengthHealState, { type: 'attack', playerId: 'P1', cardInstanceId: 'drain-heal', targetId: 'P2' });
+assert.equal(drainHealDeclaration.ok, true);
+const drainHealAttack = applyGameCommand(drainHealDeclaration.state, { type: 'pass-defense', playerId: 'P2' });
 assert.equal(drainHealAttack.ok, true);
 if (drainHealAttack.ok) {
-  assert.equal(drainHealAttack.state.phase, 'defending');
+  assert.ok(drainHealAttack.state.combatReveal);
   assert.equal(drainHealAttack.state.pendingAttack?.attackValue, 1, 'Drain Strength becomes Value 1 when the target cannot discard a Defend Card.');
   assert.equal(drainHealAttack.state.players.P1.hp, 12, 'Drain Strength no longer restores HP when no Defend Card can be discarded.');
   assert.equal(drainHealAttack.state.players.P1.movementRemaining, 2, 'Drain Strength immediately applies the 2 stolen MOV to Wreckna.');
@@ -3635,8 +3640,8 @@ const fistboltCard = ensureCardInHand(fistboltState, 'P1', 'fistbolt');
 const fistboltAttack = applyCommand(fistboltState, { type: 'attack', playerId: 'P1', cardInstanceId: fistboltCard.instanceId, targetId: 'P2' });
 assert.equal(fistboltAttack.ok, true);
 if (fistboltAttack.ok) {
-  assert.equal(fistboltAttack.state.pendingAttack?.attackValue, 3, 'Fistbolt generates 1 Rage for +1 Attack Value when Orkk had none.');
-  assert.equal(fistboltAttack.state.players.P1.rageStacks, 1, 'The full Rage total remains available until combat resolves.');
+  assert.equal(fistboltAttack.state.pendingAttack?.attackValue, 2, 'Fistbolt waits for the Defender pre-combat stage before generating Rage.');
+  assert.equal(fistboltAttack.state.players.P1.rageStacks, 0, 'Declaring Fistbolt does not resolve its pre-combat effect.');
   const fistboltCombat = applyCommand(fistboltAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(fistboltCombat.ok, true);
   if (fistboltCombat.ok) assert.equal(fistboltCombat.state.players.P1.rageStacks, 1, 'Fistbolt generates 1 Rage after the combat Rage cost resolves.');

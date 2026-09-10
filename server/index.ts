@@ -125,8 +125,6 @@ class DuelRoom extends Room {
   private previewCharacter(client: Client, raw: unknown) {
     const seat = this.seats.get(client.sessionId);
     if (!seat || this.game || this.characters[seat]) return;
-    const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
-    if (this.seats.size < requiredPlayerCount) return;
     if (raw === null) {
       if (!this.characterSelections[seat]) return;
       delete this.characterSelections[seat];
