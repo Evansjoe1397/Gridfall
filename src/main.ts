@@ -2,7 +2,11 @@ import './style.css';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import * as THREE from 'three';
 import { textureTrenchTile } from './trench-tile-textures.ts';
+import { textureLordaeronTile } from './lordaeron-tile-textures.ts';
+import { textureNagrandTile, textureNagrandPlatform } from './nagrand-floor-textures.ts';
 import { fillRampGeometry } from './solid-ramp-geometry.ts';
+import { surfaceTileHighlight } from './surface-tile-highlight.ts';
+import { retryAssetLoad } from './retry-asset-load.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -222,6 +226,22 @@ game.querySelector('.arena-frame')?.append(actionQuestPanel);
 const phaseRewardModal = document.createElement('div');
 phaseRewardModal.id = 'phaseRewardModal'; phaseRewardModal.className = 'choice-modal hidden'; document.body.append(phaseRewardModal);
 const boardEl = byId('board');
+let nagrandNewTextures = false;
+const nagrandTextureButton = document.createElement('button');
+nagrandTextureButton.type = 'button';
+nagrandTextureButton.className = 'nagrand-texture-toggle hidden';
+nagrandTextureButton.title = 'Switch Nagrand floor and tile textures (Ctrl+L)';
+nagrandTextureButton.addEventListener('click', toggleNagrandTextures);
+boardEl.parentElement?.append(nagrandTextureButton);
+
+function toggleNagrandTextures() {
+  if (visualArena().id !== 'nagrand') return;
+  nagrandNewTextures = !nagrandNewTextures;
+  rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
+  sizeArenaFloor(visualBoardWidth(), visualBoardHeight());
+  highlightCells();
+  notify(nagrandNewTextures ? 'Nagrand: new stone tiles and grass.' : 'Nagrand: original floor and tiles.');
+}
 const toast = byId('toast');
 const damageLogTab = document.createElement('button');
 damageLogTab.id = 'damageLogTab';
@@ -3065,6 +3085,7 @@ function setDawnArenaMode(enabled: boolean) {
   arenaMist.visible = enabled;
   dawnStarField.visible = enabled;
   (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? (lordaeronPalette ? 0x102c22 : 0x21332f) : 0x0d1b18);
+  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandNewTextures, renderer.capabilities.getMaxAnisotropy());
   const arenaFrame = boardEl.closest('.arena-frame');
   arenaFrame?.classList.toggle('dawn-mode', enabled);
   arenaFrame?.classList.toggle('lordaeron-dawn-mode', lordaeronPalette);
@@ -3203,6 +3224,11 @@ resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.code === 'KeyL' && !game.classList.contains('hidden') && visualArena().id === 'nagrand') {
+    event.preventDefault();
+    if (!event.repeat) toggleNagrandTextures();
+    return;
+  }
   const lightIncreaseHotkey = event.altKey && !event.ctrlKey && !event.metaKey && (event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd');
   const lightDecreaseHotkey = event.altKey && !event.ctrlKey && !event.metaKey && (event.key === '-' || event.code === 'Minus' || event.code === 'NumpadSubtract');
   if (!event.repeat && !game.classList.contains('hidden') && (lightIncreaseHotkey || lightDecreaseHotkey)) {
@@ -4105,8 +4131,8 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
   return first.add(last).multiplyScalar(.5).setY(.12);
 }
 
-const LORDAERON_TOMB_BASE_Y = 0.005;
-const LORDAERON_HIGHGROUND_TOP_Y = 0.98;
+const LORDAERON_TOMB_BASE_Y = 0.105;
+const LORDAERON_HIGHGROUND_TOP_Y = 1.08;
 const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
 const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 
@@ -4230,17 +4256,22 @@ function createCell(cell: Cell) {
     const preserveColor = !trenchSquare && (ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null);
     textureTrenchTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), preserveColor);
   }
+  if (lordaeron && !highGround) {
+    const preserveColor = ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null;
+    textureLordaeronTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), preserveColor);
+  }
+  if (arena.id === 'nagrand' && nagrandNewTextures) {
+    textureNagrandTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), ownerOne || ownerTwo || ownerThree || drawSquare);
+  }
   mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? highGroundCenterY : -trenchTileDepth(cell);
   mesh.receiveShadow = true;
   mesh.userData.cell = cell;
   if (lordaeronTombCell) {
     const highlight = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.72, 1.72),
-      new THREE.MeshBasicMaterial({ color: 0x19d3a2, transparent: true, opacity: 0.46, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({ color: 0x19d3a2, transparent: true, opacity: 0.46, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
     );
     highlight.name = `LordaeronTombCellHighlight-${label}`;
-    highlight.rotation.x = -Math.PI * 0.5;
-    highlight.position.y = LORDAERON_HIGHGROUND_TOP_Y + 0.02 - highGroundCenterY;
     highlight.renderOrder = 5;
     highlight.visible = false;
     highlight.userData.cell = cell;
@@ -4838,10 +4869,13 @@ function createLongHatLogan(playerColor = 0x169bd3) {
 }
 
 function loadDaOrkhAsset() {
-  return daOrkhAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260823-1`).then((asset) => {
+  return daOrkhAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260823-1`, (url) => new GLTFLoader().loadAsync(url)).then((asset) => {
     daOrkhAsset = asset;
     asset.scene.updateWorldMatrix(true, true);
     return asset;
+  }).catch((error) => {
+    daOrkhAssetPromise = null;
+    throw error;
   });
 }
 
@@ -6182,7 +6216,10 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
 }
 
 function loadObiWanAsset() {
-  return obiWanAssetPromise ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`);
+  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
+    obiWanAssetPromise = null;
+    throw error;
+  });
 }
 
 async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
@@ -6468,9 +6505,18 @@ function addLabel(text: string, x: number, z: number) {
 }
 
 function rebuildBoardGeometry(width: number, height: number) {
+  nagrandTextureButton.classList.toggle('hidden', visualArena().id !== 'nagrand');
+  nagrandTextureButton.textContent = `Textures: ${nagrandNewTextures ? 'new' : 'original'} · Ctrl+L`;
+  nagrandTextureButton.setAttribute('aria-pressed', String(nagrandNewTextures));
   const mistCenter = boardCenterWorld(width, height);
   arenaMist.position.set(mistCenter.x, -1.4, mistCenter.z);
-  cellMeshes.splice(0).forEach((mesh) => { scene.remove(mesh); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
+  cellMeshes.splice(0).forEach((mesh) => {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+    const highlight = mesh.userData.tombHighlight as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
+    if (highlight) { highlight.geometry.dispose(); highlight.material.dispose(); }
+  });
   axisLabels.splice(0).forEach((label) => { scene.remove(label); label.material.map?.dispose(); label.material.dispose(); });
   boardVisualKey = boardGeometryKey();
   for (let y = 0; y < height; y++) for (let x = 1; x <= width; x++) createCell({ x, y });
@@ -6486,7 +6532,10 @@ function loadNagrandOuterRingAsset() {
   if (nagrandOuterRingAssetPromise) return nagrandOuterRingAssetPromise;
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  return nagrandOuterRingAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/nagrand-outer-ring.glb?v=20260830-1`);
+  return nagrandOuterRingAssetPromise = retryAssetLoad(`${import.meta.env.BASE_URL}models/nagrand-outer-ring.glb?v=20260830-1`, (url) => loader.loadAsync(url)).catch((error) => {
+    nagrandOuterRingAssetPromise = null;
+    throw error;
+  });
 }
 
 function nagrandOuterRingSpan(width: number, height: number) {
@@ -6532,7 +6581,7 @@ function loadLordaeronPerimeterAsset() {
   if (lordaeronPerimeterAssetPromise) return lordaeronPerimeterAssetPromise;
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  return lordaeronPerimeterAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/lordaeron-cemetery-perimeter.glb?v=20260907-4`);
+  return lordaeronPerimeterAssetPromise = loader.loadAsync(`${import.meta.env.BASE_URL}models/lordaeron-cemetery-perimeter.glb?v=20260910-1`);
 }
 
 function lordaeronPerimeterSpan(width: number, height: number) {
@@ -6678,6 +6727,7 @@ function syncLordaeronTomb() {
   if (!visible) return;
   if (lordaeronTombModel) {
     sizeLordaeronTomb(lordaeronTombModel);
+    fitLordaeronTombHighlights();
     return;
   }
   void loadLordaeronTombAsset().then((asset) => {
@@ -6699,9 +6749,20 @@ function syncLordaeronTomb() {
     sizeLordaeronTomb(model);
     lordaeronTombModel = model;
     lordaeronTombGroup.add(model);
+    fitLordaeronTombHighlights();
   }).catch((error) => {
     console.error('Failed to load the Lordaeron high-ground tomb.', error);
   });
+}
+
+function fitLordaeronTombHighlights() {
+  if (!lordaeronTombModel) return;
+  for (const tile of cellMeshes) {
+    const highlight = tile.userData.tombHighlight as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
+    if (!highlight) continue;
+    highlight.geometry.dispose();
+    highlight.geometry = surfaceTileHighlight(lordaeronTombModel, tile, 0.86, LORDAERON_HIGHGROUND_TOP_Y - 0.3);
+  }
 }
 
 type CameraViewportCenter = { x: number; y: number };
@@ -6737,6 +6798,7 @@ function configureCameraProjectionForLayout(): CameraViewportCenter {
 
 function sizeArenaFloor(width: number, height: number) {
   if (visualArena().id === 'lordaeron' || visualArena().id === 'trench') {
+    textureNagrandPlatform(floor, false, renderer.capabilities.getMaxAnisotropy());
     if (floor.userData.geometryKind !== 'rectangle') {
       floor.geometry.dispose();
       floor.geometry = new THREE.BoxGeometry(1, 0.42, 1);
@@ -6762,6 +6824,8 @@ function sizeArenaFloor(width: number, height: number) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
   floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
+  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandNewTextures, renderer.capabilities.getMaxAnisotropy());
+  if (!nagrandNewTextures) floor.material.color.setHex(dawnArenaMode ? 0x21332f : 0x0d1b18);
 }
 
 function fitCameraToArena(width: number, height: number, force = false) {
@@ -7693,7 +7757,7 @@ function highlightCells() {
         child.material.needsUpdate = true;
       });
     }
-    const tombHighlight = mesh.userData.tombHighlight as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | undefined;
+    const tombHighlight = mesh.userData.tombHighlight as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
     if (tombHighlight) {
       tombHighlight.visible = valid;
       tombHighlight.material.color.setHex(highlightColor);
