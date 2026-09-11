@@ -42,7 +42,7 @@ export const CARD_RULES_RU: Partial<Record<CardTypeId, CardTranslation>> = {
   cleanse: { effectText: 'После боя добавьте карту Статуса Burning в Руку цели.' },
   repent: { effectText: 'После боя нанесите 1 урон Джону и каждому соседнему врагу.' },
   enforce: { effectText: 'После боя примените Panic и добавьте Headache в Руку цели.' },
-  'blessed-might': { effectText: 'Отмените эффект сыгранной карты Защиты, если этот эффект Атаки не Заблокирован. После боя создайте Blessing: Might.' },
+  'blessed-might': { effectText: 'До боя: отмените эффект сыгранной карты Защиты, если этот эффект Атаки не Заблокирован. После боя создайте Blessing: Might.' },
   'blessed-prayer': { levelEffects: ['Создайте Blessing: Prayer', 'Получите 1 MOV до конца хода', 'Выберите и возьмите карту из Сброса'] },
   'blessing-light': { effectText: 'Уменьшите значение карты Защиты противника на 1 в бою. Удалите после использования или при Сбросе.' },
   'blessing-prayer': { effectText: 'Как Свободное Действие: потеряйте 1 MOV, чтобы взять 1 Карту. Удалите после использования или в конце этого хода.' },

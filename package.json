@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit",
     "check:rules": "tsx scripts/check-rules.ts",
     "check:replicas": "tsx scripts/check-replica-targeting.ts",
+    "check:objects": "tsx scripts/check-object-combat.ts",
+    "check:blessed-might": "tsx scripts/check-blessed-might.ts",
+    "check:combat-order": "tsx scripts/check-combat-order.ts",
+    "check:spirit-combat": "tsx scripts/check-spirit-combat.ts",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "preview": "vite preview"

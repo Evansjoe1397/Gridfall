@@ -28,6 +28,8 @@ import {
   CARDS,
   ACTION_QUEST_POOL,
   type GameStateWithQuestPhases,
+  type ObjectLightbringerState,
+  type OrderedPreCombatAttack,
   STARTING_DECKS,
   activeWrecknaPhylactery,
   attackCardTargetInRange,
@@ -578,7 +580,7 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
-  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. Leave Spirit Form after using an Attack Card or at turn end, restoring Attack Range 3. Blessing Cards create Stoic Shell.' },
+  'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
@@ -865,7 +867,7 @@ function renderOnlineLobby() {
   const state = onlineLobbyState;
   const requiredPlayerCount = state?.requiredPlayerCount ?? 2;
   const joined = (state?.playerCount ?? 1) >= requiredPlayerCount;
-  const mayChoose = joined && !state?.characters[localSeat];
+  const mayChoose = !state?.characters[localSeat];
   const missingPlayers = Math.max(0, requiredPlayerCount - (state?.playerCount ?? 1));
   const orderMessage = !joined ? `Share the Room ID and wait for ${missingPlayers} more Player${missingPlayers === 1 ? '' : 's'}.`
     : state?.characters[localSeat] ? 'Character confirmed. Waiting for the other Players.'
@@ -900,10 +902,22 @@ function renderOnlineLobby() {
     requestAnimationFrame(() => { roomIdField.focus(); roomIdField.select(); });
   }
   panel.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((button) => {
-    button.addEventListener('pointerenter', () => room?.send('hover-character', button.dataset.character));
-    button.addEventListener('pointerleave', () => room?.send('hover-character', null));
-    button.addEventListener('click', () => room?.send('select-character', button.dataset.character));
+    const highlight = () => {
+      if (!localSeat || !onlineLobbyState || onlineLobbyState.characters[localSeat]) return;
+      const character = button.dataset.character as OnlineCharacter;
+      onlineLobbyState.selections ??= {};
+      onlineLobbyState.selections[localSeat] = character;
+      renderOnlineSelectionFrames();
+      room?.send('hover-character', character);
+    };
+    button.addEventListener('pointerenter', highlight);
+    button.addEventListener('focus', highlight);
+    button.addEventListener('click', () => {
+      highlight();
+      if (joined) room?.send('select-character', button.dataset.character);
+    });
   });
+  renderLobbyModelPreviews();
 }
 
 function characterSelectionFrames(character: OnlineCharacter, state: OnlineLobbyState | null) {
@@ -933,6 +947,7 @@ function renderOnlineSelectionFrames() {
     const character = button.dataset.character as OnlineCharacter;
     button.insertAdjacentHTML('afterbegin', characterSelectionFrames(character, onlineLobbyState));
   });
+  renderLobbyModelPreviews();
 }
 
 function actingPlayer(): PlayerId {
@@ -1388,7 +1403,7 @@ function characterTraitHtml(ru: boolean) {
       trait: 'Possessed',
       description: ru
         ? 'После получения любого урона John Christ входит в Spirit Form. В этой форме все его карты Атаки получают +2 ATT, дальность Атаки становится ближней (1 клетка), а Form получает 1 MOV независимо от отрицательных эффектов движения. Он может проходить через клетки с врагами. Каждая занятая врагом клетка возвращает потраченный на вход 1 MOV и один раз за ход отнимает 1 MOV у пересечённого врага до конца его хода. Он не может завершить движение или ход на одной клетке с врагом. После выхода из Spirit Form дальность Атаки снова становится 3.'
-        : 'After receiving any Damage, John Christ enters Spirit Form and adds Judgement to his Hand unless it is already there. Judgement is unique, exists only in Hand, and is Removed whenever it leaves Hand. In Spirit Form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, and the Form receives 1 MOV regardless of negative movement effects. He may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it and siphons 1 MOV from that enemy until the end of their turn, once per enemy per John turn. He cannot finish movement or end his turn on the same Square as an enemy. Leaving Spirit Form restores Attack Range 3.',
+        : 'After receiving any Damage, John Christ enters Spirit Form and adds Judgement to his Hand unless it is already there. Judgement is unique, exists only in Hand, and is Removed whenever it leaves Hand. In Spirit Form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, and the Form receives 1 MOV regardless of negative movement effects. He may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it and siphons 1 MOV from that enemy until the end of their turn, once per enemy per John turn. He cannot finish movement or end his turn on the same Square as an enemy. An Attack initiated in Spirit Form keeps the Form active through all post-combat effects and choices, then exits it. Leaving Spirit Form restores Attack Range 3.',
       detail: ru
         ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Негативные модификаторы MOV применяются к общему запасу John и не уменьшают собственный 1 MOV формы. Исключение: если John в одном ходу вошёл в Form, потратил её MOV, вышел, затем потратил весь оставшийся общий MOV и вошёл снова, повторный вход даёт 0 MOV. Если общий MOV ещё остался, повторный вход даёт 1 MOV. Полностью потраченный MOV формы уменьшает общий запас на 1 при выходе; возвраты за занятые клетки его не увеличивают. Форма проходит сквозь врагов, Объекты, Щиты и Стены. Blessing создаёт Stoic Shell; урон снимает все Stacks.'
         : 'Spirit Form prevents Cards containing “Bless” in their name from being used. Judgement cannot pay for Guard or Dash and is automatically Removed during overstacking or at the end of John’s turn. Negative MOV modifiers affect John’s cumulative pool and never reduce the Form’s own 1 MOV. Exception: if John enters the Form, spends its MOV, exits, spends all remaining cumulative MOV, and enters again during the same turn, that second entry has 0 MOV. If cumulative MOV remains, re-entry still grants 1 MOV. Fully spending the Form’s MOV subtracts 1 from the cumulative pool on exit; occupied-Square refunds do not increase it. The Form crosses enemies, Objects, Shields, and Walls. Blessings create Stoic Shell; Damage removes all Stacks.',
@@ -1791,7 +1806,8 @@ function renderHand() {
       return;
     }
     if ((gameState.forceDisarm as unknown as { source?: string }).source === 'drain-strength') {
-      const defenses = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded && cardDefinition(instance).kind === 'defend');
+      const locked = (gameState.pendingAttack as OrderedPreCombatAttack | null)?.preCombatDefenseCommand;
+      const defenses = viewer.hand.filter((instance) => !(locked?.type === 'defend' && locked.cardInstanceId === instance.instanceId) && !cardDefinition(instance).cannotBeDiscarded && cardDefinition(instance).kind === 'defend');
       byId('hand').innerHTML = defenses.map((instance) => {
         const card = cardDefinition(instance);
         return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
@@ -1870,13 +1886,24 @@ function renderFlurryModal() {
   const modal = byId('flurryModal');
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
+  const objectLightbringer = (gameState as ObjectLightbringerState).objectLightbringer;
+  if ((gameState.phase as string) === 'choosing-lightbringer-swap' && objectLightbringer) {
+    const visible = viewerId === objectLightbringer.playerId && canLocalAct(objectLightbringer.playerId);
+    modal.classList.toggle('hidden', !visible);
+    if (!visible) { modal.innerHTML = ''; return; }
+    const target = gameState.objects.find((object) => object.id === objectLightbringer.objectId);
+    modal.innerHTML = `<div class="choice-dialog"><span>LIGHTBRINGER · BEFORE COMBAT</span><h2>Change Positions?</h2><p>Swap places with ${escapeHtml(target?.name ?? 'the Object')} before attacking it?</p><div class="choice-cards"><button id="lightbringerSwap"><strong>Swap places</strong><small>Exchange Squares with the target</small></button></div><button class="choice-decline" id="lightbringerStay">Keep positions</button></div>`;
+    modal.querySelector('#lightbringerSwap')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: objectLightbringer.playerId, swap: true }));
+    modal.querySelector('#lightbringerStay')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: objectLightbringer.playerId, swap: false }));
+    return;
+  }
   if ((gameState.phase as string) === 'choosing-lightbringer-swap' && gameState.pendingAttack) {
     const attacker = gameState.players[gameState.pendingAttack.attackerId];
     const defender = gameState.players[gameState.pendingAttack.defenderId];
     const visible = viewerId === attacker.id && canLocalAct(attacker.id);
     modal.classList.toggle('hidden', !visible);
     if (!visible) { modal.innerHTML = ''; return; }
-    modal.innerHTML = `<div class="choice-dialog"><span>LIGHTBRINGER · BEFORE COMBAT</span><h2>Change Positions?</h2><p>${escapeHtml(defender.name)} has locked their defense. Decide whether to swap places before the Defend Card is revealed.</p><div class="choice-cards"><button id="lightbringerSwap"><strong>Swap places</strong><small>Exchange Squares with the target</small></button></div><button class="choice-decline" id="lightbringerStay">Keep positions</button></div>`;
+    modal.innerHTML = `<div class="choice-dialog"><span>LIGHTBRINGER · BEFORE COMBAT</span><h2>Change Positions?</h2><p>${escapeHtml(defender.name)}'s pre-combat effects have resolved. Decide whether to swap places.</p><div class="choice-cards"><button id="lightbringerSwap"><strong>Swap places</strong><small>Exchange Squares with the target</small></button></div><button class="choice-decline" id="lightbringerStay">Keep positions</button></div>`;
     modal.querySelector('#lightbringerSwap')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: true }));
     modal.querySelector('#lightbringerStay')?.addEventListener('click', () => dispatch({ type: 'lightbringer-swap-decision', playerId: attacker.id, swap: false }));
     return;
@@ -2273,6 +2300,7 @@ function renderCombatReveal() {
       heldBanner ? `held Banner: no bonus unless selected as the Combat Card` : '',
     ].filter(Boolean).join(' · ') || 'No held Combat Card modifier changes the current value';
     const preCombatEffects = [
+      ...((pending as OrderedPreCombatAttack).preCombatLog ?? []),
       pending.blessedBlockResolved ? 'Defender pre-combat: the Attack Card effect was cancelled by Blessed Block.' : '',
       pending.blessedSwiftnessResolved ? 'Defender pre-combat: Blessed Swiftness annulled the Attacker’s unspent MOV.' : '',
       pending.manaShieldManaGenerated ? 'Defender pre-combat: Mana Shield generated 1 Mana.' : '',
@@ -8947,6 +8975,100 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   characterPreviewCamera?.position.set(0, 1.55, character === 'magician' ? 6.1 : 5.4);
   characterPreviewControls?.target.set(0, character === 'magician' ? 1.55 : 1.35, 0);
   characterPreviewControls?.update();
+}
+
+// Independent roots keep lobby previews from moving the archive or board models.
+const lobbyModelPreviews = new Map<PlayerId, {
+  host: HTMLElement;
+  caption: HTMLElement;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  models: Map<OnlineCharacter, THREE.Group>;
+  current?: THREE.Group;
+}>();
+
+function renderLobbyModelPreviews() {
+  if (!localSeat || !onlineLobbyState) return;
+  const panel = byId('onlineWaiting');
+  const seats = (['P1', 'P2', 'P3'] as PlayerId[]).slice(0, onlineLobbyState.requiredPlayerCount);
+  const opponents = seats.filter((seat) => seat !== localSeat);
+  for (const seat of seats) {
+    let preview = lobbyModelPreviews.get(seat);
+    if (!preview) {
+      const host = document.createElement('aside');
+      const caption = document.createElement('div');
+      caption.className = 'lobby-model-caption';
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(34, 1, .1, 60);
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      scene.add(new THREE.HemisphereLight(0xcfffee, 0x17251f, 2.4));
+      const key = new THREE.DirectionalLight(0xffffff, 4.2);
+      key.position.set(3, 5, 4); scene.add(key);
+      const rim = new THREE.DirectionalLight(seat === localSeat ? 0x45c8ff : 0xff5d68, 3);
+      rim.position.set(-3, 3, -3); scene.add(rim);
+      host.append(renderer.domElement, caption);
+      const entry = { host, caption, scene, camera, renderer, models: new Map<OnlineCharacter, THREE.Group>(), current: undefined as THREE.Group | undefined };
+      preview = entry;
+      lobbyModelPreviews.set(seat, entry);
+      let previousTime = performance.now();
+      renderer.setAnimationLoop((time) => {
+        const delta = Math.min((time - previousTime) / 1000, .05); previousTime = time;
+        if (!host.isConnected || !host.getClientRects().length || document.hidden) return;
+        const width = host.clientWidth, height = Math.max(1, host.clientHeight - caption.offsetHeight);
+        if (width < 1) return;
+        const size = renderer.getSize(new THREE.Vector2());
+        if (size.x !== width || size.y !== height) {
+          renderer.setSize(width, height, false);
+          camera.aspect = width / height; camera.updateProjectionMatrix();
+        }
+        const model = entry.current;
+        if (model) {
+          (model.userData.orkkAnimation as OrkkAnimationState | undefined)?.mixer.update(delta);
+          (model.userData.wizardAnimation as WizardAnimationState | undefined)?.mixer.update(delta);
+          (model.userData.obiWanAnimation as ObiWanAnimationState | undefined)?.mixer.update(delta);
+          if (model.userData.spectreAnimation) updateSpectreAnimation(model, undefined, delta);
+          if (model.userData.character === 'orkk') updateOrkkRageCoreAnimation(model, time);
+          model.rotation.y = (model.userData.facingSide === 'positive-z' ? 0 : Math.PI) + (seat === localSeat ? -.2 : .2);
+        }
+        // Maintain full-body framing on narrow screens and after imported models load.
+        const distance = Math.max(6.1, 3.3 / camera.aspect);
+        camera.position.set(0, 1.6, distance); camera.lookAt(0, 1.35, 0);
+        renderer.render(scene, camera);
+      });
+    }
+    const own = seat === localSeat;
+    preview.host.className = `lobby-model-preview ${own ? 'local' : 'opponent'}${!own && opponents.length > 1 ? ' multiple opponent-' + opponents.indexOf(seat) : ''}`;
+    panel.appendChild(preview.host);
+    const character = onlineLobbyState.characters[seat] ?? onlineLobbyState.selections?.[seat];
+    const confirmed = Boolean(onlineLobbyState.characters[seat]);
+    preview.caption.textContent = `${own ? 'YOU' : seat} · ${character ? CHARACTER_SELECT_INFO[character].name + (confirmed ? ' · READY' : '') : 'Highlight a character'}`;
+    preview.renderer.domElement.setAttribute('aria-label', preview.caption.textContent);
+    const currentCharacter = preview.current?.userData.character;
+    if (currentCharacter === character) continue;
+    if (preview.current) preview.scene.remove(preview.current);
+    preview.current = undefined;
+    if (!character) continue;
+    let model = preview.models.get(character);
+    if (!model) {
+      const color = own ? 0x45c8ff : 0xff5d68;
+      model = character === 'shinobi' ? createObiWanShinobi(color, true)
+        : character === 'orkk' ? createDaOrkk(color, 8)
+          : character === 'magician' ? createLongHatLogan(color)
+            : character === 'john-christ' ? createJohnChrist(color)
+              : character === 'spectre' ? createSpectre(color)
+                : character === 'wreckna' ? createWreckna(color) : createMerylin(color);
+      model.userData.character = character;
+      model.traverse((child) => { if (child.name === 'TargetRing') child.visible = false; });
+      preview.models.set(character, model);
+    }
+    preview.current = model;
+    preview.scene.add(model);
+  }
+  for (const [seat, preview] of lobbyModelPreviews) if (!seats.includes(seat)) preview.host.remove();
 }
 
 initializeCharacterBrowser();

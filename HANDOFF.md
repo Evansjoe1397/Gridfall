@@ -1,241 +1,134 @@
 # Gridfall Development Handoff
 
-Read this file first when continuing development in a fresh Codex chat.
+Updated 2026-09-09. Read this document completely before continuing.
 
-## Repository
+## Workspace and instructions
 
-- Workspace: `C:\Users\evans\BoardGame\BoardGame2`
-- Repository: `https://github.com/Evansjoe1397/Gridfall.git`
-- Branch: `main`
-- Current local and remote HEAD: `26f7f0c` (`Da Orkh multiple shields support`)
-- Stack: TypeScript, Three.js, Vite, XState, Colyseus
-- Rules/state: `shared/game.ts`
-- Arena definitions: `shared/arenas.ts`
-- Client/UI/Three.js scene: `src/main.ts`
-- Styling: `src/style.css`
-- Translations: `src/i18n.ts`
-- Regression checks: `scripts/check-rules.ts`
+- Workspace: C:\Users\evans\BoardGame\BoardGame2
+- Repository: https://github.com/Evansjoe1397/Gridfall.git
+- Branch: main
+- Local HEAD and last-fetched origin/main: 17869c7 (Update character rules and merge latest interface improvements).
+- No fetch was performed for this handoff. Check GitHub again only when relevant to the user's request.
+- Preserve all existing work. Do not commit or push unless explicitly requested.
+- Read AGENTS.md. It prohibits browser checks/automation unless the user explicitly overrides it; the user handles visual verification.
+- Use apply_patch for file edits. Launch background processes with hidden windows.
+- No new development task is pending: the user requested this handoff and a fresh conversation.
 
-Do not commit or push unless the user explicitly requests it. Always inspect
-`git status` before editing and preserve existing work.
+## Uncommitted work to preserve
 
-## Current Working Tree
+Before this document was updated, these files were modified:
+- server/index.ts
+- src/main.ts
+- src/style.css
 
-The tree was clean before this handoff was refreshed. `HANDOFF.md` is now the
-only intentional local modification. The latest `git pull --ff-only origin
-main` reported that the repository was already up to date.
+They contain the new live character-selection model previews. HANDOFF.md is now also modified. The preview changes have NOT been committed or pushed.
 
-## Runtime State
+A safety stash remains:
+stash@{0}: On main: Preserve local gameplay changes before 2026-09-08 pull
 
-As of 2026-08-15, the development server and Cloudflare quick tunnel are not
-running. The previous temporary public URL is no longer valid.
+That stash contains older gameplay work already restored, merged, and committed in 17869c7. Do not apply it again. Leave it alone unless cleanup is requested.
 
-To launch development mode, first check ports 5173 and 2567, then run:
+## Latest feature: live model previews in online character selection
 
-```powershell
-npm run dev
-```
+User requested Mortal Kombat-style previews in the empty areas beside the central character picker:
+- Local player's highlighted model on the left.
+- Opponent's highlighted model on the right.
+- Highlighting does not confirm selection.
+- Online clients see one another's current highlight.
+- In three-player matches both opponents appear on the right.
 
-- Vite client: `http://localhost:5173/`
-- Colyseus multiplayer server: `http://localhost:2567/`
+Implementation:
+- src/main.ts: lobbyModelPreviews and renderLobbyModelPreviews near the bottom of the file.
+- Separate cached model roots per seat reuse the existing createObiWanShinobi, createDaOrkk, createLongHatLogan, createJohnChrist, createSpectre, createWreckna, and createMerylin factories.
+- Independent transparent Three.js renderers, lighting, full-body camera framing, and imported-model idle animation updates. Models are separate from archive/board roots.
+- renderOnlineLobby and renderOnlineSelectionFrames update the previews.
+- Pointer entry and keyboard focus immediately update local selection and send hover-character. Last highlight persists when the pointer leaves.
+- A click confirms only after the required players have joined.
+- server/index.ts allows previewCharacter while waiting for other players. Confirmation still requires a full lobby.
+- Existing lobby-state selections and characters distinguish highlight from confirmed selection.
+- CSS positions previews beside #onlineWaiting. Below 1100px they sit above the picker; FFA opponents share the right side.
+- Animation rendering skips hidden/disconnected preview hosts.
+- This feature targets the online waiting/selection screen; the separate Hotseat picker was not changed.
 
-For public multiplayer, first run `npm run build`, keep the server on port
-2567 running, and expose that port with Cloudflare Tunnel. Port 2567 serves
-both `dist` and the WebSocket rooms, so one tunnel is sufficient:
+Verification after the final preview edits:
+- npm run typecheck: PASS
+- npm run build: PASS
+- git diff --check: PASS (Git reports normal LF/CRLF warnings)
+- Non-browser SDK smoke test against the running local server: PASS for highlight before another player joins, late-join highlight snapshot, remote highlight swaps, and confirmation remaining separate.
+- No browser/visual verification was performed. User may still report layout, framing, or animation refinements. FFA preview layout has not been visually verified.
+- The production build was refreshed, making the preview code available through the public server while it was running.
 
-```powershell
-cloudflared tunnel --url http://127.0.0.1:2567 --no-autoupdate
-```
+## Runtime state and launch instructions
 
-Quick-tunnel URLs are temporary and change whenever the tunnel restarts.
+At handoff, Get-Process found no node or cloudflared processes. The Cloudflare log records shutdown on 2026-09-08 at 20:13 UTC. Check ports/processes again before launching.
 
-## Latest Validation
+Last temporary public URL:
+https://raid-genius-construction-volunteer.trycloudflare.com
 
-After pulling commit `26f7f0c`, `npm run build` passed. The build included and
-served both imported multiplayer character models:
+Treat that URL as expired; do not promise it is available.
 
-- `public/models/da-orkh-optimized.glb` (Da Orkk)
-- `public/models/long-hat-logan.glb` (Long Hat Logan)
+Development:
+1. Check ports 5173 and 2567 to avoid duplicate servers.
+2. Run npm run dev from the workspace.
+3. Local Vite client: http://localhost:5173/
+4. Multiplayer server: http://localhost:2567/
 
-Both returned HTTP 200 locally and through the then-active public tunnel. No
-source edits were required to enable them; the earlier problem was a stale
-`dist` directory without the model files. The public server must be rebuilt
-after model/source changes because port 2567 serves `dist`.
+Public multiplayer:
+1. Run npm run build; port 2567 serves dist, not Vite's current source.
+2. Keep the multiplayer server running.
+3. Launch cloudflared tunnel --url http://127.0.0.1:2567 --no-autoupdate
+4. Read the new temporary URL and verify HTTP reachability with a non-browser request.
 
-The normal full validation sequence is:
+Use hidden Start-Process helpers. Existing log names:
+- dev-server.log / dev-server-error.log
+- cloudflared.log / cloudflared-error.log
 
-```powershell
-npm run typecheck
-npm run check:rules
-npm run build
-git diff --check
-```
+One tunnel to port 2567 serves both the game and WebSocket rooms. Rebuild after source/model changes for public players to receive them. Server source edits under tsx watch restart the server and can interrupt active rooms.
 
-The production build has a known non-fatal warning that its main JavaScript
-chunk exceeds 500 kB.
+## Recent committed work
 
-## Current Multiplayer and Models
+17869c7 combined local gameplay updates with:
+- fc12e4e: icons, HP bars, box pop-ups
+- 192f9a5: sky improvements
 
-- Online character selection includes Obi Wan Shinobi, Da Orkk, Long Hat
-  Logan, and John Christ.
-- The same character may be selected by multiple players.
-- `syncBoard()` in `src/main.ts` creates the appropriate model for every
-  player, including online snapshots.
-- Da Orkk uses `createDaOrkk()` and asynchronously installs
-  `da-orkh-optimized.glb`, with procedural fallback on load failure.
-- Logan uses `createLongHatLogan()` and asynchronously installs
-  `long-hat-logan.glb`, with procedural fallback on load failure.
-- Logan's imported model contains Idle, Walk, Power, and independently orbiting
-  Mana Orb animation behavior.
+The merge preserved the upstream gameIcon system and local character rule changes. Important recent gameplay details:
+- Merylin starts at 20/20 HP; archive metadata and setup assertions match.
+- Moonlight second-square damage is 2; Lightbringer doubles its High Ground bonus.
+- John Christ gains a unique Hand-only Judgement when entering Spirit Form if not already held. Attack Value 2; after combat gain Stoic Shell if victorious. Removed whenever it leaves Hand and at turn end; cannot pay Guard/Dash; automatic removal for overstacking.
+- Feed the Spirit's Blessing payment additionally heals actual HP lost from combat damage, excluding attacking card post-combat effect damage.
+- Wreckna's Decay was renamed Curse. Internal card/command ID decay remains for compatibility.
+- Curse: level 1 steal 1 MOV; level 2 add Headache to target Hand; level 3 block target trait until target end turn. traitBlocked and status UI gate affected character traits.
+- Curse gates Lightsaber bonuses/passive renewal, John's Spirit entry and Stoic healing, Merylin's Summon-enabled attacks, Spectre replica origins, Logan Mana generation/Consume, and passive Rage generation/attack spending. Card-generated statuses/resources follow the requested exceptions. Wreckna trait powers also respect suppression.
+- Multiplayer FFA opening focus independence and combat spectator UI are included in that commit.
 
-## Recent Git History
+These are implementation summaries, not replacements for reading the current authoritative rules.
 
-```text
-26f7f0c Da Orkh multiple shields support
-7d73f3e Da Orkh animations improvements and fixes
-b86d40c Reduce Da Orkh model filesize
-7424489 Cleanup
-b8a44d8 Added new Da Orkh model and animations
-8c7f433 Make orbs rotation animation independent
-ab91935 Switch to new mage model and animations
-6bad75a Expand Gridfall combat characters and arenas
-```
+## Known validation limitation
 
-## Important Current Detail
+The last full npm run check:rules stopped at the previously reported assertion:
+"Each tied Tank Junior leader receives Helmet."
+scripts/check-rules.ts:774
 
-The last rules question answered concerned Da Orkk's `ARKANE AROW` Perk:
+This was present before the latest merge and preview work. It remains unresolved; do not claim the full rules suite passes. Assertions after this failure do not execute. Do not broaden a routine UI task into unrelated rule repair.
 
-- Level 1 throw Range: 3.
-- Levels 2 and 3 throw Range: 4.
-- Level 3 adds its push/collision upgrade but no further Range increase.
+The production build has the known non-fatal chunk-size warning (>500 kB).
 
-The definition is in `shared/game.ts`; targeting stores Range 3 at Level 1 and
-Range 4 at Level 2 or above.
+## Code map and development guidance
 
-## Development Guidance
+- shared/game.ts: authoritative cards, state, commands, targeting, combat, traits, quests.
+- shared/arenas.ts: board and arena definitions.
+- server/index.ts: Colyseus rooms, seats, lobby highlight/confirmation, state broadcasts.
+- src/main.ts: UI, online client, Three.js board and character factories, archive and lobby previews.
+- src/style.css: responsive layout and visual styling.
+- src/game-icons.ts and src/assets/icons/: current icon system.
+- src/i18n.ts: translations.
+- scripts/check-rules.ts and scripts/check-replica-targeting.ts: rule regressions.
+- public/models/: imported character assets.
 
-- Large rules and UI files contain layered historical behavior. Search all
-  related functions/selectors before adding overrides.
-- Keep Hotseat and multiplayer behavior aligned unless explicitly requested
-  otherwise.
-- Test responsive UI on small laptop screens.
-- Add or update rule checks for gameplay changes.
-- Do not delete or overwrite user changes in a dirty worktree.
+Online roster includes Shinobi, Da Orkk, Logan, John Christ, Spectre, Wreckna, and Merylin. Multiple players can select the same character. Keep Hotseat and multiplayer rules aligned unless explicitly directed otherwise.
 
-The helper is `hudSeatPlayerIds()` in `src/main.ts`. Three-player Hotseat and
-online perspective behavior remain unchanged.
+Large rules/UI files contain layered historical logic. Search related selectors and command handlers before changing behavior. Use dealDamage with source attribution and existing movement/statistics helpers. Inspect current FFA victory logic rather than assuming every death immediately ends a match.
 
-### Shield Bash
+## Prompt for the new conversation
 
-Current card:
-
-- Attack Value: 2.
-- If the Shield was unequipped at combat start, recall and equip it.
-- Each enemy crossed by the recalled Shield receives 2 Damage.
-- The general Shield-recall pull remains active: crossed enemies are pulled one
-  Square toward Da Orkk when legal.
-- If the Shield was already equipped at combat start, generate 1 Rage after all
-  deferred combat effects resolve.
-- The Rage reward is applied after the usual post-Attack Rage removal, so a
-  zero-Rage Orkk ends with one Rage from this branch.
-- Attack-effect-cancelling Defend Cards still cancel Shield Bash's additional
-  effects.
-
-The card definition and resolution are in `shared/game.ts`; tactical advice is
-in `src/main.ts`. Regression tests cover both equipped and unequipped branches.
-
-### Shield recall route priority
-
-`armDaWizPath()` now uses layered breadth-first search:
-
-- Cardinal and diagonal moves both cost exactly one step.
-- A Shield always takes a minimum-length legal route.
-- Among routes with the same minimum length, it first prefers fewer diagonal
-  steps and then the route crossing the greatest number of enemy-occupied Squares.
-- It never adds steps or diagonal movement solely to hit an enemy.
-- Board Objects still block intermediate recall Squares.
-
-This path helper is shared by Arm da Wiz, Shield Bash, Arcane Shield, and Mana
-Baryer recalls, so the preference applies to all Shield recall effects. Automatic
-recalls choose the Shield whose optimal route crosses the most enemies, using the
-nearest Shield only as a tie-breaker. Damage remains specific to the card that
-initiated the recall; the one-Square pull is the general recall effect.
-
-## Important Current Rules
-
-### Characters
-
-- Obi Wan Shinobi: 20 HP, MOV 2, melee Attack Range 1.
-  - Lightsaber grants +1 ATT, +1 DEF, and +1 MOV while active.
-  - Shinobi Attack Cards use his melee range; ranged Perks specify their own
-    ranges.
-- Da Orkk: 26 HP, MOV 3, Attack Range 1.
-  - Rage applies all stacks to an Attack Card, then removes one stack after
-    combat.
-  - One Rage stack is removed at the end of Da Orkk's turn.
-  - Da Orkk can gain one Rage per overall damaging card/action effect during his
-    own turn; separate later actions may grant Rage again.
-- Long Hat Logan: 18 HP, MOV 3, Attack Range 2.
-  - Uses Classic Wizardry and up to three Mana.
-
-### Board movement and visibility
-
-- Characters cannot occupy or pass through Columns, Objects, Wall Objects, or
-  other characters unless a card explicitly permits passing through them.
-- Columns are immovable.
-- Wall Objects and Columns block line of sight; ordinary Objects do not.
-- Diagonal movement is blocked only when an Object touches the relevant corner
-  from the blocking side.
-- Teleports may land only on empty Squares visible from the caster's starting
-  location.
-- Pass-through movement must animate through occupied Squares.
-
-### Combat timing
-
-- Attack and Defend after-combat effects are deferred until both players
-  acknowledge the combat result.
-- Direct damage should use `dealDamage(...)` with the correct source kind.
-- Character movement should use `recordQuestMovement(...)`.
-- Character death must transition immediately to the finished state and show
-  the match result.
-
-### Rage
-
-- Rage gained from a single overall card/action effect is capped at one stack,
-  even if that effect contains multiple damage instances.
-- A separate later action during the same turn can grant another stack.
-- An Attack receives the full bonus from all current Rage, then one stack is
-  removed after combat.
-- One more stack is removed at the end of Da Orkk's turn.
-
-## Major Existing Systems
-
-- Hotseat Duel and three-player Free For All.
-- Colyseus multiplayer.
-- Character selection with core stats and trait tooltips.
-- Deck, Hand, Discard, Status Cards, Spell Echo, focus/reserve setup, and phase
-  rewards.
-- Action Quest pool tied to Phase transitions.
-- Object destruction and delayed Box respawning.
-- Push, Pull, collision, teleport, pass-through animation, High Ground, bases,
-  Columns, Boxes, and Shields.
-- HINTS with English/Russian advice, My Cards, and Damage Log.
-- Damage Log includes damage and healing.
-- End-of-match statistics and results screen.
-
-## Working Guidance
-
-- Large rules and UI files contain layered historical behavior. Search for all
-  related selectors/functions before adding another override.
-- Keep UI changes responsive for small laptop screens and test two- and
-  three-player modes separately.
-- Add or update checks in `scripts/check-rules.ts` for gameplay changes.
-- Run typecheck, rule checks, build, and `git diff --check` before handing off.
-- Do not push unless explicitly requested.
-
-## Suggested New-Chat Prompt
-
-> Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`.
-> Read `HANDOFF.md` completely first, inspect the current Git status, and
-> preserve existing work. Do not commit or push unless I explicitly request
-> it. My next request is: [describe the next task].
+Continue development of Gridfall in C:\Users\evans\BoardGame\BoardGame2. Read HANDOFF.md completely and AGENTS.md first, inspect Git status, and preserve the uncommitted character-selection model previews. Do not reapply the old safety stash. Do not commit or push unless I explicitly request it. Use non-browser verification as instructed by AGENTS.md. Wait for my next development request.
