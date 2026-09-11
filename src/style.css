@@ -251,6 +251,17 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .object-attack-confirm button { min-height: 32px; border: 1px solid #76552f; background: #251a10; color: #dec7a9; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
 .object-attack-confirm button.confirm { border-color: #ce8736; background: #613712; color: #fff0d8; }
 .object-attack-confirm button:hover, .object-attack-confirm button:focus-visible { border-color: #ffc26f; color: white; outline: none; box-shadow: 0 0 10px rgba(255,178,76,.24); }
+.quick-attack-popup { position: absolute; z-index: 41; box-sizing: border-box; width: 360px; max-width: calc(100% - 20px); max-height: calc(100% - 20px); overflow-y: auto; padding: 13px; border: 1px solid #d74653; border-left: 3px solid #ff4a59; background: linear-gradient(145deg, rgba(48,10,15,.91), rgba(16,7,9,.91)); box-shadow: 0 14px 38px rgba(0,0,0,.68), 0 0 24px rgba(238,48,65,.2); color: #ffecef; backdrop-filter: blur(7px); }
+.quick-attack-popup > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 9px; margin-bottom: 10px; }
+.quick-attack-popup > header > span { color: #ff6a76; font-size: 8px; letter-spacing: .18em; }
+.quick-attack-popup > header > strong { color: #fff2f3; font: 800 19px 'Barlow Condensed', sans-serif; letter-spacing: .035em; text-transform: uppercase; }
+.quick-attack-popup > header > small { margin-left: auto; color: #c8878d; font-size: 7px; letter-spacing: .12em; }
+.quick-attack-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.quick-attack-cards .card { min-height: 190px; border-color: #73313a; border-top-color: #ff3d4d; background: linear-gradient(145deg, rgba(58,20,25,.96), rgba(21,10,12,.96)); color: #fff; }
+.quick-attack-cards .card span { color: #d47b84; }
+.quick-attack-cards .card div { border-top-color: #6d2a32; color: #dca6ab; }
+.quick-attack-cards .card small { color: #ddb9bd; }
+.quick-attack-cards .card:hover, .quick-attack-cards .card:focus-visible { border-color: #ff6470; border-top-color: #ff3d4d; outline: none; box-shadow: 0 8px 25px rgba(0,0,0,.42), 0 0 15px rgba(255,55,72,.2); }
 .overhead-status-layer { position: absolute; inset: 0; z-index: 20; overflow: visible; pointer-events: none; }
 .perk-use-label { position: absolute; max-width: 280px; padding: 5px 10px 6px; transform: translate(-50%, calc(-100% - 26px)); border: 1px solid color-mix(in srgb, var(--player-color) 70%, white); background: rgba(3, 10, 9, .88); color: var(--player-color); box-shadow: 0 0 14px color-mix(in srgb, var(--player-color) 42%, transparent), 0 5px 16px rgba(0, 0, 0, .55); font: 800 18px 'Barlow Condensed', sans-serif; line-height: 1; letter-spacing: .035em; text-align: center; text-shadow: 0 0 8px color-mix(in srgb, var(--player-color) 72%, transparent); white-space: nowrap; will-change: left, top, opacity; }
 .overhead-character-statuses { position: absolute; top: 0; left: 0; display: flex; gap: 12px; transform: translate3d(var(--overhead-x, -1000px), var(--overhead-y, -1000px), 0) translate(-50%, calc(-100% - 9px)) scale(var(--overhead-scale, .5)); transform-origin: bottom center; pointer-events: none; backface-visibility: hidden; will-change: transform; }

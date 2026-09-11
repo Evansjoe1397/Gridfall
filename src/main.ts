@@ -7,6 +7,10 @@ import { textureNagrandTile, textureNagrandPlatform } from './nagrand-floor-text
 import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
+import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, johnPlaybackRate, type JohnAnimationName } from './johnChristLocomotion.ts';
+import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
+import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
+import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -149,7 +153,7 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div><section class="object-attack-confirm hidden" id="objectAttackConfirm" role="dialog" aria-modal="false" aria-labelledby="objectAttackConfirmTitle"><span>OBJECT ATTACK</span><strong id="objectAttackConfirmTitle"></strong><p id="objectAttackConfirmMessage"></p><div><button class="confirm" id="objectAttackConfirmYes" type="button">ATTACK</button><button class="cancel" id="objectAttackConfirmNo" type="button">CANCEL</button></div></section></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><button class="direct-perk hidden" id="directPerkButton">Play Perk Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt"></div><section class="object-attack-confirm hidden" id="objectAttackConfirm" role="dialog" aria-modal="false" aria-labelledby="objectAttackConfirmTitle"><span>OBJECT ATTACK</span><strong id="objectAttackConfirmTitle"></strong><p id="objectAttackConfirmMessage"></p><div><button class="confirm" id="objectAttackConfirmYes" type="button">ATTACK</button><button class="cancel" id="objectAttackConfirmNo" type="button">CANCEL</button></div></section><section class="quick-attack-popup hidden" id="quickAttackPopup" role="dialog" aria-modal="false" aria-labelledby="quickAttackTitle"><header><span>QUICK ATTACK</span><strong id="quickAttackTitle"></strong><small>CHOOSE A CARD · ATTACKS IMMEDIATELY</small></header><div class="quick-attack-cards" id="quickAttackCards"></div></section></div>
       <div class="command-deck">
         <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
@@ -198,6 +202,9 @@ const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 let selectedSpectreAttackOrigin: 'spectre' | 'replica' = 'spectre';
 let pendingObjectAttackConfirmation: { confirm: () => void } | null = null;
+let pendingQuickAttackTargetId: PlayerId | null = null;
+let boardPointerPosition: { clientX: number; clientY: number } | null = null;
+let quickAttackEligibilityCache: { state: GameState; targetId: PlayerId; cards: GameState['players'][PlayerId]['hand'] } | null = null;
 type WizardPowerVisualIntent =
   | { kind: 'cast'; playerId: PlayerId; target: THREE.Vector3; hold: boolean; targetKind?: 'player' | 'object'; targetId?: string }
   | { kind: 'resolve'; playerId: PlayerId }
@@ -215,6 +222,7 @@ type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
 let pendingOnlineSpectreVisualIntent: SpectreVisualIntent | null = null;
 selection.subscribe(() => {
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
+  if (pendingQuickAttackTargetId) closeQuickAttackPopup();
   renderUI();
 });
 
@@ -261,6 +269,7 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   document.querySelector('.mode-grid')?.classList.add('hidden');
   const browser = document.querySelector('.character-browser');
   browser?.classList.remove('hidden');
+  characterPreviewJohnCycleStartedAt = performance.now();
   browser?.scrollIntoView({ block: 'start' });
   // The preview renderer is created while this panel is display:none. Rebuild
   // its render targets after layout has a real size; ResizeObserver callbacks
@@ -321,6 +330,7 @@ document.querySelector('#objectAttackConfirmYes')!.addEventListener('click', () 
 document.querySelector('#objectAttackConfirmNo')!.addEventListener('click', closeObjectAttackConfirmation);
 document.addEventListener('pointerdown', (event) => {
   if (pendingObjectAttackConfirmation && !byId('objectAttackConfirm').contains(event.target as Node)) closeObjectAttackConfirmation();
+  if (pendingQuickAttackTargetId && !byId('quickAttackPopup').contains(event.target as Node)) closeQuickAttackPopup();
 });
 const handPreviewRegion = byId('hand');
 handPreviewRegion.addEventListener('pointerover', (event) => {
@@ -381,6 +391,9 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'Escape' && pendingObjectAttackConfirmation) {
     event.preventDefault(); closeObjectAttackConfirmation(); return;
+  }
+  if (event.code === 'Escape' && pendingQuickAttackTargetId) {
+    event.preventDefault(); closeQuickAttackPopup(); return;
   }
   if (event.code === 'Escape' && selectedTestObjectId) {
     event.preventDefault(); selectedTestObjectId = null; renderUI(); notify('Wooden Box movement cancelled.'); return;
@@ -505,14 +518,27 @@ let activeCombatSummary = false;
 let combatSummaryHidden = false;
 let lastCombatSummaryHtml = '';
 let lastCombatSummaryOpen = false;
+const POST_COMBAT_VISUAL_DELAY_MS = 500;
+let postCombatVisualNotBefore = 0;
+let activeCombatVisualAttackId: string | null = null;
+let completedCombatVisualAttackId: string | null = null;
+function pendingSpiritVisualAttack(playerId: PlayerId) {
+  const pending = gameState.pendingAttack;
+  // A returned Attack Card can be played again with the same instance id. Once
+  // the prior pending combat disappears, allow that id to latch a future combat.
+  if (!pending || pending.cardInstanceId !== completedCombatVisualAttackId) completedCombatVisualAttackId = null;
+  return pending?.attackerId === playerId && pending.attackerWasInSpiritForm ? pending : undefined;
+}
 function resetCombatSummary() {
   activeCombatSummary = false;
   combatSummaryHidden = false;
   lastCombatSummaryHtml = '';
   lastCombatSummaryOpen = false;
   combatRevealWasVisible = false;
+  postCombatVisualNotBefore = 0;
+  activeCombatVisualAttackId = null;
+  completedCombatVisualAttackId = null;
 }
-let deathAnimationNotBefore = 0;
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
   combatAckRequestFor = revealExpiresAt;
@@ -1061,6 +1087,8 @@ function dispatch(command: GameCommand) {
 }
 
 function renderAll() {
+  quickAttackEligibilityCache = null;
+  if (pendingQuickAttackTargetId) closeQuickAttackPopup();
   syncBoard();
   updateCharacterHealthBars(true);
   renderUI();
@@ -2175,7 +2203,9 @@ function renderCombatReveal() {
   modal.classList.toggle('hidden', !reveal);
   if (!reveal) {
     if (combatRevealWasVisible) {
-      deathAnimationNotBefore = performance.now() + 1000;
+      postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
+      completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
+      activeCombatVisualAttackId = null;
     }
     combatRevealWasVisible = false;
     combatSummaryHidden = false;
@@ -2189,7 +2219,8 @@ function renderCombatReveal() {
   }
   lastCombatSummaryOpen = false;
   if (!combatRevealWasVisible) combatSummaryHidden = false;
-  deathAnimationNotBefore = Number.POSITIVE_INFINITY;
+  postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
+  activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const attackTranslation = hintsLanguage === 'ru' ? CARD_RULES_RU[attackDefinition.id] : undefined;
@@ -2656,6 +2687,81 @@ function showObjectAttackConfirmation(event: MouseEvent, title: string, message:
   (byId('objectAttackConfirmYes') as HTMLButtonElement).focus({ preventScroll: true });
 }
 
+function quickAttackCommand(targetId: PlayerId, cardInstanceId: string): GameCommand | null {
+  const attacker = gameState.players[gameState.activePlayerId];
+  if (!attacker) return null;
+  if (attacker.character === 'spectre') {
+    const origin = spectreAttackOriginForTarget(attacker, gameState.players[targetId].position);
+    return origin ? { type: 'spectre-attack', playerId: attacker.id, cardInstanceId, origin, targetId, targetKind: 'player' } : null;
+  }
+  return { type: 'attack', playerId: attacker.id, cardInstanceId, targetId, targetKind: 'player' };
+}
+
+function availableQuickAttackCards(targetId: PlayerId) {
+  if (quickAttackEligibilityCache?.state === gameState && quickAttackEligibilityCache.targetId === targetId) return quickAttackEligibilityCache.cards;
+  const attacker = gameState.players[gameState.activePlayerId];
+  const target = gameState.players[targetId];
+  const targetIsEntombed = Boolean(target?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
+  const cards = !attacker || !target || target.id === attacker.id || target.hp <= 0 || targetIsEntombed
+    || gameState.phase !== 'active' || !canLocalAct(attacker.id)
+    ? []
+    : attacker.hand.filter((instance) => {
+        if (cardDefinition(instance).kind !== 'attack') return false;
+        const command = quickAttackCommand(targetId, instance.instanceId);
+        return Boolean(command && applyCommand(gameState, command).ok);
+      });
+  quickAttackEligibilityCache = { state: gameState, targetId, cards };
+  return cards;
+}
+
+function closeQuickAttackPopup() {
+  pendingQuickAttackTargetId = null;
+  const popup = byId('quickAttackPopup');
+  popup.classList.add('hidden');
+  popup.style.left = '';
+  popup.style.top = '';
+  popup.style.width = '';
+  byId('quickAttackCards').replaceChildren();
+}
+
+function showQuickAttackPopup(event: MouseEvent, targetId: PlayerId) {
+  const cards = availableQuickAttackCards(targetId);
+  if (cards.length === 0) return;
+  closeObjectAttackConfirmation();
+  pendingQuickAttackTargetId = targetId;
+  const popup = byId('quickAttackPopup');
+  byId('quickAttackTitle').textContent = gameState.players[targetId].name;
+  byId('quickAttackCards').innerHTML = cards.map((instance) => {
+    const card = cardDefinition(instance);
+    return `<button class="card attack" type="button" data-quick-attack-card="${escapeHtml(instance.instanceId)}"><span>ATTACK · CLICK TO PLAY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${cardBaseValue(instance)}</b> ATTACK VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('');
+  popup.style.width = `${Math.min(660, 360 + Math.max(0, cards.length - 1) * 210)}px`;
+  byId('quickAttackCards').querySelectorAll<HTMLButtonElement>('[data-quick-attack-card]').forEach((button) => button.addEventListener('click', () => {
+    const currentTargetId = pendingQuickAttackTargetId;
+    const cardInstanceId = button.dataset.quickAttackCard;
+    if (!currentTargetId || !cardInstanceId || !availableQuickAttackCards(currentTargetId).some((card) => card.instanceId === cardInstanceId)) {
+      closeQuickAttackPopup();
+      return;
+    }
+    const command = quickAttackCommand(currentTargetId, cardInstanceId);
+    closeQuickAttackPopup();
+    if (command) dispatch(command);
+  }));
+  popup.classList.remove('hidden');
+
+  const arenaRect = popup.parentElement!.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  const pointerX = event.clientX - arenaRect.left;
+  const pointerY = event.clientY - arenaRect.top;
+  const gap = 14;
+  const edge = 10;
+  const left = pointerX + gap + popupRect.width <= arenaRect.width - edge ? pointerX + gap : pointerX - popupRect.width - gap;
+  const top = pointerY + gap + popupRect.height <= arenaRect.height - edge ? pointerY + gap : pointerY - popupRect.height - gap;
+  popup.style.left = `${Math.max(edge, Math.min(arenaRect.width - popupRect.width - edge, left))}px`;
+  popup.style.top = `${Math.max(edge, Math.min(arenaRect.height - popupRect.height - edge, top))}px`;
+  byId('quickAttackCards').querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+}
+
 function byId(id: string) { return document.getElementById(id)!; }
 function escapeHtml(value: string) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
 
@@ -3093,9 +3199,12 @@ function setDawnArenaMode(enabled: boolean) {
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+const ATTACK_SWORD_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M25 2 12 15l-3-3L22 1l3 1Z' fill='%23fff4ed' stroke='%23500' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='m10 13 5 5-2 2-5-5 2-2Z' fill='%23d52f3f' stroke='%23500' stroke-width='1.3'/%3E%3Cpath d='m10 18-5 6-2-2 6-5 1 1Z' fill='%23ffd4d4' stroke='%23500' stroke-width='1.3'/%3E%3C/svg%3E") 25 2, crosshair`;
 let daOrkhAsset: Awaited<ReturnType<GLTFLoader['loadAsync']>> | null = null;
 let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let johnAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let johnSpiritAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
@@ -3210,6 +3319,10 @@ scene.add(dummyGroups.get('P1')!, dummyGroups.get('P2')!);
 
 renderer.domElement.addEventListener('pointerdown', onCameraRotateStart, { capture: true });
 renderer.domElement.addEventListener('pointermove', onCameraGrabMove, { capture: true });
+renderer.domElement.addEventListener('pointermove', (event) => {
+  if (event.pointerType === 'mouse' || event.pointerType === 'pen') boardPointerPosition = { clientX: event.clientX, clientY: event.clientY };
+});
+renderer.domElement.addEventListener('pointerleave', () => { boardPointerPosition = null; });
 renderer.domElement.addEventListener('pointerup', finishCameraGrab, { capture: true });
 renderer.domElement.addEventListener('pointercancel', finishCameraGrab, { capture: true });
 renderer.domElement.addEventListener('lostpointercapture', finishCameraGrab, { capture: true });
@@ -3297,6 +3410,7 @@ renderer.setAnimationLoop((time) => {
       if (group.userData.character === 'magician') updateWizardAnimation(group, false, deltaSeconds);
       if (group.userData.character === 'orkk') updateOrkkAnimation(group, id, false, deltaSeconds);
       if (group.userData.character === 'shinobi') updateObiWanAnimation(group, id, false, deltaSeconds);
+      if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
@@ -3319,9 +3433,10 @@ renderer.setAnimationLoop((time) => {
     const forcedMovement = movementAnimations.get(id)?.forced === true;
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
+    if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
     if (group.userData.character === 'merylin') syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
     animateFearSigil(group, time);
-    const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation);
+    const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
@@ -3403,6 +3518,8 @@ function createCharacterHealthBar(playerId: PlayerId) {
 const characterVisibleBounds = new THREE.Box3();
 const characterBoundsVertex = new THREE.Vector3();
 function visibleCharacterTop(character: THREE.Group) {
+  const john = character.userData.johnAnimation as JohnAnimationState | undefined;
+  if (john) return john.healthAnchor.getWorldPosition(characterBoundsVertex).y;
   const visualRoot = character.children[0] ?? character;
   const boundsSourceKey = visualRoot.children.map((child) => child.uuid).join(':');
   if (character.userData.healthBoundsSourceKey === boundsSourceKey && Number.isFinite(character.userData.healthVisualTopOffset)) {
@@ -3447,7 +3564,7 @@ function updateCharacterHealthBars(refreshContents = false) {
     const player = gameState.players[playerId];
     const character = dummyGroups.get(playerId);
     const sprite = characterHealthBars.get(playerId) ?? createCharacterHealthBar(playerId);
-    sprite.visible = healthBarsVisible && Boolean(character?.visible);
+    sprite.visible = healthBarsVisible && player.hp > 0 && Boolean(character?.visible);
     if (!character) return;
     sprite.position.copy(character.position);
     const minimumTopOffset = player.character === 'shinobi' ? 2.35 : player.character === 'spectre' ? 2.45 : 0;
@@ -3741,6 +3858,7 @@ function updateCharacterMovement(time: number) {
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
+      || (group.userData.character === 'john-christ' && !animation.forced)
       || (group.userData.character === 'spectre' && !animation.forced)
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     const eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
@@ -3751,9 +3869,9 @@ function updateCharacterMovement(time: number) {
         group.rotation.y = characterFacingRotation(group, dx, dz);
       }
     }
-    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
@@ -4766,6 +4884,15 @@ function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
   if (group.userData.character === 'magician') return playWizardDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'orkk') return playOrkkDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'shinobi') return playObiWanDeathAnimation(playerId, startedAt);
+  if (group.userData.character === 'john-christ' && group.userData.johnSpiritAnimation) {
+    updateSpiritFormVisual(group, true);
+    const state = group.userData.johnSpiritAnimation as JohnAnimationState;
+    if (state.deathEndsAt !== undefined) return state.deathEndsAt;
+    state.mixer.stopAllAction();
+    state.death!.reset().setEffectiveTimeScale(1).play();
+    state.deathEndsAt = startedAt + state.death!.getClip().duration * 1000;
+    return state.deathEndsAt;
+  }
   const existing = proceduralDeathAnimations.get(playerId);
   if (existing) return existing.startedAt + existing.duration;
   const duration = 700;
@@ -4791,7 +4918,7 @@ function finishingBlowVisualsActive(time: number) {
 }
 
 function updatePendingDeathAnimations(time: number) {
-  if (gameState.phase === 'finished' || pendingDeathAnimationIds.size === 0 || time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
+  if (gameState.phase === 'finished' || pendingDeathAnimationIds.size === 0 || time < postCombatVisualNotBefore || finishingBlowVisualsActive(time)) return;
   pendingDeathAnimationIds.forEach((playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group || gameState.players[playerId]?.hp > 0) {
@@ -4810,7 +4937,7 @@ function updateMatchEndPresentation(time: number) {
   const presentation = matchEndPresentation;
   if (!presentation || presentation.phase === 'ready') return;
   if (presentation.phase === 'effects') {
-    if (time < deathAnimationNotBefore || finishingBlowVisualsActive(time)) return;
+    if (time < postCombatVisualNotBefore || finishingBlowVisualsActive(time)) return;
     const defeated = presentation.defeatedId ? gameState.players[presentation.defeatedId] : null;
     const group = presentation.defeatedId ? dummyGroups.get(presentation.defeatedId) : undefined;
     if (defeated && group?.userData.characterModelLoadSettled === false) return;
@@ -5837,7 +5964,143 @@ function createWrecknaTomb() {
   return root;
 }
 
-function createJohnChrist(playerColor = 0x169bd3) {
+type JohnAnimationState = {
+  death?: THREE.AnimationAction;
+  deathEndsAt?: number;
+  model: THREE.Group;
+  spirit: boolean;
+  mixer: THREE.AnimationMixer;
+  actions: Record<JohnAnimationName, THREE.AnimationAction>;
+  current: JohnAnimationName;
+  body: THREE.Group;
+  healthAnchor: THREE.Object3D;
+  movementStartedAt?: number;
+  routeDistance: number;
+};
+
+async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = false) {
+  root.userData.characterModelLoadSettled = false;
+  try {
+    const asset = await (spirit ? (johnSpiritAssetPromise ??= retryAssetLoad(
+      `${import.meta.env.BASE_URL}models/john-christ-spirit.glb?v=20260911-1`,
+      (url) => new GLTFLoader().loadAsync(url),
+    ).catch((error) => { johnSpiritAssetPromise = null; throw error; })) : (johnAssetPromise ??= retryAssetLoad(
+      `${import.meta.env.BASE_URL}models/john-christ.glb?v=20260911-1`,
+      (url) => new GLTFLoader().loadAsync(url),
+    ).catch((error) => { johnAssetPromise = null; throw error; })));
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = spirit ? 'JohnChristSpiritModel' : 'JohnChristImportedModel';
+    model.rotation.y = Math.PI;
+    model.scale.setScalar(JOHN_MODEL_SCALE);
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {} as Record<JohnAnimationName, THREE.AnimationAction>;
+    for (const name of Object.keys(JOHN_CLIPS) as JohnAnimationName[]) {
+      const clip = spirit
+        ? name === 'Idle' ? createJohnSpiritIdle(model, asset.animations.find(c => c.name === 'Alert')!) : asset.animations.find(c => c.name === 'Unsteady_Walk')
+        : asset.animations.find((candidate) => candidate.name === JOHN_CLIPS[name]);
+      if (!clip) throw new Error(`John Christ GLB missing ${JOHN_CLIPS[name]}`);
+      actions[name] = mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity);
+    }
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    model.traverse((child) => {
+      if (playerId) child.userData.playerId = playerId;
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = false;
+      child.material = Array.isArray(child.material) ? child.material.map((m) => m.clone()) : child.material.clone();
+    });
+    if (!spirit) disposeTemporaryCharacterBody(body);
+    body.add(model);
+    actions.Idle.play();
+    mixer.update(0);
+    const healthAnchor = attachJohnHealthAnchor(model);
+    const deathClip = spirit ? asset.animations.find(c => c.name === 'Dead') : undefined;
+    if (spirit && !deathClip) throw new Error('Spirit model is missing Dead');
+    const death = deathClip ? mixer.clipAction(deathClip).setLoop(THREE.LoopOnce, 1) : undefined;
+    if (death) death.clampWhenFinished = true;
+    const state = { mixer, actions, current: 'Idle', body, model, spirit, healthAnchor, death, routeDistance: 0 } satisfies JohnAnimationState;
+    root.userData[spirit ? 'johnSpiritAnimation' : 'johnNormalAnimation'] = state;
+    if (!spirit) root.userData.johnAnimation = state;
+    model.visible = !spirit;
+    if (playerId) updateSpiritFormVisual(root, Boolean(gameState.players[playerId].spiritForm));
+    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
+    if (!spirit) void attachJohnModel(root, body, true);
+    else { root.userData.characterModelLoadSettled = true; root.userData.deathAnimationAvailable = true; }
+  } catch (error) {
+    root.userData.characterModelLoadSettled = true;
+    console.error('Failed to load John Christ; keeping procedural fallback.', error);
+  }
+}
+
+function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined, deltaSeconds: number) {
+  const normal = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  const spirit = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+  if (normal && spirit) {
+    if (playerId) {
+      const player = gameState.players[playerId];
+      const pending = pendingSpiritVisualAttack(playerId);
+      const desired = spiritVisualDesired(
+        player.spiritForm,
+        player.hp <= 0,
+        pending?.cardInstanceId,
+        Boolean(pending),
+        completedCombatVisualAttackId ?? undefined,
+      );
+      const current = Boolean(group.userData.spiritVisualTarget);
+      const released = resolveSpiritVisualTarget(current, desired, performance.now(), postCombatVisualNotBefore);
+      if (released !== current) updateSpiritFormVisual(group, released);
+    }
+    const active = Boolean(group.userData.spiritVisualTarget);
+    const blend = advanceSpiritBlend(group.userData.spiritVisualBlend ?? 0, active, deltaSeconds);
+    group.userData.spiritVisualBlend = blend;
+    const pulse = applySpiritBlend(normal.model, spirit.model, normal.body, blend);
+    const glow = group.getObjectByName('SpiritFormGlow') as THREE.PointLight | undefined;
+    if (glow) glow.intensity = 4.8 * blend + 7 * pulse;
+    // Keep the outgoing pose alive during the brief overlap.
+    const outgoing = active ? normal : spirit;
+    if (blend > 0 && blend < 1) outgoing.mixer.update(deltaSeconds);
+  }
+  const state = group.userData.johnAnimation as JohnAnimationState | undefined;
+  if (!state) return;
+  if (state.deathEndsAt !== undefined) {
+    if (playerId && gameState.players[playerId].hp > 0) {
+      state.death?.stop(); state.deathEndsAt = undefined;
+      state.actions.Idle.reset().play(); state.current = 'Idle';
+    } else { state.mixer.update(deltaSeconds); return; }
+  }
+  const movement = playerId ? movementAnimations.get(playerId) : undefined;
+  const now = performance.now();
+  const walking = movement && now >= movement.startedAt && !movement.forced && !movement.teleport && !movement.verticalOnly;
+  const next: JohnAnimationName = walking ? state.spirit ? 'Walk' : johnMovementClip(movement.travelSquares ?? movement.path?.length ?? 1) : 'Idle';
+  if (state.current !== next) {
+    state.actions[state.current].fadeOut(0.1);
+    state.actions[next].reset().setEffectiveTimeScale(1).fadeIn(0.1).play();
+    state.current = next;
+  }
+  state.mixer.update(deltaSeconds);
+  if (walking && next !== 'Idle') {
+    if (state.movementStartedAt !== movement.startedAt) {
+      state.movementStartedAt = movement.startedAt;
+      let previous = movement.from;
+      state.routeDistance = 0;
+      for (const point of [...(movement.path ?? []), movement.to]) {
+        state.routeDistance += Math.hypot(point.x - previous.x, point.z - previous.z);
+        previous = point;
+      }
+    }
+    const action = state.actions[next];
+    const rate = state.spirit ? johnSpiritPlaybackRate(state.routeDistance, movement.duration, state.body.scale.x) : johnPlaybackRate(next, state.routeDistance, movement.duration, state.body.scale.x);
+    action.setEffectiveTimeScale(rate);
+    // Derive phase from the same clock as board travel, including late asset loads.
+    action.time = ((now - movement.startedAt) / 1000 * rate) % action.getClip().duration;
+    state.mixer.update(0);
+  } else {
+    state.movementStartedAt = undefined;
+  }
+}
+
+function createJohnChrist(_playerColor = 0x169bd3) {
   const root = new THREE.Group(); const body = new THREE.Group(); body.name = 'JohnBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
   const white = new THREE.MeshStandardMaterial({ color: 0xf2eee0, roughness: 0.68 });
@@ -5863,9 +6126,9 @@ function createJohnChrist(playerColor = 0x169bd3) {
   add(new THREE.BoxGeometry(0.23, 0.055, 0.055), gold, [0, 2.72, 0]);
   const staff = add(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 12), gold, [0.57, 1.08, 0]); staff.rotation.z = -0.08;
   add(new THREE.SphereGeometry(0.11, 14, 10), gold, [0.64, 1.91, 0]);
-  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  void attachJohnModel(root, body);
   return root;
 }
 
@@ -7109,7 +7372,7 @@ function syncBoard() {
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
     const defeated = gameState.players[id].hp <= 0;
-    const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi';
+    const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi' || (character === 'john-christ' && Boolean(group.userData.johnSpiritAnimation));
     if (defeated && group.userData.defeated !== true) {
       pendingDeathAnimationIds.add(id);
     } else if (!defeated) {
@@ -7160,6 +7423,8 @@ function syncBoard() {
               ? orkkMovementDuration(travelSquares)
               : !forced && character === 'spectre'
                 ? spectreMovementDuration(travelSquares)
+              : !forced && character === 'john-christ'
+                ? gameState.players[id].spiritForm ? johnSpiritMovementDuration(travelSquares) : johnMovementDuration(travelSquares)
               : 320 + travelSquares * 150;
         const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate };
         if (recordedMovement?.triggerAnimationId) {
@@ -7484,6 +7749,40 @@ function updateSwiftformVisual(group: THREE.Group, active: boolean) {
 function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
   const body = group.getObjectByName('JohnBody');
   if (!body) return;
+  const normal = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  const spirit = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+  const playerId = group.userData.playerId as PlayerId | undefined;
+  if (playerId) {
+    const player = gameState.players[playerId];
+    const pending = pendingSpiritVisualAttack(playerId);
+    active = spiritVisualDesired(
+      active,
+      player.hp <= 0,
+      pending?.cardInstanceId,
+      Boolean(pending),
+      completedCombatVisualAttackId ?? undefined,
+    );
+  }
+  // Combat damage updates game state while its reveal still covers the board.
+  // Hold the currently displayed form until the same post-combat gate used by
+  // death animations opens, then let the normal 0.4 s blend begin.
+  active = resolveSpiritVisualTarget(Boolean(group.userData.spiritVisualTarget), active, performance.now(), postCombatVisualNotBefore);
+  if (spirit?.deathEndsAt !== undefined && playerId && gameState.players[playerId]?.hp > 0) {
+    spirit.death?.stop(); spirit.deathEndsAt = undefined;
+    spirit.actions.Idle.reset().play(); spirit.current = 'Idle';
+  }
+  const selected = active && spirit ? spirit : normal;
+  group.userData.spiritVisualTarget = active;
+  if (selected) {
+    if (!spirit && normal) normal.model.visible = true;
+    group.userData.johnAnimation = selected;
+  }
+  if (normal && spirit) {
+    let glow = group.getObjectByName('SpiritFormGlow') as THREE.PointLight | undefined;
+    if (!glow) { glow = new THREE.PointLight(0xffd84d, 0, 5); glow.name = 'SpiritFormGlow'; glow.position.set(0, 1.25, 0); group.add(glow); }
+    applySpiritBlend(normal.model, spirit.model, body, group.userData.spiritVisualBlend ?? 0);
+    return;
+  }
   body.scale.setScalar(active ? 1.13 : 1);
   const bulk = group.getObjectByName('SpiritBulk');
   if (bulk) bulk.scale.set(active ? 1.2 : 1, active ? 1.08 : 1, active ? 1.16 : 1);
@@ -7504,8 +7803,8 @@ function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
       if (!(material instanceof THREE.MeshStandardMaterial)) return;
       if (!material.userData.spiritOriginal) material.userData.spiritOriginal = { transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite, emissive: material.emissive.getHex(), emissiveIntensity: material.emissiveIntensity };
       const original = material.userData.spiritOriginal as { transparent: boolean; opacity: number; depthWrite: boolean; emissive: number; emissiveIntensity: number };
-      material.transparent = active || original.transparent; material.opacity = active ? 0.7 : original.opacity; material.depthWrite = active ? false : original.depthWrite;
-      material.emissive.setHex(active ? 0xffd84d : original.emissive); material.emissiveIntensity = active ? 1.25 : original.emissiveIntensity; material.needsUpdate = true;
+      setJohnSpiritTransparency(material, active);
+      material.emissive.setHex(active && !spirit ? 0xffd84d : original.emissive); material.emissiveIntensity = active && !spirit ? 1.25 : original.emissiveIntensity; material.needsUpdate = true;
     });
   });
   let glow = group.getObjectByName('SpiritFormGlow') as THREE.PointLight | undefined;
@@ -7876,7 +8175,23 @@ function updateTargetHighlights(time: number) {
       child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject ? 0.55 : 0;
     });
   });
-  renderer.domElement.style.cursor = cameraGrab ? 'grabbing' : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget ? 'crosshair' : 'grab';
+  const quickAttackShortcutAvailable = selected.kind === 'none' || selected.kind === 'move';
+  const hoveredQuickAttackTarget = quickAttackShortcutAvailable && !pendingQuickAttackTargetId ? quickAttackTargetAtPointer() : null;
+  renderer.domElement.style.cursor = cameraGrab
+    ? 'grabbing'
+    : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget
+      ? 'crosshair'
+      : hoveredQuickAttackTarget ? ATTACK_SWORD_CURSOR : 'grab';
+}
+
+function quickAttackTargetAtPointer(): PlayerId | null {
+  if (!boardPointerPosition || cameraGrab || gameState.phase !== 'active') return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (boardPointerPosition.clientX < rect.left || boardPointerPosition.clientX > rect.right || boardPointerPosition.clientY < rect.top || boardPointerPosition.clientY > rect.bottom) return null;
+  pointer.set((boardPointerPosition.clientX - rect.left) / rect.width * 2 - 1, -(boardPointerPosition.clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const playerId = raycaster.intersectObjects(scene.children, true).map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
+  return playerId && availableQuickAttackCards(playerId).length > 0 ? playerId : null;
 }
 
 function onBoardClick(event: MouseEvent) {
@@ -7895,6 +8210,13 @@ function onBoardClick(event: MouseEvent) {
     if (objectId) hit.object.userData.objectId = objectId;
   });
   const selected = selection.getSnapshot().context.selection;
+  if (selected.kind === 'none' || selected.kind === 'move') {
+    const quickAttackTarget = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
+    if (quickAttackTarget && availableQuickAttackCards(quickAttackTarget).length > 0) {
+      showQuickAttackPopup(event, quickAttackTarget);
+      return;
+    }
+  }
   if (selectedTestObjectId) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) {
@@ -8305,6 +8627,8 @@ type CharacterPreviewMaterialSet = {
   castShadow: boolean;
 };
 let characterPreviewStyle: CharacterPreviewStyle = 'solid';
+let characterPreviewJohnCycleStartedAt = 0;
+const CHARACTER_PREVIEW_FORM_INTERVAL_MS = 10_000;
 const characterPreviewMaterials = new WeakMap<THREE.Mesh, CharacterPreviewMaterialSet>();
 const characterPreviewToonGradient = new THREE.DataTexture(new Uint8Array([
   38, 38, 38, 255,
@@ -8475,6 +8799,16 @@ function setupCharacterPreview() {
     orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
     if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
     if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
+    if (characterPreviewModel?.userData.character === 'john-christ') {
+      const johnNormal = characterPreviewModel.userData.johnNormalAnimation as JohnAnimationState | undefined;
+      const johnSpirit = characterPreviewModel.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+      if (johnNormal && johnSpirit) {
+        const elapsed = Math.max(0, time - characterPreviewJohnCycleStartedAt);
+        const previewSpirit = Math.floor(elapsed / CHARACTER_PREVIEW_FORM_INTERVAL_MS) % 2 === 1;
+        if (Boolean(characterPreviewModel.userData.spiritVisualTarget) !== previewSpirit) updateSpiritFormVisual(characterPreviewModel, previewSpirit);
+      }
+      if (characterPreviewModel.userData.johnAnimation) updateJohnAnimation(characterPreviewModel, undefined, delta);
+    }
     characterPreviewComposer?.render();
   });
 }
@@ -8602,6 +8936,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
     characterPreviewModels.set(character, model);
   }
   characterPreviewModel = model;
+  if (character === 'john-christ') characterPreviewJohnCycleStartedAt = performance.now();
   model.position.set(0, 0, 0);
   // The board camera views these roots from the opposite side; invert that
   // game-facing convention so an archive preview starts face-forward.
