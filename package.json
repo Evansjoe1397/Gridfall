@@ -14,6 +14,7 @@
     "check:blessed-might": "tsx scripts/check-blessed-might.ts",
     "check:combat-order": "tsx scripts/check-combat-order.ts",
     "check:spirit-combat": "tsx scripts/check-spirit-combat.ts",
+    "check:spectre-visuals": "tsx scripts/check-spectre-visuals.ts",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "preview": "vite preview"

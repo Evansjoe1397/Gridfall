@@ -11,9 +11,11 @@ import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, j
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
+import { setSpectreReplicaTransparency, updateSpectreShadowCloak } from './spectreVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -55,6 +57,7 @@ import {
   hasLineOfSight,
   hasReplicaPlacementLineOfSight,
   isNegativeStatusCard,
+  isShadowCloakedPerkTarget,
   isForbiddenSlideAscent,
   isSpectreShadowTrailCell,
   isCardRevealedToOpponents,
@@ -581,7 +584,7 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
-  spectre: { name: 'Spectre', hp: 18, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
+  spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
@@ -1670,9 +1673,11 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">${gameIcon('exhaust')}${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
     const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">${gameIcon('magic')}<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
     const spectreTemporaryAttack = player.character === 'spectre' ? player.spectreAttackBonus ?? 0 : 0;
+    const spectreShadowCloak = player.character === 'spectre' && Boolean(player.spectreShadowCloakActive);
     const spectreAccumulateActive = player.character === 'spectre' ? player.spectreAccumulateActive ?? 0 : 0;
     const spectreAccumulateStored = player.character === 'spectre' ? player.spectreAccumulateStored ?? 0 : 0;
-    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">${gameIcon('attack')}<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Relocate, Consume Replica, and Haunt currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The combined bonus expires at the end of Spectre's turn.</span></div>` : '';
+    const spectreTemporaryAttackIcon = spectreTemporaryAttack > 0 ? `<div class="status-icon spectre-attack-status" tabindex="0">${gameIcon('attack')}<b>+${spectreTemporaryAttack}</b><span class="status-tooltip"><strong>Spectre · Temporary ATT</strong>Shadow Cloak and Haunt currently grant +${spectreTemporaryAttack} ATT to Attacks from either body. The bonus expires at turn end.</span></div>` : '';
+    const spectreShadowCloakIcon = spectreShadowCloak ? `<div class="status-icon spectre-shield-status" tabindex="0">${gameIcon('shield')}<span class="status-tooltip"><strong>Shadow Cloak · Spell Immunity</strong>Cannot be targeted or affected by enemy Perks, including Perk AOE Damage and negative Perk effects, until the beginning of Spectre's next turn. Attack Cards still affect Spectre normally.</span></div>` : '';
     const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
     const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
@@ -1713,7 +1718,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -2801,11 +2806,11 @@ scene.fog = new THREE.Fog(0x07100e, 72, 120);
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000);
 camera.position.set(14.5, 18.5, 15.5);
 camera.lookAt(0, 0, 0);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
 const hologramShaderTime = { value: 0 };
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 boardEl.appendChild(renderer.domElement);
 const overheadStatusLayer = document.createElement('div');
 overheadStatusLayer.className = 'overhead-status-layer';
@@ -2828,7 +2833,7 @@ scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
 keyLight.position.set(4, 18, 5);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.mapSize.set(1024, 1024);
 keyLight.shadow.camera.left = -24;
 keyLight.shadow.camera.right = 24;
 keyLight.shadow.camera.top = 24;
@@ -3233,6 +3238,7 @@ let daOrkhAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let spectreAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let johnAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let johnSpiritAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let johnScepterAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let obiWanAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaCrateAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let arenaPillarAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
@@ -3286,7 +3292,7 @@ type ObjectDestructionPiece = {
   angularVelocity: THREE.Vector3;
   baseOpacity: number;
 };
-const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; baseScale?: THREE.Vector3; destructionPrepared?: boolean; destructionPieces?: ObjectDestructionPiece[]; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
+const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; baseScale?: THREE.Vector3; destructionPrepared?: boolean; destructionPieces?: ObjectDestructionPiece[]; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
 const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
@@ -3303,7 +3309,7 @@ const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Ve
 const lastVisualCells = new Map<PlayerId, string>();
 const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
-const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; startedAt: number; duration: number; seed: number }[] = [];
+const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
 const impactTriggeredCharacterMovements = new Map<string, TriggeredCharacterMovement[]>();
 type MatchEndPresentation = {
@@ -3433,6 +3439,7 @@ renderer.setAnimationLoop((time) => {
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
     const defeated = gameState.players[id]?.hp <= 0;
+    if (group.userData.character === 'spectre') updateSpectreShadowCloak(group, !defeated && Boolean(gameState.players[id]?.spectreShadowCloakActive), deltaSeconds);
     if (defeated) {
       movementAnimations.delete(id);
       if (group.userData.character === 'magician') updateWizardAnimation(group, false, deltaSeconds);
@@ -3491,7 +3498,6 @@ renderer.setAnimationLoop((time) => {
     }
     updateManaOrbAnimation(group, time);
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
-    animateFearSigil(group, time);
   });
   objectGroups.forEach((group, objectId) => {
     if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
@@ -3991,7 +3997,7 @@ function updateObjectMovement(time: number) {
     if (!group) { objectMovementAnimations.delete(objectId); return; }
     const elapsed = time - animation.startedAt - (animation.delay ?? 0);
     if (elapsed < 0) { group.visible = !animation.releaseSource; return; }
-    if (animation.destroy && !animation.destructionPrepared) {
+    if (animation.destroy && !animation.shadowDissolve && !animation.destructionPrepared) {
       animation.destructionPieces = prepareObjectDestructionPieces(group);
       animation.destructionPrepared = true;
     }
@@ -4126,7 +4132,25 @@ function updateObjectMovement(time: number) {
       if (animation.targetQuaternion) group.quaternion.slerp(animation.targetQuaternion, eased);
       group.position.y += Math.sin(progress * Math.PI) * 0.28;
     } else if (animation.parachute) group.rotation.y += 0.012;
-    if (animation.destroy) {
+    if (animation.shadowDissolve) {
+      const fade = 1 - THREE.MathUtils.smoothstep(progress, 0.12, 1);
+      const pulse = 1 + Math.sin(progress * Math.PI) * 0.22;
+      group.scale.copy(animation.baseScale ?? new THREE.Vector3(1, 1, 1)).multiplyScalar(pulse * Math.max(0.06, fade));
+      group.position.y += progress * 1.6;
+      group.rotation.y += progress * 0.18;
+      group.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+          material.transparent = true;
+          material.opacity = fade;
+          if (material instanceof THREE.MeshStandardMaterial) {
+            material.emissive.set(0x6b2bd9);
+            material.emissiveIntensity = 1.2 + progress * 3.5;
+          }
+        }
+      });
+    } else if (animation.destroy) {
       const fade = 1 - THREE.MathUtils.smoothstep(progress, 0.38, 1);
       animation.destructionPieces?.forEach((piece) => {
         piece.mesh.position.copy(piece.origin).addScaledVector(piece.velocity, progress);
@@ -5678,16 +5702,13 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
         : child.material.clone();
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       materials.forEach((material) => {
-        if (!replica) return;
-        material.transparent = true;
-        material.opacity = 0.58;
-        material.depthWrite = false;
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.color.multiply(new THREE.Color(0x9b7cff));
-          material.emissive.set(0x47288f);
-          material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.65);
+          material.color.multiply(new THREE.Color(replica ? 0x9b7cff : 0x75658c));
+          material.emissive.set(replica ? 0x47288f : 0x160d2b);
+          material.emissiveIntensity = Math.max(material.emissiveIntensity, replica ? 0.65 : 0.24);
+          material.roughness = Math.max(material.roughness, replica ? 0.48 : 0.62);
         }
-        material.needsUpdate = true;
+        if (replica) setSpectreReplicaTransparency(material, 0.58);
       });
     });
     const persistentEffects = body.children.filter((child) => child instanceof THREE.PointLight);
@@ -5734,8 +5755,12 @@ function createSpectre(_playerColor = 0x169bd3, replica = false) {
   const body = new THREE.Group(); body.name = replica ? 'SpectreReplicaBody' : 'SpectreBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
   root.userData.spectreReplica = replica;
-  const shadow = new THREE.MeshStandardMaterial({ color: replica ? 0x211840 : 0x171525, emissive: replica ? 0x6d42d8 : 0x24184a, emissiveIntensity: replica ? 1.65 : 0.72, roughness: 0.74, transparent: replica, opacity: replica ? 0.58 : 1, depthWrite: !replica });
-  const armor = new THREE.MeshStandardMaterial({ color: replica ? 0x49327d : 0x3a3552, emissive: replica ? 0x8a59ff : 0x261d43, emissiveIntensity: replica ? 1.8 : 0.52, metalness: 0.58, roughness: 0.36, transparent: replica, opacity: replica ? 0.62 : 1, depthWrite: !replica });
+  const shadow = new THREE.MeshStandardMaterial({ color: replica ? 0x211840 : 0x100e1b, emissive: replica ? 0x6d42d8 : 0x160d2b, emissiveIntensity: replica ? 1.65 : 0.42, roughness: 0.8 });
+  const armor = new THREE.MeshStandardMaterial({ color: replica ? 0x49327d : 0x29243d, emissive: replica ? 0x8a59ff : 0x170e2d, emissiveIntensity: replica ? 1.8 : 0.34, metalness: 0.5, roughness: 0.46 });
+  if (replica) {
+    setSpectreReplicaTransparency(shadow, 0.58);
+    setSpectreReplicaTransparency(armor, 0.62);
+  }
   const glow = new THREE.MeshBasicMaterial({ color: replica ? 0xbc8cff : 0x8d69ff, transparent: true, opacity: replica ? 0.8 : 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
     const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = !replica; parent.add(mesh); return mesh;
@@ -6002,9 +6027,47 @@ type JohnAnimationState = {
   current: JohnAnimationName;
   body: THREE.Group;
   healthAnchor: THREE.Object3D;
+  staff?: THREE.Object3D;
   movementStartedAt?: number;
   routeDistance: number;
 };
+
+// Bone-local transforms authored in Blender for the optimized scepter. Blender
+// stores quaternions as w,x,y,z; Three.js expects x,y,z,w.
+const JOHN_SCEPTER_POSES: Record<JohnAnimationName, {
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+  scale: number;
+}> = {
+  Idle: { position: [-1.29069448, 12.61922646, 2.85937119], quaternion: [0.68877989, -0.7156539, 0.05587576, 0.10148717], scale: 67.68447 },
+  Walk: { position: [8.76818562, 13.34613705, -1.54648757], quaternion: [0.64134777, -0.57101053, -0.22247671, 0.46165374], scale: 67.68447 },
+  Run: { position: [-0.40190029, 15.96422958, -1.52334976], quaternion: [0.655083, -0.58753252, -0.19742815, 0.43208089], scale: 67.68447 },
+};
+
+// glTF converted mesh vertices (x,y,z) to (x,z,-y), while the
+// exported bone retains its Blender local axes. Undo the mesh conversion
+// before applying the authored bone-local transform (right multiplication).
+const JOHN_SCEPTER_GLTF_TO_BLENDER = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+function applyJohnScepterPose(staff: THREE.Object3D, animation: JohnAnimationName) {
+  const pose = JOHN_SCEPTER_POSES[animation];
+  staff.position.set(...pose.position);
+  staff.quaternion.set(...pose.quaternion).multiply(JOHN_SCEPTER_GLTF_TO_BLENDER);
+  staff.scale.setScalar(pose.scale);
+}
+
+function loadJohnScepterAsset() {
+  return (johnScepterAssetPromise ??= retryAssetLoad(
+    `${import.meta.env.BASE_URL}models/john-christ-scepter.glb?v=20260912-1`,
+    (url) => {
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
+      dracoLoader.setDecoderConfig({ type: 'wasm' });
+      const loader = new GLTFLoader();
+      loader.setDRACOLoader(dracoLoader);
+      return loader.loadAsync(url);
+    },
+  ).catch((error) => { johnScepterAssetPromise = null; throw error; }));
+}
 
 async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = false) {
   root.userData.characterModelLoadSettled = false;
@@ -6021,6 +6084,31 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     model.name = spirit ? 'JohnChristSpiritModel' : 'JohnChristImportedModel';
     model.rotation.y = Math.PI;
     model.scale.setScalar(JOHN_MODEL_SCALE);
+    let staff: THREE.Object3D | undefined;
+    if (!spirit) {
+      try {
+        const scepterAsset = await loadJohnScepterAsset();
+        const hand = model.getObjectByName('RightHand');
+        if (!hand) throw new Error('John Christ GLB is missing RightHand');
+        const sourceStaff = scepterAsset.scene.getObjectByName('Golden_Cross_Scepter');
+        if (!sourceStaff) throw new Error('Scepter GLB is missing Golden_Cross_Scepter');
+        // The standalone GLB contains the Blender world transform on its mesh
+        // node. Attach the mesh itself and replace that transform with the
+        // authored RightHand-local pose to avoid applying it twice.
+        staff = sourceStaff.clone(true);
+        staff.name = 'JohnChristScepter';
+        staff.traverse((child) => {
+          if (!(child instanceof THREE.Mesh)) return;
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.material = Array.isArray(child.material) ? child.material.map((m) => m.clone()) : child.material.clone();
+        });
+        applyJohnScepterPose(staff, 'Idle');
+        hand.add(staff);
+      } catch (error) {
+        console.error('Failed to load John Christ scepter; continuing without staff.', error);
+      }
+    }
     const mixer = new THREE.AnimationMixer(model);
     const actions = {} as Record<JohnAnimationName, THREE.AnimationAction>;
     for (const name of Object.keys(JOHN_CLIPS) as JohnAnimationName[]) {
@@ -6047,7 +6135,7 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     if (spirit && !deathClip) throw new Error('Spirit model is missing Dead');
     const death = deathClip ? mixer.clipAction(deathClip).setLoop(THREE.LoopOnce, 1) : undefined;
     if (death) death.clampWhenFinished = true;
-    const state = { mixer, actions, current: 'Idle', body, model, spirit, healthAnchor, death, routeDistance: 0 } satisfies JohnAnimationState;
+    const state = { mixer, actions, current: 'Idle', body, model, spirit, healthAnchor, death, staff, routeDistance: 0 } satisfies JohnAnimationState;
     root.userData[spirit ? 'johnSpiritAnimation' : 'johnNormalAnimation'] = state;
     if (!spirit) root.userData.johnAnimation = state;
     model.visible = !spirit;
@@ -6095,6 +6183,7 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
     if (playerId && gameState.players[playerId].hp > 0) {
       state.death?.stop(); state.deathEndsAt = undefined;
       state.actions.Idle.reset().play(); state.current = 'Idle';
+      if (!state.spirit && state.staff) applyJohnScepterPose(state.staff, 'Idle');
     } else { state.mixer.update(deltaSeconds); return; }
   }
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
@@ -6105,6 +6194,7 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
     state.actions[state.current].fadeOut(0.1);
     state.actions[next].reset().setEffectiveTimeScale(1).fadeIn(0.1).play();
     state.current = next;
+    if (!state.spirit && state.staff) applyJohnScepterPose(state.staff, next);
   }
   state.mixer.update(deltaSeconds);
   if (walking && next !== 'Idle') {
@@ -7247,8 +7337,9 @@ function spawnReplicatePullTether(targetId: PlayerId, source: Cell, sourceObject
 }
 
 function spawnSpectreRelocateTether(playerId: PlayerId, replicaId: string) {
+  if (spectreRelocateTethers.some((tether) => tether.playerId === playerId && tether.replicaId === replicaId)) return;
   const line = createSpectreTetherLine();
-  spectreRelocateTethers.push({ line, playerId, replicaId, startedAt: performance.now(), duration: 1000, seed: Math.random() * Math.PI * 2 });
+  spectreRelocateTethers.push({ line, playerId, replicaId, seed: Math.random() * Math.PI * 2 });
 }
 
 function updateReplicatePullTethers(time: number) {
@@ -7272,12 +7363,18 @@ function updateReplicatePullTethers(time: number) {
     const destination = target.position.clone().add(new THREE.Vector3(0, 1.15, 0));
     updateTwitchingTether(animation.line, source, destination, time, animation.seed, progress);
   }
+  for (const player of Object.values(gameState.players)) {
+    if (player.id === gameState.activePlayerId && player.spectreRelocateTetherReplicaId) {
+      spawnSpectreRelocateTether(player.id, player.spectreRelocateTetherReplicaId);
+    }
+  }
   for (let index = spectreRelocateTethers.length - 1; index >= 0; index--) {
     const animation = spectreRelocateTethers[index];
     const spectre = dummyGroups.get(animation.playerId);
     const replica = objectGroups.get(animation.replicaId);
-    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
-    if (!spectre || !replica || progress >= 1) {
+    const tetherIsActive = gameState.activePlayerId === animation.playerId
+      && gameState.players[animation.playerId]?.spectreRelocateTetherReplicaId === animation.replicaId;
+    if (!spectre || !replica || !tetherIsActive) {
       scene.remove(animation.line);
       animation.line.geometry.dispose();
       (animation.line.material as THREE.Material).dispose();
@@ -7285,7 +7382,7 @@ function updateReplicatePullTethers(time: number) {
       continue;
     }
     animation.line.visible = true;
-    updateTwitchingTether(animation.line, spectreChestPosition(spectre), spectreChestPosition(replica), time, animation.seed, progress);
+    updateTwitchingTether(animation.line, spectreChestPosition(spectre), spectreChestPosition(replica), time, animation.seed, 0);
   }
 }
 
@@ -7668,7 +7765,7 @@ function syncBoard() {
       const point = worldPosition(cell);
       return isOrkkRecall ? point.add(recallRootOffset) : point;
     });
-    objectMovementAnimations.set(event.objectId, { animationId: event.id, from, to, startedAt: performance.now(), delay: shieldThrow ? (orkkState?.shieldThrowReleaseMs ?? 1000) + 16 : isOrkkRecall ? 180 : boxAttackDelay, duration, collided: event.collided, dx: event.dx, dy: event.dy, path: visualPath, collisionAt: event.collisionAt ? worldPosition(event.collisionAt) : undefined, collisionTargetKind: event.collisionTargetKind, collisionTargetId: event.collisionTargetId, impactDamage, preserveQuaternion: isOrkkRecall ? group.quaternion.clone() : undefined, targetQuaternion: recallTargetQuaternion, removeOnComplete: event.removeOnComplete, destroy: event.destroy, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute, releaseSource: shieldThrow, idleQuaternion: idleWorldQuaternion, landingShakeDuration: shieldThrow && !event.collided ? 320 : 0, collisionBounceDuration: shieldThrow && event.collided ? 230 : 0 });
+    objectMovementAnimations.set(event.objectId, { animationId: event.id, from, to, startedAt: performance.now(), delay: shieldThrow ? (orkkState?.shieldThrowReleaseMs ?? 1000) + 16 : isOrkkRecall ? 180 : boxAttackDelay, duration, collided: event.collided, dx: event.dx, dy: event.dy, path: visualPath, collisionAt: event.collisionAt ? worldPosition(event.collisionAt) : undefined, collisionTargetKind: event.collisionTargetKind, collisionTargetId: event.collisionTargetId, impactDamage, preserveQuaternion: isOrkkRecall ? group.quaternion.clone() : undefined, targetQuaternion: recallTargetQuaternion, removeOnComplete: event.removeOnComplete, destroy: event.destroy, shadowDissolve: event.shadowDissolve, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute, releaseSource: shieldThrow, idleQuaternion: idleWorldQuaternion, landingShakeDuration: shieldThrow && !event.collided ? 320 : 0, collisionBounceDuration: shieldThrow && event.collided ? 230 : 0 });
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();
@@ -7939,6 +8036,9 @@ function highlightCells() {
     const objectsOnCell = gameState.objects.filter((object) => object.position.x === cell.x && object.position.y === cell.y);
     const objectOnCell = objectsOnCell[0];
     const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
+    const replicaOnCell = objectOnCell?.kind === 'spectre-replica' ? objectOnCell : null;
+    const replicaOwnerOnCell = replicaOnCell?.ownerId ? gameState.players[replicaOnCell.ownerId] : null;
+    const enemyBodyOwnerOnCell = playerOnCell ?? replicaOwnerOnCell;
     const occupiedByPlayer = Boolean(playerOnCell && playerOnCell.id !== actor.id);
     const occupiedByObject = Boolean(objectOnCell);
     const occupiedByEnemy = occupiedByPlayer || occupiedByObject;
@@ -8032,14 +8132,17 @@ function highlightCells() {
       && (magic!.level >= 2 || distance(gameState.players[magic!.casterId].position, cell) <= 5)
       && (movableObjectOnCell || (magic!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== magic!.casterId));
     const mindBlast = (gameState as typeof gameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
-    const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.arcaneMissle!.casterId
-      && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], playerOnCell!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], playerOnCell!, gameState.arcaneMissle!.level)));
-    const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(playerOnCell) && playerOnCell!.id !== gameState.chainLightning!.casterId
+    const positionalEnemyBody = enemyBodyOwnerOnCell ? { ...enemyBodyOwnerOnCell, position: cell } : null;
+    const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.arcaneMissle!.casterId
+      && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], positionalEnemyBody!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], positionalEnemyBody!, gameState.arcaneMissle!.level)));
+    const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.chainLightning!.casterId
       && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[gameState.chainLightning!.casterId]) && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
     const fireball = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' } | undefined;
     const fireballRange = 3;
-    const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(playerOnCell) && playerOnCell!.id !== fireball!.casterId
+    const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== fireball!.casterId
       && distance(gameState.players[fireball!.casterId].position, cell) <= fireballRange && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
+    const boomerangTargetValid = gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.boomerang!.casterId
+      && distance(gameState.players[gameState.boomerang!.casterId].position, cell) <= 3;
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
@@ -8055,14 +8158,14 @@ function highlightCells() {
     const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && Boolean(necronomiconCaster) && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType && wrecknaPerkTargetInRange(gameState, necronomiconCaster!, cell);
     const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
-    const sapTargetValid = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sapCaster) && Boolean(playerOnCell) && playerOnCell!.id !== sap!.casterId
+    const sapTargetValid = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sapCaster) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== sap!.casterId
       && canLocalAct(sap!.casterId) && wrecknaPerkTargetInRange(gameState, sapCaster!, cell);
     const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
-    const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(playerOnCell) && playerOnCell!.id !== decay!.casterId
+    const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== decay!.casterId
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
-    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
+    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
     const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
     const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
@@ -8122,6 +8225,8 @@ function updateTargetHighlights(time: number) {
   const canChainTarget = gameState.phase === 'choosing-chain-lightning-target' && Boolean(chain) && canLocalAct(chain!.casterId);
   const magic = gameState.magicHand;
   const canMagicTarget = gameState.phase === 'choosing-magic-hand-target' && Boolean(magic) && canLocalAct(magic!.casterId);
+  const fireballTargeting = (gameState as any).fireball as { casterId: PlayerId } | undefined;
+  const canFireballTarget = gameState.phase === 'choosing-fireball-target' && Boolean(fireballTargeting) && canLocalAct(fireballTargeting!.casterId);
   const shadow = (gameState as any).spectreShadow as { casterId: PlayerId } | undefined;
   const canShadowDirection = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadow) && canLocalAct(shadow!.casterId);
   const spectreOriginChoice = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
@@ -8138,21 +8243,22 @@ function updateTargetHighlights(time: number) {
       return;
     }
     const targetIsEntombed = Boolean(target.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
+    const perkProtected = isShadowCloakedPerkTarget(gameState, 'player', playerId);
     const attackTargetReachable = attacker.character === 'spectre'
       ? Boolean(spectreAttackOriginForTarget(attacker, target.position))
       : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, target.position) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
     const validAttack = canTarget && playerId !== attacker.id && !targetIsEntombed && attackTargetReachable;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
-    const validPull = canPullTarget && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
-    const validArcane = canArcaneTarget && playerId !== arcane!.casterId && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], target) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level)));
+    const validPull = canPullTarget && !perkProtected && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
+    const validArcane = canArcaneTarget && !perkProtected && playerId !== arcane!.casterId && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], target) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], target, arcane!.level)));
     const chainCaster = chain ? gameState.players[chain.casterId] : null;
-    const validChain = canChainTarget && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= effectiveAttackRange(gameState, chainCaster!) && hasLineOfSight(gameState, chainCaster!.position, target.position);
+    const validChain = canChainTarget && !perkProtected && playerId !== chain!.casterId && distance(chainCaster!.position, target.position) <= effectiveAttackRange(gameState, chainCaster!) && hasLineOfSight(gameState, chainCaster!.position, target.position);
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
-    const validMagic = canMagicTarget && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
+    const validMagic = canMagicTarget && !perkProtected && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
-    const validSap = canSapTarget && playerId !== sap!.casterId && wrecknaPerkTargetInRange(gameState, sapCaster!, target.position);
+    const validSap = canSapTarget && !perkProtected && playerId !== sap!.casterId && wrecknaPerkTargetInRange(gameState, sapCaster!, target.position);
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
-    const validDecay = canDecayTarget && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
+    const validDecay = canDecayTarget && !perkProtected && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
     const validSpectreOrigin = canSpectreOriginChoice && spectreOriginChoice!.perkId === 'shadow-dagger' && playerId === spectreOriginChoice!.casterId;
     const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
@@ -8186,7 +8292,19 @@ function updateTargetHighlights(time: number) {
       || ((gameState.phase as string) === 'choosing-necronomicon-tomb' && object.kind === 'tomb' && !object.phylacteryType)
     ));
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
-    const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[magic!.casterId].position) <= gameState.players[magic!.casterId].attackRange && hasLineOfSight(gameState, gameState.players[magic!.casterId].position, object!.position);
+    const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && (magic!.level >= 2 || distance(object!.position, gameState.players[magic!.casterId].position) <= 5);
+    const replicaOwner = object?.kind === 'spectre-replica' && object.ownerId ? gameState.players[object.ownerId] : null;
+    const replicaPerkProtected = Boolean(object && isShadowCloakedPerkTarget(gameState, 'object', object.id));
+    const positionalReplicaOwner = replicaOwner && object ? { ...replicaOwner, position: object.position } : null;
+    const validArcaneReplica = canArcaneTarget && Boolean(object && positionalReplicaOwner && replicaOwner!.id !== arcane!.casterId)
+      && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], positionalReplicaOwner!) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], positionalReplicaOwner!, arcane!.level)));
+    const validChainReplica = canChainTarget && Boolean(object && replicaOwner && replicaOwner.id !== chain!.casterId)
+      && distance(gameState.players[chain!.casterId].position, object!.position) <= effectiveAttackRange(gameState, gameState.players[chain!.casterId]) && hasLineOfSight(gameState, gameState.players[chain!.casterId].position, object!.position);
+    const validFireballReplica = canFireballTarget && Boolean(object && replicaOwner && replicaOwner.id !== fireballTargeting!.casterId)
+      && distance(gameState.players[fireballTargeting!.casterId].position, object!.position) <= 3 && hasLineOfSight(gameState, gameState.players[fireballTargeting!.casterId].position, object!.position);
+    const validSapReplica = canSapTarget && Boolean(object && replicaOwner && replicaOwner.id !== sap!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[sap!.casterId], object!.position);
+    const validDecayReplica = canDecayTarget && Boolean(object && replicaOwner && replicaOwner.id !== decay!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[decay!.casterId], object!.position);
+    const validReplicaEffect = !replicaPerkProtected && (validArcaneReplica || validChainReplica || validFireballReplica || validSapReplica || validDecayReplica);
     const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
     const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica' && spectreOriginChoice!.replicaId === objectId;
     const originRing = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
@@ -8199,26 +8317,43 @@ function updateTargetHighlights(time: number) {
     }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validReplicaEffect ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validReplicaEffect ? 0.55 : 0;
     });
   });
   const quickAttackShortcutAvailable = selected.kind === 'none' || selected.kind === 'move';
   const hoveredQuickAttackTarget = quickAttackShortcutAvailable && !pendingQuickAttackTargetId ? quickAttackTargetAtPointer() : null;
   renderer.domElement.style.cursor = cameraGrab
     ? 'grabbing'
-    : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget
+    : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canFireballTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget
       ? 'crosshair'
       : hoveredQuickAttackTarget ? ATTACK_SWORD_CURSOR : 'grab';
 }
 
+const quickAttackHoverBox = new THREE.Box3();
+const quickAttackHoverPoint = new THREE.Vector3();
 function quickAttackTargetAtPointer(): PlayerId | null {
   if (!boardPointerPosition || cameraGrab || gameState.phase !== 'active') return null;
   const rect = renderer.domElement.getBoundingClientRect();
   if (boardPointerPosition.clientX < rect.left || boardPointerPosition.clientX > rect.right || boardPointerPosition.clientY < rect.top || boardPointerPosition.clientY > rect.bottom) return null;
   pointer.set((boardPointerPosition.clientX - rect.left) / rect.width * 2 - 1, -(boardPointerPosition.clientY - rect.top) / rect.height * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const playerId = raycaster.intersectObjects(scene.children, true).map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
+  // Hover runs every frame, including camera movement. Mesh raycasting here
+  // tests the entire arena and CPU-skins character triangles. Use inexpensive
+  // character bounds for the cursor hint; onBoardClick still tests meshes.
+  let playerId: PlayerId | null = null;
+  let nearestDistance = Infinity;
+  dummyGroups.forEach((character, id) => {
+    if (!character.visible || gameState.players[id]?.hp <= 0) return;
+    const { x, y, z } = character.position;
+    const top = Math.max(y + 1, visibleCharacterTop(character));
+    const radius = Math.max(0.55, (top - y) * 0.25);
+    quickAttackHoverBox.min.set(x - radius, y, z - radius);
+    quickAttackHoverBox.max.set(x + radius, top, z + radius);
+    if (!raycaster.ray.intersectBox(quickAttackHoverBox, quickAttackHoverPoint)) return;
+    const distance = raycaster.ray.origin.distanceToSquared(quickAttackHoverPoint);
+    if (distance < nearestDistance) { nearestDistance = distance; playerId = id; }
+  });
   return playerId && availableQuickAttackCards(playerId).length > 0 ? playerId : null;
 }
 
@@ -8299,24 +8434,39 @@ function onBoardClick(event: MouseEvent) {
     if (cellHit) dispatch({ type: 'blink-teleport', playerId: gameState.pendingAttack!.defenderId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-arcane-missle-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    if (playerHit) dispatch({ type: 'arcane-missle-target', playerId: gameState.arcaneMissle!.casterId, targetId: playerHit });
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
+    if (replicaHit) dispatch({ type: 'arcane-missle-target', playerId: gameState.arcaneMissle!.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    else if (playerHit) dispatch({ type: 'arcane-missle-target', playerId: gameState.arcaneMissle!.casterId, targetKind: 'player', targetId: playerHit });
   } else if (gameState.phase === 'choosing-fireball-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    if (playerHit) dispatch({ type: 'fireball-target', playerId: (gameState as any).fireball.casterId, targetId: playerHit });
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
+    if (replicaHit) dispatch({ type: 'fireball-target', playerId: (gameState as any).fireball.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    else if (playerHit) dispatch({ type: 'fireball-target', playerId: (gameState as any).fireball.casterId, targetKind: 'player', targetId: playerHit });
   } else if (gameState.phase === 'choosing-portal-target') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'portal-teleport', playerId: (gameState as any).portal.casterId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-chain-lightning-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    if (playerHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetId: playerHit });
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
+    if (replicaHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    else if (playerHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetKind: 'player', targetId: playerHit });
   } else if ((gameState.phase as string) === 'choosing-sap-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
     const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
-    if (playerHit && sap && playerHit !== sap.casterId) dispatch({ type: 'sap-target', playerId: sap.casterId, targetId: playerHit });
+    if (replicaHit && sap && replicaHit.ownerId !== sap.casterId) dispatch({ type: 'sap-target', playerId: sap.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    else if (playerHit && sap && playerHit !== sap.casterId) dispatch({ type: 'sap-target', playerId: sap.casterId, targetKind: 'player', targetId: playerHit });
   } else if ((gameState.phase as string) === 'choosing-decay-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
     const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
-    if (playerHit && decay && playerHit !== decay.casterId) dispatch({ type: 'decay-target', playerId: decay.casterId, targetId: playerHit });
+    if (replicaHit && decay && replicaHit.ownerId !== decay.casterId) dispatch({ type: 'decay-target', playerId: decay.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    else if (playerHit && decay && playerHit !== decay.casterId) dispatch({ type: 'decay-target', playerId: decay.casterId, targetKind: 'player', targetId: playerHit });
   } else if (gameState.phase === 'choosing-magic-hand-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
@@ -8366,13 +8516,17 @@ function onBoardClick(event: MouseEvent) {
     if (cellHit) dispatch({ type: 'kyk-direction', playerId: gameState.forceThrow!.casterId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-boomerang-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    if (playerHit) {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
+    if (playerHit || replicaHit) {
       const casterId = gameState.boomerang!.casterId;
       const caster = gameState.players[casterId];
-      const target = gameState.players[playerHit];
-      const meleeUse = playerHit !== casterId && Boolean(target) && distance(caster.position, target.position) === 1;
+      const targetPosition = replicaHit?.position ?? gameState.players[playerHit!]?.position;
+      const targetOwnerId = replicaHit?.ownerId ?? playerHit;
+      const meleeUse = targetOwnerId !== casterId && Boolean(targetPosition) && distance(caster.position, targetPosition!) === 1;
       if (!meleeUse || window.confirm('Are you sure? Using Boomerang at melee Range spends 1 Action, deals 2 Damage, and Removes the Card.')) {
-        dispatch({ type: 'boomerang-target', playerId: casterId, targetId: playerHit });
+        if (replicaHit) dispatch({ type: 'boomerang-target', playerId: casterId, targetKind: 'replica', targetId: replicaHit.id });
+        else dispatch({ type: 'boomerang-target', playerId: casterId, targetKind: 'player', targetId: playerHit! });
       }
     }
   } else if (selected.kind === 'perk') {

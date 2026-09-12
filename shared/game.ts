@@ -30,7 +30,7 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('spectre-perk-origin-confirm'), playerId: PlayerIdSchema }),
   z.object({ type: z.literal('spectre-shadow-direction'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('spectre-status-choice'), playerId: PlayerIdSchema, cardInstanceId: z.string().nullable() }),
-  z.object({ type: z.literal('boomerang-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
+  z.object({ type: z.literal('boomerang-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('defend'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('pass-defense'), playerId: PlayerIdSchema }),
   z.object({ type: z.literal('oracle-reveal'), playerId: PlayerIdSchema }),
@@ -60,10 +60,10 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dakkoth-tomb-square'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('dakkoth-tomb-sacrifice'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('dakkoth-phylactery-target'), playerId: PlayerIdSchema, objectId: z.string() }),
-  z.object({ type: z.literal('sap-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
+  z.object({ type: z.literal('sap-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('necronomicon-tomb-target'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('necronomicon-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
-  z.object({ type: z.literal('decay-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
+  z.object({ type: z.literal('decay-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('decay-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('shadow-barter-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('shadow-barter-tomb-choice'), playerId: PlayerIdSchema, use: z.boolean() }),
@@ -100,12 +100,12 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('phase-three-operation'), playerId: PlayerIdSchema, cardInstanceId: z.string(), operation: z.enum(['duplicate', 'remove']) }),
   z.object({ type: z.literal('phase-three-finish'), playerId: PlayerIdSchema }),
   z.object({ type: z.literal('phase-card-destination'), playerId: PlayerIdSchema, destination: z.enum(['hand', 'top', 'shuffle']) }),
-  z.object({ type: z.literal('fireball-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
+  z.object({ type: z.literal('fireball-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('portal-teleport'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('vicious-mockery-decision'), playerId: PlayerIdSchema, use: z.boolean() }),
   z.object({ type: z.literal('preparation-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
-  z.object({ type: z.literal('arcane-missle-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
-  z.object({ type: z.literal('chain-lightning-target'), playerId: PlayerIdSchema, targetId: PlayerIdSchema }),
+  z.object({ type: z.literal('arcane-missle-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
+  z.object({ type: z.literal('chain-lightning-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('magic-hand-target'), playerId: PlayerIdSchema, targetKind: z.enum(['player', 'object']), targetId: z.string() }),
   z.object({ type: z.literal('magic-hand-direction'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('shizzle-destination'), playerId: PlayerIdSchema, to: CellSchema }),
@@ -244,10 +244,10 @@ export const CARDS: readonly Card[] = [
   { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Deal 1 Damage to each adjacent enemy if Shield is equipped. If not - Recall Shield.' },
   { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat, add 1 Headache Card per Rage Stack to the attacking enemy's Discard Deck." },
   { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the Shield whose optimal route crosses the most enemies, breaking ties by choosing the nearest, and deal 2 Damage to any enemy it passes through.' },
-  { id: 'replicate', name: 'Replicate', kind: 'perk', value: 1, levelEffects: ['Create a replica on an empty visible Square or a Box within Range 2, then draw 1 Card. Replace existing replicas', "+1 Range. Pull each enemy within Range 2 one Square toward the replica. After the pull, add a Panic Card to every adjacent enemy's Hand", '+1 Range. After the pull, deal 1 Damage to adjacent enemies'] },
-  { id: 'relocate', name: 'Relocate', kind: 'perk', value: 1, levelEffects: ['Swap places with the replica, remove 1 negative Status Card from your Hand, and gain +1 MOV', 'Deal 1 Damage to every enemy between Spectre and the chosen replica, then gain +1 ATT until end of turn', 'Gain 1 Action'] },
-  { id: 'shadow-dagger', name: 'Shadow Dagger', kind: 'perk', value: 1, levelEffects: ["Throw a dagger in a straight line to the board edge. Until turn end, Spectre may follow its trail through forbidden terrain (including characters) and gains +1 MOV. Crossing the forbidden terrain doesn't cost MOV. Spectre may climb on boxes along the trail and use it as high-ground.", 'Enemies hit by the dagger get -1 DEF until end of turn', 'Enemies hit by the dagger receive 1 Damage'] },
-  { id: 'consume-replica', name: 'Consume Replica', kind: 'perk', value: 1, levelEffects: ['Destroy the replica. Gain +2 ATT until end of turn and add Headache to your Hand', 'Gain +1 additional ATT', 'Gain 1 Action. You may use another Perk'] },
+  { id: 'replicate', name: 'Replicate', kind: 'perk', value: 1, levelEffects: ['Create a replica on an empty visible Square or a Box within Range 2, then draw 1 Card. Replace existing replicas', '+1 Range. Pull each enemy within Range 2 one Square toward the replica', "+1 Range. After the pull, add a Panic Card to every adjacent enemy's Hand and deal 1 Damage to them"] },
+  { id: 'relocate', name: 'Relocate', kind: 'perk', value: 1, levelEffects: ["Swap places with the replica. A twitching line remains between them until end of turn. Deal 1 Damage initially and whenever Spectre's movement makes the line newly intersect an enemy tile", 'Remove 1 negative Status Card from your Hand, and gain +1 MOV', 'Gain 1 Action'] },
+  { id: 'shadow-dagger', name: 'Shadow Dagger', kind: 'perk', value: 1, levelEffects: ["Throw a dagger in a straight line to the board edge. Until turn end, Spectre may follow its trail through forbidden terrain (including characters) and gains +1 MOV. Crossing the forbidden terrain doesn't cost MOV. Spectre may climb on boxes along the trail and use it as high-ground.", 'Enemies hit by the dagger receive 1 Damage', 'Enemies hit by the dagger get -1 DEF until end of turn'] },
+  { id: 'consume-replica', name: 'Shadow Cloak', kind: 'perk', value: 1, levelEffects: ['Destroy all replicas. Gain Spell Immunity until the beginning of your next turn and add Headache to your Hand', 'Remove all negative Status Cards and effects from your Hand', 'Gain +1 ATT until end of turn for each effect removed'] },
   { id: 'haunt', name: 'Haunt', kind: 'perk', value: 1, levelEffects: ['Create a replica behind each enemy based on their facing. A replica may stand atop a Box; if that space is unavailable, use the best adjacent space. Gain +1 ATT until end of turn. Replace existing replicas', 'All enemies reveal 1 random Block Card from their Hand privately to Spectre. They must use that Card to Block.', 'Gain 1 Action'] },
   { id: 'solitude', name: 'Solitude', kind: 'attack', value: 3, effectText: 'Before combat: +2 ATT if the target has no adjacent Objects or characters, excluding Spectre, her replica, and any non-Box Object Spectre is currently traversing with Shadow Dagger.' },
   { id: 'deja-vu', name: 'Deja Vu', kind: 'attack', value: 1, effectText: 'If you control a replica, gain 1 Action and draw 1 Card. Otherwise, return Deja Vu to your Hand.' },
@@ -323,7 +323,7 @@ export type PlayerState = {
   manaPoints: number; manaMode: 'generate' | 'consume'; manaConsumeEventId: string | null; arcaneBoltAttackBonus: number; damagedDuringEnemyTurn: boolean;
   spiritForm: boolean; spiritEnemyUnderfoot: PlayerId | null; spiritObjectUnderfoot: string | null; spiritSiphonedEnemyIds: PlayerId[]; spiritSiphonedMovement: number; johnCumulativeMovementRemaining: number; spiritMovementDepleted: boolean; spiritMovementSpentThisTurn: boolean; stoicShell: boolean; stoicShellStacks: number; queuedBlessingCardIds: CardTypeId[]; stoicShellHealedTurn: number | null; stoicShellHealEventId: string | null; stoicShellHealAmount: number;
   wrecknaInsideTombId?: string | null;
-  spectreAttackBonus?: number; spectreAccumulateStored?: number; spectreAccumulateActive?: number; spectreShadowMoveBonus?: number; spectreShadowDefensePenalty?: number; spectreOnBoxId?: string | null;
+  spectreAttackBonus?: number; spectreShadowCloakActive?: boolean; spectreAphoticShieldRemaining?: number; spectreAphoticAttackBonus?: number; spectreAccumulateStored?: number; spectreAccumulateActive?: number; spectreShadowMoveBonus?: number; spectreShadowDefensePenalty?: number; spectreOnBoxId?: string | null; spectreRelocateTetherReplicaId?: string | null;
   panicAnimationSourceIds?: PlayerId[];
   hexMovementBonus?: number; hexMovementPenalty?: number; hexMovementStolenBy?: Partial<Record<PlayerId, number>>;
   brainFreezeCombatBlocked?: boolean;
@@ -353,7 +353,7 @@ export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'disca
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; attackAnimationPlayerId?: PlayerId; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; equipPlayerId?: PlayerId; teleport?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'moonwave' };
 export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
@@ -436,10 +436,10 @@ export function wizardActionEventForCommand(state: GameState, command: GameComma
   if (command.type === 'magic-hand-direction') return { playerId: command.playerId, action: 'spell-resolved', spell: 'magic-hand' };
   if (command.type === 'cancel-targeting' && state.magicHand?.casterId === command.playerId) return { playerId: command.playerId, action: 'targeting-cancelled', spell: 'magic-hand' };
   if (command.type === 'arcane-missle-target' || command.type === 'chain-lightning-target' || command.type === 'fireball-target') {
-    const target = playerTarget(command.targetId);
+    const target = command.targetKind === 'replica' ? objectTarget(command.targetId) : playerTarget(command.targetId as PlayerId);
     if (!target) return null;
     const spell = command.type === 'arcane-missle-target' ? 'arcane-missle' : command.type === 'chain-lightning-target' ? 'chain-lightning' : 'fireball';
-    return { playerId: command.playerId, action: 'spell-targeted', spell, target: { ...target }, hold: false, targetKind: 'player', targetId: command.targetId };
+    return { playerId: command.playerId, action: 'spell-targeted', spell, target: { ...target }, hold: false, targetKind: command.targetKind === 'replica' ? 'object' : 'player', targetId: command.targetId };
   }
   return null;
 }
@@ -746,6 +746,47 @@ export function spectreReplica(state: GameState, ownerId: PlayerId): BoardObject
 export function spectreReplicas(state: GameState, ownerId: PlayerId): BoardObject[] {
   return state.objects.filter((object) => object.kind === 'spectre-replica' && object.ownerId === ownerId);
 }
+
+type CharacterBody = { kind: 'player' | 'replica'; id: string; ownerId: PlayerId; position: Cell; name: string };
+
+function characterBodies(state: GameState): CharacterBody[] {
+  const players = Object.values(state.players)
+    .filter((player) => player.hp > 0)
+    .map((player): CharacterBody => ({ kind: 'player', id: player.id, ownerId: player.id, position: player.position, name: player.name }));
+  const replicas = state.objects
+    .filter((object) => object.kind === 'spectre-replica' && object.ownerId && state.players[object.ownerId]?.hp > 0)
+    .map((object): CharacterBody => ({ kind: 'replica', id: object.id, ownerId: object.ownerId!, position: object.position, name: object.name }));
+  return [...players, ...replicas];
+}
+
+function enemyBodies(state: GameState, ownerId: PlayerId): CharacterBody[] {
+  return characterBodies(state).filter((body) => body.ownerId !== ownerId);
+}
+
+function characterBody(state: GameState, kind: 'player' | 'replica' | undefined, id: string): CharacterBody | undefined {
+  return characterBodies(state).find((body) => body.kind === (kind ?? 'player') && body.id === id);
+}
+export function isShadowCloakedPerkTarget(state: GameState, kind: 'player' | 'replica' | 'object', id: string): boolean {
+  const replica = kind === 'player' ? undefined : state.objects.find((object) => object.id === id && object.kind === 'spectre-replica');
+  const owner = kind === 'player' ? state.players[id as PlayerId] : replica?.ownerId ? state.players[replica.ownerId] : undefined;
+  return Boolean(owner?.spectreShadowCloakActive);
+}
+
+function enemyBodyAt(state: GameState, ownerId: PlayerId, cell: Cell): CharacterBody | undefined {
+  return enemyBodies(state, ownerId).find((body) => body.position.x === cell.x && body.position.y === cell.y);
+}
+
+function damageCharacterBody(state: GameState, body: CharacterBody, amount: number, collision: boolean, sourceId: PlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other'): number {
+  return dealDamage(state, state.players[body.ownerId], amount, collision, sourceId, sourceKind);
+}
+
+function combatDamageCharacterBody(state: GameState, body: CharacterBody, amount: number, sourceId: PlayerId, sourceKind: 'attack' | 'defense', collision = false): number {
+  return dealCombatCardEffectDamage(state, state.players[body.ownerId], amount, sourceId, sourceKind, collision);
+}
+
+function pushEntityForBody(body: CharacterBody): PushEntity {
+  return { kind: body.kind === 'replica' ? 'object' : 'player', id: body.id, position: body.position };
+}
 function attackedSpectreReplica(state: GameState, pending: PendingAttack): BoardObject | undefined {
   if (pending.defenderBody !== 'replica') return undefined;
   const replicas = spectreReplicas(state, pending.defenderId);
@@ -760,10 +801,10 @@ function attackingSpectreReplica(state: GameState, pending: PendingAttack): Boar
     ?? replicas.find((replica) => pending.attackerPosition && replica.position.x === pending.attackerPosition.x && replica.position.y === pending.attackerPosition.y)
     ?? replicas[0];
 }
-function echoStrikeVictims(state: GameState, ownerId: PlayerId): PlayerState[] {
+function echoStrikeVictims(state: GameState, ownerId: PlayerId): CharacterBody[] {
   const replicas = spectreReplicas(state, ownerId);
-  return Object.values(state.players).filter((player) =>
-    player.id !== ownerId && player.hp > 0 && replicas.some((replica) => distance(player.position, replica.position) === 1)
+  return enemyBodies(state, ownerId).filter((body) =>
+    replicas.some((replica) => distance(body.position, replica.position) === 1)
   );
 }
 function createSpectreReplica(state: GameState, ownerId: PlayerId, position: Cell, spectreOnBoxId: string | null = null): BoardObject {
@@ -782,18 +823,51 @@ function createOrReplaceSpectreReplica(state: GameState, ownerId: PlayerId, posi
   state.objects = state.objects.filter((object) => object.kind !== 'spectre-replica' || object.ownerId !== ownerId);
   return createSpectreReplica(state, ownerId, position, spectreOnBoxId);
 }
-function enemiesBetweenCells(state: GameState, playerId: PlayerId, from: Cell, to: Cell): PlayerState[] {
+function segmentIntersectsTileInterior(from: Cell, to: Cell, tile: Cell): boolean {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return [];
-  return Object.values(state.players).filter((enemy) => {
-    if (enemy.id === playerId || enemy.hp <= 0) return false;
-    const offsetX = enemy.position.x - from.x;
-    const offsetY = enemy.position.y - from.y;
-    const dot = offsetX * dx + offsetY * dy;
-    return offsetX * dy === offsetY * dx && dot > 0 && dot < lengthSquared;
-  });
+  if (dx === 0 && dy === 0) return false;
+  let entry = 0;
+  let exit = 1;
+  for (const [origin, delta, min, max] of [[from.x, dx, tile.x - 0.5, tile.x + 0.5], [from.y, dy, tile.y - 0.5, tile.y + 0.5]] as const) {
+    if (delta === 0) {
+      if (origin <= min || origin >= max) return false;
+      continue;
+    }
+    const first = (min - origin) / delta;
+    const second = (max - origin) / delta;
+    entry = Math.max(entry, Math.min(first, second));
+    exit = Math.min(exit, Math.max(first, second));
+  }
+  return entry < exit && exit > 0 && entry < 1;
+}
+
+function enemiesBetweenCells(state: GameState, playerId: PlayerId, from: Cell, to: Cell): CharacterBody[] {
+  return enemyBodies(state, playerId).filter((enemy) => segmentIntersectsTileInterior(from, to, enemy.position));
+}
+
+function characterBodyKey(body: CharacterBody): string {
+  return `${body.kind}:${body.id}`;
+}
+
+function resolveRelocateTetherMovementDamage(state: GameState, player: PlayerState, origin: Cell, movementCells: Cell[]): void {
+  const replicaId = player.spectreRelocateTetherReplicaId;
+  if (player.character !== 'spectre' || !replicaId || movementCells.length === 0) return;
+  const replica = state.objects.find((object) => object.id === replicaId && object.kind === 'spectre-replica' && object.ownerId === player.id);
+  if (!replica) return;
+  let intersecting = new Set(enemiesBetweenCells(state, player.id, origin, replica.position).map(characterBodyKey));
+  const damagedNames: string[] = [];
+  for (const cell of movementCells) {
+    const victims = enemiesBetweenCells(state, player.id, cell, replica.position);
+    for (const victim of victims) {
+      const key = characterBodyKey(victim);
+      if (intersecting.has(key)) continue;
+      damageCharacterBody(state, victim, 1, false, player.id, 'perk');
+      damagedNames.push(victim.name);
+    }
+    intersecting = new Set(victims.map(characterBodyKey));
+  }
+  if (damagedNames.length > 0) state.log.unshift(`Relocate's moving tether dealt 1 Damage to ${damagedNames.join(', ')} when it newly intersected ${damagedNames.length === 1 ? 'their tile' : 'their tiles'}.`);
 }
 function destroySpectreReplica(state: GameState, ownerId: PlayerId): Cell | null {
   const replica = spectreReplica(state, ownerId);
@@ -940,6 +1014,7 @@ function beginGuardianPerkDamageAction(state: GameState) {
 }
 
 export function spiritGuardianEnemyPenalty(state: GameState, player: PlayerState): number {
+  if (player.spectreShadowCloakActive) return 0;
   return state.objects.some((object) => object.kind === 'spirit-guardian' && object.ownerId !== player.id && (object.guardianLevel ?? 1) >= 3 && distance(player.position, object.position) === 1) ? 1 : 0;
 }
 
@@ -1475,8 +1550,8 @@ function createPlayer(id: PlayerId, name: string, character: PlayerState['charac
   const isWreckna = character === 'wreckna';
   const isSpectre = character === 'spectre';
   const isMerylin = character === 'merylin';
-  const maximumHp = isMerylin ? 20 : isOrkk ? 24 : isMagician ? 18 : isSpectre ? 18 : isJohn ? 14 : isWreckna ? 16 : 20;
-  return { id, name, character, hp: maximumHp, maxHp: maximumHp, moveRange: isOrkk || isMagician || isJohn || isSpectre ? 3 : 2, attackRange: isJohn ? 3 : isMagician || isWreckna ? 2 : 1, position, deck, hand, discard: [], knownTopCardId: null, spellEcho: [null, null, null], actionsRemaining: 2, perkUsed: false, freeMoveUsed: false, movementRemaining: 0, movedThisTurn: false, lightsaberBuff: false, lightsaberStacks: 0, lightsaberMovementProtection: false, highgroundAdvantageBuff: false, pinnedStacks: 0, pinnedGainedThisTurn: 0, turnEndPinnedRemoved: false, swiftformMoveBonus: 0, grimoireMoveBonus: 0, swiftformCanPassEnemies: false, swiftformPinsPassedEnemies: false, swiftformLightsaberAtTurnEnd: false, swiftformEnemyUnderfoot: null, swiftformPinnedEnemyIds: [], movementAnnulledByBlessedSwiftness: false, rageStacks: 0, shieldEquipped: isOrkk, rageGainLocked: false, doubleRageUntilEnemyTurnEnd: false, manaPoints: 0, manaMode: 'generate', manaConsumeEventId: null, arcaneBoltAttackBonus: 0, damagedDuringEnemyTurn: false, spiritForm: false, spiritEnemyUnderfoot: null, spiritObjectUnderfoot: null, spiritSiphonedEnemyIds: [], spiritSiphonedMovement: 0, johnCumulativeMovementRemaining: 0, spiritMovementDepleted: false, spiritMovementSpentThisTurn: false, stoicShell: false, stoicShellStacks: 0, queuedBlessingCardIds: [], stoicShellHealedTurn: null, stoicShellHealEventId: null, stoicShellHealAmount: 0, spectreAttackBonus: 0, spectreAccumulateStored: 0, spectreAccumulateActive: 0, spectreShadowMoveBonus: 0, spectreShadowDefensePenalty: 0, spectreOnBoxId: null, merylinSummonActive: false, matchStats: { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 } };
+  const maximumHp = isMerylin ? 20 : isOrkk ? 24 : isMagician ? 18 : isSpectre ? 16 : isJohn ? 14 : isWreckna ? 16 : 20;
+  return { id, name, character, hp: maximumHp, maxHp: maximumHp, moveRange: isOrkk || isMagician || isJohn || isSpectre ? 3 : 2, attackRange: isJohn ? 3 : isMagician || isWreckna ? 2 : 1, position, deck, hand, discard: [], knownTopCardId: null, spellEcho: [null, null, null], actionsRemaining: 2, perkUsed: false, freeMoveUsed: false, movementRemaining: 0, movedThisTurn: false, lightsaberBuff: false, lightsaberStacks: 0, lightsaberMovementProtection: false, highgroundAdvantageBuff: false, pinnedStacks: 0, pinnedGainedThisTurn: 0, turnEndPinnedRemoved: false, swiftformMoveBonus: 0, grimoireMoveBonus: 0, swiftformCanPassEnemies: false, swiftformPinsPassedEnemies: false, swiftformLightsaberAtTurnEnd: false, swiftformEnemyUnderfoot: null, swiftformPinnedEnemyIds: [], movementAnnulledByBlessedSwiftness: false, rageStacks: 0, shieldEquipped: isOrkk, rageGainLocked: false, doubleRageUntilEnemyTurnEnd: false, manaPoints: 0, manaMode: 'generate', manaConsumeEventId: null, arcaneBoltAttackBonus: 0, damagedDuringEnemyTurn: false, spiritForm: false, spiritEnemyUnderfoot: null, spiritObjectUnderfoot: null, spiritSiphonedEnemyIds: [], spiritSiphonedMovement: 0, johnCumulativeMovementRemaining: 0, spiritMovementDepleted: false, spiritMovementSpentThisTurn: false, stoicShell: false, stoicShellStacks: 0, queuedBlessingCardIds: [], stoicShellHealedTurn: null, stoicShellHealEventId: null, stoicShellHealAmount: 0, spectreAttackBonus: 0, spectreAphoticShieldRemaining: 0, spectreAphoticAttackBonus: 0, spectreAccumulateStored: 0, spectreAccumulateActive: 0, spectreShadowMoveBonus: 0, spectreShadowDefensePenalty: 0, spectreOnBoxId: null, merylinSummonActive: false, matchStats: { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 } };
 }
 
 export function distance(a: Cell, b: Cell): number { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
@@ -1562,6 +1637,7 @@ export function movementPath(state: GameState, player: PlayerState, destination:
 }
 function applySwiftformPinnedOnce(state: GameState, player: PlayerState, enemyId: PlayerId): boolean {
   if (!player.swiftformPinsPassedEnemies || player.swiftformPinnedEnemyIds.includes(enemyId)) return false;
+  if (state.players[enemyId].spectreShadowCloakActive) return false;
   applyPinned(state.players[enemyId], 1, state, player.id);
   player.swiftformPinnedEnemyIds.push(enemyId);
   return true;
@@ -1582,7 +1658,10 @@ function resolveMoonlightWave(state: GameState, attacker: PlayerState, attackerP
   state.spellProjectiles.push({ id: animationId, casterId: attacker.id, targetId: 'moonlight-wave', from: { ...targetPosition }, to: { ...waveCells[waveCells.length - 1] }, path: waveCells.map((cell) => ({ ...cell })), count: 1, damage: 0, style: 'moonwave' });
   for (const [index, cell] of waveCells.entries()) {
     const objects = state.objects.filter((object) => object.position.x === cell.x && object.position.y === cell.y);
-    for (const object of objects) destroyObject(state, object.id, attacker.id, 'with Moonlight\'s moonwave');
+    for (const object of objects) {
+      if (object.kind === 'spectre-replica' && object.ownerId) dealDamage(state, state.players[object.ownerId], index === 0 ? 1 : 2, false, attacker.id, 'attack');
+      else destroyObject(state, object.id, attacker.id, 'with Moonlight\'s moonwave');
+    }
     const squareDamage = index === 0 ? 1 : 2;
     for (const target of Object.values(state.players).filter((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y)) {
       dealDamage(state, target, squareDamage, false, attacker.id, 'attack');
@@ -1592,7 +1671,7 @@ function resolveMoonlightWave(state: GameState, attacker: PlayerState, attackerP
 }
 
 function resolveStingAfterCombat(state: GameState, attacker: PlayerState, cardInstanceId: string) {
-  const nearbyEnemy = Object.values(state.players).some((player) => player.id !== attacker.id && player.hp > 0 && distance(attacker.position, player.position) <= 2);
+  const nearbyEnemy = enemyBodies(state, attacker.id).some((body) => distance(attacker.position, body.position) <= 2);
   if (nearbyEnemy) {
     grantMerylinSummon(state, attacker.id, 'Sting');
     const drawn = drawCards(attacker, 1);
@@ -1751,11 +1830,11 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.log.unshift(`Judgement won combat and granted Stoic Shell to ${player.name}.`);
   }
   if (card.id === 'repent') {
-    const enemies = Object.values(state.players).filter((entry) => entry.id !== player.id && entry.hp > 0 && distance(player.position, entry.position) === 1);
+    const enemies = enemyBodies(state, player.id).filter((body) => distance(player.position, body.position) === 1);
     const selfDamage = player.hp > 0 ? dealDamage(state, player, 1, false, player.id, 'attack') : 0;
     for (const enemy of enemies) {
       state.spellProjectiles.push({ id: `${state.turn}-repent-holy-fire-${enemy.id}-${++instanceSequence}`, casterId: player.id, targetId: enemy.id, from: { ...enemy.position }, to: { ...enemy.position }, path: [{ ...enemy.position }, { ...enemy.position }], count: 1, damage: 2, style: 'holy-fire' });
-      dealDamage(state, enemy, 2, false, player.id, 'attack');
+      damageCharacterBody(state, enemy, 2, false, player.id, 'attack');
     }
     state.log.unshift(`Repent! dealt ${selfDamage} Damage to ${player.name} and 2 Damage to each adjacent enemy after attacking an Object.`);
   }
@@ -1781,7 +1860,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   if (card.id === 'echo-strike') {
     const replicas = spectreReplicas(state, player.id);
     const victims = echoStrikeVictims(state, player.id);
-    for (const victim of victims) dealDamage(state, victim, 1, false, player.id, 'attack');
+    for (const victim of victims) damageCharacterBody(state, victim, 1, false, player.id, 'attack');
     state.log.unshift(replicas.length > 0 ? `Echo Strike blasted ${victims.map((victim) => victim.name).join(', ') || 'no adjacent enemies'} around ${replicas.length === 1 ? 'the replica' : `${replicas.length} replicas`}.` : 'Echo Strike found no replica.');
   }
   if (card.id === 'mana-barrage') {
@@ -1830,13 +1909,14 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
         const { shield, path } = recall;
         if (path.length > 0) {
           const recallAnimationId = `${state.turn}-shield-bash-object-${state.objectPushAnimations.length}`;
-          const crossedEnemyIds = new Set<PlayerId>();
+          const crossedEnemyIds = new Set<string>();
           for (const [pathIndex, cell] of path.entries()) {
-            const enemy = Object.values(state.players).find((entry) => entry.id !== player.id && entry.position.x === cell.x && entry.position.y === cell.y);
-            if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
-            crossedEnemyIds.add(enemy.id);
+            const enemy = enemyBodyAt(state, player.id, cell);
+            const enemyKey = enemy ? `${enemy.kind}:${enemy.id}` : '';
+            if (!enemy || crossedEnemyIds.has(enemyKey)) continue;
+            crossedEnemyIds.add(enemyKey);
             const damageAnimationStart = state.objectPushAnimations.length;
-            dealDamage(state, enemy, 2, true, player.id, 'attack');
+            damageCharacterBody(state, enemy, 2, true, player.id, 'attack');
             for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
               if (!event.damage?.collision) continue;
               event.damage.triggerAnimationId = recallAnimationId;
@@ -1928,12 +2008,14 @@ function shuffleDrawRewardBoomerangIntoDeck(player: PlayerState, card: CardInsta
   player.knownTopCardIds = [];
 }
 
-function resolveBoomerangTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveBoomerangTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const pending = state.boomerang;
   if (state.phase !== 'choosing-boomerang-target' || pending?.casterId !== playerId) return fail(state, 'Boomerang is not waiting for a target.');
-  const player = state.players[playerId]; const target = state.players[targetId];
-  if (!target || targetId === playerId || target.hp <= 0) return fail(state, 'Choose a living enemy.');
-  const targetDistance = distance(player.position, target.position);
+  const player = state.players[playerId];
+  const body = characterBody(state, targetKind, targetId);
+  const target = body ? state.players[body.ownerId] : undefined;
+  if (!body || !target || body.ownerId === playerId || target.hp <= 0) return fail(state, 'Choose a living enemy.');
+  const targetDistance = distance(player.position, body.position);
   if (targetDistance > 3) return fail(state, 'Target is outside Boomerang Range 3.');
   const meleeUse = targetDistance <= 1;
   if (meleeUse && player.actionsRemaining <= 0) return fail(state, 'Boomerang requires 1 Action when used at melee Range 1.');
@@ -1943,8 +2025,8 @@ function resolveBoomerangTarget(state: GameState, playerId: PlayerId, targetId: 
   const [boomerang] = player.hand.splice(index, 1);
   const damage = meleeUse ? 2 : 1;
   if (meleeUse) player.actionsRemaining -= 1;
-  dealDamage(state, target, damage, false, playerId, 'other');
-  state.spellProjectiles.push({ id: `${state.turn}-boomerang-${++instanceSequence}`, casterId: playerId, targetId, from: { ...player.position }, to: { ...target.position }, path: [{ ...player.position }, { ...target.position }], count: 1, damage, style: 'boomerang' });
+  damageCharacterBody(state, body, damage, false, playerId, 'other');
+  state.spellProjectiles.push({ id: `${state.turn}-boomerang-${++instanceSequence}`, casterId: playerId, targetId: body.id, from: { ...player.position }, to: { ...body.position }, path: [{ ...player.position }, { ...body.position }], count: 1, damage, style: 'boomerang' });
   if (!meleeUse && boomerang.cardId === 'boomerang-draw') shuffleDrawRewardBoomerangIntoDeck(player, boomerang);
   else if (!meleeUse) shuffleBoomerangIntoDeck(player, boomerang);
   adjustUnspentMovementForRangeChange(player, previousMoveRange);
@@ -2165,6 +2247,10 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
     protectedTarget.guardianBlockedPerkActionId = guardianActionId;
     state.log.unshift(`${target.name}'s adjacent Spirit Guardian blocked 1 Perk Damage for this Action.`);
   }
+  if (resolvedAmount > 0 && sourceKind === 'perk' && target.spectreShadowCloakActive) {
+    state.log.unshift(`${target.name}'s Shadow Cloak negated ${resolvedAmount} Perk Damage.`);
+    return 0;
+  }
   const lichProtected = target.character === 'wreckna' && !target.traitBlocked && state.objects.some((object) => object.phylacteryOwnerId === target.id && object.phylacteryType);
   const dealt = Math.min(Math.max(0, target.hp - (lichProtected ? 1 : 0)), resolvedAmount);
   const creditedDamage = lichProtected ? resolvedAmount : dealt;
@@ -2257,6 +2343,10 @@ function redirectCombatStatusEffect(state: GameState, target: PlayerState, statu
 }
 export function addForcedStatusCard(state: GameState, target: PlayerState, cardId: CardTypeId, destination: StatusDestination, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other', revealedToOpponent = destination !== 'deck', bypassDevourProtection = false): boolean {
   if (cardDefinition({ instanceId: '', cardId }).kind !== 'status') return false;
+  if (sourceKind === 'perk' && sourceId !== target.id && target.spectreShadowCloakActive) {
+    state.log.unshift(`${target.name}'s Shadow Cloak prevented ${cardDefinition({ instanceId: '', cardId }).name} from affecting them.`);
+    return false;
+  }
   if (!bypassDevourProtection && devourProtectsFromNegativeEffects(state, target)) {
     state.log.unshift(`Devour prevented ${cardDefinition({ instanceId: '', cardId }).name} from affecting ${target.name}.`);
     return false;
@@ -2695,10 +2785,10 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'dakkoth-tomb-square') return resolveDakkothTombSquare(state, command.playerId, command.to);
   if (command.type === 'dakkoth-tomb-sacrifice') return resolveDakkothTombSacrifice(state, command.playerId, command.objectId);
   if (command.type === 'dakkoth-phylactery-target') return resolveDakkothPhylacteryTarget(state, command.playerId, command.objectId);
-  if (command.type === 'sap-target') return resolveSapTarget(state, command.playerId, command.targetId);
+  if (command.type === 'sap-target') return resolveSapTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'necronomicon-tomb-target') return resolveNecronomiconTombTarget(state, command.playerId, command.objectId);
   if (command.type === 'necronomicon-discard') return resolveNecronomiconDiscard(state, command.playerId, command.cardInstanceId);
-  if (command.type === 'decay-target') return resolveDecayTarget(state, command.playerId, command.targetId);
+  if (command.type === 'decay-target') return resolveDecayTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'decay-discard') return resolveDecayDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'place-character') return resolveLordaeronPlacement(state, command.playerId, command.to);
   if (command.type === 'choose-focus') return resolveFocusChoice(state, command.playerId, command.focus);
@@ -2708,7 +2798,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'phase-three-operation') return resolvePhaseThreeOperation(state, command.playerId, command.cardInstanceId, command.operation);
   if (command.type === 'phase-three-finish') return finishPhaseThreeChoices(state, command.playerId);
   if (command.type === 'phase-card-destination') return resolvePhaseDestination(state, command.playerId, command.destination);
-  if (command.type === 'fireball-target') return resolveFireballTarget(state, command.playerId, command.targetId);
+  if (command.type === 'fireball-target') return resolveFireballTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'portal-teleport') return resolvePortalTeleport(state, command.playerId, command.to);
   if (command.type === 'sweet-potato-choice') return resolveSweetPotatoChoice(state, command.playerId, command.choice);
   if (command.type === 'ack-combat') return acknowledgeCombat(state, command.playerId, command.combatExpiresAt);
@@ -2764,13 +2854,13 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'shadow-barter-discard') return resolveShadowBarterDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'shadow-barter-tomb-choice') return resolveShadowBarterTombChoice(state, command.playerId, command.use);
   if (command.type === 'shadow-barter-tomb-square') return resolveShadowBarterTombSquare(state, command.playerId, command.to);
-  if (command.type === 'arcane-missle-target') return resolveArcaneMissleTarget(state, command.playerId, command.targetId);
-  if (command.type === 'chain-lightning-target') return resolveChainLightningTarget(state, command.playerId, command.targetId);
+  if (command.type === 'arcane-missle-target') return resolveArcaneMissleTarget(state, command.playerId, command.targetId, command.targetKind);
+  if (command.type === 'chain-lightning-target') return resolveChainLightningTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'magic-hand-target') return selectMagicHandTarget(state, command.playerId, command.targetKind, command.targetId);
   if (command.type === 'magic-hand-direction') return resolveMagicHandDirection(state, command.playerId, command.to);
   if (command.type === 'shizzle-destination') return resolveShizzleDestination(state, command.playerId, command.to);
   if (command.type === 'cancel-targeting') return cancelCardTargeting(state, command.playerId);
-  if (command.type === 'boomerang-target') return resolveBoomerangTarget(state, command.playerId, command.targetId);
+  if (command.type === 'boomerang-target') return resolveBoomerangTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'mind-tricks-discard') return resolveMindTricksDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'mind-tricks-finish') return finishMindTricksSelection(state, command.playerId);
   if (command.type === 'mind-tricks-enemy-discard') return resolveMindTricksEnemyDiscard(state, command.playerId, command.cardInstanceId);
@@ -2866,6 +2956,9 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     }
     const slideEnteredFrom = path.length > 1 ? path[path.length - 2] : movementOrigin;
     if (!player.windwalkerUnrestrictedMovement) applySlideSquare(state, player, slideEnteredFrom);
+    const tetherMovementCells = path.map((cell) => ({ ...cell }));
+    if (tetherMovementCells.length === 0 || cellLabel(tetherMovementCells[tetherMovementCells.length - 1]) !== cellLabel(player.position)) tetherMovementCells.push({ ...player.position });
+    resolveRelocateTetherMovementDamage(state, player, movementOrigin, tetherMovementCells);
     if (player.swiftformCanPassEnemies) {
       const passedIds = new Set(path.slice(0, -1).flatMap((cell) => Object.values(state.players).filter((candidate) => candidate.id !== player.id && candidate.position.x === cell.x && candidate.position.y === cell.y).map((candidate) => candidate.id)));
       for (const enemyId of passedIds) {
@@ -3241,7 +3334,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
       }
       const zones = seeds.map(({ cell, zoneType }) => ({ zoneType, cells: connectedKamelotZone(state, cell, zoneType) }));
       for (const enemy of Object.values(state.players)) {
-        if (enemy.id === player.id || enemy.hp <= 0) continue;
+        if (enemy.id === player.id || enemy.hp <= 0 || enemy.spectreShadowCloakActive) continue;
         const zone = zones.find((candidate) => candidate.cells.includes(cellLabel(enemy.position)));
         if (!zone) continue;
         enemy.kamelotSuppressedZone = { sourceId: player.id, zoneType: zone.zoneType, cells: zone.cells };
@@ -3316,14 +3409,21 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'consume-replica') {
-    if (!destroySpectreReplica(state, player.id)) { state.log.unshift('Consume Replica found no replica and had no effect.'); return; }
-    player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + (level >= 2 ? 3 : 2);
+    const replicas = spectreReplicas(state, player.id);
+    if (replicas.length === 0) { state.log.unshift('Shadow Cloak found no replica and had no effect.'); return; }
+    for (const replica of replicas) state.objectPushAnimations.push({
+      id: `${state.turn}-shadow-cloak-${replica.id}-${++instanceSequence}`,
+      objectId: replica.id,
+      from: { ...replica.position }, to: { ...replica.position }, dx: 0, dy: 0,
+      collided: false, removeOnComplete: true, destroy: true, shadowDissolve: true,
+    });
+    state.objects = state.objects.filter((object) => !(object.kind === 'spectre-replica' && object.ownerId === player.id));
+    if (player.spectreRelocateTetherReplicaId && replicas.some((replica) => replica.id === player.spectreRelocateTetherReplicaId)) player.spectreRelocateTetherReplicaId = null;
     addForcedStatusCard(state, player, 'headache', 'hand', player.id, 'perk', true);
-    if (level >= 3) {
-      player.actionsRemaining += 1;
-      player.perkUsed = false;
-    }
-    state.log.unshift(`Consume Replica destroyed the replica, added Headache, and granted +${level >= 2 ? 3 : 2} ATT until end of turn${level >= 3 ? ', restored 1 Action, and allowed another Perk' : ''}.`);
+    const removedEffects = level >= 2 ? removeNegativeHandEffects(player) : 0;
+    if (level >= 3 && removedEffects > 0) player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + removedEffects;
+    player.spectreShadowCloakActive = true;
+    state.log.unshift(`Shadow Cloak dissolved ${replicas.length} replica${replicas.length === 1 ? '' : 's'}, granted Spell Immunity until the beginning of ${player.name}'s next turn, and added Headache${level >= 2 ? `; removed ${removedEffects} negative Hand effect${removedEffects === 1 ? '' : 's'}` : ''}${level >= 3 ? ` and granted +${removedEffects} ATT until turn end` : ''}.`);
     return;
   }
   if (perk.id === 'haunt') {
@@ -3398,14 +3498,14 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
   if (perk.id === 'fear-the-justice') {
     enterSpiritForm(state, player, 'through Fear the Justice');
     const affectedEnemies = level >= 2
-      ? Object.values(state.players).filter((enemy) => enemy.id !== player.id && enemy.hp > 0 && distance(player.position, enemy.position) === 1)
+      ? enemyBodies(state, player.id).filter((body) => !state.players[body.ownerId].spectreShadowCloakActive && distance(player.position, body.position) === 1)
       : [];
     for (const enemy of affectedEnemies) {
-      addForcedStatusCard(state, enemy, 'panic', 'hand', player.id, 'perk', true);
+      addForcedStatusCard(state, state.players[enemy.ownerId], 'panic', 'hand', player.id, 'perk', true);
       state.log.unshift(`Fear the Justice applied Panic to adjacent enemy ${enemy.name}.`);
     }
     if (level >= 3) {
-      const discardTargets = affectedEnemies.filter((enemy) => enemy.hand.some((card) => cardDefinition(card).kind === 'defend')).map((enemy) => enemy.id);
+      const discardTargets = affectedEnemies.filter((enemy) => state.players[enemy.ownerId].hand.some((card) => cardDefinition(card).kind === 'defend')).map((enemy) => enemy.ownerId);
       if (discardTargets.length > 0) {
         const [targetId, ...remainingTargetIds] = discardTargets;
         state.forceDisarm = { targetId, cardKind: 'defend', source: 'force-disarm', remainingTargetIds } as typeof state.forceDisarm & { remainingTargetIds: PlayerId[] };
@@ -3555,8 +3655,8 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
       state.log.unshift(`Consume Rage removed ${rageSpent} Rage and healed ${player.name} for ${healed} HP.`);
     } else state.log.unshift(`Consume Rage could not heal ${player.name}: 1 Rage stack was required.`);
     if (level >= 3) {
-      const adjacentEnemies = Object.values(state.players).filter((entry) => entry.id !== player.id && distance(entry.position, player.position) === 1);
-      adjacentEnemies.forEach((enemy) => addForcedStatusCard(state, enemy, 'exhaust', 'hand', player.id, 'perk', true));
+      const adjacentEnemies = enemyBodies(state, player.id).filter((body) => !state.players[body.ownerId].spectreShadowCloakActive && distance(body.position, player.position) === 1);
+      adjacentEnemies.forEach((enemy) => addForcedStatusCard(state, state.players[enemy.ownerId], 'exhaust', 'hand', player.id, 'perk', true));
       removeAllDebuffs(player, true);
       state.log.unshift(`Consume Rage level 3 added Exhaust to ${adjacentEnemies.length} adjacent enem${adjacentEnemies.length === 1 ? 'y' : 'ies'} and removed all negative Status Cards from ${player.name}.`);
     }
@@ -3593,6 +3693,10 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
   }
   if (perk.id === 'mind-tricks') {
     const enemyId: PlayerId = player.id === 'P1' ? 'P2' : 'P1';
+    if (state.players[enemyId]?.spectreShadowCloakActive) {
+      state.log.unshift(`Shadow Cloak made ${state.players[enemyId].name} ineligible for Mind Tricks.`);
+      return;
+    }
     state.mindTricks = { casterId: player.id, level, maxDiscards: level >= 3 ? 2 : 1, discarded: 0, revealedInstanceIds: [], enemyId, enemyDiscardsRemaining: 0, undo: null };
     state.phase = 'choosing-mind-tricks-discard';
     state.log.unshift(`Mind Tricks level ${level}: ${player.name} may reveal up to ${level >= 3 ? 2 : 1} card${level >= 3 ? 's' : ''}, or resolve it without revealing.`);
@@ -4883,7 +4987,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   if (!attackEffectsCancelled && pending.cardId === 'echo-strike') {
     const replicas = spectreReplicas(state, pending.attackerId);
     const victims = echoStrikeVictims(state, pending.attackerId);
-    for (const victim of victims) dealCombatCardEffectDamage(state, victim, 1, pending.attackerId, 'attack');
+    for (const victim of victims) combatDamageCharacterBody(state, victim, 1, pending.attackerId, 'attack');
     state.log.unshift(replicas.length > 0 ? `Echo Strike blasted ${victims.map((victim) => victim.name).join(', ') || 'no adjacent enemies'} around ${replicas.length === 1 ? 'the replica' : `${replicas.length} replicas`}.` : 'Echo Strike found no replica after combat.');
   }
   if (!attackEffectsCancelled && !attackCardDebuffsPrevented && pending.cardId === 'displace' && defender.hp > 0) {
@@ -4925,12 +5029,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (!attackEffectsCancelled && pending.cardId === 'repent') {
     const john = state.players[pending.attackerId];
-    const adjacentEnemies = Object.values(state.players).filter((enemy) => enemy.id !== john.id && enemy.hp > 0 && distance(john.position, enemy.position) === 1);
+    const adjacentEnemies = enemyBodies(state, john.id).filter((body) => distance(john.position, body.position) === 1);
     const allCombatDamageNegated = pending.blessingFaithApplied || pending.mythrilHelmetApplied;
     const selfDamage = john.hp > 0 && !allCombatDamageNegated ? dealDamage(state, john, 1, false, john.id, 'attack') : 0;
     if (john.hp > 0 && allCombatDamageNegated) recordCombatDamageBlocked(state, john, 1);
     for (const enemy of adjacentEnemies) state.spellProjectiles.push({ id: `${state.turn}-repent-holy-fire-${enemy.id}-${++instanceSequence}`, casterId: john.id, targetId: enemy.id, from: { ...enemy.position }, to: { ...enemy.position }, path: [{ ...enemy.position }, { ...enemy.position }], count: 1, damage: 2, style: 'holy-fire' });
-    const damagedEnemies = adjacentEnemies.map((enemy) => ({ enemy, dealt: enemy.id === defender.id && defenseNegatesDamage ? 0 : enemy.id === defender.id ? dealCombatCardEffectDamage(state, enemy, 2, john.id, 'attack') : dealDamage(state, enemy, 2, false, john.id, 'attack') }));
+    const damagedEnemies = adjacentEnemies.map((enemy) => ({ enemy, dealt: enemy.ownerId === defender.id && defenseNegatesDamage ? 0 : enemy.ownerId === defender.id ? combatDamageCharacterBody(state, enemy, 2, john.id, 'attack') : damageCharacterBody(state, enemy, 2, false, john.id, 'attack') }));
     state.log.unshift(`Repent! dealt ${selfDamage} Damage to ${john.name} and 2 Damage to ${damagedEnemies.filter(({ dealt }) => dealt > 0).map(({ enemy }) => enemy.name).join(', ') || 'no adjacent enemies'} after combat.`);
   }
   if (attackCardDebuffsPrevented && ['light-the-saber', 'cut-them-legs'].includes(pending.cardId)) {
@@ -5011,13 +5115,14 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       const { shield, path } = recall;
       if (path.length > 0) {
         const recallAnimationId = `${state.turn}-shield-bash-${state.objectPushAnimations.length}`;
-        const crossedEnemyIds = new Set<PlayerId>();
+        const crossedEnemyIds = new Set<string>();
         for (const [pathIndex, cell] of path.entries()) {
-          const enemy = Object.values(state.players).find((entry) => entry.id !== orkk.id && entry.position.x === cell.x && entry.position.y === cell.y);
-          if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
-          crossedEnemyIds.add(enemy.id);
+          const enemy = enemyBodyAt(state, orkk.id, cell);
+          const enemyKey = enemy ? `${enemy.kind}:${enemy.id}` : '';
+          if (!enemy || crossedEnemyIds.has(enemyKey)) continue;
+          crossedEnemyIds.add(enemyKey);
           const damageAnimationStart = state.objectPushAnimations.length;
-          dealCombatCardEffectDamage(state, enemy, 2, orkk.id, 'attack', true);
+          combatDamageCharacterBody(state, enemy, 2, orkk.id, 'attack', true);
           for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
             if (!event.damage?.collision) continue;
             event.damage.triggerAnimationId = recallAnimationId;
@@ -5051,14 +5156,14 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     }
   }
   if (defenseCardId === 'arcane-shield' && shieldEquippedAtDefenseStart && !defenseEffectsCancelled) {
-    const adjacentEnemies = Object.values(state.players).filter((enemy) => enemy.id !== defender.id && enemy.hp > 0 && distance(defender.position, enemy.position) === 1);
-    for (const enemy of adjacentEnemies) dealCombatCardEffectDamage(state, enemy, 1, defender.id, 'defense');
+    const adjacentEnemies = enemyBodies(state, defender.id).filter((body) => distance(defender.position, body.position) === 1);
+    for (const enemy of adjacentEnemies) combatDamageCharacterBody(state, enemy, 1, defender.id, 'defense');
     state.log.unshift(`Arcane Shield dealt 1 Damage to ${adjacentEnemies.map((enemy) => enemy.name).join(', ') || 'no adjacent enemies'}.`);
   }
   if (defenseCardId === 'yamato' && !defenseEffectsCancelled) {
     if (pending.attackValue > defenseValue) {
-      const adjacentEnemies = Object.values(state.players).filter((enemy) => enemy.id !== defender.id && enemy.hp > 0 && distance(defender.position, enemy.position) === 1);
-      for (const enemy of adjacentEnemies) dealCombatCardEffectDamage(state, enemy, 1, defender.id, 'defense');
+      const adjacentEnemies = enemyBodies(state, defender.id).filter((body) => distance(defender.position, body.position) === 1);
+      for (const enemy of adjacentEnemies) combatDamageCharacterBody(state, enemy, 1, defender.id, 'defense');
       state.log.unshift(`Yamato lost combat and dealt 1 Damage to ${adjacentEnemies.map((enemy) => enemy.name).join(', ') || 'no adjacent enemies'}.`);
     }
     grantMerylinSummon(state, defender.id, 'Yamato');
@@ -5073,8 +5178,8 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (defenseCardId === 'dispersion' && !defenseEffectsCancelled) {
     const reflectedDamage = Math.min(4, damage);
-    const adjacentEnemies = Object.values(state.players).filter((enemy) => enemy.id !== defender.id && enemy.hp > 0 && distance(enemy.position, defenderCombatPosition) === 1);
-    for (const enemy of adjacentEnemies) dealCombatCardEffectDamage(state, enemy, reflectedDamage, defender.id, 'defense');
+    const adjacentEnemies = enemyBodies(state, defender.id).filter((body) => distance(body.position, defenderCombatPosition) === 1);
+    for (const enemy of adjacentEnemies) combatDamageCharacterBody(state, enemy, reflectedDamage, defender.id, 'defense');
     state.log.unshift(`Dispersion dealt ${reflectedDamage} Damage to ${adjacentEnemies.map((enemy) => enemy.name).join(', ') || 'no adjacent enemies'} around the attacked ${pending.defenderBody === 'replica' ? 'replica' : 'Spectre'}.`);
   }
   if (defenseCardId === 'accumulate' && !defenseEffectsCancelled) {
@@ -5107,13 +5212,14 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       const { shield, path } = recall;
       if (path.length > 0) {
         const recallAnimationId = `${state.turn}-mana-baryer-${state.objectPushAnimations.length}`;
-        const crossedEnemyIds = new Set<PlayerId>();
+        const crossedEnemyIds = new Set<string>();
         for (const [pathIndex, cell] of path.entries()) {
-          const enemy = Object.values(state.players).find((entry) => entry.id !== defender.id && entry.position.x === cell.x && entry.position.y === cell.y);
-          if (!enemy || crossedEnemyIds.has(enemy.id)) continue;
-          crossedEnemyIds.add(enemy.id);
+          const enemy = enemyBodyAt(state, defender.id, cell);
+          const enemyKey = enemy ? `${enemy.kind}:${enemy.id}` : '';
+          if (!enemy || crossedEnemyIds.has(enemyKey)) continue;
+          crossedEnemyIds.add(enemyKey);
           const damageAnimationStart = state.objectPushAnimations.length;
-          dealCombatCardEffectDamage(state, enemy, 2, defender.id, 'defense', true);
+          combatDamageCharacterBody(state, enemy, 2, defender.id, 'defense', true);
           for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
             if (!event.damage?.collision) continue;
             event.damage.triggerAnimationId = recallAnimationId;
@@ -5697,14 +5803,16 @@ function resolveDakkothPhylacteryTarget(state: GameState, playerId: PlayerId, ob
   return result;
 }
 
-function resolveSapTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveSapTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const extended = state as WrecknaChoiceState;
   const pending = extended.sap;
   if ((state.phase as string) !== 'choosing-sap-target' || !pending || pending.casterId !== playerId) return fail(state, 'Sap is not waiting for a target.');
   const caster = state.players[playerId];
-  const target = state.players[targetId];
-  if (!target || targetId === playerId || target.hp <= 0) return fail(state, 'Sap requires a living enemy target.');
-  if (!wrecknaPerkTargetInRange(state, caster, target.position)) return fail(state, `Sap requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
+  const body = characterBody(state, targetKind, targetId);
+  const target = body ? state.players[body.ownerId] : undefined;
+  if (!body || !target || body.ownerId === playerId || target.hp <= 0) return fail(state, 'Sap requires a living enemy target.');
+  if (target.spectreShadowCloakActive) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
+  if (!wrecknaPerkTargetInRange(state, caster, body.position)) return fail(state, `Sap requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
   addForcedStatusCard(state, target, 'headache', 'hand', playerId, 'perk', true);
   state.log.unshift(`Sap level 1 added Headache to ${target.name}'s Hand.`);
   if (pending.level >= 2) {
@@ -5778,7 +5886,7 @@ function completeNecronomiconAfterPhylactery(state: GameState, playerId: PlayerI
   }
   if (pending.level >= 3) {
     pending.discardQueue = (Object.keys(state.players) as PlayerId[])
-      .filter((id) => id !== playerId && state.players[id].hp > 0)
+      .filter((id) => id !== playerId && state.players[id].hp > 0 && !state.players[id].spectreShadowCloakActive)
       .map((id) => ({ playerId: id, remaining: tombs.filter((tomb) => distance(tomb.position, state.players[id].position) === 1).length }))
       .filter((entry) => entry.remaining > 0);
     advanceNecronomiconDiscard(state, playerId);
@@ -5804,14 +5912,16 @@ function resolveNecronomiconDiscard(state: GameState, playerId: PlayerId, cardIn
   return ok(state);
 }
 
-function resolveDecayTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveDecayTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const extended = state as WrecknaChoiceState;
   const pending = extended.decay;
   if ((state.phase as string) !== 'choosing-decay-target' || !pending || pending.casterId !== playerId) return fail(state, 'Curse is not waiting for a target.');
   const caster = state.players[playerId];
-  const target = state.players[targetId];
-  if (!target || targetId === playerId || target.hp <= 0) return fail(state, 'Curse requires a living enemy target.');
-  if (!wrecknaPerkTargetInRange(state, caster, target.position)) return fail(state, `Curse requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
+  const body = characterBody(state, targetKind, targetId);
+  const target = body ? state.players[body.ownerId] : undefined;
+  if (!body || !target || body.ownerId === playerId || target.hp <= 0) return fail(state, 'Curse requires a living enemy target.');
+  if (target.spectreShadowCloakActive) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
+  if (!wrecknaPerkTargetInRange(state, caster, body.position)) return fail(state, `Curse requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
   const previousTargetRange = movementRangeForAdjustment(target);
   target.hexMovementPenalty = (target.hexMovementPenalty ?? 0) + 1;
   adjustUnspentMovementForRangeChange(target, previousTargetRange);
@@ -5895,22 +6005,25 @@ function resolveSpiritGuardianSquare(state: GameState, playerId: PlayerId, to: C
   return ok(state);
 }
 
-function resolveFireballTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveFireballTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const extended = state as GameState & { fireball?: { casterId: PlayerId; undo: PerkTargetingUndo; source?: 'fireball' | 'firebolt' } | null };
   const pending = extended.fireball;
   if (state.phase !== 'choosing-fireball-target' || pending?.casterId !== playerId) return fail(state, 'A fire spell is not waiting for this target.');
-  const caster = state.players[playerId]; const target = state.players[targetId];
-  if (!target || targetId === playerId || target.hp <= 0) return fail(state, 'Choose a living enemy.');
+  const caster = state.players[playerId];
+  const body = characterBody(state, targetKind, targetId);
+  const target = body ? state.players[body.ownerId] : undefined;
+  if (!body || !target || body.ownerId === playerId || target.hp <= 0) return fail(state, 'Choose a living enemy.');
   const source = pending.source ?? 'fireball';
+  if (source === 'firebolt' && target.spectreShadowCloakActive) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
   const range = 3;
-  if (distance(caster.position, target.position) > range) return fail(state, `${source === 'fireball' ? 'Fireball' : 'Firebolt'} has Range ${range}.`);
-  if (!hasLineOfSight(state, caster.position, target.position)) return fail(state, `A Wall Object blocks ${source === 'fireball' ? 'Fireball' : 'Firebolt'} line of sight.`);
+  if (distance(caster.position, body.position) > range) return fail(state, `${source === 'fireball' ? 'Fireball' : 'Firebolt'} has Range ${range}.`);
+  if (!hasLineOfSight(state, caster.position, body.position)) return fail(state, `A Wall Object blocks ${source === 'fireball' ? 'Fireball' : 'Firebolt'} line of sight.`);
   const baseDamage = source === 'fireball' ? 2 : 1;
-  const damage = baseDamage + meleeHighGroundDamageBonus(state, caster, target.position);
-  const dealt = dealDamage(state, target, damage, false, playerId, source === 'fireball' ? 'other' : 'perk');
+  const damage = baseDamage + meleeHighGroundDamageBonus(state, caster, body.position);
+  const dealt = damageCharacterBody(state, body, damage, false, playerId, source === 'fireball' ? 'other' : 'perk');
   if (target.hp > 0) addForcedStatusCard(state, target, 'burning', 'hand', playerId, source === 'fireball' ? 'other' : 'perk', true);
   extended.fireball = null; state.phase = 'active';
-  state.log.unshift(`${caster.name}'s ${source === 'fireball' ? 'Fireball' : 'Firebolt'} dealt ${dealt} Damage to ${target.name}${damage > baseDamage ? ', including +1 from High Ground' : ''} and applied Burning${source === 'fireball' ? '; the main Reward Card was Removed from the game' : ''}.`);
+  state.log.unshift(`${caster.name}'s ${source === 'fireball' ? 'Fireball' : 'Firebolt'} dealt ${dealt} Damage to ${body.name}${damage > baseDamage ? ', including +1 from High Ground' : ''} and applied Burning to ${target.name}${source === 'fireball' ? '; the main Reward Card was Removed from the game' : ''}.`);
   return ok(state);
 }
 
@@ -6271,7 +6384,7 @@ export function arcaneMisslePath(state: GameState, caster: PlayerState, target: 
 }
 
 export function mindBlastCanTarget(state: GameState, caster: PlayerState, target: PlayerState): boolean {
-  return target.id !== caster.id && target.hp > 0 && distance(caster.position, target.position) <= effectiveAttackRange(state, caster) && hasLineOfSight(state, caster.position, target.position);
+  return target.id !== caster.id && target.hp > 0 && !target.spectreShadowCloakActive && distance(caster.position, target.position) <= effectiveAttackRange(state, caster) && hasLineOfSight(state, caster.position, target.position);
 }
 
 function finishMindBlast(state: GameState, caster: PlayerState, target: PlayerState, level: number) {
@@ -6290,19 +6403,22 @@ function finishMindBlast(state: GameState, caster: PlayerState, target: PlayerSt
   if (state.phase !== 'finished') state.phase = 'active';
 }
 
-function resolveArcaneMissleTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveArcaneMissleTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const missile = state.arcaneMissle;
   if (state.phase !== 'choosing-arcane-missle-target' || !missile || missile.casterId !== playerId) return fail(state, 'Arcane Missile is not waiting for a target.');
-  if (targetId === playerId) return fail(state, 'Arcane Missile must target an enemy.');
   const caster = state.players[playerId];
-  const target = state.players[targetId];
+  const body = characterBody(state, targetKind, targetId);
+  const target = body ? state.players[body.ownerId] : undefined;
+  if (!body || !target || body.ownerId === playerId) return fail(state, 'Arcane Missile must target an enemy.');
+  if (target.spectreShadowCloakActive) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
+  const positionalTarget = { ...target, position: body.position };
   const mindBlast = (state as GameState & { mindBlast?: { casterId: PlayerId; level: number } | null }).mindBlast;
   if (mindBlast) {
-    if (!target || !mindBlastCanTarget(state, caster, target)) return fail(state, `Mind Blast requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
+    if (!mindBlastCanTarget(state, caster, positionalTarget)) return fail(state, `Mind Blast requires an enemy within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
     state.arcaneMissle = null;
     const eligible = target.hand.some((card) => !cardDefinition(card).cannotBeDiscarded);
     if (eligible) {
-      state.forceDisarm = { targetId, source: 'force-disarm', mindBlastLevel: mindBlast.level, mindBlastCasterId: playerId } as typeof state.forceDisarm & { mindBlastLevel: number; mindBlastCasterId: PlayerId };
+      state.forceDisarm = { targetId: target.id, source: 'force-disarm', mindBlastLevel: mindBlast.level, mindBlastCasterId: playerId } as typeof state.forceDisarm & { mindBlastLevel: number; mindBlastCasterId: PlayerId };
       state.phase = 'choosing-force-disarm-discard';
       state.log.unshift(`Mind Blast forces ${target.name} to choose 1 Card to discard.`);
     } else {
@@ -6311,42 +6427,47 @@ function resolveArcaneMissleTarget(state: GameState, playerId: PlayerId, targetI
     }
     return ok(state);
   }
-  const path = target && arcaneMisslePath(state, caster, target, missile.level);
+  const path = arcaneMisslePath(state, caster, positionalTarget, missile.level);
   if (!path) return fail(state, missile.level === 1 ? 'Target must be within Range 3 and direct line of sight.' : 'Target cannot be reached within Arcane Missile range.');
-  const dealt = dealDamage(state, target, missile.damage, false, playerId, 'perk');
-  state.spellProjectiles.push({ id: `${state.turn}-arcane-${++instanceSequence}`, casterId: playerId, targetId, from: { ...caster.position }, to: { ...target.position }, path, count: missile.level, damage: dealt });
+  const dealt = damageCharacterBody(state, body, missile.damage, false, playerId, 'perk');
+  state.spellProjectiles.push({ id: `${state.turn}-arcane-${++instanceSequence}`, casterId: playerId, targetId: body.id, from: { ...caster.position }, to: { ...body.position }, path, count: missile.level, damage: dealt });
   state.arcaneMissle = null;
   state.phase = 'active';
   gainManaFromResolvedSpell(state, caster);
-  state.log.unshift(`${caster.name} cast Arcane Missile level ${missile.level} at ${target.name} for ${dealt} Damage${missile.damage === 3 ? ' with Consume' : ''}.`);
+  state.log.unshift(`${caster.name} cast Arcane Missile level ${missile.level} at ${body.name} for ${dealt} Damage${missile.damage === 3 ? ' with Consume' : ''}.`);
   return ok(state);
 }
 
-function resolveChainLightningTarget(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function resolveChainLightningTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const chain = state.chainLightning;
   if (state.phase !== 'choosing-chain-lightning-target' || !chain || chain.casterId !== playerId) return fail(state, 'Chain Lightning is not waiting for a target.');
-  if (targetId === playerId) return fail(state, 'Chain Lightning must initially target an enemy.');
   const caster = state.players[playerId];
-  const initial = state.players[targetId];
+  const initial = characterBody(state, targetKind, targetId);
   const initialRange = effectiveAttackRange(state, caster);
-  if (!initial || distance(caster.position, initial.position) > initialRange || !hasLineOfSight(state, caster.position, initial.position)) return fail(state, `Initial target must be an enemy within Range ${initialRange} and line of sight.`);
+  if (!initial || initial.ownerId === playerId || distance(caster.position, initial.position) > initialRange || !hasLineOfSight(state, caster.position, initial.position)) return fail(state, `Initial target must be an enemy within Range ${initialRange} and line of sight.`);
+  if (state.players[initial.ownerId].spectreShadowCloakActive) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
 
   type ChainTarget = { kind: 'player' | 'object'; id: string; position: Cell };
-  let current: ChainTarget = { kind: 'player', id: initial.id, position: { ...initial.position } };
+  let current: ChainTarget = { kind: initial.kind === 'replica' ? 'object' : 'player', id: initial.id, position: { ...initial.position } };
   const strike = (from: Cell, target: ChainTarget, hop: number) => {
+    const targetObject = target.kind === 'object' ? state.objects.find((candidate) => candidate.id === target.id) : null;
+    const targetReplica = targetObject?.kind === 'spectre-replica' && targetObject.ownerId ? targetObject : null;
     if (target.kind === 'player') dealDamage(state, state.players[target.id as PlayerId], 1, false, playerId, 'perk');
-    else destroyObject(state, target.id, playerId, 'Chain Lightning');
-    state.spellProjectiles.push({ id: `${state.turn}-chain-${++instanceSequence}`, casterId: playerId, targetId: target.id, from: { ...from }, to: { ...target.position }, path: [{ ...from }, { ...target.position }], count: 1, damage: target.kind === 'player' ? 1 : 0, style: 'lightning' });
-    state.log.unshift(`Chain Lightning strike ${hop + 1} hit ${target.kind === 'player' ? state.players[target.id as PlayerId].name : 'an Object'}.`);
+    else {
+      if (targetReplica) dealDamage(state, state.players[targetReplica.ownerId!], 1, false, playerId, 'perk');
+      else destroyObject(state, target.id, playerId, 'Chain Lightning');
+    }
+    state.spellProjectiles.push({ id: `${state.turn}-chain-${++instanceSequence}`, casterId: playerId, targetId: target.id, from: { ...from }, to: { ...target.position }, path: [{ ...from }, { ...target.position }], count: 1, damage: target.kind === 'player' || targetReplica ? 1 : 0, style: 'lightning' });
+    state.log.unshift(`Chain Lightning strike ${hop + 1} hit ${target.kind === 'player' ? state.players[target.id as PlayerId].name : targetObject?.name ?? 'an Object'}.`);
   };
 
   strike(caster.position, current, 0);
   for (let bounce = 0; bounce < chain.bounces; bounce++) {
     const playerTargets: ChainTarget[] = Object.values(state.players)
-      .filter((player) => player.id !== caster.id && !(current.kind === 'player' && current.id === player.id) && distance(current.position, player.position) <= chain.bounceRange && hasLineOfSight(state, current.position, player.position))
+      .filter((player) => player.id !== caster.id && !player.spectreShadowCloakActive && !(current.kind === 'player' && current.id === player.id) && distance(current.position, player.position) <= chain.bounceRange && hasLineOfSight(state, current.position, player.position))
       .map((player) => ({ kind: 'player', id: player.id, position: { ...player.position } }));
     const objectTargets: ChainTarget[] = state.objects
-      .filter((object) => !(current.kind === 'object' && current.id === object.id) && distance(current.position, object.position) <= chain.bounceRange && hasLineOfSight(state, current.position, object.position))
+      .filter((object) => !(object.kind === 'spectre-replica' && object.ownerId && state.players[object.ownerId]?.spectreShadowCloakActive) && !(current.kind === 'object' && current.id === object.id) && distance(current.position, object.position) <= chain.bounceRange && hasLineOfSight(state, current.position, object.position))
       .map((object) => ({ kind: 'object', id: object.id, position: { ...object.position } }));
     const candidates = [...playerTargets, ...objectTargets];
     if (candidates.length === 0) { state.log.unshift(`Chain Lightning stopped after ${bounce} completed bounce${bounce === 1 ? '' : 's'}: no target was in range and line of sight.`); break; }
@@ -6367,6 +6488,7 @@ function selectForcePullTarget(state: GameState, playerId: PlayerId, targetKind:
   const pull = state.forcePull;
   if (state.phase !== 'choosing-force-pull-target' || !pull || pull.casterId !== playerId) return fail(state, 'Force Pull is not waiting for a target.');
   if (targetKind === 'player' && targetId === playerId) return fail(state, 'Force Pull cannot target its caster.');
+  if (isShadowCloakedPerkTarget(state, targetKind, targetId)) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
   if (targetKind === 'object' && state.objects.some((object) => object.id === targetId && isFixedWallObject(object))) return fail(state, 'Fixed Wall Objects cannot be pulled.');
   const target = getPushEntity(state, targetKind, targetId);
   if (!target) return fail(state, 'That Force Pull target does not exist.');
@@ -6386,8 +6508,10 @@ function selectForcePullTarget(state: GameState, playerId: PlayerId, targetKind:
     moveBoardObject(state, state.objects.find((object) => object.id === target.id)!, destination);
     recordObjectEffect(state, target.id, playerId, 'Force Pull');
   }
-  if (pull.level >= 3 && target.kind === 'player') applyPinned(state.players[target.id as PlayerId], 1, state, playerId);
-  state.log.unshift(`Force Pull moved ${entityName(state, target)} ${steps} square${steps === 1 ? '' : 's'} toward ${caster.name}${pull.level >= 3 && target.kind === 'player' ? ' and applied Pinned' : ''}.`);
+  const pulledReplica = target.kind === 'object' ? state.objects.find((object) => object.id === target.id && object.kind === 'spectre-replica' && object.ownerId !== playerId) : null;
+  const statusTarget = target.kind === 'player' ? state.players[target.id as PlayerId] : pulledReplica?.ownerId ? state.players[pulledReplica.ownerId] : null;
+  if (pull.level >= 3 && statusTarget) applyPinned(statusTarget, 1, state, playerId);
+  state.log.unshift(`Force Pull moved ${entityName(state, target)} ${steps} square${steps === 1 ? '' : 's'} toward ${caster.name}${pull.level >= 3 && statusTarget ? ` and applied Pinned to ${statusTarget.name}` : ''}.`);
   state.forcePull = null; state.phase = 'active';
   return ok(state);
 }
@@ -6454,14 +6578,13 @@ export function arkaneArowPath(state: GameState, caster: PlayerState, target: Ce
 }
 
 export function shieldRecallEnemyCount(state: GameState, ownerId: PlayerId, path: Cell[]): number {
-  return Object.values(state.players).filter((player) => player.id !== ownerId
-    && path.some((cell) => cell.x === player.position.x && cell.y === player.position.y)).length;
+  return enemyBodies(state, ownerId).filter((body) => path.some((cell) => cell.x === body.position.x && cell.y === body.position.y)).length;
 }
 
 export function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
   type RecallRoute = { cell: Cell; path: Cell[]; diagonalSteps: number; enemiesCrossed: number; turns: number; lineDeviation: number };
-  const enemyAt = (cell: Cell) => Object.values(state.players).some((entry) => entry.id !== shield.ownerId && entry.position.x === cell.x && entry.position.y === cell.y);
+  const enemyAt = (cell: Cell) => Boolean(shield.ownerId && enemyBodyAt(state, shield.ownerId, cell));
   const lineX = orkkCell.x - shield.position.x;
   const lineY = orkkCell.y - shield.position.y;
   const deviationFromDirectLine = (cell: Cell) => Math.abs(lineX * (cell.y - shield.position.y) - lineY * (cell.x - shield.position.x));
@@ -6484,7 +6607,9 @@ export function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Ce
       for (const next of neighbors) {
         if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state)) continue;
         const isOrkk = next.x === orkkCell.x && next.y === orkkCell.y;
-        const blockedByObject = state.objects.some((entry) => entry.id !== shield.id && entry.position.x === next.x && entry.position.y === next.y);
+        const blockedByObject = state.objects.some((entry) => entry.id !== shield.id
+          && !(entry.kind === 'spectre-replica' && entry.ownerId !== shield.ownerId)
+          && entry.position.x === next.x && entry.position.y === next.y);
         if (blockedByObject && !isOrkk) continue;
         if ((next.x === shield.position.x && next.y === shield.position.y) || current.path.some((cell) => cell.x === next.x && cell.y === next.y)) continue;
         const previousCell = current.path.length > 1 ? current.path[current.path.length - 2] : shield.position;
@@ -6531,31 +6656,40 @@ function nearestRecallableOrkkShield(state: GameState, ownerId: PlayerId, orkkCe
 
 function pullEnemiesAlongShieldRecall(state: GameState, shield: BoardObject, orkkId: PlayerId, path: Cell[], sourceName: string, triggerAnimationId?: string): void {
   const orkk = state.players[orkkId];
-  const passes: { enemyId: PlayerId; pathIndex: number }[] = [];
+  const passes: { body: CharacterBody; pathIndex: number }[] = [];
   for (const [pathIndex, cell] of path.entries()) {
-    const enemy = Object.values(state.players).find((entry) => entry.id !== orkkId && entry.position.x === cell.x && entry.position.y === cell.y);
-    if (!enemy || passes.some((entry) => entry.enemyId === enemy.id)) continue;
-    passes.push({ enemyId: enemy.id, pathIndex });
+    const enemy = enemyBodyAt(state, orkkId, cell);
+    if (!enemy || passes.some((entry) => entry.body.kind === enemy.kind && entry.body.id === enemy.id)) continue;
+    passes.push({ body: enemy, pathIndex });
   }
   for (const pass of passes.sort((a, b) => b.pathIndex - a.pathIndex)) {
-    const enemy = state.players[pass.enemyId];
+    const enemy = pass.body;
+    const pushTarget = pushEntityForBody(enemy);
+    const current = getPushEntity(state, pushTarget.kind, pushTarget.id);
+    if (!current) continue;
     const destination = {
-      x: enemy.position.x + Math.sign(orkk.position.x - enemy.position.x),
-      y: enemy.position.y + Math.sign(orkk.position.y - enemy.position.y),
+      x: current.position.x + Math.sign(orkk.position.x - current.position.x),
+      y: current.position.y + Math.sign(orkk.position.y - current.position.y),
     };
     const blocked = (destination.x === orkk.position.x && destination.y === orkk.position.y)
-      || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
-      || state.objects.some((entry) => entry.id !== shield.id && entry.position.x === destination.x && entry.position.y === destination.y);
+      || Object.values(state.players).some((entry) => !(current.kind === 'player' && entry.id === current.id) && entry.position.x === destination.x && entry.position.y === destination.y)
+      || state.objects.some((entry) => entry.id !== shield.id && !(current.kind === 'object' && entry.id === current.id) && entry.position.x === destination.x && entry.position.y === destination.y);
     if (blocked) {
       state.log.unshift(`${sourceName} could not pull ${enemy.name} closer because the next Square toward ${orkk.name} was blocked.`);
       continue;
     }
-    const from = { ...enemy.position };
-    recordQuestMovement(state, enemy.id, 1, false, destination);
-    enemy.position = { ...destination };
-    markCharacterMoved(enemy, 'enemy-ability');
-    applyElevationDropDamage(state, { kind: 'player', id: enemy.id, position: from }, from, destination, orkkId, 'other');
-    if (triggerAnimationId) enemy.visualMovement = { from, path: [{ ...destination }], triggerAnimationId, triggerRouteProgress: (pass.pathIndex + 1) / path.length };
+    const from = { ...current.position };
+    if (current.kind === 'player') {
+      const moved = state.players[current.id as PlayerId];
+      recordQuestMovement(state, moved.id, 1, false, destination);
+      moved.position = { ...destination };
+      markCharacterMoved(moved, 'enemy-ability');
+      if (triggerAnimationId) moved.visualMovement = { from, path: [{ ...destination }], triggerAnimationId, triggerRouteProgress: (pass.pathIndex + 1) / path.length };
+    } else {
+      moveBoardObject(state, state.objects.find((object) => object.id === current.id)!, destination);
+      state.objectPushAnimations.push({ id: `${state.turn}-${sourceName}-pull-${current.id}-${++instanceSequence}`, objectId: current.id, from, to: { ...destination }, dx: Math.sign(destination.x - from.x), dy: Math.sign(destination.y - from.y), collided: false, path: [{ ...destination }] });
+    }
+    applyElevationDropDamage(state, current, from, destination, orkkId, 'other');
     state.log.unshift(`${sourceName} pulled ${enemy.name} 1 Square toward ${orkk.name}, to ${cellLabel(destination)}.`);
   }
 }
@@ -6615,15 +6749,15 @@ function resolveArmDaWizTarget(state: GameState, playerId: PlayerId, objectId: s
   // Arm da Wiz is resolved entirely from board occupancy: an enemy is affected
   // when any Square in the Shield's calculated recall path contains that enemy.
   // No mesh, animation, timing, or physics collision is consulted.
-  const shieldPasses: { enemyId: PlayerId; pathIndex: number }[] = [];
+  const shieldPasses: { body: CharacterBody; pathIndex: number }[] = [];
   for (const [pathIndex, cell] of path.entries()) {
-    const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === cell.x && entry.position.y === cell.y);
-    if (!enemy || shieldPasses.some((entry) => entry.enemyId === enemy.id)) continue;
-    shieldPasses.push({ enemyId: enemy.id, pathIndex });
+    const enemy = enemyBodyAt(state, playerId, cell);
+    if (!enemy || shieldPasses.some((entry) => entry.body.kind === enemy.kind && entry.body.id === enemy.id)) continue;
+    shieldPasses.push({ body: enemy, pathIndex });
     if (arm.level >= 2) {
       const damage = 1 + meleeHighGroundDamageBonus(state, orkk, enemy.position, shield.position);
       const damageAnimationStart = state.objectPushAnimations.length;
-      dealDamage(state, enemy, damage, true, playerId, 'perk');
+      damageCharacterBody(state, enemy, damage, true, playerId, 'perk');
       for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
         if (!event.damage?.collision) continue;
         event.damage.triggerAnimationId = recallAnimationId;
@@ -6668,8 +6802,8 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
     || state.objects.some((entry) => entry.position.x === cell.x && entry.position.y === cell.y));
   const collisionCell = collisionIndex >= 0 ? path[collisionIndex] : target;
   const travelledPath = collisionIndex >= 0 ? path.slice(0, collisionIndex + 1) : path;
-  const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
-  const obstacle = state.objects.find((entry) => entry.position.x === collisionCell.x && entry.position.y === collisionCell.y);
+  const enemy = enemyBodyAt(state, playerId, collisionCell);
+  const obstacle = state.objects.find((entry) => entry.position.x === collisionCell.x && entry.position.y === collisionCell.y && entry.id !== (enemy?.kind === 'replica' ? enemy.id : ''));
   const collision = Boolean(enemy || obstacle);
   const shieldId = `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`;
   const shieldAnimationId = `${state.turn}-arkane-arow-${shieldId}`;
@@ -6697,23 +6831,19 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
   if (enemy) {
     const baseCollisionDamage = throwState.level >= 2 ? 2 : 1;
     const collisionDamage = baseCollisionDamage + meleeHighGroundDamageBonus(state, caster, enemy.position);
-    dealDamage(state, enemy, collisionDamage, true, playerId, 'perk');
+    damageCharacterBody(state, enemy, collisionDamage, true, playerId, 'perk');
     state.log.unshift(`ARKANE AROW collided with ${enemy.name} and dealt ${collisionDamage} damage.`);
     if (throwState.level >= 3) {
       const dx = Math.sign(collisionCell.x - previous.x); const dy = Math.sign(collisionCell.y - previous.y);
-      const destination = { x: enemy.position.x + dx, y: enemy.position.y + dy };
-      const inBounds = destination.x >= 1 && destination.x <= boardWidth(state) && destination.y >= 0 && destination.y < boardHeight(state);
-      const blocked = !inBounds || Object.values(state.players).some((entry) => entry.id !== enemy.id && entry.position.x === destination.x && entry.position.y === destination.y)
-        || state.objects.some((entry) => entry.position.x === destination.x && entry.position.y === destination.y);
+      const pushTarget = pushEntityForBody(enemy);
+      const blocked = pushEntity(state, pushTarget, dx, dy, 1, throwState.level, playerId, false, 'perk');
       if (!blocked) {
-        const pushFrom = { ...enemy.position };
-        recordQuestMovement(state, enemy.id, 1, false, destination); enemy.position = destination; markCharacterMoved(enemy, 'enemy-ability');
-        enemy.visualMovement = { from: pushFrom, path: [{ ...destination }], triggerAnimationId: shieldAnimationId };
-        applyElevationDropDamage(state, { kind: 'player', id: enemy.id, position: pushFrom }, pushFrom, destination, playerId, 'perk');
+        const destination = getPushEntity(state, pushTarget.kind, pushTarget.id)!.position;
+        if (pushTarget.kind === 'player') state.players[enemy.ownerId].visualMovement = { from: { ...enemy.position }, path: [{ ...destination }], triggerAnimationId: shieldAnimationId };
         pushed = true;
         state.log.unshift(`ARKANE AROW pushed ${enemy.name} to ${cellLabel(destination)}.`);
       } else {
-        dealDamage(state, enemy, 1, true, playerId, 'perk');
+        damageCharacterBody(state, enemy, 1, true, playerId, 'perk');
         state.log.unshift(`${enemy.name} could not be pushed and received 1 additional damage.`);
       }
     }
@@ -6762,6 +6892,7 @@ function selectKykTarget(state: GameState, playerId: PlayerId, objectId: string)
   if (object?.kind === 'wall-pillar') return fail(state, 'Wall Objects cannot be moved.');
   const target = object ?? (enemy?.id !== playerId ? enemy : null);
   if (!target || distance(target.position, state.players[playerId].position) !== 1) return fail(state, 'Kyk requires an Object or enemy adjacent to Da Orkk.');
+  if (isShadowCloakedPerkTarget(state, object ? 'object' : 'player', objectId)) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
   kyk.targetKind = object ? 'object' : 'player'; kyk.targetId = objectId; state.phase = 'choosing-kyk-direction';
   state.log.unshift('Kyk: select a highlighted legal push direction.');
   return ok(state);
@@ -6784,12 +6915,12 @@ function resolveKykDirection(state: GameState, playerId: PlayerId, to: Cell): Co
   }
   const object = state.objects.find((entry) => entry.id === target.id)!;
   const start = { ...object.position }; const traveled: Cell[] = [];
-  let current = { ...start }; let hitEnemy: PlayerState | null = null; let collided = false;
+  let current = { ...start }; let hitEnemy: CharacterBody | null = null; let collided = false;
   for (let step = 0; step < kyk.distance; step++) {
     const next = { x: current.x + dx, y: current.y + dy };
     if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state)) { collided = true; break; }
-    const enemy = Object.values(state.players).find((entry) => entry.id !== playerId && entry.position.x === next.x && entry.position.y === next.y);
-    const blockingObject = state.objects.some((entry) => entry.id !== object.id && entry.position.x === next.x && entry.position.y === next.y);
+    const enemy = enemyBodyAt(state, playerId, next);
+    const blockingObject = state.objects.some((entry) => entry.id !== object.id && entry.id !== (enemy?.kind === 'replica' ? enemy.id : '') && entry.position.x === next.x && entry.position.y === next.y);
     const blockedByOrkk = orkk.position.x === next.x && orkk.position.y === next.y;
     if (enemy || blockingObject || blockedByOrkk) { hitEnemy = enemy ?? null; collided = true; break; }
     current = next; traveled.push({ ...current });
@@ -6798,7 +6929,7 @@ function resolveKykDirection(state: GameState, playerId: PlayerId, to: Cell): Co
   if (hitEnemy) {
     const baseDamage = kyk.level >= 3 ? 3 : 1;
     const damage = baseDamage + meleeHighGroundDamageBonus(state, orkk, hitEnemy.position);
-    dealDamage(state, hitEnemy, damage, true, playerId, 'perk');
+    damageCharacterBody(state, hitEnemy, damage, true, playerId, 'perk');
     state.log.unshift(`Kyk's Object collided with ${hitEnemy.name} and dealt ${damage} damage.`);
   }
   const destroysObject = kyk.level >= 3;
@@ -6825,14 +6956,14 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   if (path.some((cell, index) => isForbiddenSlideAscent(state, index === 0 ? player.position : path[index - 1], cell))) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
   if (state.objects.some((object) => object.position.x === to.x && object.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
   if (Object.values(state.players).some((entry) => entry.id !== playerId && entry.hp > 0 && entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Shizzle must finish on an empty Square.');
-  const passedEnemies = shizzle.level >= 2 ? Object.values(state.players).filter((entry) => entry.id !== playerId && path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
+  const passedEnemies = shizzle.level >= 2 ? enemyBodies(state, playerId).filter((entry) => path.slice(0, -1).some((cell) => cell.x === entry.position.x && cell.y === entry.position.y)) : [];
   recordQuestMovement(state, player.id, steps, false, to);
   const enteredFrom = path.length > 1 ? path[path.length - 2] : { ...player.position };
   player.visualMovement = { from: { ...player.position }, path: path.map((cell) => ({ ...cell })), sourceCardId: 'shizzle' };
   player.position = { ...to };
   applySlideSquare(state, player, enteredFrom);
   markCharacterMoved(player, 'own-card');
-  for (const enemy of passedEnemies) dealDamage(state, enemy, 1, true, playerId, 'perk');
+  for (const enemy of passedEnemies) damageCharacterBody(state, enemy, 1, true, playerId, 'perk');
   state.shizzle = null; state.phase = 'active';
   gainManaFromResolvedSpell(state, player);
   state.log.unshift(`Shizzle moved ${player.name} ${steps} Squares to ${cellLabel(to)}${passedEnemies.length ? ` and dealt 1 Damage to ${passedEnemies.map((enemy) => enemy.name).join(', ')}` : ''}.`);
@@ -6847,17 +6978,18 @@ function moveShizzle(state: GameState, player: PlayerState, to: Cell): CommandRe
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
   if (targetObject && shizzle.stepsRemaining <= 1) return fail(state, 'Shizzle must finish on an empty Square.');
-  const targetEnemy = Object.values(state.players).find((entry) => entry.id !== player.id && entry.position.x === to.x && entry.position.y === to.y);
+  const targetEnemy = enemyBodyAt(state, player.id, to);
   if (targetEnemy && shizzle.stepsRemaining <= 1) return fail(state, 'Shizzle must finish on an empty Square.');
-  const passedEnemy = shizzle.enemyUnderfoot ? state.players[shizzle.enemyUnderfoot] : null;
+  const shizzleBodies = shizzle as typeof shizzle & { bodyUnderfoot?: CharacterBody | null };
+  const passedEnemy = shizzleBodies.bodyUnderfoot ?? (shizzle.enemyUnderfoot ? characterBody(state, 'player', shizzle.enemyUnderfoot) : null);
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'shizzle' };
   player.position = { ...to };
   applySlideSquare(state, player, enteredFrom);
   markCharacterMoved(player, 'own-card');
-  shizzle.started = true; shizzle.stepsRemaining -= 1; shizzle.enemyUnderfoot = targetEnemy?.id ?? null;
-  if (passedEnemy && shizzle.level >= 2) dealDamage(state, passedEnemy, 1, true, player.id, 'perk');
+  shizzle.started = true; shizzle.stepsRemaining -= 1; shizzle.enemyUnderfoot = targetEnemy?.kind === 'player' ? targetEnemy.ownerId : null; shizzleBodies.bodyUnderfoot = targetEnemy ?? null;
+  if (passedEnemy && shizzle.level >= 2) damageCharacterBody(state, passedEnemy, 1, true, player.id, 'perk');
   state.log.unshift(`${player.name} Shizzled to ${cellLabel(to)} (${shizzle.stepsRemaining} steps remain)${passedEnemy && shizzle.level >= 2 ? `, dealing 1 Damage to ${passedEnemy.name}` : ''}.`);
   if (shizzle.stepsRemaining === 0) {
     state.shizzle = null; state.phase = 'active'; gainManaFromResolvedSpell(state, player);
@@ -6870,6 +7002,7 @@ function selectMagicHandTarget(state: GameState, playerId: PlayerId, targetKind:
   if (state.phase !== 'choosing-magic-hand-target' || !hand || hand.casterId !== playerId) return fail(state, 'Magic Hand is not waiting for a target.');
   if (targetKind === 'player' && hand.level < 3) return fail(state, 'Magic Hand can push enemies only at Level 3.');
   if (targetKind === 'player' && targetId === playerId) return fail(state, 'Magic Hand cannot target its caster.');
+  if (isShadowCloakedPerkTarget(state, targetKind, targetId)) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
   if (targetKind === 'object' && state.objects.some((object) => object.id === targetId && isFixedWallObject(object))) return fail(state, 'Fixed Wall Objects cannot be pushed by Magic Hand.');
   const target = getPushEntity(state, targetKind, targetId);
   if (!target) return fail(state, 'That Magic Hand target does not exist.');
@@ -6907,6 +7040,7 @@ function selectForceThrowTarget(state: GameState, playerId: PlayerId, targetKind
   if (state.phase !== 'choosing-force-throw-target' || !force || force.casterId !== playerId) return fail(state, 'Force Throw is not waiting for a target.');
   if (targetKind === 'player' && force.level < 3) return fail(state, 'Only level 3 Force Throw can target enemy Players.');
   if (targetKind === 'player' && targetId === playerId) return fail(state, 'Force Throw cannot target its caster.');
+  if (isShadowCloakedPerkTarget(state, targetKind, targetId)) return fail(state, 'Shadow Cloak makes that character ineligible as a Perk target.');
   if (targetKind === 'object' && state.objects.some((object) => object.id === targetId && isFixedWallObject(object))) return fail(state, 'Fixed Wall Objects cannot be pushed.');
   const target = getPushEntity(state, targetKind, targetId);
   if (!target) return fail(state, 'That Force Throw target does not exist.');
@@ -7047,8 +7181,8 @@ function resolveSpectreReplicaSquare(state: GameState, playerId: PlayerId, to: C
     state.log.unshift(`Replicate created a replica and drew ${drawn} Card.`);
   }
   if (pending.source === 'replicate' && pending.level >= 2) {
-    const enemies = Object.values(state.players)
-      .filter((enemy) => enemy.id !== playerId && enemy.hp > 0 && distance(replica.position, enemy.position) <= 2)
+    const enemies = enemyBodies(state, playerId)
+      .filter((enemy) => !state.players[enemy.ownerId].spectreShadowCloakActive && distance(replica.position, enemy.position) <= 2)
       .sort((a, b) => a.id.localeCompare(b.id));
     for (const enemy of enemies) {
       const from = { ...enemy.position };
@@ -7056,23 +7190,27 @@ function resolveSpectreReplicaSquare(state: GameState, playerId: PlayerId, to: C
         state.log.unshift(`Replicate found ${enemy.name} already adjacent to the replica.`);
         continue;
       }
-      const destination = shortestPullPath(state, { kind: 'player', id: enemy.id, position: from }, replica.position)[0];
+      const pushTarget = pushEntityForBody(enemy);
+      const destination = shortestPullPath(state, pushTarget, replica.position)[0];
       if (!destination) {
         state.log.unshift(`Replicate could not pull ${enemy.name} toward the replica because no legal route was available.`);
         continue;
       }
-      recordQuestMovement(state, enemy.id, 1, false, destination);
-      enemy.position = destination;
-      enemy.visualMovement = { from, path: [{ ...destination }], kind: 'replicate-pull', source: { ...replica.position }, tetherSource: { ...replica.position }, sourceObjectId: replica.id, sourcePlayerId: playerId, delayMs: 500, durationMs: 1000 };
-      markCharacterMoved(enemy, 'enemy-ability');
-      applyElevationDropDamage(state, { kind: 'player', id: enemy.id, position: from }, from, destination, playerId, 'perk');
+      if (enemy.kind === 'player') {
+        const moved = state.players[enemy.ownerId];
+        recordQuestMovement(state, moved.id, 1, false, destination);
+        moved.position = destination;
+        moved.visualMovement = { from, path: [{ ...destination }], kind: 'replicate-pull', source: { ...replica.position }, tetherSource: { ...replica.position }, sourceObjectId: replica.id, sourcePlayerId: playerId, delayMs: 500, durationMs: 1000 };
+        markCharacterMoved(moved, 'enemy-ability');
+      } else moveBoardObject(state, state.objects.find((object) => object.id === enemy.id)!, destination);
+      applyElevationDropDamage(state, pushTarget, from, destination, playerId, 'perk');
       state.log.unshift(`Replicate pulled ${enemy.name} 1 Square toward the replica, to ${cellLabel(destination)}.`);
     }
-    const adjacentEnemies = Object.values(state.players).filter((enemy) => enemy.id !== playerId && enemy.hp > 0 && distance(replica.position, enemy.position) === 1);
-    for (const enemy of adjacentEnemies) addForcedStatusCard(state, enemy, 'panic', 'hand', playerId, 'perk', true);
-    state.log.unshift(`Replicate added Panic to ${adjacentEnemies.length > 0 ? adjacentEnemies.map((enemy) => enemy.name).join(', ') : 'no enemies'} adjacent to the replica after the pull.`);
+    const adjacentEnemies = enemyBodies(state, playerId).filter((enemy) => !state.players[enemy.ownerId].spectreShadowCloakActive && distance(replica.position, enemy.position) === 1);
     if (pending.level >= 3) {
-      for (const enemy of adjacentEnemies) dealDamage(state, enemy, 1, false, playerId, 'perk');
+      for (const enemy of adjacentEnemies) addForcedStatusCard(state, state.players[enemy.ownerId], 'panic', 'hand', playerId, 'perk', true);
+      state.log.unshift(`Replicate added Panic to ${adjacentEnemies.length > 0 ? adjacentEnemies.map((enemy) => enemy.name).join(', ') : 'no enemies'} adjacent to the replica after the pull.`);
+      for (const enemy of adjacentEnemies) damageCharacterBody(state, enemy, 1, false, playerId, 'perk');
       state.log.unshift(`Replicate level 3 dealt 1 Damage to ${adjacentEnemies.length > 0 ? adjacentEnemies.map((enemy) => enemy.name).join(', ') : 'no adjacent enemies'} after the pull.`);
     }
   }
@@ -7172,13 +7310,14 @@ function resolveSpectreRelocate(state: GameState, player: PlayerState, replica: 
   const origin = { ...player.position };
   const replicaOrigin = { ...replica.position };
   const originBoxId = player.spectreOnBoxId ?? null;
-  const lineVictims = level >= 2 ? enemiesBetweenCells(state, player.id, origin, replicaOrigin) : [];
-  for (const enemy of lineVictims) dealDamage(state, enemy, 1, false, player.id, 'perk');
-  if (level >= 2) state.log.unshift(`Relocate's tether dealt 1 Damage to ${lineVictims.length > 0 ? lineVictims.map((enemy) => enemy.name).join(', ') : 'no enemies'} between Spectre and the chosen replica.`);
+  const lineVictims = enemiesBetweenCells(state, player.id, origin, replicaOrigin);
+  for (const enemy of lineVictims) damageCharacterBody(state, enemy, 1, false, player.id, 'perk');
+  state.log.unshift(`Relocate's tether dealt 1 Damage to ${lineVictims.length > 0 ? lineVictims.map((enemy) => enemy.name).join(', ') : 'no enemies'} on tiles intersected by the line.`);
   player.position = replicaOrigin;
   player.spectreOnBoxId = replica.spectreOnBoxId ?? null;
   replica.position = origin;
   replica.spectreOnBoxId = originBoxId;
+  player.spectreRelocateTetherReplicaId = replica.id;
   player.visualMovement = { from: origin, path: [{ ...player.position }], kind: 'relocate', sourceObjectId: replica.id, sourceCardId: 'relocate', durationMs: 280 };
   state.objectPushAnimations.push({
     id: `${state.turn}-spectre-relocate-${replica.id}-${state.objectPushAnimations.length}`,
@@ -7190,17 +7329,16 @@ function resolveSpectreRelocate(state: GameState, player: PlayerState, replica: 
     collided: false,
   });
   markCharacterMoved(player, 'own-card');
-  grantMovement(player, 1);
-  if (level >= 2) player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + 1;
+  if (level >= 2) grantMovement(player, 1);
   if (level >= 3) player.actionsRemaining += 1;
   const statuses = player.hand.filter(isNegativeStatusCard);
-  if (statuses.length > 0) {
+  if (level >= 2 && statuses.length > 0) {
     (state as SpectreTargetingState).spectreStatusChoice = { playerId: player.id, mode: 'relocate' };
     state.phase = 'choosing-blessed-prayer-discard';
     state.log.unshift(`Relocate swapped Spectre with the replica at ${cellLabel(player.position)}, granted +1 MOV, and requires 1 negative Status Card to be Removed.`);
   } else {
     state.phase = 'active';
-    state.log.unshift(`Relocate swapped Spectre with the replica at ${cellLabel(player.position)} and granted +1 MOV${level >= 2 ? ' and +1 ATT' : ''}${level >= 3 ? ' and 1 Action' : ''}.`);
+    state.log.unshift(`Relocate swapped Spectre with the replica at ${cellLabel(player.position)}${level >= 2 ? ' and granted +1 MOV' : ''}${level >= 3 ? ' and 1 Action' : ''}.`);
   }
   return ok(state);
 }
@@ -7253,14 +7391,15 @@ function resolveSpectreShadowDirection(state: GameState, playerId: PlayerId, to:
   caster.spectreShadowMoveBonus = (caster.spectreShadowMoveBonus ?? 0) + 1;
   grantMovement(caster, 1);
   const projectileId = `${playerId}-shadow-dagger-${++instanceSequence}`;
-  const enemies = Object.values(state.players).filter((enemy) => enemy.id !== playerId && enemy.hp > 0 && trail.some((cell) => cell.x === enemy.position.x && cell.y === enemy.position.y));
+  const enemies = enemyBodies(state, playerId).filter((enemy) => !state.players[enemy.ownerId].spectreShadowCloakActive && trail.some((cell) => cell.x === enemy.position.x && cell.y === enemy.position.y));
   for (const enemy of enemies) {
-    if (pending.level >= 2) {
-      enemy.spectreShadowDefensePenalty = (enemy.spectreShadowDefensePenalty ?? 0) + 1;
-    }
+    const owner = state.players[enemy.ownerId];
     if (pending.level >= 3) {
+      owner.spectreShadowDefensePenalty = (owner.spectreShadowDefensePenalty ?? 0) + 1;
+    }
+    if (pending.level >= 2) {
       const damageEventStart = state.objectPushAnimations.length;
-      dealDamage(state, enemy, 1, false, playerId, 'perk');
+      damageCharacterBody(state, enemy, 1, false, playerId, 'perk');
       const collisionIndex = trail.findIndex((cell) => cell.x === enemy.position.x && cell.y === enemy.position.y);
       for (const event of state.objectPushAnimations.slice(damageEventStart)) if (event.damage) {
         event.damage.triggerAnimationId = projectileId;
@@ -7268,9 +7407,9 @@ function resolveSpectreShadowDirection(state: GameState, playerId: PlayerId, to:
       }
     }
   }
-  if (trail.length > 0) state.spellProjectiles.push({ id: projectileId, casterId: playerId, targetId: `shadow-trail-${playerId}`, from: { ...origin }, to: { ...trail[trail.length - 1] }, path: trail.map((cell) => ({ ...cell })), count: 1, damage: pending.level >= 3 ? 1 : 0, style: 'missile' });
+  if (trail.length > 0) state.spellProjectiles.push({ id: projectileId, casterId: playerId, targetId: `shadow-trail-${playerId}`, from: { ...origin }, to: { ...trail[trail.length - 1] }, path: trail.map((cell) => ({ ...cell })), count: 1, damage: pending.level >= 2 ? 1 : 0, style: 'missile' });
   state.phase = 'active';
-  state.log.unshift(`Shadow Dagger from ${pending.origin === 'replica' ? 'the replica' : 'Spectre'} travelled to ${trail.length > 0 ? cellLabel(trail[trail.length - 1]) : cellLabel(origin)} and hit ${enemies.length} enem${enemies.length === 1 ? 'y' : 'ies'}${pending.level >= 2 ? ', reducing their next Defend Card by 1' : ''}.`);
+  state.log.unshift(`Shadow Dagger from ${pending.origin === 'replica' ? 'the replica' : 'Spectre'} travelled to ${trail.length > 0 ? cellLabel(trail[trail.length - 1]) : cellLabel(origin)} and hit ${enemies.length} enem${enemies.length === 1 ? 'y' : 'ies'}${pending.level >= 3 ? ', reducing their next Defend Card by 1' : ''}.`);
   return ok(state);
 }
 
@@ -7367,12 +7506,14 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   if (!dance || state.phase !== 'dance-through') return fail(state, 'Dance Through is not active.');
   if (distance(player.position, to) !== 1) return fail(state, 'Dance Through moves exactly one square at a time.');
   if (isForbiddenSlideAscent(state, player.position, to)) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.hp > 0 && candidate.position.x === to.x && candidate.position.y === to.y);
+  const targetEnemyBody = enemyBodyAt(state, player.id, to);
+  const targetEnemy = targetEnemyBody?.kind === 'player' ? state.players[targetEnemyBody.ownerId] : null;
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
   if (targetEnemy && isHighGroundSlideEntry(state, player.position, to)) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
   if ((targetEnemy || targetObject) && dance.stepsRemaining <= 1) return fail(state, 'Not enough Dance Through movement remains to leave the occupied Square.');
-  const passedEnemy = dance.enemyUnderfoot ? state.players[dance.enemyUnderfoot] : null;
-  const danceWithTransit = dance as typeof dance & { objectUnderfoot?: string | null; pinnedEnemyIds?: PlayerId[] };
+  const danceWithTransit = dance as typeof dance & { objectUnderfoot?: string | null; pinnedEnemyIds?: PlayerId[]; pinnedBodyIds?: string[] };
+  const passedReplica = danceWithTransit.objectUnderfoot ? characterBody(state, 'replica', danceWithTransit.objectUnderfoot) : null;
+  const passedEnemy = passedReplica ?? (dance.enemyUnderfoot ? characterBody(state, 'player', dance.enemyUnderfoot) : null);
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }] };
@@ -7385,10 +7526,11 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   state.log.unshift(`${player.name} danced to ${cellLabel(to)} (${dance.stepsRemaining} steps left).`);
   if (passedEnemy) {
     const danceWithPins = danceWithTransit;
-    danceWithPins.pinnedEnemyIds ??= [];
-    if (!danceWithPins.pinnedEnemyIds.includes(passedEnemy.id)) {
-      danceWithPins.pinnedEnemyIds.push(passedEnemy.id);
-      const pinnedStacks = applyPinned(passedEnemy, 1, state, player.id);
+    danceWithPins.pinnedBodyIds ??= [];
+    const bodyKey = `${passedEnemy.kind}:${passedEnemy.id}`;
+    if (!danceWithPins.pinnedBodyIds.includes(bodyKey)) {
+      danceWithPins.pinnedBodyIds.push(bodyKey);
+      const pinnedStacks = applyPinned(state.players[passedEnemy.ownerId], 1, state, player.id);
       state.log.unshift(`Dance Through passed through ${passedEnemy.name} and applied 1 Pinned stack (${pinnedStacks} total).`);
     } else state.log.unshift(`Dance Through had already applied Pinned to ${passedEnemy.name} during this movement.`);
   }
@@ -7410,12 +7552,14 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   if (!jump || state.phase !== 'double-jump' || jump.playerId !== player.id) return fail(state, 'Double Jump is not active.');
   if (distance(player.position, to) !== 1) return fail(state, 'Double Jump moves exactly one square at a time.');
   if (isForbiddenSlideAscent(state, player.position, to)) return fail(state, 'Characters cannot move directly from a Slide or Trench Square onto High Ground.');
-  const targetEnemy = Object.values(state.players).find((candidate) => candidate.id !== player.id && candidate.hp > 0 && candidate.position.x === to.x && candidate.position.y === to.y);
+  const targetEnemyBody = enemyBodyAt(state, player.id, to);
+  const targetEnemy = targetEnemyBody?.kind === 'player' ? state.players[targetEnemyBody.ownerId] : null;
   const targetObject = state.objects.find((object) => object.position.x === to.x && object.position.y === to.y);
   if (targetEnemy && isHighGroundSlideEntry(state, player.position, to)) return fail(state, 'An occupied Slide Square cannot be entered from adjacent High Ground.');
   if ((targetEnemy || targetObject) && jump.stepsRemaining <= 1) return fail(state, 'Shinobi must end Double Jump on an unoccupied Square.');
-  const passedEnemy = jump.enemyUnderfoot ? state.players[jump.enemyUnderfoot] : null;
-  const jumpWithTransit = jump as typeof jump & { objectUnderfoot?: string | null; pinnedEnemyIds?: PlayerId[] };
+  const jumpWithTransit = jump as typeof jump & { objectUnderfoot?: string | null; pinnedEnemyIds?: PlayerId[]; pinnedBodyIds?: string[] };
+  const passedReplica = jumpWithTransit.objectUnderfoot ? characterBody(state, 'replica', jumpWithTransit.objectUnderfoot) : null;
+  const passedEnemy = passedReplica ?? (jump.enemyUnderfoot ? characterBody(state, 'player', jump.enemyUnderfoot) : null);
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }] };
@@ -7428,10 +7572,11 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   state.log.unshift(`${player.name} double-jumped to ${cellLabel(to)} (${jump.stepsRemaining} steps left).`);
   if (passedEnemy) {
     const jumpWithPins = jumpWithTransit;
-    jumpWithPins.pinnedEnemyIds ??= [];
-    if (!jumpWithPins.pinnedEnemyIds.includes(passedEnemy.id)) {
-      jumpWithPins.pinnedEnemyIds.push(passedEnemy.id);
-      const pinnedStacks = applyPinned(passedEnemy, 1, state, player.id);
+    jumpWithPins.pinnedBodyIds ??= [];
+    const bodyKey = `${passedEnemy.kind}:${passedEnemy.id}`;
+    if (!jumpWithPins.pinnedBodyIds.includes(bodyKey)) {
+      jumpWithPins.pinnedBodyIds.push(bodyKey);
+      const pinnedStacks = applyPinned(state.players[passedEnemy.ownerId], 1, state, player.id);
       state.log.unshift(`Double Jump passed through ${passedEnemy.name} and applied 1 Pinned stack (${pinnedStacks} total).`);
     } else state.log.unshift(`Double Jump had already applied Pinned to ${passedEnemy.name} during this movement.`);
   }
@@ -7651,6 +7796,7 @@ function endTurn(state: GameState): GameState {
   current.arcaneBoltAttackBonus = 0;
   if (current.character === 'spectre') {
     current.spectreAttackBonus = 0;
+    current.spectreRelocateTetherReplicaId = null;
     current.spectreAccumulateActive = 0;
     current.spectreShadowMoveBonus = 0;
     (state as SpectreTargetingState).spectreShadow = null;
@@ -7723,6 +7869,10 @@ function finalizeTurn(state: GameState): GameState {
   }
   state.activePlayerId = nextId; state.phase = 'active'; state.pendingAttack = null; state.dashCancellation = null; state.danceThrough = null; state.doubleJump = null; state.forceThrow = null; state.forcePull = null; state.arkaneArow = null; state.armDaWiz = null; state.preparation = null; state.arcaneMissle = null; state.chainLightning = null; state.magicHand = null; state.shizzle = null; state.mindTricks = null; state.forceDisarm = null; state.flurry = null; state.pendingManaChoice = null;
   const next = state.players[nextId];
+  if (next.character === 'spectre' && next.spectreShadowCloakActive) {
+    next.spectreShadowCloakActive = false;
+    state.log.unshift(`${next.name}'s Shadow Cloak expired at the beginning of their turn.`);
+  }
   if (!beginsNewRound || !endingQuest.currentQuest || state.turn <= endingQuest.currentQuest.endsAfterRound) resolveCaptureTheFlagAtTurnStart(state);
   if (endingQuest.currentQuest?.id === 'provocateur') endingQuest.turnStartedOnHighGround[nextId] = isHighGround(state, next.position);
   for (const player of Object.values(state.players)) player.damagedDuringEnemyTurn = false;
@@ -8062,6 +8212,16 @@ function removeAllDebuffs(player: PlayerState, removeBurning = false) {
   const negativeStatusIds: CardTypeId[] = ['pinned', 'headache', 'exhaust', ...(removeBurning ? ['burning' as const, 'panic' as const] : [])];
   player.hand = player.hand.filter((entry) => !negativeStatusIds.includes(entry.cardId));
   adjustUnspentMovementForRangeChange(player, previousMoveRange);
+}
+function removeNegativeHandEffects(player: PlayerState): number {
+  const previousMoveRange = movementRangeForAdjustment(player);
+  const negativeStatusIds: CardTypeId[] = ['pinned', 'headache', 'exhaust', 'burning', 'panic'];
+  const removed = player.hand.filter((card) => negativeStatusIds.includes(card.cardId)).length;
+  player.hand = player.hand.filter((card) => !negativeStatusIds.includes(card.cardId));
+  player.pinnedStacks = player.hand.filter((card) => card.cardId === 'pinned').length;
+  player.pinnedGainedThisTurn = Math.min(player.pinnedGainedThisTurn, player.pinnedStacks);
+  adjustUnspentMovementForRangeChange(player, previousMoveRange);
+  return removed;
 }
 function advanceSpellEchoAtTurnEnd(state: GameState, player: PlayerState) {
   const [positionOne, positionTwo, positionThree] = player.spellEcho;

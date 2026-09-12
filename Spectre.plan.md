@@ -51,7 +51,7 @@ Update `src/i18n.ts` with Russian card names/effect text and any Spectre trait/s
 Tests in `scripts/check-rules.ts`:
 
 - Character schema accepts Spectre in multiplayer.
-- Spectre initializes at 17 HP / 3 MOV / Range 1.
+- Spectre initializes at 16 HP / 3 MOV / Range 1.
 - Opening setup guarantees Replicate in Hand, uses the correct nine defaults, and exposes the correct focus and phase choices.
 - All Spectre card definitions exist and have the intended kind/value.
 
@@ -101,15 +101,15 @@ Tests:
 ### Replicate
 
 - Use the lifecycle helpers from Phase 3.
-- At Level 2, add public Panic to every adjacent enemy Hand.
-- At Level 3, reveal one eligible Card privately to Spectre for each affected enemy using viewer-specific visibility and the resolved selection rule.
+- At Level 2, pull enemies without adding Panic.
+- At Level 3, add public Panic to every adjacent enemy Hand and deal 1 Damage to them.
 - Log each placement, replacement, status addition, and reveal.
 
 ### Relocate
 
 - Require an existing replica and atomically exchange the two positions.
-- Add a player-choice phase for removing one eligible negative Status from Hand; allow the flow to complete immediately if none exists.
-- Store a turn-scoped +1 ATT modifier at Level 2.
+- At Level 1, damage every enemy whose tile the tether intersects, re-evaluate newly intersected tiles as Spectre moves, and retain the twitching tether visual until turn end.
+- At Level 2, add a player-choice phase for removing one eligible negative Status from Hand and grant +1 MOV; allow the flow to complete immediately if none exists.
 - Add 1 Action at Level 3 using the resolved cap/refund behavior.
 - Mark the visual movement cause as own-card movement and animate both bodies simultaneously or in a coordinated sequence.
 
@@ -117,7 +117,7 @@ Tests:
 
 - Add a Spectre-only direction-selection command and generate the maximal horizontal/vertical/diagonal trail to the board edge; the replica can neither originate nor use it.
 - Store trail Squares and expiration turn in `GameState`.
-- Drive the dagger projectile along the line and apply Level 2 MOV penalties and Level 3 Perk Damage at each enemy collision animation event. Enemies entering the completed trail later are unaffected.
+- Drive the dagger projectile along the line and apply Level 2 Perk Damage and Level 3 DEF penalties at each enemy collision animation event. Enemies entering the completed trail later are unaffected.
 - Extend pathfinding with a narrowly scoped Spectre trail mode. Use weighted path cost because Column traversal can cost 0 while ordinary steps and Box climbing cost MOV.
 - In trail mode, override terrain-edge restrictions such as The Trench's forbidden Low-to-High ascent and future River passability. Preserve normal MOV costs unless explicitly overridden.
 - Add reusable transit-only terrain invariants so Spectre cannot finish movement or end the turn in a Column, River, or future non-occupiable trail Square.
@@ -134,11 +134,12 @@ Tests:
 
 ## Phase 6 — implement extra perks
 
-### Consume Replica
+### Shadow Cloak
 
 - Reject use without a replica.
-- Snapshot the last replica position, destroy it, add Headache, and set +2/+3 turn-scoped ATT.
-- At Level 3, deal 1 Perk Damage to enemies adjacent to the snapshot position.
+- Destroy all replicas with a shadow-dissolve animation. Level 1 grants Spell Immunity until the beginning of Spectre's next turn and adds Headache.
+- Spell Immunity prevents Perk targeting, Perk AOE Damage, and negative effects originating from Perks. Attack effects remain valid.
+- Level 2 removes all negative Status Cards and effects from Hand. Level 3 grants +1 ATT until turn end per removed effect.
 
 ### Fear
 
@@ -156,7 +157,7 @@ Tests:
 
 ## Phase 7 — implement attacks
 
-- Add a shared Spectre turn ATT modifier helper used by Relocate, Consume Replica, Fear, and Accumulate; include each modifier in the combat breakdown.
+- Add shared Spectre ATT modifier handling for Haunt, Shadow Cloak, Fear, and Accumulate; include each modifier in the combat breakdown.
 - **Solitude:** inspect all eight adjacent Squares around the target; count players, replicas, Columns, and Objects while excluding the attacking Spectre owner and their replica as specified.
 - **Deja Vu:** snapshot replica existence at declaration and resolve the Action/draw at the confirmed timing.
 - **Echo Strike:** snapshot or resolve the replica position per the final rule, then deal 1 Attack-effect Damage to all adjacent characters, including Spectre and allies.
