@@ -198,6 +198,13 @@ export function updateShadowDaggerProjectile(dagger: THREE.Mesh, timeSeconds: nu
   });
 }
 
+type CloakMotion = { previous: THREE.Vector3; lag: THREE.Vector3[]; movementBlend: number };
+const cloakMotion = new WeakMap<THREE.Group, CloakMotion>();
+const cloakPosition = new THREE.Vector3();
+const cloakLagTarget = new THREE.Vector3();
+const cloakLocalOrigin = new THREE.Vector3();
+const cloakLocalEnd = new THREE.Vector3();
+
 /** A procedural smoke mantle: dark, curling plumes with faint violet edges. */
 export function updateSpectreShadowCloak(root: THREE.Group, active: boolean, delta: number): void {
   let mantle = root.getObjectByName('SpectreShadowMantle') as THREE.Group | undefined;
@@ -208,17 +215,25 @@ export function updateSpectreShadowCloak(root: THREE.Group, active: boolean, del
     mantle.userData.strength = 0;
     const material = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      uniforms: { time: { value: 0 }, strength: { value: 0 }, offset: { value: 0 } },
+      uniforms: { time: { value: 0 }, strength: { value: 0 }, offset: { value: 0 }, drag: { value: new THREE.Vector3() } },
       vertexShader: `
         varying vec2 smokeUv;
         uniform float time;
         uniform float offset;
+        uniform vec3 drag;
         void main() {
           smokeUv = uv;
           vec3 p = position;
           float curl = sin(uv.y * 11.0 - time * 2.4 + uv.x * 18.85 + offset);
           p.xz *= 1.0 + curl * 0.12;
           p.x += sin(time * 1.6 + uv.y * 8.0 + offset) * uv.y * 0.10;
+          // The middle stays close to the body; loose lower smoke and upper
+          // wisps yield to motion, especially on the trailing side.
+          float loose = 0.16 + 0.62 * pow(abs(uv.y - 0.48) * 2.0, 1.35);
+          vec2 dragDirection = drag.xz / max(length(drag.xz), 0.001);
+          float trailing = 0.5 + 0.5 * dot(normalize(position.xz), dragDirection);
+          p += drag * loose * (0.38 + trailing * 0.85);
+          p.y += sin(time * 4.0 + uv.y * 10.0 + offset) * length(drag) * 0.055;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }`,
       fragmentShader: `
@@ -263,24 +278,48 @@ export function updateSpectreShadowCloak(root: THREE.Group, active: boolean, del
   const target = active ? 1 : 0;
   mantle.userData.strength = THREE.MathUtils.damp(Number(mantle.userData.strength), target, active ? 7 : 4, delta);
   mantle.visible = mantle.userData.strength > 0.005;
-  for (const child of mantle.children) {
+  root.getWorldPosition(cloakPosition);
+  let motion = cloakMotion.get(mantle);
+  if (!motion) {
+    motion = { previous: cloakPosition.clone(), lag: mantle.children.map(() => new THREE.Vector3()), movementBlend: 0 };
+    cloakMotion.set(mantle, motion);
+  }
+  cloakLagTarget.subVectors(motion.previous, cloakPosition);
+  // Discontinuous teleports/repositioning should not fling the cloak across the board.
+  const reset = delta <= 0 || cloakLagTarget.lengthSq() > 1;
+  const moving = !reset && Math.hypot(cloakLagTarget.x, cloakLagTarget.z) / Math.max(delta, 0.001) > 0.05;
+  motion.movementBlend = THREE.MathUtils.damp(motion.movementBlend, moving ? 1 : 0, moving ? 18 : 8, delta);
+  if (reset) {
+    cloakLagTarget.set(0, 0, 0);
+    motion.lag.forEach((lag) => lag.set(0, 0, 0));
+  } else {
+    cloakLagTarget.y = 0;
+    cloakLagTarget.multiplyScalar(0.20 / Math.max(delta, 0.001)).clampLength(0, 1.4);
+  }
+  motion.previous.copy(cloakPosition);
+  mantle.children.forEach((child, index) => {
     const material = (child as THREE.Mesh).material as THREE.ShaderMaterial;
     material.uniforms.time.value += delta;
-    material.uniforms.strength.value = mantle.userData.strength;
+    material.uniforms.strength.value = mantle.userData.strength * (1 - motion!.movementBlend * 0.2);
     child.rotation.y += delta * 0.18;
-  }
+    const lag = motion!.lag[index];
+    // Outer layers respond more slowly, retaining a short wake after stopping.
+    lag.lerp(cloakLagTarget, 1 - Math.exp(-delta * (12 - index * 2.5)));
+    child.updateWorldMatrix(true, false);
+    cloakLocalOrigin.copy(cloakPosition);
+    cloakLocalEnd.copy(cloakPosition).addScaledVector(lag, 0.5 + index * 0.3);
+    child.worldToLocal(cloakLocalOrigin);
+    child.worldToLocal(cloakLocalEnd);
+    (material.uniforms.drag.value as THREE.Vector3).subVectors(cloakLocalEnd, cloakLocalOrigin);
+  });
 }
 
-/**
- * Keep replicas ghostlike without alpha-blending the highlighted tile over them.
- * Both board and preview renderers use MSAA, so sample coverage provides the
- * translucency while the surviving samples still write depth normally.
- */
-export function setSpectreReplicaTransparency(material: THREE.Material, opacity: number): void {
+/** Make replica geometry fully opaque while preserving normal depth behavior. */
+export function makeSpectreReplicaMaterialOpaque(material: THREE.Material): void {
   material.transparent = false;
-  material.opacity = opacity;
+  material.opacity = 1;
   material.depthWrite = true;
   material.alphaHash = false;
-  material.alphaToCoverage = true;
+  material.alphaToCoverage = false;
   material.needsUpdate = true;
 }

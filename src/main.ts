@@ -13,7 +13,7 @@ import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChrist
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import {
   createShadowDaggerProjectile,
-  setSpectreReplicaTransparency,
+  makeSpectreReplicaMaterialOpaque,
   updateShadowDaggerProjectile,
   updateSpectreShadowCloak,
   updateSpectreShadowFootMist,
@@ -3528,11 +3528,15 @@ renderer.setAnimationLoop((time) => {
       const body = group.children[0];
       if (group.userData.spectreAnimation) {
         if (body) body.position.y = 0;
-        group.scale.setScalar(1);
+        group.scale.setScalar(SPECTRE_REPLICA_SCALE);
       } else {
         if (body) body.position.y = Math.sin(time * 0.0035) * 0.08;
         const pulse = 0.96 + Math.sin(time * 0.006) * 0.045;
-        group.scale.set(pulse, 1 + Math.sin(time * 0.005) * 0.035, pulse);
+        group.scale.set(
+          SPECTRE_REPLICA_SCALE * pulse,
+          SPECTRE_REPLICA_SCALE * (1 + Math.sin(time * 0.005) * 0.035),
+          SPECTRE_REPLICA_SCALE * pulse,
+        );
       }
     }
   });
@@ -5638,13 +5642,24 @@ const SPECTRE_WALK_TIME_SCALE = 1;
 const SPECTRE_RUN_FRAMES_PER_CELL = 6;
 const SPECTRE_RUN_TIME_SCALE = 1.1;
 const SPECTRE_RELOCATE_SWAP_MS = 280;
+const SPECTRE_SCALE = 1.38;
+const SPECTRE_REPLICA_SCALE = 1.32;
 type SpectreAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<SpectreAnimationName, THREE.AnimationAction>;
   current: SpectreAnimationName;
   oneShot?: 'Fear' | 'Arise';
   idlePauseUntil?: number;
+  idlePhaseOffsetSeconds: number;
+  idlePauseDurationMs: number;
 };
+
+function spectreIdlePhase(root: THREE.Group) {
+  const identity = String(root.userData.objectId ?? root.userData.playerId ?? Math.random());
+  let hash = 2166136261;
+  for (let index = 0; index < identity.length; index++) hash = Math.imul(hash ^ identity.charCodeAt(index), 16777619);
+  return (hash >>> 0) / 0xffffffff;
+}
 
 function spectreMovementDuration(travelSquares: number) {
   const squares = Math.max(1, travelSquares);
@@ -5717,6 +5732,7 @@ function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fa
   const next = state.actions[name];
   if (state.current !== name) previous.fadeOut(fade);
   next.reset().fadeIn(fade).play();
+  if (name === 'Idle') next.time = state.idlePhaseOffsetSeconds;
   state.current = name;
   state.oneShot = name === 'Fear' || name === 'Arise' ? name : undefined;
   state.idlePauseUntil = undefined;
@@ -5755,7 +5771,7 @@ function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefin
     return;
   }
   if (state.current !== 'Idle' || !currentAction.paused) return;
-  state.idlePauseUntil ??= performance.now() + 5000;
+  state.idlePauseUntil ??= performance.now() + state.idlePauseDurationMs;
   if (performance.now() >= state.idlePauseUntil) playSpectreAnimation(group, 'Idle', 0);
 }
 
@@ -5785,7 +5801,7 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
           material.emissiveIntensity = Math.max(material.emissiveIntensity, replica ? 0.65 : 0.24);
           material.roughness = Math.max(material.roughness, replica ? 0.48 : 0.62);
         }
-        if (replica) setSpectreReplicaTransparency(material, 0.58);
+        if (replica) makeSpectreReplicaMaterialOpaque(material);
       });
     });
     const persistentEffects = body.children.filter((child) => child instanceof THREE.PointLight);
@@ -5815,7 +5831,14 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     actions.Idle.setLoop(THREE.LoopOnce, 1); actions.Idle.clampWhenFinished = true;
     actions.Fear.setLoop(THREE.LoopOnce, 1); actions.Fear.clampWhenFinished = true;
     actions.Arise.setLoop(THREE.LoopOnce, 1); actions.Arise.clampWhenFinished = true;
-    root.userData.spectreAnimation = { mixer, actions, current: replica ? 'Arise' : 'Idle' } satisfies SpectreAnimationState;
+    const idlePhase = spectreIdlePhase(root);
+    root.userData.spectreAnimation = {
+      mixer,
+      actions,
+      current: replica ? 'Arise' : 'Idle',
+      idlePhaseOffsetSeconds: clips.Alert.duration * idlePhase * 0.7,
+      idlePauseDurationMs: 3600 + idlePhase * 2800,
+    } satisfies SpectreAnimationState;
     const pending = root.userData.pendingSpectreAnimation as 'Fear' | undefined;
     delete root.userData.pendingSpectreAnimation;
     playSpectreAnimation(root, pending ?? (replica ? 'Arise' : 'Idle'), 0);
@@ -5828,17 +5851,23 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
 
 function createSpectre(_playerColor = 0x169bd3, replica = false) {
   const root = new THREE.Group();
-  root.scale.setScalar(1.15);
+  root.scale.setScalar(replica ? SPECTRE_REPLICA_SCALE : SPECTRE_SCALE);
   const body = new THREE.Group(); body.name = replica ? 'SpectreReplicaBody' : 'SpectreBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
   root.userData.spectreReplica = replica;
   const shadow = new THREE.MeshStandardMaterial({ color: replica ? 0x211840 : 0x100e1b, emissive: replica ? 0x6d42d8 : 0x160d2b, emissiveIntensity: replica ? 1.65 : 0.42, roughness: 0.8 });
   const armor = new THREE.MeshStandardMaterial({ color: replica ? 0x49327d : 0x29243d, emissive: replica ? 0x8a59ff : 0x170e2d, emissiveIntensity: replica ? 1.8 : 0.34, metalness: 0.5, roughness: 0.46 });
   if (replica) {
-    setSpectreReplicaTransparency(shadow, 0.58);
-    setSpectreReplicaTransparency(armor, 0.62);
+    makeSpectreReplicaMaterialOpaque(shadow);
+    makeSpectreReplicaMaterialOpaque(armor);
   }
-  const glow = new THREE.MeshBasicMaterial({ color: replica ? 0xbc8cff : 0x8d69ff, transparent: true, opacity: replica ? 0.8 : 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const glow = new THREE.MeshBasicMaterial({
+    color: replica ? 0xbc8cff : 0x8d69ff,
+    transparent: !replica,
+    opacity: replica ? 1 : 0.95,
+    blending: replica ? THREE.NormalBlending : THREE.AdditiveBlending,
+    depthWrite: replica,
+  });
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
     const mesh = new THREE.Mesh(geometry, material); mesh.position.set(...position); mesh.castShadow = !replica; parent.add(mesh); return mesh;
   };
