@@ -11,11 +11,22 @@ import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, j
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
-import { setSpectreReplicaTransparency, updateSpectreShadowCloak } from './spectreVisuals.ts';
+import {
+  createShadowDaggerProjectile,
+  setSpectreReplicaTransparency,
+  updateShadowDaggerProjectile,
+  updateSpectreShadowCloak,
+  updateSpectreShadowFootMist,
+} from './spectreVisuals.ts';
+import { createShadowTrail, updateShadowTrail } from './shadowTrail.ts';
+import { createChainLightning, updateChainLightning } from './chainLightningVisuals.ts';
+import { createMindBlast, updateMindBlast } from './mindBlastVisuals.ts';
+import { addSpiritGuardianVisuals, updateSpiritGuardianVisuals, disposeSpiritGuardianVisuals } from './spiritGuardianVisuals.ts';
+import { createMoonlightWave, updateMoonlightWave, disposeMoonlightWave } from './moonlightVisuals.ts';
+import { createArcaneMissile, updateArcaneMissile, spawnArcaneImpact, updateArcaneImpacts } from './arcaneMissileVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -3263,6 +3274,7 @@ const objectGroups = new Map<string, THREE.Group>();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
 scene.add(spectreShadowTrailGroup);
+let spectreShadowTrailKey = '';
 const nagrandOuterRingGroup = new THREE.Group();
 nagrandOuterRingGroup.name = 'NagrandOuterRing';
 scene.add(nagrandOuterRingGroup);
@@ -3297,8 +3309,8 @@ const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
-const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean }[] = [];
-const moonwaveAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; startScale: number; endScale: number }[] = [];
+const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
+const moonwaveAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number }[] = [];
 const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
@@ -3307,7 +3319,7 @@ const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: TH
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean }>();
+const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean }>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
@@ -3433,13 +3445,21 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
+  updateArcaneImpacts(deltaSeconds);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
   updateCharacterFacing(deltaSeconds);
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
     const defeated = gameState.players[id]?.hp <= 0;
-    if (group.userData.character === 'spectre') updateSpectreShadowCloak(group, !defeated && Boolean(gameState.players[id]?.spectreShadowCloakActive), deltaSeconds);
+    if (group.userData.character === 'magician') {
+      updateSwiftformVisual(group, !defeated && (gameState.shizzle?.casterId === id || movementAnimations.get(id)?.shizzle === true));
+    }
+    if (group.userData.character === 'spectre') {
+      updateSpectreShadowCloak(group, !defeated && Boolean(gameState.players[id]?.spectreShadowCloakActive), deltaSeconds);
+      const shadow = (gameState as GameState & { spectreShadow?: { casterId: PlayerId } | null }).spectreShadow;
+      updateSpectreShadowFootMist(group, !defeated && shadow?.casterId === id && movementAnimations.has(id), deltaSeconds);
+    }
     if (defeated) {
       movementAnimations.delete(id);
       if (group.userData.character === 'magician') updateWizardAnimation(group, false, deltaSeconds);
@@ -3500,6 +3520,7 @@ renderer.setAnimationLoop((time) => {
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
   });
   objectGroups.forEach((group, objectId) => {
+    if (group.userData.objectKind === 'spirit-guardian') updateSpiritGuardianVisuals(group, deltaSeconds);
     if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
     const aura = group.getObjectByName('PhylacteryAura');
     if (aura) { aura.rotation.z = time * 0.0008; aura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
@@ -3515,10 +3536,7 @@ renderer.setAnimationLoop((time) => {
       }
     }
   });
-  spectreShadowTrailGroup.children.forEach((child, index) => {
-    const material = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
-    material.opacity = 0.34 + Math.sin(time * 0.005 - index * 0.55) * 0.13;
-  });
+  updateShadowTrail(spectreShadowTrailGroup, time / 1000);
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
@@ -3765,20 +3783,38 @@ function updateDamageVisuals(time: number) {
 }
 
 function syncSpellProjectiles() {
+  const lightningHops = new Map<PlayerId, number>();
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
     processedSpellProjectiles.add(event.id);
+    if (event.style === 'mind-blast') {
+      const position = worldPosition(event.to).add(new THREE.Vector3(0, 1.85, 0));
+      const mesh = createMindBlast();
+      mesh.position.copy(position); scene.add(mesh);
+      spellProjectileAnimations.push({ animationId: event.id, mesh, points: [position, position], startedAt: performance.now(), duration: 820, delay: 0, casterId: event.casterId });
+      continue;
+    }
+    if (event.style === 'lightning') {
+      const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0));
+      const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
+      const hop = lightningHops.get(event.casterId) ?? 0;
+      lightningHops.set(event.casterId, hop + 1);
+      const mesh = createChainLightning(from, to);
+      mesh.visible = false;
+      scene.add(mesh);
+      spellProjectileAnimations.push({ animationId: event.id, mesh, points: [from, to], startedAt: performance.now(), duration: 620, delay: hop * 140, casterId: event.casterId, lightning: true });
+      continue;
+    }
     if (event.style === 'moonwave') {
-      const points = event.path.map((cell) => {
+      const points = [event.from, ...event.path].map((cell) => {
         const point = worldPosition(cell);
-        point.y += 0.16;
+        point.y += 0.3;
         return point;
       });
-      if (points.length > 0) {
-        const material = new THREE.MeshBasicMaterial({ color: 0x42ff8a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-        const wave = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.08, 12, 44), material);
-        wave.position.copy(points[0]); wave.rotation.x = Math.PI / 2; scene.add(wave);
-        moonwaveAnimations.push({ mesh: wave, points, startedAt: performance.now(), duration: points.length > 1 ? 920 : 620, startScale: 0.45, endScale: 1.35 });
+      if (event.path.length > 0) {
+        const wave = createMoonlightWave();
+        wave.position.copy(points[0]); scene.add(wave);
+        moonwaveAnimations.push({ mesh: wave, points, startedAt: performance.now(), duration: event.path.length > 1 ? 920 : 620 });
       }
       continue;
     }
@@ -3799,7 +3835,10 @@ function syncSpellProjectiles() {
       scene.add(group); holyFireAnimations.push({ group, flames, startedAt: performance.now() });
       continue;
     }
+    const shadowDagger = event.id.includes('-shadow-dagger-');
+    const arcane = event.id.includes('-arcane-');
     let points = event.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 1.25, 0)));
+    if (shadowDagger) points.unshift(worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0)));
     if (event.style === 'boomerang') {
       const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.15, 0));
       const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.15, 0));
@@ -3812,11 +3851,27 @@ function syncSpellProjectiles() {
     }
     for (let index = 0; index < event.count; index++) {
       const boomerang = event.style === 'boomerang';
-      const material = new THREE.MeshStandardMaterial({ color: boomerang ? 0xd8a24b : 0xc34cff, emissive: boomerang ? 0xffc45c : 0x8a18ff, emissiveIntensity: 3, metalness: boomerang ? 0.75 : 0, roughness: 0.25 });
-      const mesh = new THREE.Mesh(boomerang ? new THREE.TorusGeometry(0.22, 0.055, 10, 24, Math.PI * 1.45) : new THREE.SphereGeometry(0.12, 16, 12), material);
-      const light = new THREE.PointLight(boomerang ? 0xffb84f : 0xb14cff, 2.4, 3); mesh.add(light);
+      const material = shadowDagger || arcane ? null : new THREE.MeshStandardMaterial({ color: boomerang ? 0xd8a24b : 0xc34cff, emissive: boomerang ? 0xffc45c : 0x8a18ff, emissiveIntensity: 3, metalness: boomerang ? 0.75 : 0, roughness: 0.25 });
+      const mesh = arcane ? createArcaneMissile() : shadowDagger
+        ? createShadowDaggerProjectile()
+        : new THREE.Mesh(boomerang ? new THREE.TorusGeometry(0.22, 0.055, 10, 24, Math.PI * 1.45) : new THREE.SphereGeometry(0.12, 16, 12), material!);
+      if (!shadowDagger && !arcane) {
+        const light = new THREE.PointLight(boomerang ? 0xffb84f : 0xb14cff, 2.4, 3);
+        mesh.add(light);
+      }
       mesh.position.copy(points[0]); scene.add(mesh);
-      spellProjectileAnimations.push({ animationId: event.id, mesh, points, startedAt: performance.now(), duration: boomerang ? 1050 : Math.max(900, (points.length - 1) * 480), delay: index * 280, casterId: event.casterId, boomerang });
+      spellProjectileAnimations.push({
+        animationId: event.id,
+        mesh,
+        points,
+        startedAt: performance.now(),
+        duration: boomerang ? 1050 : shadowDagger ? Math.max(720, (points.length - 1) * 190) : Math.max(900, (points.length - 1) * 480),
+        delay: index * 280,
+        casterId: event.casterId,
+        boomerang,
+        shadowDagger,
+        arcane,
+      });
     }
   }
 }
@@ -3837,14 +3892,33 @@ function updateSpellProjectiles(time: number) {
     const segmentFloat = progress * Math.max(1, animation.points.length - 1);
     const segment = Math.min(animation.points.length - 2, Math.floor(segmentFloat));
     const local = segmentFloat - segment;
-    animation.mesh.position.lerpVectors(animation.points[segment], animation.points[segment + 1], local);
-    animation.mesh.position.y += Math.sin(progress * Math.PI * 8) * 0.08;
+    if (animation.mesh.name === 'MindBlast') {
+      updateMindBlast(animation.mesh, elapsed);
+    } else if (animation.lightning) {
+      updateChainLightning(animation.mesh, elapsed);
+    } else {
+      animation.mesh.position.lerpVectors(animation.points[segment], animation.points[segment + 1], local);
+      animation.mesh.position.y += Math.sin(progress * Math.PI * 8) * 0.08;
+    }
+    if (animation.arcane) updateArcaneMissile(animation.mesh, animation.points, progress, time / 1000);
+    if (animation.shadowDagger) {
+      const direction = animation.points[Math.min(segment + 1, animation.points.length - 1)].clone().sub(animation.points[segment]);
+      if (direction.lengthSq() > 0.0001) animation.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction.normalize());
+      updateShadowDaggerProjectile(animation.mesh, time / 1000, progress);
+    }
     if (animation.boomerang) {
       animation.mesh.rotation.y = progress * Math.PI * 12;
       animation.mesh.rotation.x = Math.PI / 2 + Math.sin(progress * Math.PI * 2) * 0.18;
     }
     if (progress >= 1) {
-      scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
+      if (animation.arcane) spawnArcaneImpact(scene, animation.mesh.position);
+      scene.remove(animation.mesh);
+      animation.mesh.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        child.geometry.dispose();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((childMaterial) => childMaterial.dispose());
+      });
       spellProjectileAnimations.splice(index, 1);
     }
   }
@@ -3852,13 +3926,14 @@ function updateSpellProjectiles(time: number) {
     const animation = moonwaveAnimations[index];
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const easedProgress = THREE.MathUtils.smoothstep(progress, 0, 1);
-    if (animation.points.length > 1) animation.mesh.position.lerpVectors(animation.points[0], animation.points[animation.points.length - 1], easedProgress);
-    const expansion = THREE.MathUtils.lerp(animation.startScale, animation.endScale, easedProgress);
-    animation.mesh.scale.set(expansion, expansion, Math.max(0.35, expansion * 0.55));
-    animation.mesh.rotation.z = progress * 0.45;
-    (animation.mesh.material as THREE.MeshBasicMaterial).opacity = progress < 0.72 ? 0.9 : 0.9 * (1 - (progress - 0.72) / 0.28);
+    const route = easedProgress * (animation.points.length - 1);
+    const segment = Math.min(animation.points.length - 2, Math.floor(route));
+    const from = animation.points[segment], to = animation.points[segment + 1];
+    animation.mesh.position.lerpVectors(from, to, route - segment);
+    animation.mesh.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+    updateMoonlightWave(animation.mesh, progress, time / 1000);
     if (progress >= 1) {
-      scene.remove(animation.mesh); animation.mesh.geometry.dispose(); (animation.mesh.material as THREE.Material).dispose();
+      disposeMoonlightWave(animation.mesh);
       moonwaveAnimations.splice(index, 1);
     }
   }
@@ -4637,6 +4712,7 @@ function createSpiritGuardian(level: number) {
   const cloak = add(new THREE.ConeGeometry(0.58, 1.5, 18, 1, true), lightGold, [0, 0.92, 0.2]); cloak.rotation.x = -0.08;
   for (const side of [-1, 1]) {
     const wing = add(new THREE.ConeGeometry(0.34, 1.5, 5), lightGold, [side * 0.52, 1.46, 0.28]);
+    wing.name = `GuardianWing${side}`; wing.userData.side = side;
     wing.rotation.z = side * -0.72; wing.rotation.x = 0.18; wing.scale.z = 0.32;
   }
   const spear = add(new THREE.CylinderGeometry(0.035, 0.045, 2.7, 10), gold, [0.62, 1.23, -0.04]); spear.rotation.z = -0.08;
@@ -4646,6 +4722,7 @@ function createSpiritGuardian(level: number) {
   const halo = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.035, 10, 40), lightGold); halo.position.set(0, 2.18, 0); halo.rotation.x = Math.PI / 2; root.add(halo);
   const glow = new THREE.PointLight(0xffc74f, level >= 2 ? 4.5 : 3, 5); glow.position.set(0, 1.4, 0); root.add(glow);
   root.scale.setScalar(level >= 2 ? 1.13 : 0.75);
+  addSpiritGuardianVisuals(root);
   return root;
 }
 
@@ -6057,13 +6134,10 @@ function applyJohnScepterPose(staff: THREE.Object3D, animation: JohnAnimationNam
 
 function loadJohnScepterAsset() {
   return (johnScepterAssetPromise ??= retryAssetLoad(
-    `${import.meta.env.BASE_URL}models/john-christ-scepter.glb?v=20260912-1`,
+    `${import.meta.env.BASE_URL}models/john-christ-scepter.glb?v=20260912-2`,
     (url) => {
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
-      dracoLoader.setDecoderConfig({ type: 'wasm' });
       const loader = new GLTFLoader();
-      loader.setDRACOLoader(dracoLoader);
+      loader.setMeshoptDecoder(MeshoptDecoder);
       return loader.loadAsync(url);
     },
   ).catch((error) => { johnScepterAssetPromise = null; throw error; }));
@@ -7266,28 +7340,23 @@ function worldPosition(cell: Cell) {
 }
 
 function syncSpectreShadowTrail() {
+  const shadow = (gameState as GameState & { spectreShadow?: { casterId: PlayerId; trail: Cell[] } | null }).spectreShadow;
+  const nextKey = shadow?.trail.length
+    ? `${shadow.casterId}:${shadow.trail.map(cellLabel).join('|')}`
+    : '';
+  if (nextKey === spectreShadowTrailKey) return;
+  spectreShadowTrailKey = nextKey;
   for (const child of [...spectreShadowTrailGroup.children]) {
     spectreShadowTrailGroup.remove(child);
-    if (child instanceof THREE.Mesh) {
-      child.geometry.dispose();
-      (child.material as THREE.Material).dispose();
-    }
+    child.traverse((descendant) => {
+      if (!(descendant instanceof THREE.Mesh)) return;
+      descendant.geometry.dispose();
+      const materials = Array.isArray(descendant.material) ? descendant.material : [descendant.material];
+      materials.forEach((material) => material.dispose());
+    });
   }
-  const shadow = (gameState as GameState & { spectreShadow?: { casterId: PlayerId; trail: Cell[] } | null }).spectreShadow;
   if (!shadow?.trail.length) return;
-  const color = shadow.casterId === 'P2' ? 0xff4d79 : shadow.casterId === 'P3' ? 0xa66cff : 0x4d52ff;
-  shadow.trail.forEach((cell, index) => {
-    const ribbon = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.58, 1.58),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    ribbon.rotation.x = -Math.PI / 2;
-    ribbon.rotation.z = index * 0.14;
-    ribbon.position.copy(worldPosition(cell));
-    ribbon.position.y += 0.09;
-    ribbon.renderOrder = 3;
-    spectreShadowTrailGroup.add(ribbon);
-  });
+  spectreShadowTrailGroup.add(createShadowTrail(shadow.trail.map(worldPosition)));
 }
 
 function replicatePullChestPosition(sourceCell: Cell, sourceObjectId?: string) {
@@ -7551,7 +7620,7 @@ function syncBoard() {
               : !forced && character === 'john-christ'
                 ? gameState.players[id].spiritForm ? johnSpiritMovementDuration(travelSquares) : johnMovementDuration(travelSquares)
               : 320 + travelSquares * 150;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate };
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle' };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -7584,7 +7653,7 @@ function syncBoard() {
       && gameState.objects.some((object) => object.id === event.objectId && object.ownerId === id)
       && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     if (equippedShield) equippedShield.visible = (gameState.players[id].shieldEquipped && !recallInFlight) || throwInFlight;
-    updateSwiftformVisual(group, gameState.players[id].character === 'shinobi' && gameState.players[id].swiftformCanPassEnemies);
+    if (character === 'shinobi') updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies);
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
     syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
@@ -7599,7 +7668,7 @@ function syncBoard() {
   syncHotPotatoVisual();
   const currentObjectIds = new Set(gameState.objects.map((object) => object.id));
   const animatedRemovalIds = new Set(gameState.objectPushAnimations.filter((event) => event.removeOnComplete && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId))).map((event) => event.objectId));
-  objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
+  objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); if (group.userData.objectKind === 'spirit-guardian') disposeSpiritGuardianVisuals(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
     const expectedPillarVariant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
@@ -7850,7 +7919,9 @@ const swiftformHologramMaterials = new WeakMap<THREE.Mesh, SwiftformHologramMate
 function updateSwiftformVisual(group: THREE.Group, active: boolean) {
   const wasActive = group.userData.swiftformHologramActive === true;
   if (!active && !wasActive) return;
-  const model = group.getObjectByName('ObiWanImportedModel') ?? group.getObjectByName('ObiWanBody');
+  const model = group.userData.character === 'magician'
+    ? group.getObjectByName('LongHatLoganImportedModel') ?? group.getObjectByName('LongHatLoganBody')
+    : group.getObjectByName('ObiWanImportedModel') ?? group.getObjectByName('ObiWanBody');
   model?.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     let materials = swiftformHologramMaterials.get(child);

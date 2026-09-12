@@ -1,5 +1,203 @@
 import * as THREE from 'three';
 
+function shadowMistMaterial(offset: number, opacity = 0.72): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: { time: { value: 0 }, strength: { value: 1 }, offset: { value: offset }, opacity: { value: opacity } },
+    vertexShader: `
+      varying vec2 smokeUv;
+      uniform float time;
+      uniform float offset;
+      void main() {
+        smokeUv = uv;
+        vec3 p = position;
+        p.z += sin(uv.x * 10.0 + time * 1.7 + offset) * 0.035;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 smokeUv;
+      uniform float time;
+      uniform float strength;
+      uniform float offset;
+      uniform float opacity;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      void main() {
+        vec2 centered = smokeUv - 0.5;
+        vec2 flow = smokeUv * vec2(5.5, 8.0) + vec2(time * 0.23, -time * 0.42 + offset);
+        float cloud = noise(flow) * 0.55 + noise(flow * 2.15 + 4.7) * 0.30 + noise(flow * 4.8 - 2.3) * 0.15;
+        float grain = noise(flow * 9.0 + offset * 0.37);
+        float softEdge = 1.0 - smoothstep(0.22, 0.50, length(centered));
+        float body = smoothstep(0.38, 0.69, cloud + grain * 0.14) * softEdge;
+        body *= smoothstep(0.32, 0.58, grain + cloud * 0.34);
+        float violetEdge = smoothstep(0.10, 0.28, body) * (1.0 - smoothstep(0.28, 0.52, body));
+        vec3 color = mix(vec3(0.006, 0.003, 0.014), vec3(0.29, 0.07, 0.52), violetEdge * 0.8);
+        float alpha = body * opacity * strength;
+        if (alpha < 0.018) discard;
+        gl_FragColor = vec4(color, alpha);
+      }`,
+  });
+}
+
+/** Low, animated smoke used to mark every tile in Shadow Dagger's persistent trail. */
+export function createSpectreShadowTrailTile(index: number): THREE.Group {
+  const tile = new THREE.Group();
+  tile.userData.shadowTrailIndex = index;
+
+  // Many small, irregular patches hide the tile boundary and leave visible gaps
+  // between the motes. Deterministic offsets keep the trail stable between syncs.
+  for (let moteIndex = 0; moteIndex < 13; moteIndex++) {
+    const angle = moteIndex * 2.39996 + index * 0.83;
+    const radius = 0.12 + ((moteIndex * 47 + index * 29) % 83) / 83 * 0.76;
+    const size = 0.34 + ((moteIndex * 31 + index * 17) % 61) / 61 * 0.48;
+    const mote = new THREE.Mesh(
+      new THREE.PlaneGeometry(size * 1.35, size, 3, 3),
+      shadowMistMaterial(index * 4.17 + moteIndex * 2.73, 0.34 + (moteIndex % 4) * 0.045),
+    );
+    mote.name = 'ShadowTrailMote';
+    mote.rotation.x = -Math.PI / 2;
+    mote.rotation.z = angle * 0.63;
+    mote.position.set(Math.cos(angle) * radius, moteIndex % 3 * 0.004, Math.sin(angle) * radius);
+    mote.renderOrder = 3;
+    mote.raycast = () => {};
+    tile.add(mote);
+  }
+
+  for (let wispIndex = 0; wispIndex < 4; wispIndex++) {
+    const angle = index * 1.37 + wispIndex * 2.23;
+    const wisp = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.44 + wispIndex * 0.07, 0.42 + (wispIndex % 2) * 0.12, 4, 4),
+      shadowMistMaterial(index * 5.13 + wispIndex * 7.7, 0.38),
+    );
+    wisp.name = 'ShadowTrailWisp';
+    wisp.position.set(Math.cos(angle) * 0.66, 0.13 + wispIndex * 0.055, Math.sin(angle) * 0.66);
+    wisp.rotation.y = index * 0.61 + wispIndex * 1.9;
+    wisp.userData.baseRotationY = wisp.rotation.y;
+    wisp.renderOrder = 4;
+    wisp.raycast = () => {};
+    tile.add(wisp);
+  }
+  return tile;
+}
+
+/** Advances ground smoke and the small wisps rising from it. */
+export function updateSpectreShadowTrail(root: THREE.Group, timeSeconds: number): void {
+  root.children.forEach((tile, tileIndex) => {
+    tile.children.forEach((child, childIndex) => {
+      const mesh = child as THREE.Mesh;
+      const material = mesh.material as THREE.ShaderMaterial;
+      if (material.uniforms?.time) material.uniforms.time.value = timeSeconds;
+      if (child.name === 'ShadowTrailWisp') {
+        const wispIndex = childIndex - 13;
+        const phase = timeSeconds * (0.65 + wispIndex * 0.11) + tileIndex * 1.73 + wispIndex;
+        child.position.y = 0.13 + wispIndex * 0.055 + Math.sin(phase) * 0.045;
+        child.rotation.y = Number(child.userData.baseRotationY) + Math.sin(phase * 0.7) * 0.32;
+      }
+    });
+  });
+}
+
+/** Curling ankle smoke while Spectre moves along her active dagger trail. */
+export function updateSpectreShadowFootMist(root: THREE.Group, active: boolean, delta: number): void {
+  let mist = root.getObjectByName('SpectreShadowFootMist') as THREE.Group | undefined;
+  if (!mist && !active) return;
+  if (!mist) {
+    mist = new THREE.Group();
+    mist.name = 'SpectreShadowFootMist';
+    mist.userData.strength = 0;
+    for (let index = 0; index < 4; index++) {
+      const wisp = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 0.62, 4, 4), shadowMistMaterial(index * 8.4, 0.72));
+      wisp.position.set(Math.cos(index * Math.PI / 2) * 0.28, 0.23, Math.sin(index * Math.PI / 2) * 0.28);
+      wisp.rotation.y = index * Math.PI / 2;
+      wisp.raycast = () => {};
+      mist.add(wisp);
+    }
+    root.add(mist);
+  }
+  mist.userData.strength = THREE.MathUtils.damp(Number(mist.userData.strength), active ? 1 : 0, active ? 9 : 5, delta);
+  mist.visible = mist.userData.strength > 0.01;
+  mist.rotation.y += delta * 1.1;
+  mist.children.forEach((child, index) => {
+    const material = (child as THREE.Mesh).material as THREE.ShaderMaterial;
+    material.uniforms.time.value += delta;
+    material.uniforms.strength.value = mist!.userData.strength;
+    child.position.y = 0.19 + Math.sin(material.uniforms.time.value * 2.2 + index) * 0.055;
+  });
+}
+
+/** A black, violet-edged dagger with its own turbulent smoke wake. */
+export function createShadowDaggerProjectile(): THREE.Mesh {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0.62, 0, 0,
+    0.02, 0, 0.14,
+    -0.44, 0, 0.055,
+    -0.58, 0, 0,
+    -0.44, 0, -0.055,
+    0.02, 0, -0.14,
+  ], 3));
+  geometry.setIndex([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5]);
+  geometry.computeVertexNormals();
+
+  const blade = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+    color: 0x08050d,
+    emissive: 0x210534,
+    emissiveIntensity: 1.4,
+    metalness: 0.45,
+    roughness: 0.36,
+    side: THREE.DoubleSide,
+  }));
+  blade.name = 'ShadowDaggerProjectile';
+  blade.renderOrder = 20;
+
+  const edge = new THREE.Mesh(geometry.clone(), new THREE.MeshBasicMaterial({
+    color: 0xa94dff,
+    transparent: true,
+    opacity: 0.86,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  }));
+  edge.name = 'ShadowDaggerEdge';
+  edge.position.y = -0.018;
+  edge.scale.set(1.16, 1, 1.22);
+  edge.renderOrder = 19;
+  blade.add(edge);
+
+  for (let index = 0; index < 4; index++) {
+    const smoke = new THREE.Mesh(new THREE.PlaneGeometry(0.46 + index * 0.1, 0.46 + index * 0.1, 3, 3), shadowMistMaterial(index * 6.9, 0.65));
+    smoke.name = 'ShadowDaggerSmoke';
+    smoke.rotation.x = -Math.PI / 2;
+    smoke.position.set(-0.34 - index * 0.25, -0.035, 0);
+    smoke.renderOrder = 18;
+    smoke.raycast = () => {};
+    blade.add(smoke);
+  }
+  const light = new THREE.PointLight(0x8c32e8, 2.1, 2.8);
+  light.position.y = 0.16;
+  blade.add(light);
+  return blade;
+}
+
+export function updateShadowDaggerProjectile(dagger: THREE.Mesh, timeSeconds: number, progress: number): void {
+  dagger.children.forEach((child, index) => {
+    if (child.name !== 'ShadowDaggerSmoke') return;
+    const smoke = child as THREE.Mesh;
+    const material = smoke.material as THREE.ShaderMaterial;
+    material.uniforms.time.value = timeSeconds + index * 0.19;
+    material.uniforms.strength.value = 0.78 + Math.sin(timeSeconds * 7 + index * 1.8) * 0.18;
+    const pulse = 0.82 + Math.sin(timeSeconds * 6.2 - index) * 0.16;
+    smoke.scale.setScalar(pulse * (1 - progress * 0.18));
+  });
+}
+
 /** A procedural smoke mantle: dark, curling plumes with faint violet edges. */
 export function updateSpectreShadowCloak(root: THREE.Group, active: boolean, delta: number): void {
   let mantle = root.getObjectByName('SpectreShadowMantle') as THREE.Group | undefined;
