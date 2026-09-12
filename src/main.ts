@@ -3346,6 +3346,7 @@ let lightingArenaId: ArenaId | null = null;
 let cameraGrab: { pointerId: number; pivot: THREE.Vector3; lastX: number; lastY: number; mode: 'orbit' | 'tilt' | 'pan'; dragDistance: number } | null = null;
 const cameraTouches = new Map<number, THREE.Vector2>();
 let touchCameraPan = false;
+let touchPinchDistance = 0;
 let suppressTouchBoardSelection = false;
 let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
@@ -8715,7 +8716,7 @@ function onCameraRotateStart(event: PointerEvent) {
     pivot,
     lastX: event.clientX,
     lastY: event.clientY,
-    mode: event.button === 1 ? 'pan' : event.button === 0 ? 'tilt' : 'orbit',
+    mode: event.button === 1 ? 'pan' : 'orbit',
     dragDistance: 0,
   };
   renderer.domElement.setPointerCapture(event.pointerId);
@@ -8728,8 +8729,14 @@ function touchCameraCenter() {
   return first.clone().add(second).multiplyScalar(0.5);
 }
 
+function touchDistance() {
+  const [first, second] = [...cameraTouches.values()];
+  return first.distanceTo(second);
+}
+
 function startTouchCameraPan() {
   const center = touchCameraCenter();
+  touchPinchDistance = touchDistance();
   cameraGrab = {
     pointerId: cameraTouches.keys().next().value!,
     pivot: controls.target.clone(),
@@ -8739,6 +8746,14 @@ function startTouchCameraPan() {
     dragDistance: 0,
   };
   renderer.domElement.style.cursor = 'grabbing';
+}
+
+function zoomCameraByScale(scale: number) {
+  const offset = camera.position.clone().sub(controls.target);
+  const distance = offset.length();
+  const clampedDistance = THREE.MathUtils.clamp(distance * scale, controls.minDistance, controls.maxDistance);
+  offset.normalize().multiplyScalar(clampedDistance);
+  camera.position.copy(controls.target).add(offset);
 }
 
 function onCameraGrabMove(event: PointerEvent) {
@@ -8756,6 +8771,9 @@ function onCameraGrabMove(event: PointerEvent) {
       const center = touchCameraCenter();
       x = center.x;
       y = center.y;
+      const distance = touchDistance();
+      if (touchPinchDistance > 0 && distance > 0) zoomCameraByScale(touchPinchDistance / distance);
+      touchPinchDistance = distance;
     }
   }
   if (!cameraGrab || (!touchCameraPan && cameraGrab.pointerId !== event.pointerId)) return;
@@ -8824,7 +8842,7 @@ function finishCameraGrab(event: PointerEvent) {
     }
   }
   if (!cameraGrab || cameraGrab.pointerId !== event.pointerId) return;
-  const suppressClick = cameraGrab.mode === 'tilt' && cameraGrab.dragDistance > 4;
+  const suppressClick = cameraGrab.mode !== 'pan' && cameraGrab.dragDistance > 4;
   controls.target.copy(cameraGrab.pivot);
   cameraGrab = null;
   levelCameraHorizon();
