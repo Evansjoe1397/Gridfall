@@ -9,6 +9,12 @@ import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
 import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, johnPlaybackRate, type JohnAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
+import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
+import { FrostmourneEffects } from './frostmourneEffects.ts';
+import { StingEffects } from './stingEffects.ts';
+import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectSwingDeferredByChoice, shuffledMerylinWeapons, type MerylinWeapon } from './merylinWeapons.ts';
+import { merylinHitDirections, merylinAttackYaw } from './merylinAttackFacing.ts';
+import { softenMerylinPreviewFace } from './merylinPreview.ts';
 import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import {
@@ -23,6 +29,8 @@ import { createChainLightning, updateChainLightning } from './chainLightningVisu
 import { createMindBlast, updateMindBlast } from './mindBlastVisuals.ts';
 import { addSpiritGuardianVisuals, updateSpiritGuardianVisuals, disposeSpiritGuardianVisuals } from './spiritGuardianVisuals.ts';
 import { createMoonlightWave, updateMoonlightWave, disposeMoonlightWave } from './moonlightVisuals.ts';
+import { MoonlightEffects } from './moonlightEffects.ts';
+import { LightbringerEffects } from './lightbringerEffects.ts';
 import { createArcaneMissile, updateArcaneMissile, spawnArcaneImpact, updateArcaneImpacts } from './arcaneMissileVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -98,6 +106,18 @@ import {
   type WizardActionEvent,
   type PlayerId,
 } from '../shared/game.ts';
+
+const LORDAERON_TOMB_BASE_Y = 0.105;
+const LORDAERON_HIGHGROUND_TOP_Y = 1.08;
+const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
+const STANDARD_HIGHGROUND_HEIGHT = 0.54;
+const STANDARD_HIGHGROUND_CENTER_Y = 0.19;
+const STANDARD_HIGHGROUND_TOP_Y = STANDARD_HIGHGROUND_CENTER_Y + STANDARD_HIGHGROUND_HEIGHT / 2;
+const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
+let characterPreviewJohnCycleStartedAt = 0;
+let characterPreviewMerylinCycleStartedAt = 0;
+let characterPreviewMerylinCycle = 0;
+let characterPreviewMerylinWeapons = shuffledMerylinWeapons();
 
 type Selection = { kind: 'none' } | { kind: 'move' } | { kind: 'attack'; cardInstanceId: string } | { kind: 'perk'; cardInstanceId: string };
 const selectionMachine = setup({
@@ -286,6 +306,7 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   const browser = document.querySelector('.character-browser');
   browser?.classList.remove('hidden');
   characterPreviewJohnCycleStartedAt = performance.now();
+  resetCharacterPreviewMerylinCycle();
   browser?.scrollIntoView({ block: 'start' });
   // The preview renderer is created while this panel is display:none. Rebuild
   // its render targets after layout has a real size; ResizeObserver callbacks
@@ -538,6 +559,9 @@ const POST_COMBAT_VISUAL_DELAY_MS = 500;
 let postCombatVisualNotBefore = 0;
 let activeCombatVisualAttackId: string | null = null;
 let completedCombatVisualAttackId: string | null = null;
+let merylinCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; weapon: MerylinWeapon } | null = null;
+let merylinCombatImpactPending = false;
+const merylinImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
 function pendingSpiritVisualAttack(playerId: PlayerId) {
   const pending = gameState.pendingAttack;
   // A returned Attack Card can be played again with the same instance id. Once
@@ -554,6 +578,9 @@ function resetCombatSummary() {
   postCombatVisualNotBefore = 0;
   activeCombatVisualAttackId = null;
   completedCombatVisualAttackId = null;
+  merylinCombatAttacker = null;
+  merylinCombatImpactPending = false;
+  merylinImpactWaits.clear();
 }
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
@@ -1116,6 +1143,8 @@ function dispatch(command: GameCommand) {
 }
 
 function renderAll() {
+  // Latch a closing Merylin summary before syncBoard consumes damage events.
+  renderCombatReveal();
   quickAttackEligibilityCache = null;
   if (pendingQuickAttackTargetId) closeQuickAttackPopup();
   syncBoard();
@@ -2247,6 +2276,13 @@ function renderCombatReveal() {
   if (!reveal) {
     if (combatRevealWasVisible) {
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
+      const swing = merylinCombatAttacker;
+      if (swing) {
+        // Frostmourne's after-combat choice is resolved before the swing. Keep
+        // damage/destruction presentation queued until its frame-28 impact.
+        merylinCombatImpactPending = true;
+        postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
+      }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
       activeCombatVisualAttackId = null;
     }
@@ -2258,12 +2294,27 @@ function renderCombatReveal() {
       lastCombatSummaryOpen = false;
       renderCombatReveal();
     });
+    const swing = merylinCombatAttacker;
+    if (swing && gameState.phase !== 'choosing-frostmourne') {
+      merylinCombatAttacker = null;
+      const attacker = dummyGroups.get(swing.attackerId);
+      const target = dummyGroups.get(swing.defenderId)?.position ?? worldPosition(gameState.players[swing.defenderId].position);
+      if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z);
+      playMerylinSwing(swing.attackerId, () => {
+        merylinCombatImpactPending = false;
+        postCombatVisualNotBefore = performance.now();
+        syncBoard();
+      }, swing.weapon, target);
+    }
     return;
   }
   lastCombatSummaryOpen = false;
   if (!combatRevealWasVisible) combatSummaryHidden = false;
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
+  const pendingSwing = gameState.pendingAttack;
+  merylinCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'merylin'
+    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, weapon: merylinWeaponForCard(pendingSwing.cardId) } : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const attackTranslation = hintsLanguage === 'ru' ? CARD_RULES_RU[attackDefinition.id] : undefined;
@@ -3295,7 +3346,7 @@ lordaeronTombGroup.name = 'LordaeronHighgroundTomb';
 scene.add(lordaeronTombGroup);
 let lordaeronTombModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
-type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; triggerRouteProgress?: number; triggered?: boolean };
+type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerRouteProgress?: number; triggered?: boolean };
 type ObjectDestructionPiece = {
   mesh: THREE.Mesh;
   origin: THREE.Vector3;
@@ -3310,7 +3361,8 @@ const objectImpactAnimations = new Map<string, { startedAt: number; origin: THRE
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
-const moonwaveAnimations: { mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number }[] = [];
+const moonwaveAnimations: { animationId: string; casterId: PlayerId; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number | null; fallbackAt: number; duration: number }[] = [];
+const moonwaveRouteProgress = new Map<string, number>();
 const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
@@ -3467,6 +3519,7 @@ renderer.setAnimationLoop((time) => {
       if (group.userData.character === 'orkk') updateOrkkAnimation(group, id, false, deltaSeconds);
       if (group.userData.character === 'shinobi') updateObiWanAnimation(group, id, false, deltaSeconds);
       if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
+      if (group.userData.character === 'merylin') updateMerylinAnimation(group, id, deltaSeconds, true);
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
@@ -3490,9 +3543,12 @@ renderer.setAnimationLoop((time) => {
     if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
     if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
-    if (group.userData.character === 'merylin') syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
+    if (group.userData.character === 'merylin') {
+      updateMerylinAnimation(group, id, deltaSeconds);
+      syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
+    }
     animateFearSigil(group, time);
-    const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation);
+    const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation) || Boolean(group.userData.merylinAnimation);
     body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
@@ -3542,6 +3598,7 @@ renderer.setAnimationLoop((time) => {
     }
   });
   updateShadowTrail(spectreShadowTrailGroup, time / 1000);
+  updateMerylinSwingImpacts(time);
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
@@ -3629,7 +3686,10 @@ function updateCharacterHealthBars(refreshContents = false) {
     const characterTop = Math.max(measuredTop, character.position.y + minimumTopOffset);
     // Tune each silhouette independently: Logan's measured top leaves a large
     // projected gap, while Orkk needs extra room above his helmet.
-    const headClearance = player.character === 'magician' ? -0.85 : player.character === 'orkk' ? 0.8 : 0.28;
+    const headClearance = player.character === 'magician' ? -0.85
+      : player.character === 'orkk' ? 0.8
+        : player.character === 'merylin' ? -0.67
+          : 0.28;
     sprite.position.y = characterTop + headClearance;
     if (!refreshContents && sprite.userData.healthKey) return;
     const healthKey = `${player.hp}/${player.maxHp}`;
@@ -3723,7 +3783,8 @@ function updateOverheadStatusRows(refreshContents = false) {
   });
 }
 
-function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean) {
+function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean, fatal = false) {
+  const startedAt = performance.now();
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
   const context = canvas.getContext('2d')!;
   context.font = "900 76px 'Barlow Condensed', Arial"; context.textAlign = 'center'; context.textBaseline = 'middle';
@@ -3732,8 +3793,15 @@ function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolea
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
   const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone(); origin.y += 2.25;
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
-  damageNumbers.push({ sprite, startedAt: performance.now(), origin });
-  if (collision) impactAnimations.set(playerId, performance.now());
+  damageNumbers.push({ sprite, startedAt, origin });
+  if (collision) impactAnimations.set(playerId, startedAt);
+  if (fatal) {
+    const group = dummyGroups.get(playerId);
+    if (group?.userData.characterModelLoadSettled !== false) {
+      playAvailableDeathAnimation(playerId, startedAt);
+      pendingDeathAnimationIds.delete(playerId);
+    }
+  }
 }
 
 function spawnHealingVisual(playerId: PlayerId, amount: number) {
@@ -3791,6 +3859,7 @@ function syncSpellProjectiles() {
   const lightningHops = new Map<PlayerId, number>();
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
+    if (event.style === 'moonwave' && gameState.combatReveal) continue;
     processedSpellProjectiles.add(event.id);
     if (event.style === 'mind-blast') {
       const position = worldPosition(event.to).add(new THREE.Vector3(0, 1.85, 0));
@@ -3818,8 +3887,18 @@ function syncSpellProjectiles() {
       });
       if (event.path.length > 0) {
         const wave = createMoonlightWave();
+        wave.visible = false;
         wave.position.copy(points[0]); scene.add(wave);
-        moonwaveAnimations.push({ mesh: wave, points, startedAt: performance.now(), duration: event.path.length > 1 ? 920 : 620 });
+        const group = dummyGroups.get(event.casterId);
+        const state = group?.userData.merylinAnimation as MerylinAnimation | undefined;
+        // Box/combat already started the swing. Wall targets need one as well.
+        if (!merylinImpactWaits.has(event.casterId) && !state?.isAttacking) {
+          if (group) group.rotation.y = characterFacingRotation(group, points[0].x-group.position.x, points[0].z-group.position.z);
+          playMerylinSwing(event.casterId, () => {}, 'frostmourne', points[0]);
+        }
+        moonwaveRouteProgress.set(event.id, 0);
+        moonwaveAnimations.push({ animationId: event.id, casterId: event.casterId, mesh: wave, points, startedAt: null,
+          fallbackAt: performance.now() + MERYLIN_MOONLIGHT_RELEASE_SECONDS * 1000, duration: event.path.length > 1 ? 920 : 620 });
       }
       continue;
     }
@@ -3890,7 +3969,7 @@ function updateSpellProjectiles(time: number) {
     const progress = Math.min(1, elapsed / animation.duration);
     const queuedDamage = pendingDamageVisuals.get(animation.animationId) ?? [];
     const readyDamage = queuedDamage.filter((damage) => (damage.triggerRouteProgress ?? 1) <= progress);
-    readyDamage.forEach((damage) => spawnDamageVisual(damage.playerId, damage.amount, damage.collision));
+    readyDamage.forEach((damage) => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal));
     const waitingDamage = queuedDamage.filter((damage) => !readyDamage.includes(damage));
     if (waitingDamage.length > 0) pendingDamageVisuals.set(animation.animationId, waitingDamage);
     else if (queuedDamage.length > 0) pendingDamageVisuals.delete(animation.animationId);
@@ -3929,8 +4008,27 @@ function updateSpellProjectiles(time: number) {
   }
   for (let index = moonwaveAnimations.length - 1; index >= 0; index--) {
     const animation = moonwaveAnimations[index];
+    if (animation.startedAt === null) {
+      const group = dummyGroups.get(animation.casterId);
+      const state = group?.userData.merylinAnimation as MerylinAnimation | undefined;
+      if (state ? !state.hasMoonlightRelease && state.deathEndsAt === undefined
+        : (group && !group.userData.characterModelLoadSettled) || time < animation.fallbackAt) continue;
+      animation.startedAt = time;
+      animation.mesh.visible = true;
+    }
     const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
     const easedProgress = THREE.MathUtils.smoothstep(progress, 0, 1);
+    const previousProgress = moonwaveRouteProgress.get(animation.animationId) ?? 0;
+    moonwaveRouteProgress.set(animation.animationId, easedProgress);
+    const queuedDamage = pendingDamageVisuals.get(animation.animationId) ?? [];
+    const readyDamage = queuedDamage.filter(damage => (damage.triggerRouteProgress ?? 1) <= easedProgress);
+    readyDamage.forEach(damage => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal));
+    const waitingDamage = queuedDamage.filter(damage => !readyDamage.includes(damage));
+    if (waitingDamage.length) pendingDamageVisuals.set(animation.animationId, waitingDamage);
+    else pendingDamageVisuals.delete(animation.animationId);
+    // Release any Objects crossed on this frame at the same route threshold.
+    const segments = animation.points.length - 1;
+    if (Math.floor(previousProgress * segments) < Math.floor(easedProgress * segments)) syncBoard();
     const route = easedProgress * (animation.points.length - 1);
     const segment = Math.min(animation.points.length - 2, Math.floor(route));
     const from = animation.points[segment], to = animation.points[segment + 1];
@@ -3974,6 +4072,7 @@ function updateCharacterMovement(time: number) {
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
       || (group.userData.character === 'john-christ' && !animation.forced)
       || (group.userData.character === 'spectre' && !animation.forced)
+      || (group.userData.character === 'merylin' && !animation.forced)
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     const eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
@@ -3983,9 +4082,9 @@ function updateCharacterMovement(time: number) {
         group.rotation.y = characterFacingRotation(group, dx, dz);
       }
     }
-    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
+    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation && !group.userData.merylinAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation && !group.userData.merylinAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
@@ -4038,6 +4137,12 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (!group.userData.facingSide) return;
     if (gameState.players[playerId]?.hp <= 0) return;
     if (movementAnimations.has(playerId)) return;
+    const merylinAnimation = group.userData.merylinAnimation as MerylinAnimation | undefined;
+    if (merylinAnimation?.isAttacking || merylinImpactWaits.has(playerId)) {
+      const yaw=group.userData.merylinAttackYaw as number | undefined;
+      if(yaw!==undefined) group.rotation.y=yaw;
+      return;
+    }
     const orkkAnimation = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkkAnimation?.oneShotUntil && performance.now() < orkkAnimation.oneShotUntil) return;
     const spectreAnimation = group.userData.spectreAnimation as SpectreAnimationState | undefined;
@@ -4153,7 +4258,7 @@ function updateObjectMovement(time: number) {
       if (animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time);
       animation.impactDamage?.forEach((damage) => {
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
       });
       if (animation.collisionTargetKind === 'object' && animation.collisionTargetId) {
         const targetObject = gameState.objects.find((object) => object.id === animation.collisionTargetId);
@@ -4174,7 +4279,7 @@ function updateObjectMovement(time: number) {
       animation.impactDamage.forEach((damage) => {
         if (damage.triggered || damage.triggerRouteProgress === undefined || eased < damage.triggerRouteProgress) return;
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
       });
     }
     if (animation.preserveQuaternion && animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time, eased);
@@ -4290,7 +4395,7 @@ function updateObjectMovement(time: number) {
       animation.impactDamage?.forEach((damage) => {
         if (damage.triggered) return;
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
       });
       if (isReleasedShield && animation.visibleCenterTo && animation.visibleCenterLocal) {
         group.quaternion.copy(animation.idleQuaternion ?? animation.releaseQuaternion!);
@@ -4380,11 +4485,6 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
   const last = worldPosition({ x: width, y: height - 1 });
   return first.add(last).multiplyScalar(.5).setY(.12);
 }
-
-const LORDAERON_TOMB_BASE_Y = 0.105;
-const LORDAERON_HIGHGROUND_TOP_Y = 1.08;
-const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
-const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 
 function trenchTileDepth(cell: Cell) {
   const arena = visualArena();
@@ -4499,8 +4599,8 @@ function createCell(cell: Cell) {
     material.depthWrite = false;
     material.colorWrite = false;
   }
-  const highGroundHeight = lordaeron ? LORDAERON_HIGHGROUND_TOP_Y + 0.08 : 0.54;
-  const highGroundCenterY = lordaeron ? (LORDAERON_HIGHGROUND_TOP_Y - 0.08) * 0.5 : 0.19;
+  const highGroundHeight = lordaeron ? LORDAERON_HIGHGROUND_TOP_Y + 0.08 : STANDARD_HIGHGROUND_HEIGHT;
+  const highGroundCenterY = lordaeron ? (LORDAERON_HIGHGROUND_TOP_Y - 0.08) * 0.5 : STANDARD_HIGHGROUND_CENTER_Y;
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? highGroundHeight : 0.16, 1.72), material);
   if (arena.id === 'trench') {
     const preserveColor = !trenchSquare && (ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null);
@@ -4906,6 +5006,52 @@ function playOrkkAnimation(group: THREE.Group, name: OrkkAnimationName, fade = 0
   state.current = name;
 }
 
+function aimMerylinAttack(group:THREE.Group,weapon:MerylinWeapon,target:THREE.Vector3) {
+  group.userData.merylinAttackTarget=target.clone();
+  const angles=group.userData.merylinHitDirections as Record<MerylinWeapon,number> | undefined;
+  const dx=target.x-group.position.x,dz=target.z-group.position.z;
+  if(Math.abs(dx)+Math.abs(dz)<.0001) return;
+  const yaw=merylinAttackYaw(dx,dz,angles?.[weapon] ?? 0);
+  group.userData.merylinAttackYaw=yaw;
+  group.rotation.y=yaw;
+}
+
+function playMerylinSwing(playerId: PlayerId, impact: () => void, weapon: MerylinWeapon='frostmourne', target?:THREE.Vector3) {
+  const waiting = merylinImpactWaits.get(playerId);
+  if (waiting) { waiting.callbacks.push(impact); return; }
+  const group = dummyGroups.get(playerId);
+  if(group && target) aimMerylinAttack(group,weapon,target);
+  const state = group?.userData.merylinAnimation as MerylinAnimation | undefined;
+  if (state) {
+    state.attack(weapon);
+    (group!.userData.merylinWeapons as MerylinWeapons).attack(weapon);
+  } else if (group) group.userData.pendingMerylinBoxAttack = weapon;
+  merylinImpactWaits.set(playerId, { callbacks: [impact], fallbackAt: performance.now() + merylinHitSeconds(weapon) * 1000 });
+}
+
+function updateMerylinSwingImpacts(time: number) {
+  for (const [id, wait] of merylinImpactWaits) {
+    const group = dummyGroups.get(id);
+    const state = group?.userData.merylinAnimation as MerylinAnimation | undefined;
+    // Follow the animation clock, including low FPS and late asset loading.
+    // If loading failed, retain a timed procedural fallback instead of hanging.
+    if (state ? !state.hasSwingImpact && state.deathEndsAt === undefined
+      : group && !group.userData.characterModelLoadSettled || time < wait.fallbackAt) continue;
+    merylinImpactWaits.delete(id);
+    for (const callback of wait.callbacks) callback();
+  }
+}
+
+function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?:THREE.Vector3): number {
+  const group = dummyGroups.get(playerId);
+  if (group?.userData.character === 'merylin') {
+    playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
+    return Number.POSITIVE_INFINITY;
+  }
+  playOrkkOneShot(playerId, 'BoxAttack');
+  return (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
+}
+
 function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' | 'BoxAttack') {
   const group = dummyGroups.get(playerId);
   const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
@@ -4984,6 +5130,8 @@ function ensureMatchEndPresentation() {
 function resetMatchEndPresentation() {
   if (!matchEndPresentation) return;
   dummyGroups.forEach((group, playerId) => {
+    const merylin = group.userData.merylinAnimation as MerylinAnimation | undefined;
+    if (merylin?.deathEndsAt !== undefined) merylin.reset();
     const orkk = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkk?.deathEndsAt !== undefined) {
       orkk.actions.Dead.stop();
@@ -5018,6 +5166,9 @@ function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
   if (group.userData.character === 'magician') return playWizardDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'orkk') return playOrkkDeathAnimation(playerId, startedAt);
   if (group.userData.character === 'shinobi') return playObiWanDeathAnimation(playerId, startedAt);
+  if (group.userData.character === 'merylin' && group.userData.merylinAnimation) {
+    return (group.userData.merylinAnimation as MerylinAnimation).die(startedAt);
+  }
   if (group.userData.character === 'john-christ' && group.userData.johnSpiritAnimation) {
     updateSpiritFormVisual(group, true);
     const state = group.userData.johnSpiritAnimation as JohnAnimationState;
@@ -5890,8 +6041,181 @@ function createSpectre(_playerColor = 0x169bd3, replica = false) {
   return root;
 }
 
-function createMerylin(playerColor = 0x169bd3) {
+let merylinAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let stingAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let excaliburAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let moonlightAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+let lightbringerAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
+
+async function attachMerylinModel(root: THREE.Group, body: THREE.Group) {
+  try {
+    const asset = await (merylinAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/merylin-pendragon.glb?v=20260914-6`, url => new GLTFLoader().loadAsync(url)).catch(error => {
+      merylinAssetPromise = null;
+      throw error;
+    }));
+    if (body.parent !== root) return;
+    const model = cloneSkeleton(asset.scene) as THREE.Group;
+    model.name = 'MerylinImportedModel';
+    model.scale.setScalar(MERYLIN_SCALE);
+    model.traverse(child => {
+      if (root.userData.playerId) child.userData.playerId = root.userData.playerId;
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true; child.receiveShadow = false;
+      child.material = Array.isArray(child.material) ? child.material.map(m => m.clone()) : child.material.clone();
+    });
+    const importedSword = model.getObjectByName('Weapon_Frostmourne');
+    if (!importedSword) throw new Error('Merylin GLB is missing Weapon_Frostmourne');
+    importedSword.visible = false;
+    const stingAsset = await (stingAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/sting.glb?v=20260914-2`, url=>new GLTFLoader().loadAsync(url)).catch(error=>{
+      stingAssetPromise=null; throw error;
+    }));
+    if(body.parent!==root) return;
+    const sting=stingAsset.scene.getObjectByName('Sting_Blade')!.clone(true);
+    sting.name='Weapon_Sting';
+    sting.traverse(child=>{
+      if(!(child instanceof THREE.Mesh)) return;
+      child.material=Array.isArray(child.material)?child.material.map(m=>m.clone()):child.material.clone();
+      child.castShadow=true;
+      if(root.userData.playerId) child.userData.playerId=root.userData.playerId;
+    });
+    model.getObjectByName('RightHand')!.add(sting);
+    sting.visible=false;
+    const excaliburAsset=await (excaliburAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/excalibur.glb?v=20260914-1`,url=>new GLTFLoader().loadAsync(url)).catch(error=>{
+      excaliburAssetPromise=null; throw error;
+    }));
+    if(body.parent!==root) return;
+    const excalibur=excaliburAsset.scene.getObjectByName('Excalibur_Blade')!.clone(true);
+    excalibur.name='Weapon_Excalibur';
+    excalibur.traverse(child=>{
+      if(!(child instanceof THREE.Mesh)) return;
+      child.material=Array.isArray(child.material)?child.material.map(m=>m.clone()):child.material.clone();
+      child.castShadow=true;
+      if(root.userData.playerId) child.userData.playerId=root.userData.playerId;
+    });
+    model.getObjectByName('RightHand')!.add(excalibur);
+    excalibur.visible=false;
+    const moonlightAsset=await (moonlightAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/moonlight.glb?v=20260915-1`,url=>new GLTFLoader().loadAsync(url)).catch(error=>{
+      moonlightAssetPromise=null; throw error;
+    }));
+    if(body.parent!==root) return;
+    const moonlightSource=moonlightAsset.scene.getObjectByProperty('type','Mesh') as THREE.Mesh | undefined;
+    if (!moonlightSource) throw new Error('Moonlight GLB is missing its blade mesh');
+    const moonlight=moonlightSource.clone(true);
+    moonlight.name='Weapon_Moonlight';
+    moonlight.traverse(child=>{
+      if(!(child instanceof THREE.Mesh)) return;
+      child.material=Array.isArray(child.material)?child.material.map(m=>m.clone()):child.material.clone();
+      child.castShadow=true;
+      if(root.userData.playerId) child.userData.playerId=root.userData.playerId;
+    });
+    model.getObjectByName('RightHand')!.add(moonlight);
+    moonlight.visible=false;
+    const lightbringerAsset=await (lightbringerAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/lightbringer.glb?v=20260915-2`,url=>{
+      const loader=new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder); return loader.loadAsync(url);
+    }).catch(error=>{
+      lightbringerAssetPromise=null; throw error;
+    }));
+    if(body.parent!==root) return;
+    const lightbringerSource=lightbringerAsset.scene.getObjectByName('Lightbringer_Blade') as THREE.Mesh | undefined;
+    if (!lightbringerSource) throw new Error('Lightbringer GLB is missing Lightbringer_Blade');
+    const lightbringer=lightbringerSource.clone(true);
+    lightbringer.name='Weapon_Lightbringer';
+    lightbringer.traverse(child=>{
+      if(!(child instanceof THREE.Mesh)) return;
+      child.material=Array.isArray(child.material)?child.material.map(m=>m.clone()):child.material.clone();
+      child.castShadow=true;
+      if(root.userData.playerId) child.userData.playerId=root.userData.playerId;
+    });
+    model.getObjectByName('RightHand')!.add(lightbringer);
+    lightbringer.visible=false;
+    root.userData.merylinHitDirections=merylinHitDirections(model,asset.animations);
+    const state = new MerylinAnimation(model, asset.animations);
+    // Keep Swordcraft visuals when replacing the procedural body.
+    const summon = body.getObjectByName('MerylinSummonForm');
+    if (summon) {
+      const windHair = summon.getObjectByName('MerylinWindHair');
+      if (windHair) { summon.remove(windHair); body.add(windHair); }
+      body.remove(summon);
+    }
+    disposeTemporaryCharacterBody(body);
+    body.add(model);
+    if (!root.userData.playerId) softenMerylinPreviewFace(model);
+    const frostBlade = importedSword.getObjectByName('Frostmourne_Mesh_Optimized');
+    if (frostBlade instanceof THREE.Mesh) root.userData.frostmourneEffects = new FrostmourneEffects(frostBlade, root);
+    root.userData.merylinWeapons = new MerylinWeapons(importedSword, sting, excalibur, moonlight, lightbringer);
+    if(sting instanceof THREE.Mesh) root.userData.stingEffects=new StingEffects(sting,root);
+    root.userData.moonlightEffects = new MoonlightEffects(moonlight);
+    root.userData.lightbringerEffects = new LightbringerEffects(lightbringer);
+    if (summon) {
+      const hand = model.getObjectByName('RightHand');
+      if (hand) {
+        hand.add(summon);
+        summon.scale.setScalar(1 / MERYLIN_SCALE);
+        const sword = summon.getObjectByName('MerylinSummonedSword');
+        if (sword) sword.visible = false;
+      } else body.add(summon);
+    }
+    root.userData.merylinAnimation = state;
+    if (root.userData.pendingMerylinBoxAttack) {
+      const weapon=root.userData.pendingMerylinBoxAttack as MerylinWeapon;
+      state.attack(weapon);
+      (root.userData.merylinWeapons as MerylinWeapons).attack(weapon);
+      delete root.userData.pendingMerylinBoxAttack;
+    }
+    root.userData.facingSide = 'positive-z';
+    root.userData.deathAnimationAvailable = true;
+    // The archive initially faces the negative-Z procedural fallback toward the camera.
+    // Reset that half-turn when its positive-Z imported replacement arrives asynchronously.
+    if (characterPreviewModels.get('merylin') === root) root.rotation.set(0, 0, 0);
+    const playerId = root.userData.playerId as PlayerId | undefined;
+    if (playerId) {
+      faceCharacterTowardNearestOpponent(root, playerId);
+      if(state.isAttacking && root.userData.merylinAttackTarget) aimMerylinAttack(root,state.attackWeapon,root.userData.merylinAttackTarget);
+      if (gameState.players[playerId]?.hp <= 0 && !pendingDeathAnimationIds.has(playerId)) {
+        state.die(performance.now());
+        root.rotation.z = 0;
+        proceduralDeathAnimations.delete(playerId);
+      }
+    }
+    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
+  } catch (error) {
+    console.error('Failed to load Merylin model; keeping procedural fallback.', error);
+  } finally {
+    root.userData.characterModelLoadSettled = true;
+  }
+}
+
+function updateMerylinAnimation(group: THREE.Group, playerId: PlayerId | undefined, delta: number, busy = false, previewWeapon?: MerylinWeapon) {
+  const state = group.userData.merylinAnimation as MerylinAnimation | undefined;
+  if (!state) return;
+  if (state.deathEndsAt !== undefined && playerId && gameState.players[playerId]?.hp > 0) state.reset();
+  const route = playerId ? movementAnimations.get(playerId) : undefined;
+  const now = performance.now();
+  const moving = route && now >= route.startedAt && !route.forced && !route.verticalOnly && !route.teleport;
+  let motion = { distance: 0, travelledDistance: 0 };
+  if (route) {
+    const points = [route.from, ...(route.path ?? [])];
+    if (!points[points.length - 1].equals(route.to)) points.push(route.to);
+    motion = merylinRouteMotion(points, (now - route.startedAt) / route.duration);
+  }
+  const summoned = previewWeapon !== undefined || Boolean(playerId && gameState.players[playerId]?.merylinSummonActive);
+  state.update(delta, moving ? {
+    squares: route.travelSquares ?? route.path?.length ?? 1,
+    ...motion, durationMs: route.duration, elapsedMs: now - route.startedAt,
+    bodyScale: Math.max(.001, group.children[0].scale.x * group.scale.x),
+  } : undefined, busy || Boolean(route) || Boolean(playerId && impactAnimations.has(playerId)), summoned);
+  const weapons=group.userData.merylinWeapons as MerylinWeapons | undefined;
+  weapons?.update(delta, summoned, state.isAttacking, state.current, busy || Boolean(route), previewWeapon);
+  (group.userData.frostmourneEffects as FrostmourneEffects | undefined)?.update(now, Boolean(weapons?.frostVisible), state.isAttacking && state.attackWeapon==='frostmourne', weapons?.frostOpacity ?? 0);
+  (group.userData.stingEffects as StingEffects | undefined)?.update(now, Boolean(weapons?.stingVisible), state.isAttacking && state.attackWeapon==='sting', weapons?.stingOpacity ?? 0);
+  (group.userData.moonlightEffects as MoonlightEffects | undefined)?.update(now, Boolean(weapons?.moonlightVisible), state.isAttacking && state.attackWeapon==='moonlight', weapons?.moonlightOpacity ?? 0);
+  (group.userData.lightbringerEffects as LightbringerEffects | undefined)?.update(now, Boolean(weapons?.lightbringerVisible), state.isAttacking && state.attackWeapon==='lightbringer', weapons?.lightbringerOpacity ?? 0);
+}
+
+function createMerylin(_playerColor = 0x169bd3) {
   const root = new THREE.Group();
+  root.userData.characterModelLoadSettled = false;
+  root.userData.deathAnimationAvailable = false;
   const body = new THREE.Group(); body.name = 'MerylinBody'; root.add(body);
   root.userData.facingSide = 'negative-z';
   const purple = new THREE.MeshStandardMaterial({ color: 0x55207d, roughness: 0.68 });
@@ -5946,19 +6270,21 @@ function createMerylin(playerColor = 0x169bd3) {
     const strand = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.68 + index * 0.035, 4, 7), hair.clone());
     strand.position.set((index - 3) * 0.075, 1.58 - Math.abs(index - 3) * 0.03, 0.22); strand.rotation.z = -0.72 - index * 0.035; strand.userData.windOffset = index * 0.7; windHair.add(strand);
   }
-  const summonLight = new THREE.PointLight(0xe8b743, 2.6, 3.2); summonLight.name = 'MerylinSummonLight'; summonLight.position.set(0.42, 1.25, -0.1); summon.add(summonLight);
-  add(new THREE.CylinderGeometry(0.56, 0.65, 0.12, 32), new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 0.65 }), [0, 0.1, 0], root);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.88, 48), new THREE.MeshBasicMaterial({ color: 0xc889ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.name = 'TargetRing'; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; ring.visible = false; root.add(ring); root.userData.player = true;
+  void attachMerylinModel(root, body);
   return root;
 }
 
 function syncMerylinSummonVisual(group: THREE.Group, active: boolean, time: number) {
   if (group.userData.character !== 'merylin') return;
+  active ||= Boolean((group.userData.merylinAnimation as MerylinAnimation | undefined)?.isAttacking);
+  const importedSword = group.getObjectByName('Weapon_Frostmourne');
+  // Imported sword visibility belongs to the per-character weapon controller.
   const summon = group.getObjectByName('MerylinSummonForm');
   if (!summon) return;
   summon.visible = active;
-  const sword = summon.getObjectByName('MerylinSummonedSword');
+  const sword = importedSword ? undefined : summon.getObjectByName('MerylinSummonedSword');
   if (!active) {
     if (sword) sword.userData.morphInitialized = false;
     return;
@@ -7362,7 +7688,7 @@ function worldPosition(cell: Cell) {
   const highGround = (gameState.elevations[cellLabel(cell)] ?? 0) > 0;
   const arena = visualArena();
   const slide = arena.slideSquares?.includes(cellLabel(cell)) ?? false;
-  const highGroundY = arena.id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : 0.54;
+  const highGroundY = arena.id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : STANDARD_HIGHGROUND_TOP_Y;
   const trenchDepth = trenchTileDepth(cell);
   const rampCenterProgress = 0.86 / (0.86 + 0.96);
   const recess = slide ? trenchDepth * (1 - THREE.MathUtils.smoothstep(rampCenterProgress, 0, 1)) : trenchDepth;
@@ -7596,7 +7922,7 @@ function syncBoard() {
     const cell = gameState.players[id].position;
     const target = worldPosition(cell);
     const defeated = gameState.players[id].hp <= 0;
-    const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi' || (character === 'john-christ' && Boolean(group.userData.johnSpiritAnimation));
+    const hasRiggedDeathPose = character === 'magician' || character === 'orkk' || character === 'shinobi' || (character === 'john-christ' && Boolean(group.userData.johnSpiritAnimation)) || (character === 'merylin' && Boolean(group.userData.merylinAnimation));
     if (defeated && group.userData.defeated !== true) {
       pendingDeathAnimationIds.add(id);
     } else if (!defeated) {
@@ -7607,7 +7933,13 @@ function syncBoard() {
     if (gameState.players[id].spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
-    if (!previousKey) {
+    const instantLightbringerSwap = previousKey !== undefined
+      && previousKey !== targetKey
+      && gameState.players[id].visualMovement?.kind === 'lightbringer-swap';
+    if (instantLightbringerSwap) {
+      group.position.copy(target);
+      movementAnimations.delete(id);
+    } else if (!previousKey) {
       group.position.copy(target);
       faceCharacterTowardNearestOpponent(group, id);
     } else if (previousKey !== targetKey) {
@@ -7643,6 +7975,8 @@ function syncBoard() {
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
           : !forced && character === 'shinobi'
             ? obiWanMovementDuration(travelSquares)
+          : !forced && character === 'merylin'
+            ? merylinMovementDuration(travelSquares)
           : !forced && character === 'orkk'
               ? orkkMovementDuration(travelSquares)
               : !forced && character === 'spectre'
@@ -7756,18 +8090,32 @@ function syncBoard() {
     if (event.damage) {
       // Combat damage is calculated before the reveal dialog opens. Keep its
       // counter queued so it appears over the victim only after confirmation.
-      if (gameState.combatReveal) return;
+      if (gameState.combatReveal || merylinCombatImpactPending) return;
       processedObjectPushAnimations.add(event.id);
-      const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, triggerRouteProgress: event.damage.triggerRouteProgress };
+      const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, triggerRouteProgress: event.damage.triggerRouteProgress };
       if (event.damage.triggerAnimationId) {
         pendingDamageVisuals.set(event.damage.triggerAnimationId, [...(pendingDamageVisuals.get(event.damage.triggerAnimationId) ?? []), pendingDamage]);
-      } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision);
+      } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision, event.damage.fatal);
       return;
     }
+    // The rules event is already present while the modal is open so the Box
+    // stays visually intact. Do not consume it until the decision closes.
+    if (merylinObjectSwingDeferredByChoice(gameState.phase,event.attackCardId)) return;
     // Redirect and other combat effects can destroy an Object before the combat
     // result is acknowledged. Leave the event unprocessed so the intact visual
     // remains on the Board and the break animation begins when the summary closes.
-    if (event.destroy && gameState.combatReveal) return;
+    if (event.destroy && (gameState.combatReveal || merylinCombatImpactPending)) return;
+    const waveTrigger = event as typeof event & { triggerAnimationId?: string; triggerRouteProgress?: number };
+    if (event.destroy && waveTrigger.triggerAnimationId &&
+      (moonwaveRouteProgress.get(waveTrigger.triggerAnimationId) ?? 0) < (waveTrigger.triggerRouteProgress ?? 1)) return;
+    if (event.instantSwap) {
+      processedObjectPushAnimations.add(event.id);
+      const group = objectGroups.get(event.objectId);
+      if (group) group.position.copy(worldPosition(event.to));
+      objectMovementAnimations.delete(event.objectId);
+      lastObjectVisualCells.set(event.objectId,cellLabel(event.to));
+      return;
+    }
     if (event.teleport) {
       processedObjectPushAnimations.add(event.id);
       spawnTeleportSquareVisual(event.from);
@@ -7800,7 +8148,7 @@ function syncBoard() {
         const dz = logicalFrom.z - attacker.position.z;
         if (Math.abs(dx) + Math.abs(dz) > 0.0001) attacker.rotation.y = characterFacingRotation(attacker, dx, dz);
       }
-      playOrkkOneShot(event.attackAnimationPlayerId, 'BoxAttack');
+      playBoxAttack(event.attackAnimationPlayerId, undefined, event.attackCardId, logicalFrom);
       return;
     }
     const isOrkkRecall = (event.id.includes('-arm-da-wiz-') || event.id.includes('-arcane-shield-') || event.id.includes('-shield-bash-') || event.id.includes('-mana-baryer-')) && Boolean(event.removeOnComplete && event.equipPlayerId);
@@ -7851,10 +8199,13 @@ function syncBoard() {
       const dx = logicalFrom.x - boxAttacker.position.x;
       const dz = logicalFrom.z - boxAttacker.position.z;
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) boxAttacker.rotation.y = characterFacingRotation(boxAttacker, dx, dz);
-      playOrkkOneShot(event.attackAnimationPlayerId, 'BoxAttack');
-      // Base UUID keeps playing after impact. Only the Box destruction visual
-      // begins at source frame 23 (the clip is authored at 24 fps).
-      boxAttackDelay = (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
+      boxAttackDelay = playBoxAttack(event.attackAnimationPlayerId, () => {
+        const animation = objectMovementAnimations.get(event.objectId);
+        if (animation?.animationId === event.id) {
+          animation.startedAt = performance.now();
+          animation.delay = 0;
+        }
+      }, event.attackCardId, logicalFrom);
     }
     const duration = event.id.includes('-spectre-relocate-') ? SPECTRE_RELOCATE_SWAP_MS : shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 900 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
     const impactDamage = pendingDamageVisuals.get(event.id);
@@ -8927,8 +9278,8 @@ type CharacterPreviewMaterialSet = {
   castShadow: boolean;
 };
 let characterPreviewStyle: CharacterPreviewStyle = 'solid';
-let characterPreviewJohnCycleStartedAt = 0;
 const CHARACTER_PREVIEW_FORM_INTERVAL_MS = 10_000;
+const MERYLIN_PREVIEW_PHASE_INTERVAL_MS = 5_000;
 const characterPreviewMaterials = new WeakMap<THREE.Mesh, CharacterPreviewMaterialSet>();
 const characterPreviewToonGradient = new THREE.DataTexture(new Uint8Array([
   38, 38, 38, 255,
@@ -9097,6 +9448,20 @@ function setupCharacterPreview() {
     const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
     const obiWanState = characterPreviewModel?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
     orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
+    if (characterPreviewModel?.userData.merylinAnimation) {
+      let previewWeapon: MerylinWeapon | undefined;
+      if (characterPreviewModel.userData.character === 'merylin') {
+        const elapsed = Math.max(0, time - characterPreviewMerylinCycleStartedAt);
+        const cycle = Math.floor(elapsed / (MERYLIN_PREVIEW_PHASE_INTERVAL_MS * characterPreviewMerylinWeapons.length * 2));
+        if (cycle !== characterPreviewMerylinCycle) {
+          characterPreviewMerylinCycle = cycle;
+          characterPreviewMerylinWeapons = nextCharacterPreviewMerylinShuffle(characterPreviewMerylinWeapons.at(-1));
+        }
+        const phase = Math.floor(elapsed / MERYLIN_PREVIEW_PHASE_INTERVAL_MS) % (characterPreviewMerylinWeapons.length * 2);
+        if (phase % 2 === 1) previewWeapon = characterPreviewMerylinWeapons[Math.floor(phase / 2)];
+      }
+      updateMerylinAnimation(characterPreviewModel, undefined, delta, false, previewWeapon);
+    }
     if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
     if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
     if (characterPreviewModel?.userData.character === 'john-christ') {
@@ -9237,6 +9602,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   }
   characterPreviewModel = model;
   if (character === 'john-christ') characterPreviewJohnCycleStartedAt = performance.now();
+  if (character === 'merylin') resetCharacterPreviewMerylinCycle();
   model.position.set(0, 0, 0);
   // The board camera views these roots from the opposite side; invert that
   // game-facing convention so an archive preview starts face-forward.
@@ -9247,6 +9613,21 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   characterPreviewCamera?.position.set(0, 1.55, character === 'magician' ? 6.1 : 5.4);
   characterPreviewControls?.target.set(0, character === 'magician' ? 1.55 : 1.35, 0);
   characterPreviewControls?.update();
+}
+
+function resetCharacterPreviewMerylinCycle() {
+  characterPreviewMerylinCycleStartedAt = performance.now();
+  characterPreviewMerylinCycle = 0;
+  characterPreviewMerylinWeapons = nextCharacterPreviewMerylinShuffle();
+}
+
+function nextCharacterPreviewMerylinShuffle(previous?: MerylinWeapon) {
+  const weapons = shuffledMerylinWeapons();
+  if (previous && weapons[0] === previous) {
+    const replacement = weapons.findIndex((weapon) => weapon !== previous);
+    [weapons[0], weapons[replacement]] = [weapons[replacement], weapons[0]];
+  }
+  return weapons;
 }
 
 // Independent roots keep lobby previews from moving the archive or board models.
@@ -9302,6 +9683,7 @@ function renderLobbyModelPreviews() {
           (model.userData.orkkAnimation as OrkkAnimationState | undefined)?.mixer.update(delta);
           (model.userData.wizardAnimation as WizardAnimationState | undefined)?.mixer.update(delta);
           (model.userData.obiWanAnimation as ObiWanAnimationState | undefined)?.mixer.update(delta);
+          if (model.userData.merylinAnimation) updateMerylinAnimation(model, undefined, delta);
           if (model.userData.spectreAnimation) updateSpectreAnimation(model, undefined, delta);
           if (model.userData.character === 'orkk') updateOrkkRageCoreAnimation(model, time);
           model.rotation.y = (model.userData.facingSide === 'positive-z' ? 0 : Math.PI) + (seat === localSeat ? -.2 : .2);

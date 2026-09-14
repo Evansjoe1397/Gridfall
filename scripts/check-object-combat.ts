@@ -24,6 +24,26 @@ function attack(state: GameState): GameState {
   return command(state, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetKind: 'object', targetId: 'target' });
 }
 
+// Box attacks emit one Merylin swing event (boxes break regardless of stored HP).
+for (const hp of [1,100]) {
+  const initial=setup('attack-2','merylin');
+  initial.objects[0].hp=hp; initial.objects[0].maxHp=hp;
+  const resolved=attack(initial);
+  const swings=resolved.objectPushAnimations.filter(event=>event.attackAnimationPlayerId==='P1');
+  assert.equal(swings.length,1);
+  assert.equal(swings[0].objectId,'target');
+  assert.equal(Boolean(swings[0].destroy),true);
+}
+const merylinTomb=setup('attack-2','merylin');
+merylinTomb.objects[0].kind='tomb';
+assert.equal(attack(merylinTomb).objectPushAnimations.some(event=>event.attackAnimationPlayerId==='P1'),true);
+for(const card of ['sting','excalibur','moonlight','lightbringer','frostmourne','attack-2'] as const) {
+  let result=attack(setup(card,'merylin'));
+  if(card==='lightbringer') result=command(result,{type:'lightbringer-swap-decision',playerId:'P1',swap:false});
+  const event=result.objectPushAnimations.find(event=>event.attackAnimationPlayerId==='P1');
+  assert.equal(event?.attackCardId,card,'Object swing preserves its card for weapon selection');
+}
+
 // Every Attack Card must resolve against a destructible Object without requiring
 // a nonexistent defender's Hand or transferring effects to the Object's owner.
 for (const card of CARDS.filter((entry) => entry.kind === 'attack')) {
@@ -93,6 +113,17 @@ for (const swap of [true, false]) {
   assert.deepEqual(state.players.P1.position, swap ? { x: 3, y: 2 } : { x: 2, y: 2 });
   assert.equal(state.objects.some((object) => object.id === 'target'), false);
   assert.equal(state.players.P1.actionsRemaining, initial.players.P1.actionsRemaining - 1);
+  const instantSwap=state.objectPushAnimations.find(event=>event.objectId==='target' && event.instantSwap);
+  const attackEvent=state.objectPushAnimations.find(event=>event.objectId==='target' && event.attackAnimationPlayerId==='P1');
+  if(swap) {
+    assert.equal(state.players.P1.visualMovement?.kind,'lightbringer-swap','Merylin swaps instantly instead of entering a walking route');
+    assert.ok(instantSwap,'The Box receives an instant visual swap event');
+    assert.ok(attackEvent);
+    assert.ok(state.objectPushAnimations.indexOf(instantSwap)<state.objectPushAnimations.indexOf(attackEvent),'The visual swap is applied before the Attack animation event');
+  } else {
+    assert.equal(state.players.P1.visualMovement?.kind,undefined);
+    assert.equal(instantSwap,undefined);
+  }
 }
 
 assert.equal(attack(setup('fistbolt', 'orkk')).players.P1.rageStacks, 2, 'Fistbolt grants Rage before and after combat');
@@ -115,12 +146,15 @@ for (const mode of ['generate', 'consume'] as const) {
 }
 let frost = attack(setup('frostmourne', 'merylin'));
 assert.equal(frost.phase, 'choosing-frostmourne');
+const queuedFrostSwing=frost.objectPushAnimations.find(event=>event.attackAnimationPlayerId==='P1' && event.attackCardId==='frostmourne');
+assert.ok(queuedFrostSwing,'Frostmourne Box swing remains queued while the sacrifice popup is open');
 const frostHp = frost.players.P1.hp;
 frost = command(frost, { type: 'frostmourne-decision', playerId: 'P1', use: true });
 assert.equal(frost.players.P1.hp, frostHp - 1);
 assert.equal(frost.players.P1.merylinSummonActive, true);
 assert.equal(frost.players.P1.deck.at(-1)?.instanceId, 'attack');
 assert.equal(frost.phase, 'active');
+assert.ok(frost.objectPushAnimations.some(event=>event.id===queuedFrostSwing.id),'The queued swing survives the decision and can start after the popup closes');
 
 const echo = setup('echo-strike', 'spectre');
 echo.players.P2.position = { x: 6, y: 5 };
@@ -132,6 +166,29 @@ moonlight.objects.push({ id: 'wave-box', name: 'Wave Box', kind: 'wooden-box', p
 const wave = attack(moonlight);
 assert.equal(wave.players.P2.hp, moonlight.players.P2.hp - 2);
 assert.equal(wave.objects.some((object) => object.id === 'wave-box'), false);
+const waveProjectile=wave.spellProjectiles.find(event=>event.style==='moonwave')!;
+const waveDamage=wave.objectPushAnimations.find(event=>event.damage?.playerId==='P2')!.damage!;
+assert.equal(waveDamage.triggerAnimationId,waveProjectile.id);
+assert.equal(waveDamage.triggerRouteProgress,1,'Second wave square hits at the end of the route');
+const waveDestruction=wave.objectPushAnimations.find(event=>event.objectId==='wave-box' && event.destroy)! as { triggerAnimationId?: string; triggerRouteProgress?: number };
+assert.equal(waveDestruction.triggerAnimationId,waveProjectile.id);
+assert.equal(waveDestruction.triggerRouteProgress,.5);
+const firstSquare=setup('moonlight','merylin');
+firstSquare.players.P2.position={x:4,y:2};
+const firstWave=attack(firstSquare);
+const firstDamage=firstWave.objectPushAnimations.find(event=>event.damage?.playerId==='P2')!.damage!;
+assert.equal(firstDamage.amount,1);
+assert.equal(firstDamage.triggerRouteProgress,.5);
+const column=setup('moonlight','merylin');
+column.objects[0].kind='wall-pillar';
+const columnWave=attack(column);
+assert.ok(columnWave.objects.some(object=>object.id==='target'),'Column remains intact');
+assert.equal(columnWave.objectPushAnimations.filter(event=>event.attackAnimationPlayerId==='P1').length,1,'Column triggers exactly one swing');
+assert.ok(columnWave.spellProjectiles.some(event=>event.style==='moonwave' && event.casterId==='P1'));
+column.players.P1.position={x:7,y:2};
+column.objects[0].position={x:8,y:2};
+const edgeColumn=attack(column);
+assert.ok(edgeColumn.objectPushAnimations.some(event=>event.attackAnimationPlayerId==='P1'),'Column swing does not depend on space for a wave');
 const sting = setup('sting', 'merylin');
 sting.players.P2.position = { x: 2, y: 4 };
 const stung = attack(sting);
