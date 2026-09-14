@@ -142,4 +142,29 @@ Object.assign(invincible.objects[0], { kind: 'spirit-guardian', guardianLevel: 2
 const ignored = attack(invincible);
 assert.equal(ignored.objects.some((object) => object.id === 'target'), true);
 assert.equal(ignored.players.P1.lightsaberBuff, true, 'An invincible target does not cancel self effects');
+const entombed = setup('hex', 'wreckna');
+entombed.players.P1.wrecknaInsideTombId = 'occupied-tomb';
+entombed.players.P2.position = { x: 2, y: 3 };
+entombed.objects.push(
+  { id: 'occupied-tomb', name: 'Tomb', kind: 'tomb', position: { x: 2, y: 2 }, ownerId: 'P1', hp: 1, maxHp: 1 },
+  { id: 'enemy-replica', name: 'Replica', kind: 'spectre-replica', position: { x: 3, y: 3 }, ownerId: 'P2', hp: 999, maxHp: 999 },
+);
+const tombAttackCommands: GameCommand[] = [
+  { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2', targetKind: 'player' },
+  { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'target', targetKind: 'object' },
+  { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'attack', origin: 'spectre', targetId: 'P2', targetKind: 'player' },
+  { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'attack', origin: 'spectre', targetId: 'target', targetKind: 'object' },
+  { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'attack', origin: 'spectre', targetId: 'enemy-replica', targetKind: 'replica' },
+];
+for (const cmd of tombAttackCommands) {
+  const before = structuredClone(entombed);
+  const blocked = applyCommand(entombed, cmd);
+  assert.equal(blocked.ok, false, `${cmd.type}/${cmd.targetKind} must reject an entombed attacker`);
+  if (!blocked.ok) assert.match(blocked.error, /inside a Tomb/);
+  assert.deepEqual(entombed, before, 'Rejected attacks leave Cards, Actions, and board state unchanged');
+  const exposed = structuredClone(entombed);
+  exposed.players.P1.wrecknaInsideTombId = null;
+  exposed.objects = exposed.objects.filter((object) => object.id !== 'occupied-tomb');
+  assert.equal(applyCommand(exposed, cmd).ok, true, 'Wreckna may attack again once outside the Tomb');
+}
 console.log('Object combat checks passed.');
