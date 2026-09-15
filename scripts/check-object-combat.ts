@@ -69,6 +69,16 @@ const cursed = setup('light-the-saber');
 cursed.players.P1.traitBlocked = true;
 assert.equal(attack(cursed).players.P1.lightsaberAppliedWhileTraitBlocked, true);
 
+for (const lightsaberBuff of [false, true]) {
+  const obiWanBox = setup('attack-2');
+  obiWanBox.players.P1.lightsaberBuff = lightsaberBuff;
+  const resolved = attack(obiWanBox);
+  const animation = resolved.objectPushAnimations.find((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1');
+  assert.ok(animation, `Obi-Wan Box attack emits an animation event with Lightsaber ${lightsaberBuff ? 'active' : 'inactive'}`);
+  assert.equal(animation.attackCardId, 'attack-2');
+  assert.equal(animation.destroy, true);
+}
+
 for (const [cardId, blessing] of [['blessed-light', 'blessing-light'], ['blessed-might', 'blessing-might']] as const) {
   assert.equal(attack(setup(cardId, 'john-christ')).players.P1.hand.some((card) => card.cardId === blessing), true);
 }
@@ -131,7 +141,14 @@ assert.equal(attack(setup('shield-bash', 'orkk')).players.P1.rageStacks, 1);
 const chain = setup('chain-punchin', 'orkk');
 chain.players.P1.shieldEquipped = false;
 assert.equal(attack(chain).players.P1.actionsRemaining, chain.players.P1.actionsRemaining);
-assert.equal(attack(setup('dance-through')).phase, 'dance-through');
+let danceThroughMove = attack(setup('dance-through'));
+assert.equal(danceThroughMove.phase, 'dance-through');
+assert.equal(danceThroughMove.danceThrough?.playerId, 'P1');
+danceThroughMove = command(danceThroughMove, { type: 'move', playerId: 'P1', to: { x: 2, y: 3 } });
+assert.equal(danceThroughMove.players.P1.visualMovement?.sourceCardId, 'dance-through', 'Dance Through marks each one-tile visual movement for its dedicated animation.');
+assert.equal(danceThroughMove.danceThrough?.stepsRemaining, 2);
+danceThroughMove = command(danceThroughMove, { type: 'end-dance', playerId: 'P1' });
+assert.equal(danceThroughMove.phase, 'active');
 for (const cardId of ['cut-them-legs', 'snowball-effect', 'deja-vu', 'sting'] as const) {
   const state = attack(setup(cardId));
   assert.equal(state.players.P1.hand.some((card) => card.instanceId === 'attack'), true, cardId);

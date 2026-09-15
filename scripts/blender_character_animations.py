@@ -49,7 +49,7 @@ class GRIDFALL_PT_character_animations(bpy.types.Panel):
         if not rig or not rig.animation_data:
             self.layout.label(text='Select a rigged character')
             return
-        self.layout.label(text=rig.name)
+        self.layout.label(text=rig.get('gridfall_character_name', rig.name), icon='ARMATURE_DATA')
         seen = set()
         for track in reversed(rig.animation_data.nla_tracks):
             for strip in track.strips:
@@ -64,6 +64,13 @@ class GRIDFALL_PT_character_animations(bpy.types.Panel):
 
 
 def register():
+    # Remove the earlier hard-coded multi-character panel. It labelled the
+    # target_character rig as Spectre and hid clips after their Actions were
+    # renamed, because its button list still referenced the old UUIDs.
+    for legacy_name in ('GRIDFALL_PT_available_animations', 'GRIDFALL_OT_play_action'):
+        legacy = getattr(bpy.types, legacy_name, None)
+        if legacy:
+            bpy.utils.unregister_class(legacy)
     for cls in (GRIDFALL_OT_play_character_animation, GRIDFALL_PT_character_animations):
         old = getattr(bpy.types, cls.__name__, None)
         if old:

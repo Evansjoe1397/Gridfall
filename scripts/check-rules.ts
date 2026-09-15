@@ -553,10 +553,17 @@ const consumedManaBarrageAttack = applyCommand(manaBarrageConsumeState, { type: 
 assert.equal(consumedManaBarrageAttack.ok, true);
 if (consumedManaBarrageAttack.ok) {
   assert.equal(consumedManaBarrageAttack.state.pendingAttack?.attackValue, 3, 'Mana Barrage Consume retains the printed Attack Value.');
+  assert.deepEqual(consumedManaBarrageAttack.state.pendingAttack?.attackModifiers?.find((modifier) => modifier.kind === 'extra-damage'), {
+    value: 2,
+    source: 'Mana Barrage Consume',
+    kind: 'extra-damage',
+    timing: 'after combat',
+  }, 'Mana Barrage Consume exposes its guaranteed after-combat Damage as an Attack Value source without adding it to Attack Value.');
   const consumedManaBarrage = applyCommand(consumedManaBarrageAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(consumedManaBarrage.ok, true);
   if (consumedManaBarrage.ok) {
     assert.equal(consumedManaBarrage.state.players.P2.hp, 15, 'Mana Barrage Consume deals 3 Attack Damage plus 2 guaranteed after-combat Damage.');
+    assert.equal(consumedManaBarrage.state.combatReveal?.attackModifiers?.some((modifier) => modifier.kind === 'extra-damage' && modifier.value === 2 && modifier.timing === 'after combat'), true, 'The combat resolution retains the Mana Barrage Consume Damage source.');
     assert.equal(consumedManaBarrage.state.players.P2.hand.some((card) => card.cardId === 'exhaust'), false, 'Mana Barrage Consume no longer adds Exhaust.');
   }
 }

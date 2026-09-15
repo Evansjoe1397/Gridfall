@@ -19,6 +19,7 @@
     "check:consume-range": "tsx scripts/check-consume-range.ts",
     "check:stoic-shell": "tsx scripts/check-stoic-shell.ts",
     "check:lightsaber-duration": "tsx scripts/check-lightsaber-duration.ts",
+    "check:obi-wan": "tsx scripts/check-obi-wan.ts",
     "check:chain-lightning": "tsx scripts/check-chain-lightning.ts",
     "check:snowball-effect": "tsx scripts/check-snowball-effect.ts",
     "check:bone-chill": "tsx scripts/check-bone-chill.ts",
