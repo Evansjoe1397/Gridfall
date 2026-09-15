@@ -1518,12 +1518,13 @@ if (decisiveAttack.ok) {
 const redirectPriorityState = createHotseatTestState(false, 'shinobi', 2);
 redirectPriorityState.phase = 'active'; redirectPriorityState.activePlayerId = 'P1'; redirectPriorityState.elevations = { B3: 1 };
 redirectPriorityState.players.P1.position = { x: 2, y: 2 }; redirectPriorityState.players.P2.position = { x: 3, y: 2 }; redirectPriorityState.players.P2.character = 'merylin';
+redirectPriorityState.players.P1.lightsaberBuff = true;
 redirectPriorityState.players.P1.hand = [{ instanceId: 'redirect-hello-there', cardId: 'hello-there' }];
 redirectPriorityState.players.P2.hand = [{ instanceId: 'redirect-defense', cardId: 'redirect' }]; redirectPriorityState.players.P2.pinnedStacks = 1;
 redirectPriorityState.objects = [
   { id: 'redirect-combat-object', name: 'Combat Object', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 1 } },
-  { id: 'redirect-effect-object', name: 'Effect Object', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 2 } },
-  { id: 'redirect-status-object', name: 'Status Object', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 3 } },
+  { id: 'redirect-effect-object', name: 'Column', kind: 'wall-pillar', hp: 999, maxHp: 999, position: { x: 4, y: 2 } },
+  { id: 'redirect-status-object', name: "Da Orkk's Shield", kind: 'orkk-shield', hp: 3, maxHp: 3, position: { x: 3, y: 3 }, ownerId: 'P1' },
 ];
 const redirectTargetHp = redirectPriorityState.players.P2.hp;
 const redirectAttack = applyGameCommand(redirectPriorityState, { type: 'attack', playerId: 'P1', cardInstanceId: 'redirect-hello-there', targetId: 'P2', targetKind: 'player' });
@@ -1535,9 +1536,12 @@ if (redirectAttack.ok) {
     assert.equal(redirectDefense.state.combatReveal?.defendBase, 2, 'Redirect has base Defend Value 2.');
     assert.equal(redirectDefense.state.players.P2.hp, redirectTargetHp - 1, 'Redirect blocks 1 combat Damage first and 1 post-combat effect Damage second.');
     assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-combat-object'), false, 'The first adjacent Object is destroyed after absorbing the redirected combat Damage.');
-    assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-effect-object'), false, 'The second adjacent Object is destroyed after absorbing the redirected post-combat effect Damage.');
+    assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-effect-object'), true, 'An adjacent Column absorbs redirected post-combat effect Damage without being destroyed.');
     assert.equal(redirectDefense.state.objects.some((object) => object.id === 'redirect-status-object'), false, 'The third adjacent Object is destroyed to block the first Attack-card Status effect.');
     assert.equal(redirectDefense.state.players.P2.hand.some((card) => card.cardId === 'headache'), false, 'Redirect prevents Hello There from adding Headache after using its third adjacent Object.');
+    assert.equal(redirectDefense.state.objectPushAnimations.filter((event) => event.objectCallout?.text === 'Redirect (box)').length, 1, 'A Box consumed by Redirect carries a synchronized object callout on its destruction event.');
+    assert.equal(redirectDefense.state.objectPushAnimations.filter((event) => event.objectCallout?.text === 'Redirect (column)').length, 1, 'A Column consumed by Redirect carries a synchronized Column callout on its destruction event.');
+    assert.equal(redirectDefense.state.objectPushAnimations.filter((event) => event.objectCallout?.text === 'Redirect (Shield)').length, 1, "Da Orkk's Shield carries a synchronized Shield callout when consumed by Redirect.");
   }
 }
 
@@ -4823,6 +4827,7 @@ assert.equal(panicHighgroundPull.ok, true, 'Panic does not prevent an enemy from
 if (panicHighgroundPull.ok) {
   assert.deepEqual(panicHighgroundPull.state.players.P2.position, { x: 3, y: 1 });
   assert.equal(panicHighgroundPull.state.players.P2.hp, panicPulledHp - 1, 'Pulling a character from High Ground to non-High Ground deals 1 falling Damage.');
+  assert.equal(panicHighgroundPull.state.objectPushAnimations.some((event) => event.callout?.playerId === 'P2' && event.callout.text === 'Fall'), true, 'A damaging High Ground displacement emits a Fall callout for the displaced character.');
 }
 const panicHighgroundPushState = createInitialState();
 panicHighgroundPushState.players.P1.position = { x: 1, y: 1 };
@@ -7023,6 +7028,7 @@ if (trenchSlide.ok) {
   assert.deepEqual(trenchSlide.state.players.P1.position, { x: 2, y: 4 }, 'D3 -> C4 automatically Slides to B5.');
   assert.equal(trenchSlide.state.players.P1.movementRemaining, 0, 'The automatic Slide spends no additional MOV and works after MOV reaches zero.');
   assert.deepEqual(trenchSlide.state.players.P1.visualMovement?.path.at(-1), { x: 2, y: 4 }, 'Slide movement is included in the movement animation path.');
+  assert.equal(trenchSlide.state.objectPushAnimations.some((event) => event.callout?.playerId === 'P1' && event.callout.text === 'Slide'), true, 'Automatic Trench movement emits a Slide callout for the sliding character.');
 }
 
 const trenchObjectState = createTrenchTestState(true, 'magician', 'dummy');

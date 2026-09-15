@@ -2313,7 +2313,12 @@ function renderCombatReveal() {
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
-  merylinCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'merylin'
+  const merylinAttackLanded = pendingSwing
+    && reveal.combatWinnerId === pendingSwing.attackerId
+    && (reveal.combatDamage ?? 0) > 0;
+  // A blocked or lost attack still consumes Merylin's Summon in the rules, but
+  // it closes without a sword swing because no hit is presented on the board.
+  merylinCombatAttacker = merylinAttackLanded && gameState.players[pendingSwing.attackerId].character === 'merylin'
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, weapon: merylinWeaponForCard(pendingSwing.cardId) } : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
@@ -3316,6 +3321,15 @@ const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
+type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number };
+const characterCalloutBubbles: CharacterCalloutBubble[] = [];
+type ObjectCalloutBubble = { element: HTMLDivElement; objectId: string; startedAt: number; delay: number; anchorOffsetY: number; worldPosition: THREE.Vector3 };
+const objectCalloutBubbles: ObjectCalloutBubble[] = [];
+const CHARACTER_CALLOUT_DURATION_MS = 900;
+const OBJECT_CALLOUT_DURATION_MS = 1450;
+const SLIDE_EARLY_TRIGGER_MS = 100;
+const SLIDE_GLIDE_DURATION_MS = 210;
+const DIRECT_SLIDE_GLIDE_DURATION_MS = 320;
 type PerkUseLabel = { element: HTMLDivElement; cardId: CardTypeId; startedAt: number; fadeStartedAt?: number; fadeDuration: number; cellKey: string };
 const perkUseLabels = new Map<PlayerId, PerkUseLabel>();
 const PERK_LABEL_HOLD_MS = 1900;
@@ -3369,9 +3383,10 @@ const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: TH
 const processedManaConsumeEvents = new Set<string>();
 const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const impactAnimations = new Map<PlayerId, number>();
-const damageNumbers: { sprite: THREE.Sprite; startedAt: number; origin: THREE.Vector3 }[] = [];
+const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-const movementAnimations = new Map<PlayerId, { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean }>();
+type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
@@ -3532,15 +3547,17 @@ renderer.setAnimationLoop((time) => {
       }
       return;
     }
-    const moving = movementAnimations.has(id);
-    updateWizardAnimation(group, moving, deltaSeconds);
-    updateObiWanAnimation(group, id, moving, deltaSeconds);
+    const movement = movementAnimations.get(id);
+    const moving = Boolean(movement);
+    const locomoting = moving && !isCharacterSliding(movement, time);
+    updateWizardAnimation(group, locomoting, deltaSeconds);
+    updateObiWanAnimation(group, id, locomoting, deltaSeconds);
     if (group.userData.character === 'shinobi') {
       updateObiWanLightsaberAnimation(group, deltaSeconds);
       updateObiWanLightsaberLightPosition(group);
     }
     const forcedMovement = movementAnimations.get(id)?.forced === true;
-    if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, moving, deltaSeconds);
+    if (group.userData.character === 'orkk' && !forcedMovement) updateOrkkAnimation(group, id, locomoting, deltaSeconds);
     if (group.userData.character === 'spectre') updateSpectreAnimation(group, id, deltaSeconds);
     if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
     if (group.userData.character === 'merylin') {
@@ -3549,7 +3566,7 @@ renderer.setAnimationLoop((time) => {
     }
     animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation) || Boolean(group.userData.merylinAnimation);
-    body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : moving ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : locomoting ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
     if (group.userData.character === 'wreckna') {
@@ -3604,6 +3621,8 @@ renderer.setAnimationLoop((time) => {
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
   updatePerkUseLabels(time);
+  updateCharacterCalloutBubbles(time);
+  updateObjectCalloutBubbles(time);
   // Sky has infinite apparent distance: camera dolly must not move its stars.
   dawnSkyDome.position.copy(camera.position);
   dawnStarField.position.copy(camera.position);
@@ -3783,6 +3802,19 @@ function updateOverheadStatusRows(refreshContents = false) {
   });
 }
 
+function floatingNumberOrigin(playerId: PlayerId) {
+  const occupiedLanes = new Set(damageNumbers.filter((entry) => entry.playerId === playerId).map((entry) => entry.lane));
+  let lane = 0;
+  while (occupiedLanes.has(lane)) lane += 1;
+  const laneDirection = lane % 2 === 1 ? 1 : -1;
+  const laneDistance = Math.ceil(lane / 2) * 0.68;
+  const screenRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone();
+  origin.y += 2.25 + Math.ceil(lane / 2) * 0.08;
+  origin.addScaledVector(screenRight, laneDirection * laneDistance);
+  return { lane, origin };
+}
+
 function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean, fatal = false) {
   const startedAt = performance.now();
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
@@ -3791,9 +3823,9 @@ function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolea
   context.lineWidth = 12; context.strokeStyle = 'rgba(35,0,0,.95)'; context.strokeText(`-${amount}`, 128, 66);
   context.fillStyle = '#ff635f'; context.fillText(`-${amount}`, 128, 66);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
-  const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone(); origin.y += 2.25;
+  const { lane, origin } = floatingNumberOrigin(playerId);
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
-  damageNumbers.push({ sprite, startedAt, origin });
+  damageNumbers.push({ sprite, playerId, lane, startedAt, origin });
   if (collision) impactAnimations.set(playerId, startedAt);
   if (fatal) {
     const group = dummyGroups.get(playerId);
@@ -3811,9 +3843,109 @@ function spawnHealingVisual(playerId: PlayerId, amount: number) {
   context.lineWidth = 12; context.strokeStyle = 'rgba(0,35,12,.95)'; context.strokeText(`+${amount}`, 128, 66);
   context.fillStyle = '#62f58b'; context.fillText(`+${amount}`, 128, 66);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
-  const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone(); origin.y += 2.25;
+  const { lane, origin } = floatingNumberOrigin(playerId);
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
-  damageNumbers.push({ sprite, startedAt: performance.now(), origin });
+  damageNumbers.push({ sprite, playerId, lane, startedAt: performance.now(), origin });
+}
+
+const characterCalloutScreenPosition = new THREE.Vector3();
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall') {
+  const element = document.createElement('div');
+  element.className = `character-callout-bubble ${text.toLowerCase()}`;
+  element.style.setProperty('--player-color', playerUiColor(playerId));
+  element.textContent = text;
+  overheadStatusLayer.appendChild(element);
+  const now = performance.now();
+  const movement = movementAnimations.get(playerId);
+  const slideDelay = text === 'Slide' && movement?.slideStartsAtMs !== undefined
+    ? Math.max(0, movement.startedAt + movement.slideStartsAtMs - now)
+    : 0;
+  const queuedForPlayer = characterCalloutBubbles.filter((bubble) => bubble.playerId === playerId).length;
+  characterCalloutBubbles.push({ element, playerId, startedAt: now, delay: slideDelay + queuedForPlayer * 120 });
+}
+
+function updateCharacterCalloutBubbles(time: number) {
+  for (let index = characterCalloutBubbles.length - 1; index >= 0; index--) {
+    const bubble = characterCalloutBubbles[index];
+    const elapsed = time - bubble.startedAt - bubble.delay;
+    if (elapsed >= CHARACTER_CALLOUT_DURATION_MS) {
+      bubble.element.remove();
+      characterCalloutBubbles.splice(index, 1);
+      continue;
+    }
+    const group = dummyGroups.get(bubble.playerId);
+    const healthBar = characterHealthBars.get(bubble.playerId);
+    if (!group?.visible || !healthBar || elapsed < 0) {
+      bubble.element.classList.add('hidden');
+      continue;
+    }
+    const progress = THREE.MathUtils.clamp(elapsed / CHARACTER_CALLOUT_DURATION_MS, 0, 1);
+    const opacity = progress < 0.08 ? progress / 0.08 : 1 - THREE.MathUtils.smoothstep(progress, 0.28, 1);
+    characterCalloutScreenPosition.copy(healthBar.position).project(camera);
+    const onScreen = characterCalloutScreenPosition.z >= -1 && characterCalloutScreenPosition.z <= 1;
+    bubble.element.classList.toggle('hidden', !onScreen);
+    const projectedY = (-characterCalloutScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+    const statusRow = overheadStatusRows.get(bubble.playerId);
+    const statusTop = statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
+      ? statusRow.getBoundingClientRect().top - overheadStatusLayer.getBoundingClientRect().top - 3
+      : projectedY;
+    bubble.element.style.left = `${(characterCalloutScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth + Math.sin(progress * Math.PI * 2) * 3}px`;
+    bubble.element.style.top = `${Math.min(projectedY, statusTop)}px`;
+    bubble.element.style.setProperty('--bubble-rise', `${4 + progress * 34}px`);
+    bubble.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
+  }
+}
+
+const objectCalloutBounds = new THREE.Box3();
+const objectCalloutScreenPosition = new THREE.Vector3();
+function spawnObjectCalloutBubble(objectId: string, text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)', delay = 0) {
+  const group = objectGroups.get(objectId);
+  if (!group) return;
+  group.updateWorldMatrix(true, true);
+  objectCalloutBounds.setFromObject(group);
+  const anchorOffsetY = objectCalloutBounds.isEmpty() ? 1.2 : Math.max(0.5, objectCalloutBounds.max.y - group.position.y + 0.15);
+  const element = document.createElement('div');
+  element.className = 'character-callout-bubble object-callout-bubble';
+  element.style.setProperty('--player-color', '#79ffe1');
+  element.textContent = text;
+  overheadStatusLayer.appendChild(element);
+  objectCalloutBubbles.push({ element, objectId, startedAt: performance.now(), delay, anchorOffsetY, worldPosition: group.position.clone() });
+}
+
+function updateObjectCalloutBubbles(time: number) {
+  for (let index = objectCalloutBubbles.length - 1; index >= 0; index--) {
+    const bubble = objectCalloutBubbles[index];
+    const elapsed = time - bubble.startedAt - bubble.delay;
+    if (elapsed >= OBJECT_CALLOUT_DURATION_MS) {
+      bubble.element.remove();
+      objectCalloutBubbles.splice(index, 1);
+      continue;
+    }
+    const group = objectGroups.get(bubble.objectId);
+    if (elapsed < 0 || (group && !group.visible)) {
+      bubble.element.classList.add('hidden');
+      continue;
+    }
+    if (group) bubble.worldPosition.copy(group.position);
+    const progress = THREE.MathUtils.clamp(elapsed / OBJECT_CALLOUT_DURATION_MS, 0, 1);
+    const opacity = progress < 0.06 ? progress / 0.06 : 1 - THREE.MathUtils.smoothstep(progress, 0.5, 1);
+    objectCalloutScreenPosition.copy(bubble.worldPosition);
+    objectCalloutScreenPosition.y += bubble.anchorOffsetY;
+    objectCalloutScreenPosition.project(camera);
+    const onScreen = objectCalloutScreenPosition.z >= -1 && objectCalloutScreenPosition.z <= 1;
+    bubble.element.classList.toggle('hidden', !onScreen);
+    const bubbleRise = 4 + progress * 34;
+    const viewportWidth = renderer.domElement.clientWidth;
+    const viewportHeight = renderer.domElement.clientHeight;
+    const projectedLeft = (objectCalloutScreenPosition.x * 0.5 + 0.5) * viewportWidth + Math.sin(progress * Math.PI * 2) * 3;
+    const projectedTop = (-objectCalloutScreenPosition.y * 0.5 + 0.5) * viewportHeight;
+    // Tall Columns can project their top beyond the board viewport. Keep their
+    // callout inside the visible play area instead of letting it render above it.
+    bubble.element.style.left = `${THREE.MathUtils.clamp(projectedLeft, 64, Math.max(64, viewportWidth - 64))}px`;
+    bubble.element.style.top = `${THREE.MathUtils.clamp(projectedTop, 24 + bubbleRise, Math.max(24 + bubbleRise, viewportHeight - 12))}px`;
+    bubble.element.style.setProperty('--bubble-rise', `${bubbleRise}px`);
+    bubble.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
+  }
 }
 
 function spawnTeleportSquareVisual(cell: Cell) {
@@ -4067,14 +4199,29 @@ function updateCharacterMovement(time: number) {
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = characterFacingRotation(group, dx, dz);
       animation.facingApplied = true;
     }
-    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    const elapsed = time - animation.startedAt;
+    const progress = Math.min(1, elapsed / animation.duration);
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
       || (group.userData.character === 'john-christ' && !animation.forced)
       || (group.userData.character === 'spectre' && !animation.forced)
       || (group.userData.character === 'merylin' && !animation.forced)
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
-    const eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    let eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    if (animation.slideSegmentIndex !== undefined && animation.slideStartsAtMs !== undefined) {
+      const segmentCount = Math.max(1, animation.path?.length ?? animation.travelSquares ?? 1);
+      const slideRouteStart = animation.slideStartsAtMs === 0
+        ? 0
+        : THREE.MathUtils.clamp(animation.slideSegmentIndex / segmentCount, 0, 1);
+      if (elapsed < animation.slideStartsAtMs) {
+        const approachProgress = THREE.MathUtils.clamp(elapsed / Math.max(1, animation.slideStartsAtMs), 0, 1);
+        const approachEased = constantLocomotionSpeed ? approachProgress : approachProgress < 0.5 ? 2 * approachProgress * approachProgress : 1 - Math.pow(-2 * approachProgress + 2, 2) / 2;
+        eased = approachEased * slideRouteStart;
+      } else {
+        const slideProgress = THREE.MathUtils.clamp((elapsed - animation.slideStartsAtMs) / Math.max(1, animation.duration - animation.slideStartsAtMs), 0, 1);
+        eased = THREE.MathUtils.lerp(slideRouteStart, 1, slideProgress);
+      }
+    }
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
     if (!animation.verticalOnly && !animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
@@ -4091,6 +4238,10 @@ function updateCharacterMovement(time: number) {
       movementAnimations.delete(playerId);
     }
   });
+}
+
+function isCharacterSliding(animation: CharacterMovementAnimation | undefined, time = performance.now()) {
+  return Boolean(animation && animation.slideStartsAtMs !== undefined && time >= animation.startedAt + animation.slideStartsAtMs);
 }
 
 function startImpactTriggeredCharacterMovement(animationId: string, startedAt: number, routeProgress = 1) {
@@ -5911,7 +6062,7 @@ function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefin
     return;
   }
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
-  const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced && !movement.teleport);
+  const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced && !movement.teleport && !isCharacterSliding(movement));
   if (locomoting && movement) {
     const travelSquares = movement.travelSquares ?? movement.path?.length ?? 1;
     const movementName: SpectreAnimationName = travelSquares >= 3 ? 'Run' : 'Walk';
@@ -6191,7 +6342,7 @@ function updateMerylinAnimation(group: THREE.Group, playerId: PlayerId | undefin
   if (state.deathEndsAt !== undefined && playerId && gameState.players[playerId]?.hp > 0) state.reset();
   const route = playerId ? movementAnimations.get(playerId) : undefined;
   const now = performance.now();
-  const moving = route && now >= route.startedAt && !route.forced && !route.verticalOnly && !route.teleport;
+  const moving = route && now >= route.startedAt && !route.forced && !route.verticalOnly && !route.teleport && !isCharacterSliding(route, now);
   let motion = { distance: 0, travelledDistance: 0 };
   if (route) {
     const points = [route.from, ...(route.path ?? [])];
@@ -6618,7 +6769,7 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
   }
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
   const now = performance.now();
-  const walking = movement && now >= movement.startedAt && !movement.forced && !movement.teleport && !movement.verticalOnly;
+  const walking = movement && now >= movement.startedAt && !movement.forced && !movement.teleport && !movement.verticalOnly && !isCharacterSliding(movement, now);
   const next: JohnAnimationName = walking ? state.spirit ? 'Walk' : johnMovementClip(movement.travelSquares ?? movement.path?.length ?? 1) : 'Idle';
   if (state.current !== next) {
     state.actions[state.current].fadeOut(0.1);
@@ -7695,6 +7846,21 @@ function worldPosition(cell: Cell) {
   return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : (slide ? 0.26 : 0.08) - recess, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
+function automaticSlideSegmentIndex(movement: NonNullable<GameState['players'][PlayerId]['visualMovement']>) {
+  const route = [movement.from, ...movement.path];
+  const arena = visualArena();
+  for (let entryIndex = 1; entryIndex < route.length - 1; entryIndex++) {
+    const enteredFrom = route[entryIndex - 1];
+    const slideSquare = route[entryIndex];
+    const forcedTo = route[entryIndex + 1];
+    if (!arena.slideSquares?.includes(cellLabel(slideSquare)) || (gameState.elevations[cellLabel(enteredFrom)] ?? 0) <= 0) continue;
+    const dx = slideSquare.x - enteredFrom.x;
+    const dy = slideSquare.y - enteredFrom.y;
+    if (forcedTo.x - slideSquare.x === dx && forcedTo.y - slideSquare.y === dy) return entryIndex;
+  }
+  return undefined;
+}
+
 function syncSpectreShadowTrail() {
   const shadow = (gameState as GameState & { spectreShadow?: { casterId: PlayerId; trail: Cell[] } | null }).spectreShadow;
   const nextKey = shadow?.trail.length
@@ -7966,10 +8132,11 @@ function syncBoard() {
         const walkingPath = recordedPathMatches ? recordedMovement.path : shouldFollowWalkingPath ? movementPath(gameState, { ...gameState.players[id], position: previousCell }, cell) : [];
         const visualPath = walkingPath.map(worldPosition);
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
+        const slideSegmentIndex = recordedPathMatches && recordedMovement ? automaticSlideSegmentIndex(recordedMovement) : undefined;
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
-        const duration = replicatePull
+        const fullRouteLocomotionDuration = replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
@@ -7984,7 +8151,13 @@ function syncBoard() {
               : !forced && character === 'john-christ'
                 ? gameState.players[id].spiritForm ? johnSpiritMovementDuration(travelSquares) : johnMovementDuration(travelSquares)
               : 320 + travelSquares * 150;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle' };
+        const locomotionDuration = slideSegmentIndex === undefined
+          ? fullRouteLocomotionDuration
+          : fullRouteLocomotionDuration * slideSegmentIndex / travelSquares;
+        const directSlide = slideSegmentIndex === 1;
+        const slideStartsAtMs = slideSegmentIndex === undefined ? undefined : directSlide ? 0 : Math.max(0, locomotionDuration - SLIDE_EARLY_TRIGGER_MS);
+        const duration = slideStartsAtMs === undefined ? locomotionDuration : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS : slideStartsAtMs + SLIDE_GLIDE_DURATION_MS;
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -8082,6 +8255,21 @@ function syncBoard() {
   });
   gameState.objectPushAnimations.forEach((event) => {
     if (processedObjectPushAnimations.has(event.id)) return;
+    if (event.callout) {
+      processedObjectPushAnimations.add(event.id);
+      spawnCharacterCalloutBubble(event.callout.playerId, event.callout.text);
+      return;
+    }
+    if (event.objectCallout && !event.destroy) {
+      // A surviving Redirect target (currently an indestructible Column) has no
+      // destruction animation to route through the deferred branch below. Keep
+      // its label queued while the combat summary is open, just like the
+      // destruction callouts for Boxes and Shields.
+      if (gameState.combatReveal || merylinCombatImpactPending) return;
+      processedObjectPushAnimations.add(event.id);
+      spawnObjectCalloutBubble(event.objectId, event.objectCallout.text);
+      return;
+    }
     if (event.healing) {
       processedObjectPushAnimations.add(event.id);
       spawnHealingVisual(event.healing.playerId, event.healing.amount);
@@ -8215,7 +8403,9 @@ function syncBoard() {
       const point = worldPosition(cell);
       return isOrkkRecall ? point.add(recallRootOffset) : point;
     });
-    objectMovementAnimations.set(event.objectId, { animationId: event.id, from, to, startedAt: performance.now(), delay: shieldThrow ? (orkkState?.shieldThrowReleaseMs ?? 1000) + 16 : isOrkkRecall ? 180 : boxAttackDelay, duration, collided: event.collided, dx: event.dx, dy: event.dy, path: visualPath, collisionAt: event.collisionAt ? worldPosition(event.collisionAt) : undefined, collisionTargetKind: event.collisionTargetKind, collisionTargetId: event.collisionTargetId, impactDamage, preserveQuaternion: isOrkkRecall ? group.quaternion.clone() : undefined, targetQuaternion: recallTargetQuaternion, removeOnComplete: event.removeOnComplete, destroy: event.destroy, shadowDissolve: event.shadowDissolve, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute, releaseSource: shieldThrow, idleQuaternion: idleWorldQuaternion, landingShakeDuration: shieldThrow && !event.collided ? 320 : 0, collisionBounceDuration: shieldThrow && event.collided ? 230 : 0 });
+    const animationDelay = shieldThrow ? (orkkState?.shieldThrowReleaseMs ?? 1000) + 16 : isOrkkRecall ? 180 : boxAttackDelay;
+    objectMovementAnimations.set(event.objectId, { animationId: event.id, from, to, startedAt: performance.now(), delay: animationDelay, duration, collided: event.collided, dx: event.dx, dy: event.dy, path: visualPath, collisionAt: event.collisionAt ? worldPosition(event.collisionAt) : undefined, collisionTargetKind: event.collisionTargetKind, collisionTargetId: event.collisionTargetId, impactDamage, preserveQuaternion: isOrkkRecall ? group.quaternion.clone() : undefined, targetQuaternion: recallTargetQuaternion, removeOnComplete: event.removeOnComplete, destroy: event.destroy, shadowDissolve: event.shadowDissolve, baseScale: group.scale.clone(), equipPlayerId: event.equipPlayerId, parachute: event.parachute, releaseSource: shieldThrow, idleQuaternion: idleWorldQuaternion, landingShakeDuration: shieldThrow && !event.collided ? 320 : 0, collisionBounceDuration: shieldThrow && event.collided ? 230 : 0 });
+    if (event.objectCallout) spawnObjectCalloutBubble(event.objectId, event.objectCallout.text, animationDelay);
     lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
   });
   syncSpellProjectiles();

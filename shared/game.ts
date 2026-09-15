@@ -353,7 +353,7 @@ export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'disca
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'moonwave' | 'mind-blast' };
 export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
@@ -1047,7 +1047,23 @@ function enqueueObjectRespawn(state: GameState): number | null {
 
 function destroyObject(state: GameState, objectId: string, playerId: PlayerId, reason: string): boolean {
   const index = state.objects.findIndex((object) => object.id === objectId);
-  if (index < 0 || state.objects[index].kind === 'wall-pillar') return false;
+  const redirected = reason.startsWith('Redirected ');
+  if (index < 0) return false;
+  if (state.objects[index].kind === 'wall-pillar') {
+    if (!redirected) return false;
+    const column = state.objects[index];
+    state.objectPushAnimations.push({
+      id: `${state.turn}-redirect-column-${column.id}-${++instanceSequence}`,
+      objectId: column.id,
+      from: { ...column.position },
+      to: { ...column.position },
+      dx: 0,
+      dy: 0,
+      collided: false,
+      objectCallout: { text: 'Redirect (column)' },
+    });
+    return true;
+  }
   const [destroyed] = state.objects.splice(index, 1);
   if (state.players[playerId]) ensureMatchStats(state.players[playerId]).objectsDestroyed += 1;
   if (destroyed.kind === 'wooden-box') {
@@ -1076,6 +1092,15 @@ function destroyObject(state: GameState, objectId: string, playerId: PlayerId, r
     id: `${state.turn}-destroy-${destroyed.id}-${++instanceSequence}`,
     objectId: destroyed.id, from: { ...destroyed.position }, to: { ...destroyed.position },
     dx: 0, dy: 0, collided: true, removeOnComplete: true, destroy: true,
+    objectCallout: redirected
+      ? destroyed.kind === 'wooden-box'
+        ? { text: 'Redirect (box)' }
+        : destroyed.kind === 'wall-pillar'
+          ? { text: 'Redirect (column)' }
+          : destroyed.kind === 'orkk-shield'
+            ? { text: 'Redirect (Shield)' }
+          : undefined
+      : undefined,
   });
   const phases = questPhases(state);
   if (phases.currentQuest?.id === 'the-elephant') phases.currentQuest.progress[playerId] = (phases.currentQuest.progress[playerId] ?? 0) + 1;
@@ -2344,12 +2369,12 @@ function nextRedirectObject(state: GameState, defender: PlayerState): BoardObjec
     }
     return undefined;
   }
-  return state.objects.find((object) => object.kind !== 'wall-pillar' && !isGuardianWall(object) && !redirect.usedObjectIds.includes(object.id) && distance(object.position, defender.position) === 1);
+  return state.objects.find((object) => !isGuardianWall(object) && !redirect.usedObjectIds.includes(object.id) && distance(object.position, defender.position) === 1);
 }
 function damageRedirectObject(state: GameState, object: BoardObject, attackerId: PlayerId, stage: 'combat Damage' | 'effect Damage') {
   state.pendingAttack?.redirect?.usedObjectIds.push(object.id);
   destroyObject(state, object.id, attackerId, `Redirected ${stage}`);
-  state.log.unshift(`Redirect sent 1 ${stage} into ${object.name} at ${cellLabel(object.position)} and destroyed it.`);
+  state.log.unshift(`Redirect sent 1 ${stage} into ${object.name} at ${cellLabel(object.position)}${object.kind === 'wall-pillar' ? '; the indestructible Column remained' : ' and destroyed it'}.`);
 }
 function devourProtectsFromNegativeEffects(state: GameState, target: PlayerState): boolean {
   return state.pendingAttack?.devourProtectionPlayerId === target.id;
@@ -2363,7 +2388,7 @@ function redirectCombatStatusEffect(state: GameState, target: PlayerState, statu
   redirect.statusRedirected = true;
   redirect.usedObjectIds.push(object.id);
   destroyObject(state, object.id, sourceId, `Redirected ${statusName}`);
-  state.log.unshift(`Redirect prevented ${statusName} from affecting ${target.name} and destroyed ${object.name}.`);
+  state.log.unshift(`Redirect prevented ${statusName} from affecting ${target.name}${object.kind === 'wall-pillar' ? `; ${object.name} absorbed it and remained` : ` and destroyed ${object.name}`}.`);
   return true;
 }
 export function addForcedStatusCard(state: GameState, target: PlayerState, cardId: CardTypeId, destination: StatusDestination, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other', revealedToOpponent = destination !== 'deck', bypassDevourProtection = false): boolean {
@@ -2729,8 +2754,24 @@ function applySlideSquare(state: GameState, player: PlayerState, enteredFrom: Ce
 
   player.position = forced;
   player.visualMovement?.path.push({ ...forced });
+  enqueueCharacterCallout(state, player.id, 'Slide');
   state.log.unshift(`${player.name} slid automatically from ${slideLabel} to ${cellLabel(forced)} without spending MOV.`);
   return forced;
+}
+
+function enqueueCharacterCallout(state: GameState, playerId: PlayerId, text: 'Slide' | 'Fall') {
+  const position = state.players[playerId]?.position;
+  if (!position) return;
+  state.objectPushAnimations.push({
+    id: `${state.turn}-callout-${text.toLowerCase()}-${playerId}-${++instanceSequence}`,
+    objectId: '',
+    from: { ...position },
+    to: { ...position },
+    dx: 0,
+    dy: 0,
+    collided: false,
+    callout: { playerId, text },
+  });
 }
 
 function captureMovementUndo(state: GameState, player: PlayerState) {
@@ -4174,7 +4215,7 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
     pending.defensePreCombatResolved = true;
     if (defenseCardId === 'redirect' && !defenseEffectsCancelled && defender.character === 'merylin') {
       const preparedObjectIds = state.objects
-        .filter((object) => object.kind !== 'wall-pillar' && !isGuardianWall(object) && distance(object.position, defenderCombatPosition) === 1)
+        .filter((object) => !isGuardianWall(object) && distance(object.position, defenderCombatPosition) === 1)
         .slice(0, 3)
         .map((object) => object.id);
       pending.redirect = { usedObjectIds: [], effectDamageRedirected: false, statusRedirected: false };
@@ -7518,8 +7559,11 @@ function beginPendingAnguish(state: GameState) {
 function applyElevationDropDamage(state: GameState, entity: PushEntity, from: Cell, to: Cell, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'other' = 'other') {
   const elevation = (cell: Cell) => state.elevations[cellLabel(cell)] ?? 0;
   if (elevation(from) <= elevation(to)) return;
-  if (entity.kind === 'player') dealDamage(state, state.players[entity.id as PlayerId], 1, false, sourceId, sourceKind);
-  else {
+  if (entity.kind === 'player') {
+    const playerId = entity.id as PlayerId;
+    const dealt = dealDamage(state, state.players[playerId], 1, false, sourceId, sourceKind);
+    if (dealt === 1) enqueueCharacterCallout(state, playerId, 'Fall');
+  } else {
     const replica = state.objects.find((object) => object.id === entity.id && object.kind === 'spectre-replica');
     if (replica?.ownerId) dealDamage(state, state.players[replica.ownerId], 1, false, sourceId, sourceKind);
   }
