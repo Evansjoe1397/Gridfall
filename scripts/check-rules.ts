@@ -1306,7 +1306,7 @@ assert.equal(wrecknaHotseat.players.P1.hand.length, 0);
 assert.equal(wrecknaHotseat.players.P1.deck.length, 0);
 assert.deepEqual(STARTING_DECKS.wreckna.defaults, ['hex', 'shadow-barter', 'enfeeble', 'tomb-block', 'brain-freeze', 'sacrifice', 'sap', 'dakkoth', 'lichdom']);
 assert.equal(STARTING_DECKS.wreckna.reserve, 'lichdom', 'Lichdom is Wreckna\'s reserved Card.');
-assert.deepEqual(STARTING_DECKS.wreckna.attackFocus, ['finger-of-death', 'drain-strength']);
+assert.deepEqual(STARTING_DECKS.wreckna.attackFocus, ['finger-of-death', 'bone-chill']);
 assert.deepEqual(STARTING_DECKS.wreckna.defendFocus, ['immortality', 'graveyard']);
 assert.deepEqual(STARTING_DECKS.wreckna.perkPhase, ['necronomicon', 'decay']);
 const wrecknaFocus = applyGameCommand(wrecknaHotseat, { type: 'choose-focus', playerId: 'P1', focus: 'attack' });
@@ -2032,6 +2032,7 @@ if (dakkothThreeChoice.ok) {
   assert.equal(dakkothThreeChoice.state.objects.some((object) => object.id === createdDakkothTombId), false, 'Dakkoth can sacrifice the Tomb it just created.');
   assert.equal(dakkothThreeChoice.state.objects.find((object) => object.id === 'dakkoth-box')?.phylacteryType, 'might');
   assert.equal(dakkothThreeChoice.state.players.P1.actionsRemaining, 2, 'Dakkoth Level 3 refunds 1 Action after the Perk spent one.');
+  assert.equal(dakkothThreeChoice.state.players.P1.dakkothRangeBonus, 2, 'Dakkoth Level 3 adds another +1 Attack Range to the Level 1 bonus.');
   assert.equal(dakkothThreeChoice.state.players.P1.movementRemaining, 3, 'Dakkoth Level 3 grants 1 MOV after automatically resolving Wreckna\'s Free Move + Draw.');
 }
 
@@ -2053,10 +2054,10 @@ assert.equal(sapLevelThree.ok, true);
 if (sapLevelThree.ok) {
   assert.equal(sapLevelThree.state.phase as string, 'choosing-sap-target');
   const resolvedSap = applyGameCommand(sapLevelThree.state, { type: 'sap-target', playerId: 'P1', targetId: 'P2' });
-  assert.equal(resolvedSap.ok, true, 'Sap resolves against an enemy within Wreckna\'s Attack Range.');
+  assert.equal(resolvedSap.ok, true, 'Sap level 3 resolves against an enemy within its improved Range.');
   if (resolvedSap.ok) {
-    assert.equal(resolvedSap.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Sap Level 1 adds Headache to the target\'s Hand.');
-    assert.equal(resolvedSap.state.players.P2.discard.some((card) => card.cardId === 'exhaust'), true, 'Sap Level 2 adds Exhaust to the target\'s Discard.');
+    assert.equal(resolvedSap.state.players.P2.hand.some((card) => card.cardId === 'headache'), false, 'Sap no longer adds Headache.');
+    assert.equal(resolvedSap.state.players.P2.discard.some((card) => card.cardId === 'exhaust'), false, 'Sap no longer adds Exhaust.');
     assert.equal(resolvedSap.state.players.P2.spellEcho[1], null, 'Sap Level 3 falls back to Spell Echo level 2 when level 3 is empty.');
     assert.equal(resolvedSap.state.players.P2.spellEcho[0]?.instanceId, 'sap-target-level-one', 'Sap preserves lower occupied slots after discarding the highest occupied Spell Echo Perk.');
     assert.equal(resolvedSap.state.players.P2.discard.some((card) => card.instanceId === 'sap-target-level-two'), true, 'The forced Spell Echo Perk enters the target\'s Discard pile.');
@@ -2293,7 +2294,7 @@ if (attackWisdom.ok) {
 
 const wrecknaPhaseRewardState = createHotseatTestState(true, 'wreckna', 2);
 (wrecknaPhaseRewardState as any).questPhases = { actionDamageByPlayer: {}, usedQuestIds: [], currentQuest: null, lastQuestWinners: [], progression: { P1: { initialFocus: 'attack', chosenFocusCard: 'finger-of-death' } }, phaseReward: { phase: 1, pendingPlayerIds: ['P1'] }, turnStartedOnHighGround: {}, captureTheFlag: null, objectEffectsThisTurn: {}, objectRespawns: [] };
-assert.deepEqual(phaseCardCandidates(wrecknaPhaseRewardState, 'P1'), ['immortality', 'graveyard', 'drain-strength'], 'Phase 2 offers both opposite-Focus Cards and the unselected Card from Wreckna\'s original Focus.');
+assert.deepEqual(phaseCardCandidates(wrecknaPhaseRewardState, 'P1'), ['immortality', 'graveyard', 'bone-chill'], 'Phase 2 offers both opposite-Focus Cards and the unselected Card from Wreckna\'s original Focus.');
 (wrecknaPhaseRewardState as any).questPhases.phaseReward = { phase: 2, pendingPlayerIds: ['P1'] };
 assert.deepEqual(phaseCardCandidates(wrecknaPhaseRewardState, 'P1'), ['necronomicon', 'decay'], 'Wreckna receives only exclusive Perk Focus rewards in Phase 2.');
 
@@ -2377,7 +2378,8 @@ const graveyardReductionAttack = applyGameCommand(graveyardReductionState, { typ
 const graveyardReductionDefense = graveyardReductionAttack.ok ? applyGameCommand(graveyardReductionAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-reduction-defense' }) : graveyardReductionAttack;
 assert.equal(graveyardReductionDefense.ok, true);
 if (graveyardReductionDefense.ok) {
-  assert.equal(graveyardReductionDefense.state.combatReveal?.attackTotal, 1, 'Graveyard decreases the played Attack Value by 2 when Tomb Block is already in Wreckna\'s Hand.');
+  assert.equal(graveyardReductionDefense.state.combatReveal?.attackTotal, 3, 'Graveyard no longer decreases the played Attack Value.');
+  assert.equal(graveyardReductionDefense.state.combatReveal?.defendTotal, 4, 'Graveyard has Value 4 when Tomb Block is already in Wreckna\'s Hand.');
   assert.equal(graveyardReductionDefense.state.players.P2.hand.some((card) => card.cardId === 'tomb-block'), true, 'The held Tomb Block remains in Hand.');
 }
 
@@ -2393,8 +2395,8 @@ const graveyardDeckAttack = applyGameCommand(graveyardDeckReturnState, { type: '
 const graveyardDeckDefense = graveyardDeckAttack.ok ? applyGameCommand(graveyardDeckAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-deck-defense' }) : graveyardDeckAttack;
 assert.equal(graveyardDeckDefense.ok, true);
 if (graveyardDeckDefense.ok) {
-  assert.equal(graveyardDeckDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-deck-tomb-block'), true, 'Graveyard returns Tomb Block from Deck when it is not in Hand.');
-  assert.equal(graveyardDeckDefense.state.players.P2.deck.length, 0);
+  assert.equal(graveyardDeckDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-deck-tomb-block'), false, 'Graveyard does not return Tomb Block without sacrificing a Tomb.');
+  assert.equal(graveyardDeckDefense.state.players.P2.deck.length, 1);
 }
 
 const graveyardDiscardReturnState = createHotseatTestState(true, 'shinobi', 2, 'wreckna');
@@ -2409,8 +2411,8 @@ const graveyardDiscardAttack = applyGameCommand(graveyardDiscardReturnState, { t
 const graveyardDiscardDefense = graveyardDiscardAttack.ok ? applyGameCommand(graveyardDiscardAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-discard-defense' }) : graveyardDiscardAttack;
 assert.equal(graveyardDiscardDefense.ok, true);
 if (graveyardDiscardDefense.ok) {
-  assert.equal(graveyardDiscardDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), true, 'Graveyard returns Tomb Block from Discard when it is not in Hand or Deck.');
-  assert.equal(graveyardDiscardDefense.state.players.P2.discard.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), false);
+  assert.equal(graveyardDiscardDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), false, 'Graveyard does not return Tomb Block from Discard without sacrificing a Tomb.');
+  assert.equal(graveyardDiscardDefense.state.players.P2.discard.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), true);
 }
 
 const lichdomDirectState = createHotseatTestState(true, 'wreckna', 2);
@@ -6933,9 +6935,9 @@ const stoicHealTurn = applyGameCommand(stoicHealState, { type: 'end-turn', playe
 assert.equal(stoicHealTurn.ok, true);
 if (stoicHealTurn.ok) {
   assert.equal(stoicHealTurn.state.activePlayerId, 'P1');
-  assert.equal(stoicHealTurn.state.players.P1.hp, 12);
-  assert.equal(stoicHealTurn.state.players.P1.stoicShellStacks, 2, 'An intact Stoic Shell gains one Stack at the beginning of John\'s turn.');
-  assert.equal(stoicHealTurn.state.players.P1.stoicShellHealAmount, 2, 'Stoic Shell restores 1 HP per accumulated Stack.');
+  assert.equal(stoicHealTurn.state.players.P1.hp, 11);
+  assert.equal(stoicHealTurn.state.players.P1.stoicShellStacks, 0, 'Stoic Shell no longer accumulates Stacks.');
+  assert.equal(stoicHealTurn.state.players.P1.stoicShellHealAmount, 1, 'Stoic Shell restores a flat 1 HP.');
   assert.equal(stoicHealTurn.state.players.P1.stoicShell, true, 'Stoic Shell remains after restoring HP and can only be removed by HP Damage.');
   assert.equal(stoicHealTurn.state.players.P1.stoicShellHealedTurn, stoicHealTurn.state.turn, 'Stoic Shell healing emits a turn-scoped visual/message event.');
 }
@@ -6948,8 +6950,8 @@ fullHealthStoicState.players.P1.stoicShellStacks = 3;
 const fullHealthStoicTurn = applyGameCommand(fullHealthStoicState, { type: 'end-turn', playerId: 'P2' });
 assert.equal(fullHealthStoicTurn.ok, true);
 if (fullHealthStoicTurn.ok) {
-  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellStacks, 3, 'Stoic Shell does not gain another Stack while John is already at maximum HP.');
-  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShell, true, 'Stoic Shell and its existing Stacks remain intact at maximum HP.');
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellStacks, 0, 'Legacy Stacks are cleared at turn start.');
+  assert.equal(fullHealthStoicTurn.state.players.P1.stoicShell, true, 'Stoic Shell remains intact at maximum HP.');
   assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellHealAmount, 0);
   assert.equal(fullHealthStoicTurn.state.players.P1.stoicShellHealedTurn, null, 'No healing animation or message is emitted at maximum HP.');
 }

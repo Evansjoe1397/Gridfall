@@ -42,7 +42,7 @@ assert.equal(shielded.players.P2.manaPoints, 2, 'Mana generation survives; post-
 const graveyard = setup('graveyard', 'wreckna');
 graveyard.players.P2.hand.push({ instanceId: 'tomb', cardId: 'tomb-block' });
 const grave = resolve(graveyard);
-assert.equal(grave.log.some((line) => line.includes('Graveyard decreased') && line.includes('by 2')), true);
+assert.equal(grave.log.some((line) => line.includes('Graveyard has Value 4')), true);
 assert.equal(hasBlessing(grave), true);
 
 const brain = resolve(setup('brain-freeze', 'wreckna'));

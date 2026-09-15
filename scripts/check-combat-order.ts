@@ -62,7 +62,7 @@ for (const stack of [false, true]) {
   undefended = step(undefended, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true });
   assert.deepEqual(undefended.players.P1.position, { x: 3, y: 2 });
   assert.ok(undefended.combatReveal);
-  for (const blocker of blockers) for (const card of ['lightbringer', 'drain-strength', 'hex', 'fistbolt', 'solitude', 'blessed-might'] as const) {
+  for (const blocker of blockers) for (const card of ['lightbringer', 'drain-strength', 'bone-chill', 'hex', 'fistbolt', 'solitude', 'blessed-might'] as const) {
     const initial = setup(card, blocker, stack);
     initial.players.P2.hand.push({ instanceId: 'spare', cardId: 'defend-1' });
     const result = defend(attack(initial));
@@ -71,6 +71,7 @@ for (const stack of [false, true]) {
     assert.deepEqual(result.players.P1.position, initial.players.P1.position);
     assert.equal(result.players.P2.hand.some((entry) => entry.instanceId === 'spare'), true);
     assert.equal(result.players.P2.hexMovementPenalty ?? 0, 0);
+    if (card === 'bone-chill') assert.equal(result.combatReveal?.attackTotal, 3, `${blocker} cancels Bone Chill's melee Value bonus`);
     assert.equal(final(result).players.P1.rageStacks, 0, `${blocker} cancels both Fistbolt effects`);
     assert.equal(final(result).players.P1.hand.some((entry) => entry.cardId === 'blessing-might'), false);
     assert.equal(applyCommand(result, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true }).ok, false);

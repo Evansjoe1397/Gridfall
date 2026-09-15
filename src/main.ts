@@ -1,5 +1,8 @@
 import './style.css';
+import { characterStatusCards } from './character-status-cards.ts';
+import { buildCombatSummaryXlsx, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-xlsx.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
+import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
 import { textureTrenchTile } from './trench-tile-textures.ts';
 import { textureLordaeronTile } from './lordaeron-tile-textures.ts';
@@ -174,7 +177,7 @@ app.innerHTML = `
           <article class="character-browser-profile" id="characterBrowserProfile"></article>
           <section class="perk-browser" aria-labelledby="perkBrowserTitle">
             <header><div><p class="eyebrow">CHARACTER LOADOUT</p><h3 id="perkBrowserTitle">Character Cards</h3></div><div class="perk-browser-controls"><button id="previousPerk" type="button" aria-label="Previous Card">←</button><span id="perkPosition"></span><button id="nextPerk" type="button" aria-label="Next Card">→</button></div></header>
-            <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button></nav>
+            <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button><button type="button" data-browser-card-kind="status">Status cards</button><button type="button" class="hidden" data-browser-card-kind="blessings">Blessings</button></nav>
             <div class="perk-browser-track" id="perkBrowserTrack" tabindex="0"></div>
           </section>
         </div>
@@ -204,9 +207,10 @@ app.innerHTML = `
     <div class="choice-modal hidden" id="focusModal"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
-    <div class="hints-modal hidden" id="hintsModal" role="dialog" aria-modal="true" aria-labelledby="hintsTitle"><section class="hints-window"><button class="hints-language" id="hintsLanguage" type="button">RU</button><nav class="hints-tabs" aria-label="Help sections"><button class="active" id="hintsTab" type="button">Hints</button><button id="characterTab" type="button">Character</button><button id="myCardsTab" type="button">My Cards</button></nav><button class="hints-close" id="hintsClose" type="button" aria-label="Close hints">×</button><div class="hints-content" id="hintsContent"></div></section></div>
+    <div class="hints-modal hidden" id="hintsModal" role="dialog" aria-modal="true" aria-labelledby="hintsTitle"><section class="hints-window"><button class="hints-language" id="hintsLanguage" type="button">RU</button><nav class="hints-tabs" aria-label="Help sections"><button class="active" id="hintsTab" type="button">Hints</button><button id="characterTab" type="button">Character</button></nav><button class="hints-close" id="hintsClose" type="button" aria-label="Close hints">×</button><div class="hints-content" id="hintsContent"></div></section></div>
     <div class="discard-modal hidden" id="discardModal" role="dialog" aria-modal="true" aria-labelledby="discardTitle"><section class="discard-window"><button class="hints-close" id="discardClose" type="button" aria-label="Close Discard Deck">×</button><div id="discardContent"></div></section></div>
     <div class="card-hover-preview hidden" id="cardHoverPreview"></div>
+    <div class="center-notice" id="centerNotice"></div>
     <div class="toast" id="toast"></div>
   </main>`;
 
@@ -232,7 +236,7 @@ let hintsOpen = false;
 let healthBarsVisible = true;
 let perkLabelsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
-let hintsTab: 'hints' | 'character' | 'cards' | 'damage' = 'hints';
+let hintsTab: 'hints' | 'character' | 'damage' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
@@ -287,6 +291,9 @@ function toggleNagrandTextures() {
   notify(nagrandNewTextures ? 'Nagrand: new stone tiles and grass.' : 'Nagrand: original floor and tiles.');
 }
 const toast = byId('toast');
+const centerNotice = byId('centerNotice');
+let lastPrivateNoticeId = '';
+let centerNoticeTimer = 0;
 const damageLogTab = document.createElement('button');
 damageLogTab.id = 'damageLogTab';
 damageLogTab.type = 'button';
@@ -343,7 +350,6 @@ document.querySelector('#hintsLanguage')!.addEventListener('click', () => {
 });
 document.querySelector('#hintsTab')!.addEventListener('click', () => { hintsTab = 'hints'; renderHintsModal(); });
 document.querySelector('#characterTab')!.addEventListener('click', () => { hintsTab = 'character'; renderHintsModal(); });
-document.querySelector('#myCardsTab')!.addEventListener('click', () => { hintsTab = 'cards'; renderHintsModal(); });
 damageLogTab.addEventListener('click', () => { hintsTab = 'damage'; renderHintsModal(); });
 document.querySelector('#discardClose')!.addEventListener('click', () => { discardViewerPlayerId = null; renderDiscardModal(); });
 document.querySelector('#discardModal')!.addEventListener('click', (event) => { if (event.target === byId('discardModal')) { discardViewerPlayerId = null; renderDiscardModal(); } });
@@ -620,7 +626,7 @@ type HotseatArena = 'nagrand' | 'trench';
 const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
-  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to enable advanced spell effects.' },
+  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
@@ -1019,6 +1025,8 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-wreckna-phylactery') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-immortality-phylactery') return (gameState as GameState & { immortality?: { playerId: PlayerId } }).immortality?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-graveyard-tomb') return (gameState as GameState & { graveyard?: { playerId: PlayerId } }).graveyard?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-sap-defend') return (gameState as GameState & { sap?: { targetId?: PlayerId } }).sap?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-lichdom-copy') return (gameState as GameState & { lichdom?: { casterId: PlayerId } }).lichdom?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string).startsWith('choosing-dakkoth-')) return (gameState as GameState & { dakkoth?: { casterId: PlayerId } }).dakkoth?.casterId ?? gameState.activePlayerId;
@@ -1154,6 +1162,7 @@ function renderAll() {
 
 function renderUI() {
   if (game.classList.contains('hidden')) return;
+  renderPrivateNotice();
   const actor = gameState.players[gameState.activePlayerId];
   byId('turnNumber').textContent = `ROUND ${String(gameState.turn).padStart(2, '0')}`;
   const consumeButton = byId('activateConsumeButton') as HTMLButtonElement;
@@ -1236,6 +1245,7 @@ function renderUI() {
     prompt.textContent = sacrifice ? `Sacrifice: select a non-Column Object within Range ${effectiveAttackRange(gameState, actor)}` : 'Test Phylactery: select any Object except a Column · Escape to cancel';
   }
   if (gameState.phase === 'choosing-immortality-phylactery') prompt.textContent = 'Immortality: choose an active Phylactery to sacrifice and teleport onto';
+  if (gameState.phase === 'choosing-graveyard-tomb') prompt.textContent = 'Graveyard: choose a Tomb to sacrifice, or refuse in the popup';
   if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = `Lichdom: select an Object within Range ${effectiveAttackRange(gameState, actor)} except a Column · Escape to cancel`;
   if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
@@ -1248,6 +1258,8 @@ function renderUI() {
     if (pending) prompt.textContent = `${gameState.players[pending.playerId].name}: discard ${pending.remaining} Card${pending.remaining === 1 ? '' : 's'} for Necronomicon`;
   }
   if ((gameState.phase as string) === 'choosing-decay-target') prompt.textContent = `Curse: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
+  if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${(gameState as GameState & { sap?: { range: number } }).sap?.range ?? effectiveAttackRange(gameState, actor)} · Escape to cancel`;
+  if (gameState.phase === 'choosing-sap-defend') prompt.textContent = `${gameState.players[actingPlayer()].name}: choose a Defend Card to reveal for Sap`;
   if ((gameState.phase as string) === 'choosing-decay-discard') {
     const decay = (gameState as GameState & { decay?: { targetId?: PlayerId; remaining: number } }).decay;
     if (decay?.targetId) prompt.textContent = `${gameState.players[decay.targetId].name}: resolve Curse`;
@@ -1343,9 +1355,60 @@ function renderMatchResults() {
     const totalDamage = stats.attackDamage + stats.perkDamage + (stats.defensiveRetaliationDamage ?? 0);
     return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${stats.defensiveRetaliationDamage ?? 0}</td><td>${totalDamage}</td><td>${stats.objectsDestroyed ?? 0}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
   }).join('');
-  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><button type="button" id="closeMatchResults">Review battlefield</button></section>`;
+  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><div class="match-results-actions"><button type="button" id="downloadCombatSummary">Download Excel summary</button><button type="button" id="closeMatchResults">Review battlefield</button></div></section>`;
   modal.classList.remove('hidden');
+  byId('downloadCombatSummary').addEventListener('click', downloadCombatSummary);
   byId('closeMatchResults').addEventListener('click', () => modal.classList.add('hidden'));
+}
+
+async function downloadCombatSummary() {
+  if (gameState.phase !== 'finished') return;
+  const button = byId('downloadCombatSummary') as HTMLButtonElement;
+  button.disabled = true;
+  button.textContent = 'Preparing Excel summary…';
+  const summary: CombatSummaryExport = {
+    winner: gameState.winner ? gameState.players[gameState.winner].name : null,
+    turnsPlayed: gameState.turn,
+    rows: (Object.keys(gameState.players) as PlayerId[]).map((playerId) => {
+      const player = gameState.players[playerId];
+      const stats = player.matchStats ?? { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 };
+      return {
+        player: playerId,
+        character: player.name,
+        result: playerId === gameState.winner ? 'Winner' : player.hp <= 0 ? 'Defeated' : 'Finished',
+        finalHp: player.hp,
+        maxHp: player.maxHp,
+        squaresMoved: stats.squaresMoved,
+        attackDamage: stats.attackDamage,
+        perkDamage: stats.perkDamage,
+        retaliationDamage: stats.defensiveRetaliationDamage ?? 0,
+        totalDamage: stats.attackDamage + stats.perkDamage + (stats.defensiveRetaliationDamage ?? 0),
+        objectsDestroyed: stats.objectsDestroyed ?? 0,
+        hpHealed: stats.hitPointsHealed,
+        combatDamageBlocked: stats.combatDamageBlocked,
+      };
+    }),
+  };
+  try {
+    const bytes = await buildCombatSummaryXlsx(summary);
+    const workbookBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const blob = new Blob([workbookBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = combatSummaryFilename();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    button.textContent = 'Excel summary downloaded';
+  } catch (error) {
+    console.error('Could not export the combat summary.', error);
+    button.textContent = 'Excel export failed — retry';
+  } finally {
+    button.disabled = false;
+    setTimeout(() => { if (button.isConnected) button.textContent = 'Download Excel summary'; }, 2_500);
+  }
 }
 
 function renderHintsModal() {
@@ -1358,24 +1421,17 @@ function renderHintsModal() {
   byId('hintsLanguage').title = ru ? 'Switch to English' : 'Переключить на русский';
   byId('hintsTab').textContent = ru ? 'Подсказки' : 'Hints';
   byId('characterTab').textContent = ru ? 'Персонаж' : 'Character';
-  byId('myCardsTab').textContent = ru ? 'Мои карты' : 'My Cards';
   byId('hintsTab').classList.toggle('active', hintsTab === 'hints');
   byId('characterTab').classList.toggle('active', hintsTab === 'character');
-  byId('myCardsTab').classList.toggle('active', hintsTab === 'cards');
   byId('damageLogTab').textContent = ru ? 'Журнал урона' : 'Damage Log';
   byId('damageLogTab').classList.toggle('active', hintsTab === 'damage');
   byId('hintsClose').setAttribute('aria-label', ru ? 'Закрыть подсказки' : 'Close hints');
   const content = byId('hintsContent');
-  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'character' ? characterTraitHtml(ru) : hintsTab === 'cards' ? cardAdviceHtml(ru) : damageLogHtml(ru);
+  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'character' ? characterTraitHtml(ru) : damageLogHtml(ru);
   if (hintsTab === 'damage') {
     const intro = content.querySelector<HTMLElement>('.damage-log-intro');
     if (intro) intro.textContent = ru ? 'Все отдельные случаи урона и восстановления HP в этом матче. Потеря HP не считается уроном.' : 'Every separate instance of damage and restored HP in this match. Effects that explicitly lose HP are not damage.';
   }
-  content.querySelectorAll<HTMLElement>('[data-advice-card]').forEach((element) => {
-    element.addEventListener('pointerenter', (event) => showCardPreview(element.dataset.adviceCard!, event));
-    element.addEventListener('pointermove', positionCardPreview);
-    element.addEventListener('pointerleave', hideCardPreview);
-  });
   applyInterfaceLanguage();
 }
 
@@ -1417,8 +1473,8 @@ function characterTraitHtml(ru: boolean) {
     magician: {
       trait: 'Classic Wizardry',
       description: ru
-        ? 'После разрешения своей карты Атаки или Перка-заклинания Лонг Хэт Логан создаёт 1 Mana, максимум 3, пока действует режим Generate. Если ход начинается с 3 Mana, он выбирает: сохранить Mana и продолжить Generate либо потратить все 3, включив Consume на этот ход. Consume активирует указанные на картах усиленные эффекты, но обычное разрешение заклинаний в этот ход Mana не создаёт.'
-        : 'After resolving his own Attack Card or Perk spell, Long Hat Logan generates 1 Mana, up to 3, while in Generate mode. If he starts a turn with 3 Mana, he may keep it and continue Generating or spend all 3 to enter Consume for that turn. Consume enables the advanced effects printed on his Cards, but normal spell resolution does not generate Mana that turn.',
+        ? 'После разрешения своей карты Атаки или Перка-заклинания Лонг Хэт Логан создаёт 1 Mana, максимум 3, пока действует режим Generate. Если ход начинается с 3 Mana, он выбирает: сохранить Mana и продолжить Generate либо потратить все 3, включив Consume на этот ход. Consume даёт +1 к дальности Атаки и активирует указанные на картах усиленные эффекты, но обычное разрешение заклинаний в этот ход Mana не создаёт.'
+        : 'After resolving his own Attack Card or Perk spell, Long Hat Logan generates 1 Mana, up to 3, while in Generate mode. If he starts a turn with 3 Mana, he may keep it and continue Generating or spend all 3 to enter Consume for that turn. Consume grants +1 Attack Range and enables the advanced effects printed on his Cards, but normal spell resolution does not generate Mana that turn.',
       detail: '',
       status: ru
         ? `Сейчас: ${player.manaPoints}/3 Mana · режим ${player.manaMode === 'consume' ? 'Consume' : 'Generate'}.`
@@ -1448,8 +1504,8 @@ function characterTraitHtml(ru: boolean) {
         ? 'После получения любого урона John Christ входит в Spirit Form. В этой форме все его карты Атаки получают +2 ATT, дальность Атаки становится ближней (1 клетка), а Form получает 1 MOV независимо от отрицательных эффектов движения. Он может проходить через клетки с врагами. Каждая занятая врагом клетка возвращает потраченный на вход 1 MOV и один раз за ход отнимает 1 MOV у пересечённого врага до конца его хода. Он не может завершить движение или ход на одной клетке с врагом. После выхода из Spirit Form дальность Атаки снова становится 3.'
         : 'After receiving any Damage, John Christ enters Spirit Form and adds Judgement to his Hand unless it is already there. Judgement is unique, exists only in Hand, and is Removed whenever it leaves Hand. In Spirit Form, all of his Attack Cards gain +2 ATT, his Attack Range becomes melee Range 1, and the Form receives 1 MOV regardless of negative movement effects. He may move through enemy-occupied Squares. Each enemy-occupied Square refunds the 1 MOV spent to enter it and siphons 1 MOV from that enemy until the end of their turn, once per enemy per John turn. He cannot finish movement or end his turn on the same Square as an enemy. An Attack initiated in Spirit Form keeps the Form active through all post-combat effects and choices, then exits it. Leaving Spirit Form restores Attack Range 3.',
       detail: ru
-        ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Негативные модификаторы MOV применяются к общему запасу John и не уменьшают собственный 1 MOV формы. Исключение: если John в одном ходу вошёл в Form, потратил её MOV, вышел, затем потратил весь оставшийся общий MOV и вошёл снова, повторный вход даёт 0 MOV. Если общий MOV ещё остался, повторный вход даёт 1 MOV. Полностью потраченный MOV формы уменьшает общий запас на 1 при выходе; возвраты за занятые клетки его не увеличивают. Форма проходит сквозь врагов, Объекты, Щиты и Стены. Blessing создаёт Stoic Shell; урон снимает все Stacks.'
-        : 'Spirit Form prevents Cards containing “Bless” in their name from being used. Judgement cannot pay for Guard or Dash and is automatically Removed during overstacking or at the end of John’s turn. Negative MOV modifiers affect John’s cumulative pool and never reduce the Form’s own 1 MOV. Exception: if John enters the Form, spends its MOV, exits, spends all remaining cumulative MOV, and enters again during the same turn, that second entry has 0 MOV. If cumulative MOV remains, re-entry still grants 1 MOV. Fully spending the Form’s MOV subtracts 1 from the cumulative pool on exit; occupied-Square refunds do not increase it. The Form crosses enemies, Objects, Shields, and Walls. Blessings create Stoic Shell; Damage removes all Stacks.',
+        ? 'Spirit Form запрещает использовать карты, в названии которых есть “Bless”. Негативные модификаторы MOV применяются к общему запасу John и не уменьшают собственный 1 MOV формы. Исключение: если John в одном ходу вошёл в Form, потратил её MOV, вышел, затем потратил весь оставшийся общий MOV и вошёл снова, повторный вход даёт 0 MOV. Если общий MOV ещё остался, повторный вход даёт 1 MOV. Полностью потраченный MOV формы уменьшает общий запас на 1 при выходе; возвраты за занятые клетки его не увеличивают. Форма проходит сквозь врагов, Объекты, Щиты и Стены. Blessing создаёт Stoic Shell: восстанавливает 1 HP в начале хода, без накопления. Урон снимает Stoic Shell.'
+        : 'Spirit Form prevents Cards containing “Bless” in their name from being used. Judgement cannot pay for Guard or Dash and is automatically Removed during overstacking or at the end of John’s turn. Negative MOV modifiers affect John’s cumulative pool and never reduce the Form’s own 1 MOV. Exception: if John enters the Form, spends its MOV, exits, spends all remaining cumulative MOV, and enters again during the same turn, that second entry has 0 MOV. If cumulative MOV remains, re-entry still grants 1 MOV. Fully spending the Form’s MOV subtracts 1 from the cumulative pool on exit; occupied-Square refunds do not increase it. The Form crosses enemies, Objects, Shields, and Walls. Blessings create Stoic Shell: restore 1 HP at turn start, without stacking. HP Damage removes Stoic Shell.',
       status: ru
         ? `Сейчас: ${player.spiritForm ? 'Spirit Form активна' : 'обычная форма'} · Stoic Shell ${player.stoicShell ? 'активна' : 'неактивна'} · отложено Blessing: ${player.queuedBlessingCardIds.length}.`
         : `Current state: ${player.spiritForm ? 'Spirit Form active' : 'normal form'} · Stoic Shell ${player.stoicShell ? 'active' : 'inactive'} · queued Blessings: ${player.queuedBlessingCardIds.length}.`,
@@ -1495,146 +1551,6 @@ function hintsRulesHtml(ru: boolean) {
     <article><h3>Available Player Actions</h3><p><b>Free Move + Draw Card:</b> draw a Card and gain movement. Movement may be split before and after other Actions.</p><p><b>Action: Attack:</b> select an Attack Card and a valid target. A Player normally has up to two Actions per turn.</p><p><b>Action: Perk:</b> play one Perk directly at Level 1 or place it in Spell Echo. Only one Perk may be used each turn.</p><p><b>Action: Defend:</b> when attacked, play a Defend Card or take the hit.</p><p><b>Finishing Moves:</b> Guard draws and discards a Card; Dash discards one non-Blessing Card and grants another movement. Either immediately ends the turn when resolved.</p></article>
     <article><h3>Combat Stack</h3><ol><li><b>Before combat:</b> resolve the Defender's pre-combat Card effect first, then the Attacker's pre-combat Card effect.</li><li><b>Reveal:</b> reveal the selected Attack and Defend Cards. The combat screen lists every pre-combat Value change, Damage instance, and cancelled effect.</li><li><b>Combat Cards:</b> a Combat Card is any separate Card from Hand that can optionally be applied after the Attack and Defend Cards have been selected and played. Each Player privately selects no more than one applicable Combat Card, or selects “Use no Combat Cards.” Neither Player's selection or effect is shown until both have submitted.</li><li><b>Combat Card reveal:</b> reveal both selections together, apply their effects, update Attack and Defend Values, and list every newly applied effect.</li><li><b>Result and confirmation:</b> compare the final Values. Attack above Defend deals the difference as combat Damage; a tie or lower Attack deals none. After both Players confirm and close the combat screen, resolve and animate the Attacker's post-combat effects first, followed by the Defender's post-combat effects.</li></ol><p>Cancelling a played Card's effect does not cancel external modifiers unless their own rules say so. Choices intrinsic to the already played Attack or Defend Card are combat effects, but are not additional Combat Cards from Hand.</p><h3>Status Cards</h3><p>Status Cards occupy Hand space and apply their effects while held. Their orange highlight distinguishes them from regular Cards. Each Status specifies whether it may be discarded or Removed. At the five-Card end-of-turn Hand limit, non-discardable Status Cards cannot be chosen for a normal discard. By default, a Blessing is Removed from its holder's Deck whenever that holder uses or discards it, unless the Blessing explicitly states otherwise.</p></article></div>`;
 }
-
-function cardAdviceHtml(ru: boolean) {
-  const player = gameState.players[actingPlayer()];
-  const cards = player.hand.map((instance) => cardDefinition(instance));
-  const generatedStatuses = (Object.keys(STATUS_CARD_GENERATORS) as StatusCardId[])
-    .filter((statusId) => !cards.some((card) => card.id === statusId) && statusGeneratorsInHand(statusId, cards).length > 0)
-    .map((statusId) => CARDS.find((card) => card.id === statusId)!);
-  const adviceCards = [...cards, ...generatedStatuses];
-  const heading = ru ? `Советы для ${escapeHtml(player.name)}` : `${escapeHtml(player.name)} · Hand Advice`;
-  if (cards.length === 0) return `<h2 id="hintsTitle">${heading}</h2><p class="empty-advice">${ru ? 'В Руке нет карт. Используйте свободное движение, чтобы взять карту.' : 'Your Hand is empty. Use Free Move to draw a Card.'}</p>`;
-  return `<h2 id="hintsTitle">${heading}</h2><p class="ai-advice-label">${ru ? 'ТАКТИЧЕСКАЯ AI-ПОДСКАЗКА · ОБНОВЛЯЕТСЯ ВМЕСТЕ С РУКОЙ' : 'TACTICAL AI SUGGESTION · UPDATES WITH YOUR HAND'}</p><div class="advice-list">${adviceCards.map((card) => `<article class="advice-card ${cardVisualClass(card)}" data-advice-card="${card.id}"><header><strong>${escapeHtml(card.name)}</strong><span>${card.value} ${ru ? card.kind === 'attack' ? 'АТК' : card.kind === 'defend' ? 'ЗАЩ' : card.kind === 'perk' ? 'ПЕРК' : 'СТАТУС' : card.kind.toUpperCase()}</span></header><p>${cardTacticalAdvice(card, player, ru)}${statusGeneratorAdvice(card.id, cards, ru)}</p></article>`).join('')}</div>`;
-}
-
-type StatusCardId = 'pinned' | 'headache' | 'exhaust' | 'burning' | 'panic' | 'blessing-light' | 'blessing-prayer' | 'blessing-might' | 'blessing-shield' | 'blessing-swiftness' | 'blessing-faith';
-const STATUS_CARD_GENERATORS: Record<StatusCardId, readonly CardTypeId[]> = {
-  pinned: ['light-the-saber', 'dance-through', 'cut-them-legs', 'block', 'double-jump', 'force-pull', 'swiftform'],
-  headache: ['counterspell', 'hello-there', 'mind-tricks', 'knee-blast', 'countaspell', 'enforce', 'mind-blast'],
-  exhaust: ['force-disarm', 'consume-rage', 'teef-strike', 'blessed-light'],
-  burning: ['fireball', 'cleanse', 'thorns'],
-  panic: ['enforce', 'fear-the-justice'],
-  'blessing-light': ['blessed-light'],
-  'blessing-prayer': ['blessed-prayer'],
-  'blessing-might': ['blessed-might'],
-  'blessing-shield': ['blessed-block'],
-  'blessing-swiftness': ['blessed-swiftness'],
-  'blessing-faith': ['inner-peace'],
-};
-function statusGeneratorsInHand(statusId: StatusCardId, cards: readonly (typeof CARDS)[number][]) {
-  const generatorIds = STATUS_CARD_GENERATORS[statusId];
-  return cards.filter((card, index) => generatorIds.includes(card.id) && cards.findIndex((candidate) => candidate.id === card.id) === index);
-}
-function statusGeneratorAdvice(cardId: CardTypeId, cards: readonly (typeof CARDS)[number][], ru: boolean): string {
-  if (!(cardId in STATUS_CARD_GENERATORS)) return '';
-  const generators = statusGeneratorsInHand(cardId as StatusCardId, cards);
-  if (generators.length === 0) return '';
-  const names = generators.map((card) => escapeHtml(card.name)).join(', ');
-  return ru ? ` Карты в вашей Руке, которые могут создать этот Статус: <b>${names}</b>.` : ` Cards in your Hand that can generate this Status: <b>${names}</b>.`;
-}
-
-function cardTacticalAdvice(card: (typeof CARDS)[number], player: GameState['players'][PlayerId], ru: boolean) {
-  const specific = CARD_TACTICAL_ADVICE[card.id]?.[ru ? 'ru' : 'en'];
-  const availability = card.kind === 'perk' && player.perkUsed
-    ? (ru ? ' Перк в этом ходу уже использован — сохраните карту на следующий ход.' : ' You have already used a Perk this turn, so hold it for the next turn.')
-    : card.kind === 'attack' && player.actionsRemaining === 0
-      ? (ru ? ' Сейчас Действий не осталось — сохраните карту, если её не требуется сбросить.' : ' You have no Actions remaining, so preserve it unless another effect requires a discard.')
-      : '';
-  if (specific) return `${specific}${availability}`;
-  if (ru) {
-    if (card.kind === 'status') return card.canRemoveAsAction ? 'Эта карта занимает место и влияет на вас. Удалите её Действием, когда темп хода позволяет.' : 'Учитывайте этот Статус при планировании хода и проверьте на карте, можно ли его сбросить.';
-    if (card.kind === 'defend') return `Сохраните для ответа на сильную Атаку. Базовая Защита: ${card.value}; внешние бонусы и штрафы изменят итог.`;
-    if (card.kind === 'perk') return player.perkUsed ? 'Перк в этом ходу уже использован. Сохраните карту или подготовьте её для будущего Spell Echo.' : 'Разыграйте напрямую ради эффекта 1-го уровня или поместите в Spell Echo, чтобы усилить будущие уровни.';
-    return player.actionsRemaining > 0 ? `Используйте против цели в радиусе атаки. Базовая Атака: ${card.value}; сначала оцените Защиту и Статусы противника.` : 'Действий не осталось — сохраните эту Атаку на следующий ход или сбросьте только при необходимости.';
-  }
-  if (card.kind === 'status') return card.canRemoveAsAction ? 'This Card occupies Hand space and affects you. Remove it with an Action when tempo allows.' : 'Plan around this Status and check its text before choosing it for any discard.';
-  if (card.kind === 'defend') return `Hold this for a strong incoming Attack. Its base Defend Value is ${card.value}; external bonuses and penalties change the final result.`;
-  if (card.kind === 'perk') return player.perkUsed ? 'You already used a Perk this turn. Keep this Card or prepare it for a future Spell Echo cycle.' : 'Play it directly for its Level 1 effect, or place it in Spell Echo to build toward stronger levels.';
-  return player.actionsRemaining > 0 ? `Use it on a target within Attack Range. Its base Attack Value is ${card.value}; inspect the enemy's Defences and Statuses first.` : 'You have no Actions remaining. Preserve this Attack for the next turn unless another effect requires a discard.';
-}
-
-const CARD_TACTICAL_ADVICE: Partial<Record<(typeof CARDS)[number]['id'], { en: string; ru: string }>> = {
-  'echo-pulse': { en: 'A flexible Spell Echo engine. Use it early for a Card, mature it to Level 2 when an extra Action creates a combo turn, or hold Level 3 for emergency healing.', ru: 'Гибкий двигатель Spell Echo. Используйте рано ради карты, поднимите до 2-го уровня для дополнительного Действия в комбо-ходе или сохраните 3-й уровень для срочного лечения.' },
-  fireball: { en: 'Deal 2 direct Damage and add Burning to the target’s Hand. Burning deals 1 Damage at turn end if still held; Dash deals that Damage first, then Removes it and moves the target randomly.', ru: 'Нанесите 2 прямого урона и добавьте Горение в Руку цели. Burning наносит 1 урон в конце хода, если остаётся в Руке; Dash сначала наносит этот урон, затем удаляет карту и перемещает цель случайно.' },
-  firebolt: { en: 'Use as a normal Perk to deal 1 Damage at Range 3 and add Burning to the target’s Hand.', ru: 'Используйте как обычный Перк, чтобы нанести 1 урон на дальности 3 и добавить Burning в Руку цели.' },
-  portal: { en: 'A one-use Free Action reposition. Escape danger, claim High Ground or a draw Square, or set up the Range and line of sight for your next card without spending an Action. Portal is Removed when used or Discarded.', ru: 'Одноразовое глобальное перемещение Свободным Действием. Уходите из опасности, занимайте Высоту или клетку добора либо готовьте дальность и линию видимости для следующей карты, не тратя Действие. Portal удаляется из игры после применения или сброса.' },
-  'portal-perk': { en: 'The Draw Reward version of Portal uses the normal Perk action and teleports you to a visible empty Square.', ru: 'Версия Portal за ничью используется как обычный Перк и телепортирует на видимую пустую клетку.' },
-  'monarch-flush-perk': { en: "The Gambler Draw Reward uses the normal Perk action to reveal every opponent Hand, then Removes itself from the game.", ru: 'Награда за ничью в The Gambler используется как обычный Перк, раскрывает Руки всех противников и затем удаляется из игры.' },
-  'vicious-mockery': { en: 'Keep this hidden until +2 changes a combat result. It can turn a narrow Attack into damage or make a crucial Defence hold, but is Removed once committed.', ru: 'Скрывайте карту, пока +2 не изменит исход боя. Она превращает близкую Атаку в урон или спасает ключевую Защиту, но после применения Удаляется.' },
-  'vicious-mockery-1': { en: 'The Provocateur Draw Reward adds +1 to an Attack or Defend Card in combat, then Removes itself.', ru: 'Награда за ничью в Provocateur добавляет +1 к карте Атаки или Защиты в бою, затем удаляется.' },
-  preparation: { en: 'A card-draw engine in Spell Echo: every use improves hand quality, while higher levels add Mana and filtering. During Consume, swap Logan with any visible movable Object, including Da Orkk’s unequipped Shield.', ru: 'Двигатель добора в Spell Echo: каждое применение улучшает Руку, а высокие уровни дают Ману и фильтрацию. При Consume поменяйте Логана местами с любым видимым перемещаемым объектом, включая снятый Щит Да Оркка.' },
-  'arcane-missle': { en: 'Direct damage for targets that normal Attacks cannot conveniently reach. Level 2 routes around pillars, Level 3 reaches globally, and Consume turns it into a strong 3-damage finisher.', ru: 'Прямой урон по целям, которых неудобно доставать обычной Атакой. Уровень 2 обходит колонны, уровень 3 действует глобально, а Consume превращает заклинание в сильный добивающий удар на 3 урона.' },
-  'chain-lightning': { en: 'Best when enemies and destructible Objects are clustered. Higher levels extend and repeat bounces; Consume is strongest in a crowded area where repeated hits can revisit targets.', ru: 'Лучше всего работает в скоплении врагов и разрушаемых Объектов. Высокие уровни удлиняют и повторяют скачки; Consume особенно силён в толпе, где молния может повторно поражать цели.' },
-  'magic-hand': { en: 'Throw an Object 3 Squares within Range 5. Level 2 targets globally; Level 3 may target enemies and pushes until the board edge or a collision. Remaining momentum transfers through collisions without dealing Damage. Consume refunds 1 Action.', ru: 'Бросьте Объект на 3 клетки в радиусе 5. Уровень 2 даёт глобальную дальность; уровень 3 позволяет выбирать врагов и толкает до края поля или столкновения. Оставшийся импульс передаётся дальше без урона. Consume возвращает 1 Действие.' },
-  shizzle: { en: 'Logan’s escape and reposition tool. Dash up to 2 Squares, increasing to 3 at Level 3. Pass through all characters and board Objects, including Columns, Shields, and Tombs. Finish on an empty Square. Level 2 adds pass-through damage; Consume allows turns between one-Square steps.', ru: 'Инструмент побега и смены позиции Логана. Совершите рывок до 2 клеток или до 3 клеток на уровне 3. Проходите сквозь всех персонажей и любые игровые Объекты, включая Колонны, Щиты и Гробницы. Заканчивайте на пустой клетке. Уровень 2 добавляет урон при прохождении; Consume позволяет менять направление между шагами.' },
-  'arcane-bolt': { en: 'Lead a multi-Attack turn with this card: its +1 ATT improves later Attacks until turn end. Consume upgrades that persistent bonus to +2 ATT instead.', ru: 'Начинайте этой картой ход с несколькими Атаками: +1 ATT усилит последующие Атаки до конца хода. Consume вместо этого повышает постоянный бонус до +2 ATT.' },
-  'snowball-effect': { en: 'A repeatable low-value Attack that returns to Hand. Use it when you can spend multiple Actions or need a reliable future Attack; Consume also cycles one unwanted Card after combat.', ru: 'Повторяемая Атака малого значения, возвращающаяся в Руку. Используйте при нескольких Действиях или чтобы сохранить Атаку на будущее; Consume после боя также заменяет одну ненужную карту.' },
-  'mana-blast': { en: 'Pressure the enemy’s Hand: they either discard or let Logan gain Mana. It is strongest when their Hand contains valuable Cards; Consume raises ATT and threatens 3 MP if they can legally refuse a discard.', ru: 'Давите на Руку врага: он либо сбрасывает карту, либо даёт Логану Ману. Особенно полезно против ценных карт; Consume повышает ATT и угрожает 3 MP при законном отказе от сброса.' },
-  'mana-barrage': { en: 'During normal combat, decide whether to spend exactly 1 stored Mana for 1 Damage. Consume replaces that choice with 2 guaranteed Damage after combat.', ru: 'В обычном бою решите, потратить ли ровно 1 сохранённую Mana ради 1 урона. Consume заменяет этот выбор гарантированными 2 единицами урона после боя.' },
-  'grimoire-cleanse': { en: 'Win combat to force the target to discard up to two eligible Cards. With Consume, each Card they actually discard immediately grants Logan +1 MOV.', ru: 'Победите в бою, чтобы заставить цель сбросить до двух допустимых карт. При Consume каждая фактически сброшенная карта немедленно даёт Логану +1 MOV.' },
-  spellblock: { en: 'Use against an Attack with a dangerous printed effect. It cancels that effect before combat and converts blocked Attack Value into Mana, combining protection with resource generation.', ru: 'Используйте против Атаки с опасным собственным эффектом. Карта отменяет его до боя и превращает заблокированное значение Атаки в Ману, совмещая защиту и генерацию ресурса.' },
-  'mana-shield': { en: 'A Mana-dependent Defence that first generates 1 MP, then uses total stored Mana as DEF. Best when a small amount of Mana is enough to stop damage without emptying resources needed for a later Consume turn.', ru: 'Защита, зависящая от Маны: сначала даёт 1 MP, затем использует весь запас как DEF. Лучше всего, когда малого количества Маны достаточно для блока без потери ресурса на будущий Consume-ход.' },
-  'arcane-barrier': { en: "Best against an adjacent attacker when the Square directly behind them is open. Arcane Barrier pushes them away after combat, or deals 1 Damage if that push is blocked.", ru: 'Лучше всего использовать против соседнего атакующего, когда клетка прямо за ним свободна. После боя Arcane Barrier отталкивает его, а если путь заблокирован — наносит 1 урон.' },
-  counterspell: { en: 'A high-value Defence and retaliation tool. Keep at least 1 stored MP to deal 1 Damage to the attacker; Counterspell also places Headache on top of their Deck to disrupt the next draw.', ru: 'Сильная Защита и ответный удар. Сохраните хотя бы 1 MP, чтобы нанести атакующему 1 урон; Counterspell также кладёт Headache сверху его Колоды и портит следующий добор.' },
-  blink: { en: 'Logan’s emergency Defence: it blocks all combat damage. With Mana, it also teleports him to safety; without Mana, expect to sacrifice a chosen Hand Card or a non-Status Card from Deck.', ru: 'Экстренная Защита Логана: блокирует весь боевой урон. При наличии Маны также телепортирует в безопасность; без Маны придётся пожертвовать выбранной картой Руки или не-Статусной картой Колоды.' },
-  'blessed-light': { en: 'A setup Attack that plants Exhaust in the target’s Deck—on top if their Deck is empty—so a later draw can impose -1 ATT and DEF while Exhaust remains in Hand. It immediately creates revealed Blessing: Light and Stoic Shell; save that Blessing to reduce an enemy Defend Card by 1 in a later combat. Because its name contains “Blessed,” John cannot use this card in Spirit Form.', ru: 'Подготовительная Атака: замешивает Exhaust в Колоду цели, а при пустой Колоде кладёт его сверху. Exhaust даёт -1 ATT и DEF, пока находится в Руке. Карта сразу создаёт открытую Blessing: Light и Stoic Shell; сохраните Blessing, чтобы позже уменьшить DEF врага на 1. Из-за слова “Blessed” карта недоступна в Spirit Form.' },
-  cleanse: { en: 'Use early to place Burning in the target’s Hand after combat. It deals 1 Damage at their turn end if still held; Dash deals that Damage before Removing Burning and spending movement randomly. The Status applies even if Cleanse loses combat, unless the Attack effect is cancelled.', ru: 'Используйте рано, чтобы после боя добавить Burning в Руку цели. В конце её хода карта наносит 1 урон, если остаётся в Руке; Dash наносит урон до удаления Burning и случайной траты движения. Статус применяется даже при проигранном бою, если эффект Атаки не отменён.' },
-  repent: { en: 'A deliberate Spirit Form trigger and area punish: after combat John takes 1 Damage while every adjacent enemy takes 2 and erupts in Holy Fire. Use it while healthy and surrounded; successful self-Damage activates Spirit Form for a later non-Bless Attack.', ru: 'Осознанный вход в Spirit Form и наказание группы: после боя Джон получает 1 урон, а каждый соседний враг получает 2 урона и вспыхивает Святым Огнём. Используйте при достаточном HP и в окружении; прошедший самоурон включает Spirit Form для следующей Атаки без “Bless”.' },
-  enforce: { en: 'A control Attack that applies both Panic and Headache after combat unless its debuffs are prevented. Panic greys out Attack and Perk Cards until Free Move Removes it and spends the target’s current movement randomly; Headache then remains dead Hand weight that costs an Action to Remove.', ru: 'Контрольная Атака, накладывающая после боя Panic и Headache, если дебаффы не предотвращены. Panic блокирует Атаки и Перки до Free Move и случайно тратит текущее движение цели; Headache остаётся мёртвым грузом в Руке и требует Действия для удаления.' },
-  'blessed-might': { en: 'A high-value Attack that cancels the enemy Defend Card’s printed effect unless they use an effect-blocking Defence. After combat it creates revealed Blessing: Might and Stoic Shell; use that Blessing in a different combat for +2 ATT. Neither card can be used while John is in Spirit Form.', ru: 'Сильная Атака, отменяющая печатный эффект карты Защиты врага, если тот не применил Защиту, блокирующую эффект Атаки. После боя создаёт открытую Blessing: Might и Stoic Shell; используйте Blessing в другом бою ради +2 ATT. Обе карты недоступны в Spirit Form.' },
-  'blessed-block': { en: 'Use against a low-value Attack with a dangerous printed effect: Blessed Block cancels that effect before combat. Blessing: Shield is queued for the beginning of John’s next eligible turn—not this combat—so the opponent gets a turn to break the resulting Stoic Shell with Damage.', ru: 'Используйте против слабой Атаки с опасным печатным эффектом: Blessed Block отменяет его до боя. Blessing: Shield ставится в очередь до начала следующего подходящего хода Джона и недоступна в этом бою; у врага будет ход, чтобы уроном снять появившийся Stoic Shell.' },
-  'feed-the-spirit': { en: 'Best when the incoming combat Damage will make John enter Spirit Form without killing him: after combat that transition restores 2 HP. If any Blessing remains in Hand, you may Remove one to restore the exact HP lost to combat Damage in this combat, excluding later post-combat effect Damage.', ru: 'Лучше всего, когда входящий урон введёт Джона в Spirit Form, но не убьёт: после боя этот переход восстановит 2 HP. При наличии Blessing можно удалить одну ради ещё +1 HP; жертвуйте малополезной Faith или истекающей Prayer раньше сильной боевой Blessing.' },
-  thorns: { en: 'Retaliates for 1 Damage before combat, potentially defeating a fragile attacker before values resolve. If combat Damage then makes John enter Spirit Form, Thorns adds Burning after combat; it deals 1 at that attacker’s turn end, or immediately before movement if they Remove it with Dash.', ru: 'Наносит атакующему 1 урон до боя и может добить его ещё до сравнения значений. Если боевой урон затем введёт Джона в Spirit Form, Thorns добавит Burning после боя; карта нанесёт 1 урон в конце хода атакующего либо непосредственно перед движением при удалении через Dash.' },
-  'blessed-swiftness': { en: 'A tempo Defence: immediately erase all of the attacker’s unspent MOV to stop their post-combat reposition. Blessing: Swiftness is queued for John’s next eligible turn and grants +1 MOV while held; if Hand size is 6 or more, it is automatically Removed only when that turn begins ending.', ru: 'Темповая Защита: сразу аннулирует весь неизрасходованный MOV атакующего и мешает сменить позицию после боя. Blessing: Swiftness ставится в очередь на следующий подходящий ход Джона и даёт +1 MOV в Руке; при 6+ картах она автоматически удаляется только в начале завершения хода.' },
-  resurrection: { en: 'Emergency Defence when at least one of John’s two Base Squares is empty. A legal teleport negates all combat and card-effect Damage, returns John to Base, and draws 1 Card. If both Base Squares are occupied, he still draws but receives Damage normally, so inspect the Base before committing a 0 DEF card.', ru: 'Экстренная Защита, если хотя бы одна из двух клеток Базы Джона свободна. Успешный телепорт отменяет весь боевой урон и урон эффектов, возвращает на Базу и даёт 1 карту. Если обе клетки заняты, добор остаётся, но урон не отменяется — проверяйте Базу перед выбором DEF 0.' },
-  'blessed-prayer': { en: 'John’s Spell Echo engine. Level 1 immediately creates revealed Blessing: Prayer and Stoic Shell; Level 2 adds 1 MOV for this turn, and Level 3 retrieves a chosen Card from Discard. Avoid casting it in Spirit Form, and plan Prayer’s Free Action draw before its mandatory end-turn removal.', ru: 'Двигатель Spell Echo Джона. Уровень 1 сразу создаёт открытую Blessing: Prayer и Stoic Shell; уровень 2 даёт 1 MOV на этот ход, уровень 3 возвращает выбранную карту из Discard. Нельзя применять в Spirit Form; используйте Свободное Действие Prayer до её обязательного удаления в конце хода.' },
-  'fear-the-justice': { en: 'Enter Spirit Form on demand without losing HP. At Level 2 every adjacent enemy receives Panic, disabling Attack and Perk Cards until Free Move Removes it while spending movement randomly; Level 3 also makes each affected enemy discard a Defend Card. Surround multiple enemies before using the higher levels.', ru: 'Позволяет войти в Spirit Form без потери HP. На уровне 2 каждый соседний враг получает Panic, блокирующий Атаки и Перки до Free Move со случайной тратой движения; уровень 3 также заставляет каждого затронутого врага сбросить карту Защиты. Перед высоким уровнем окружите несколько целей.' },
-  'inner-peace': { en: 'A safe cleanse: leave Spirit Form so Bless cards become usable, then Remove a chosen negative Status from Hand. Level 2 Removes one additional random negative Status, preferring Hand, then Deck, then Discard; Level 3 creates revealed Blessing: Faith and Stoic Shell. Blessings and other positive Status Cards are never removed by this Perk.', ru: 'Безопасное очищение: выйдите из Spirit Form, снова открыв карты Bless, затем удалите выбранный отрицательный Статус из Руки. Уровень 2 случайно удаляет ещё один отрицательный Статус с приоритетом Рука → Колода → Discard; уровень 3 создаёт открытую Blessing: Faith и Stoic Shell. Этот Перк никогда не удаляет Blessing и другие положительные Статусы.' },
-  'mind-blast': { en: 'Ranged Hand and draw disruption. Level 1 forces one discard, Level 2 adds 1 direct Damage, and Level 3 places 2 Headache Cards on top of the target’s Deck, burdening their next two draws with Status Cards that cost an Action to Remove. Use Level 3 just before their turn for the strongest draw denial.', ru: 'Дальнее разрушение Руки и добора. Уровень 1 заставляет сбросить карту, уровень 2 наносит 1 прямой урон, уровень 3 кладёт 2 карты Headache сверху Колоды цели, занимая два следующих добора Статусами, удаление которых требует Действия. Применяйте уровень 3 непосредственно перед ходом цели.' },
-  'spirit-guardian': { en: 'Create a positional anchor within John’s Range; it remains through John’s Attack Card use and expires at the beginning of his next turn. While adjacent, gain +1 DEF and block the first 1 Perk Damage in each Action. Adjacency is checked when Damage resolves: if that same Perk pushes John away before collision Damage, nothing is blocked. Level 2 makes the Guardian an invincible Heavy Wall moved only 1 Square per push/pull; Level 3 gives adjacent enemies -1 Attack and Defend Value.', ru: 'Создайте позиционный якорь в Дальности Джона; использование Джоном карты Атаки не удаляет его, и Страж исчезает в начале следующего хода Джона. Пока Джон рядом, он получает +1 DEF и блокирует первую 1 единицу урона Перка в каждом Действии. Соседство проверяется в момент урона: если тот же Перк сначала вытолкнул Джона из зоны, урон столкновения не блокируется. Уровень 2 делает Стража неуязвимой Тяжёлой Стеной с перемещением лишь на 1 клетку за толчок/притягивание; уровень 3 даёт соседним врагам -1 к Атаке и Защите.' },
-  'blessing-light': { en: 'A revealed combat Status. Apply it only when -1 to the enemy Defend Value changes the outcome. It grants Stoic Shell when created, but cannot be activated while John is in Spirit Form.', ru: 'Открытый боевой Статус. Применяйте, только когда -1 DEF врага меняет исход. При создании даёт Stoic Shell, но недоступна в Spirit Form.' },
-  'blessing-prayer': { en: 'Convert 1 MOV into 1 drawn Card as a Free Action, then Remove this revealed Blessing. Use it after movement positioning is secure; otherwise it disappears at turn end. Creating it grants Stoic Shell, and Spirit Form prevents using it.', ru: 'Превратите 1 MOV в добор 1 карты Свободным Действием, затем удалите открытую Blessing. Используйте после завершения позиционирования, иначе она исчезнет в конце хода. Создание даёт Stoic Shell; в Spirit Form карта недоступна.' },
-  'blessing-might': { en: 'A revealed combat finisher that adds +2 to John’s played Attack Card. Hold it for a combat where the bonus creates Damage or defeats the target. It cannot be applied during Spirit Form despite that form’s own +2 ATT.', ru: 'Открытый боевой финишер, добавляющий +2 к сыгранной Атаке Джона. Берегите для боя, где бонус создаст урон или добьёт цель. Карта не работает в Spirit Form, несмотря на собственные +2 ATT формы.' },
-  'blessing-shield': { en: 'Apply after reveal for two independent protections during the rest of combat: absorb 1 Damage from an enemy Attack/Defend Card effect and automatically block the first negative Status application. Pre-combat Status effects have already resolved and are unaffected. A Shield generated by Blessed Block arrives next turn; Spirit Form prevents its use.', ru: 'Примените после раскрытия ради двух независимых защит до конца боя: поглотите 1 урон от эффекта вражеской Атаки/Защиты и автоматически заблокируйте первое наложение негативного Статуса. Предбоевые Статусы уже разрешены и не блокируются. Shield от Blessed Block приходит в следующий ход; Spirit Form не позволяет его использовать.' },
-  'blessing-swiftness': { en: 'A revealed passive Status granting +1 MOV while in Hand. Keep Hand size at 5 or fewer when ending the turn if you want to retain it; at 6 or more it is Removed at the beginning of the end-turn process. Its creation also grants Stoic Shell.', ru: 'Открытый пассивный Статус, дающий +1 MOV в Руке. Завершайте ход с 5 или менее картами, если хотите сохранить его; при 6+ он удаляется в самом начале процесса окончания хода. Создание также даёт Stoic Shell.' },
-  'blessing-faith': { en: 'A revealed one-combat sanctuary. Apply it to negate every Damage instance dealt to both attacker and defender, including combat-value and card-effect Damage. If unused, it expires at the beginning of your next turn, so use it in the current enemy turn when meaningful.', ru: 'Открытое убежище на один бой. Примените, чтобы отменить весь урон обеим сторонам — и от разницы боевых значений, и от эффектов карт. Если не использовать, карта исчезнет в начале вашего следующего хода, поэтому применяйте её во время текущего хода врага, когда это выгодно.' },
-  'light-the-saber': { en: 'An efficient setup Attack. After combat it applies Pinned to reduce enemy mobility and activates Lightsaber for immediate +1 ATT, +1 DEF, and +1 MOV.', ru: 'Эффективная подготовительная Атака. После боя она накладывает Pinned, снижая мобильность врага, и активирует Lightsaber, немедленно давая +1 ATT, +1 DEF и +1 MOV.' },
-  'dance-through': { en: 'Attack and reposition in one Action. After combat, weave through enemies, Objects, and Wall Objects to cross blocked lanes or apply Pinned, but reserve the final step for an unoccupied Square.', ru: 'Атака и смена позиции за одно Действие. После боя проходите сквозь врагов, Объекты и Объекты-Стены, но оставьте последний шаг для незанятой клетки.' },
-  'force-disarm': { en: 'Use when the enemy is holding revealed or suspected Attack Cards. It removes their offensive option; if none exists, revealing the Hand provides information and Exhaust weakens future combat.', ru: 'Используйте, когда у врага есть открытые или предполагаемые Карты Атаки. Карта убирает наступательную угрозу; если Атак нет, раскрытие Руки даёт информацию, а Exhaust ослабляет будущие бои.' },
-  'cut-them-legs': { en: 'A strong repeatable Attack. Aim for a favourable combat so it returns to Hand, applies Pinned, and can be played again if another Action remains.', ru: 'Сильная повторяемая Атака. Добивайтесь победы в бою, чтобы карта вернулась в Руку, наложила Pinned и могла быть сыграна снова при наличии Действия.' },
-  'hello-there': { en: 'Shinobi’s Pinned payoff. Stack Pinned first, then use this even against a strong Defence: its bonus damage applies after combat, and Headache further clogs the enemy Hand.', ru: 'Главная реализация Pinned у Шиноби. Сначала накопите Pinned, затем используйте даже против сильной Защиты: дополнительный урон наносится после боя, а Headache засоряет Руку врага.' },
-  block: { en: 'Choose this against Attacks whose effects matter more than raw damage. It cancels the printed Attack effect before combat and Pins the attacker for later Shinobi combinations.', ru: 'Выбирайте против Атак, чьи эффекты опаснее чистого урона. Карта отменяет собственный эффект Атаки до боя и накладывает Pinned для будущих комбинаций Шиноби.' },
-  'flurry-defensive-strikes': { en: 'Use against an adjacent attacker to deal 1 Damage before combat. If you can spare 1 HP, lose it to force the attacker to discard 1 Card.', ru: 'Используйте против атакующего на соседней клетке, чтобы нанести 1 урон до боя. Если можете пожертвовать 1 HP, потеряйте его, чтобы атакующий сбросил 1 карту.' },
-  calmness: { en: 'A hard counter to a Pinned attacker: it negates all damage regardless of combat value. The cleanse removes Shinobi’s positive effects too, so spend valuable buffs first when possible.', ru: 'Жёсткий ответ на атакующего с Pinned: отменяет весь урон независимо от значений боя. Очищение снимает и положительные эффекты Шиноби, поэтому по возможности сначала используйте ценные усиления.' },
-  'not-a-shinobi': { en: 'A sturdy Defence that cleanses negative effects after combat. Hold it when Status Cards are restricting movement or combat, especially before an important positioning turn.', ru: 'Надёжная Защита, снимающая негативные эффекты после боя. Сохраняйте, когда Статусные карты мешают движению или бою, особенно перед важным позиционным ходом.' },
-  'double-jump': { en: 'Excellent against a heavily Pinned attacker because each stack adds DEF. The two post-combat steps can disengage or pass through enemies to add more Pinned, ending on an empty Square.', ru: 'Особенно силён против атакующего с множеством Pinned: каждый стек даёт DEF. Два шага после боя позволяют выйти из боя или пройти сквозь врагов, добавляя Pinned, с завершением на пустой клетке.' },
-  'higround-advantage': { en: 'Shinobi’s Reserve and long-term Spell Echo engine. Level 1 replaces itself, Level 2 maintains Lightsaber, and Level 3 enables a valuable Attack to return to Hand for a combo turn.', ru: 'Резерв Шиноби и долгосрочный двигатель Spell Echo. Уровень 1 заменяет себя картой, уровень 2 поддерживает Lightsaber, а уровень 3 возвращает ценную Атаку в Руку для комбо-хода.' },
-  'force-throw': { en: 'Use Objects as projectiles to damage enemies while changing the board. At Level 3, a pushed enemy takes 1 Damage when colliding with anything; if two enemy Players collide, both take 1 Damage.', ru: 'Используйте Объекты как снаряды, нанося урон и меняя поле. На 3-м уровне толкаемый враг получает 1 урон при столкновении с чем угодно; если сталкиваются два вражеских Игрока, оба получают 1 урон.' },
-  'force-pull': { en: 'Pull an enemy into Attack Range, off a protected position, or toward a hazardous cluster; pull an Object to reshape cover. Level 3 also prepares Pinned synergies.', ru: 'Подтягивайте врага в Радиус Атаки, с защищённой позиции или к опасному скоплению; Объектом меняйте укрытия. Уровень 3 также готовит комбинации с Pinned.' },
-  swiftform: { en: 'A mobility turn enabler. Use it before normal movement to gain distance and pass through enemies without ending on them. Level 3 Pins each crossed enemy once and restores Lightsaber at turn end.', ru: 'Основа мобильного хода. Используйте до обычного движения, чтобы увеличить дальность и проходить сквозь врагов, не заканчивая на них. Уровень 3 один раз накладывает Pinned на каждого пересечённого врага и возвращает Lightsaber.' },
-  'mind-tricks': { en: 'Trade information for Hand disruption without losing the revealed Cards. Level 2 also plants future draw disruption with Headache; Level 3 lets you reveal and force the discard of up to two Cards.', ru: 'Обменивайте информацию на разрушение Рук, не теряя показанные карты. Уровень 2 также портит будущий добор картой Headache; уровень 3 позволяет раскрыть и заставить сбросить до двух карт.' },
-  'arkane-arow': { en: 'Throw the equipped Shield within Range 3 to create a destructible Heavy wall exactly where it best blocks movement or line of sight. Level 2 raises collision Damage to 2; Level 3 also pushes and punishes a blocked push.', ru: 'Бросайте экипированный Щит в пределах дальности 3, создавая разрушаемую Тяжёлую стену там, где она лучше всего перекрывает движение или линию видимости. Уровень 2 повышает урон столкновения до 2; уровень 3 также толкает и наказывает за невозможный толчок.' },
-  'arm-da-wiz': { en: 'Recall a chosen unequipped Shield from anywhere on the Board or create a new one without removing existing Shields. A recall pulls crossed enemies 1 Square toward Orkk; Level 2 damages them, and Level 3 then damages enemies adjacent after equipping.', ru: 'Верните выбранный снятый Щит из любой точки поля или создайте новый, не удаляя прежние. Возврат притягивает пересечённых врагов на 1 клетку к Оркку; уровень 2 наносит им урон, а уровень 3 затем ранит соседних врагов после экипировки.' },
-  encourage: { en: 'Da Orkk’s card-advantage engine. Keep it cycling in Spell Echo: draw now, add Rage at Level 2, and recover a useful random discard at Level 3.', ru: 'Двигатель преимущества по картам Да Оркка. Прокручивайте в Spell Echo: добор сейчас, Rage на 2-м уровне и возврат случайной полезной карты из Discard на 3-м.' },
-  kyk: { en: 'Turn a nearby Object into a long-range projectile. Choose a line that ends in an enemy collision; Level 3 deals heavy damage but permanently destroys the projectile, so spend disposable Objects.', ru: 'Превращайте соседний Объект в дальний снаряд. Выбирайте линию, заканчивающуюся столкновением с врагом; уровень 3 наносит большой урон, но уничтожает снаряд, поэтому используйте расходные Объекты.' },
-  'consume-rage': { en: 'Convert Rage into healing instead of spending it on an Attack. Level 1 converts 1 Rage into 1 HP; Levels 2–3 may convert a second Rage into a second HP. Level 3 also adds Exhaust to every adjacent enemy and removes all negative Status Cards from Da Orkk.', ru: 'Превращайте Rage в лечение вместо расхода на Атаку. Уровень 1 превращает 1 Rage в 1 HP; уровни 2–3 могут превратить второй Rage во второй HP. Уровень 3 также добавляет Exhaust каждому соседнему врагу и удаляет все отрицательные карты статуса Да Оркка.' },
-  fistbolt: { en: 'A dependable opener when Orkk has no Rage: it creates 1 stack before comparison and immediately converts it into +1 ATT for this Attack.', ru: 'Надёжное начало при отсутствии Rage: карта создаёт 1 стек до сравнения и сразу превращает его в +1 ATT для этой Атаки.' },
-  'chain-punchin': { en: 'A utility Attack for changing Shield state. Attack while unequipped to gain an extra Action and continue a combo; while equipped, use it when you deliberately want the Shield dropped as an obstacle.', ru: 'Утилитарная Атака для смены состояния Щита. Без Щита получайте дополнительное Действие и продолжайте комбинацию; со Щитом используйте, когда хотите намеренно сбросить его как препятствие.' },
-  'teef-strike': { en: 'Use early to seed Exhaust into the enemy Hand. The ongoing -1 ATT/DEF makes every later combat easier even if this low-value Attack does little direct damage.', ru: 'Используйте рано, чтобы добавить Exhaust в Руку врага. Постоянный штраф -1 ATT/DEF облегчит все будущие бои, даже если эта слабая Атака нанесёт мало прямого урона.' },
-  'shield-bash': { en: 'If the Shield is unequipped, recall the one whose optimal route crosses the most enemies, using the nearest only to break a tie. Every enemy crossed takes 2 Damage and is pulled 1 Square toward Orkk. If it was already equipped when combat began, gain 1 Rage after all combat effects resolve.', ru: 'Если Щит снят, верните тот, чей оптимальный маршрут задевает больше врагов, а ближайший выбирайте только при равенстве. Каждый пересечённый враг получает 2 урона и притягивается на 1 клетку к Оркку. Если Щит был экипирован в начале боя, получите 1 Rage после разрешения всех эффектов боя.' },
-  'knee-blast': { en: 'A strong Attack that converts Rage into displacement. Line up the target with an Object, Player, wall, or board edge so an interrupted push also adds Headache to their Hand.', ru: 'Сильная Атака, превращающая Rage в перемещение. Выстройте цель напротив Объекта, Игрока, стены или края поля, чтобы прерванный толчок также добавил Headache в её Руку.' },
-  'da-blokk': { en: 'Use against an Attack with a dangerous printed effect. If damage still breaks through, the 2 Rage gained fuels a powerful counterattack on Orkk’s next turn.', ru: 'Используйте против Атаки с опасным собственным эффектом. Если урон всё же пройдёт, полученные 2 Rage подготовят мощную контратаку в следующий ход Оркка.' },
-  double: { en: 'Best early in an enemy turn when several damage instances may follow. It doubles Rage gained for the rest of that turn, setting up a large Rage-powered Attack.', ru: 'Лучше использовать в начале хода врага, когда ожидается несколько случаев урона. Карта удваивает получаемый Rage до конца хода и готовит мощную Rage-Атаку.' },
-  'arcane-shield': { en: 'When the Shield is unequipped, recall the one whose optimal route crosses the most enemies, using the nearest only to break a tie. Every recall uses the fewest steps and then the fewest diagonal steps; each crossed enemy takes 2 additional Damage.', ru: 'Если Щит не экипирован, верните тот, чей оптимальный маршрут задевает больше врагов, а ближайший выбирайте только при равенстве. Любой возврат использует минимум ходов, затем минимум диагоналей; каждый задетый враг получает 2 дополнительного урона.' },
-  countaspell: { en: 'A high Defence that weaponizes stored Rage without consuming it. Save it for an enemy with a vulnerable Deck, then load their Discard with Headaches before a later shuffle effect.', ru: 'Высокая Защита, использующая накопленный Rage без расхода. Сохраняйте против врага с уязвимой Колодой, затем наполняйте его Discard картами Headache перед будущим замешиванием.' },
-  'mana-baryer': { en: 'With the Shield equipped, Mana Baryer has exactly 5 base DEF—the normal equipped-Shield +1 is not added again. Without it, recall the Shield whose optimal route crosses the most enemies, using the nearest only to break a tie. Crossed enemies take 2 Damage and are pulled 1 Square toward Orkk.', ru: 'С экипированным Щитом Mana Baryer имеет ровно 5 базовой DEF — обычный бонус +1 за Щит повторно не добавляется. Без него верните Щит, чей оптимальный маршрут задевает больше врагов, а ближайший выбирайте только при равенстве. Задетые враги получают 2 урона и притягиваются на 1 клетку к Оркку.' },
-  pinned: { en: 'This restricts movement and cannot be discarded for Hand overstacking. Plan a low-movement turn, use an allowed Finishing Move discard, or wait for the automatic end-turn removal.', ru: 'Ограничивает движение и не может быть сброшена при переполнении Руки. Планируйте ход с малым движением, используйте разрешённый сброс Завершающего приёма или дождитесь автоматического удаления в конце хода.' },
-  headache: { en: 'Dead Hand weight that cannot be discarded. Spend an Action to Remove it before the five-Card limit becomes dangerous.', ru: 'Мёртвый груз в Руке, который нельзя Сбросить. Потратьте Действие на Удаление до того, как лимит в пять карт станет опасным.' },
-  exhaust: { en: 'While held, every Attack and Defence loses 1 Value. Discard it normally when possible, or attach and Remove it during combat for the larger one-time -3 penalty when that combat is expendable.', ru: 'Пока карта в Руке, каждая Атака и Защита теряет 1. Сбросьте её обычным способом или прикрепите и Удалите в менее важном бою ради одноразового штрафа -3.' },
-  burning: { en: 'Burning deals 1 Damage at turn end only if it remains in Hand. Discarding it through another effect avoids that Damage; Dash instead deals the Damage first, then Removes every Burning Card and spends movement randomly.', ru: 'Burning наносит 1 урон в конце хода, только если остаётся в Руке. Сброс другим эффектом предотвращает этот урон; Dash сначала наносит урон, затем удаляет все карты Burning и случайно тратит движение.' },
-  panic: { en: 'Panic disables all Attack and Perk Cards in Hand. Free Move Removes it and spends all movement available at that moment randomly; movement gained later in the turn remains usable, so sequence bonuses after clearing Panic when possible.', ru: 'Panic блокирует все карты Атаки и Перка в Руке. Free Move удаляет его и случайно тратит всё движение, доступное в этот момент; MOV, полученный позже в том же ходу, можно использовать, поэтому по возможности активируйте бонусы движения после очищения.' },
-};
 
 function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') {
   const player = gameState.players[id];
@@ -1711,6 +1627,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const discardHeadacheIcon = headacheInDiscard > 0 ? `<div class="status-icon headache-status in-discard" tabindex="0">${gameIcon('headache')}${headacheInDiscard > 1 ? `<b>${headacheInDiscard}</b>` : ''}<span class="status-tooltip"><strong>Headache · Discard</strong>${headacheInDiscard} Headache Card${headacheInDiscard === 1 ? '' : 's'} currently in this player's Discard. Filled orange while discarded.</span></div>` : '';
     const handExhaustIcon = exhaustInHand > 0 ? `<div class="status-icon exhaust-status in-hand" tabindex="0">${gameIcon('exhaust')}${exhaustInHand > 1 ? `<b>${exhaustInHand}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Hand</strong>Cards have -1 Attack and Defend Value per Exhaust. During combat, one may be Removed for a -3 modifier instead.</span></div>` : '';
     const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">${gameIcon('exhaust')}${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
+    const consumeIcon = player.character === 'magician' && player.manaMode === 'consume' ? `<div class="status-icon arcane-attack-status" tabindex="0" aria-label="Consume: +1 Attack Range until end of turn">${gameIcon('magic')}<b>+1</b><span class="status-tooltip"><strong>Classic Wizardry · Consume</strong>+1 Attack Range until the end of this turn. Attack and Perk spells gain their Consume effects. Normal spell resolution does not generate Mana while Consume is active.</span></div>` : '';
     const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">${gameIcon('magic')}<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
     const spectreTemporaryAttack = player.character === 'spectre' ? player.spectreAttackBonus ?? 0 : 0;
     const spectreShadowCloak = player.character === 'spectre' && Boolean(player.spectreShadowCloakActive);
@@ -1730,7 +1647,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('dagger')}<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
     const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('dagger')}<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('ice')}<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
-    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · Extended Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn.</span></div>` : '';
+    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0" aria-label="Dakkoth: +${player.dakkothRangeBonus} Attack Range until end of turn">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · +${player.dakkothRangeBonus} Attack Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn. Level 3 grants an additional +1 Attack Range.</span></div>` : '';
     const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('spellbook')}<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · ${player.traitBlocked ? 'Suppressed by Curse' : 'Attack Ready'}</strong>Swordcraft has summoned a sword from another realm.${player.traitBlocked ? ' Curse blocks Swordcraft, so Summon cannot enable Attack Cards until the end of this turn.' : ' Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.'}</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
@@ -1742,8 +1659,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const kamelotSuppressionIcon = player.kamelotSuppressedZone ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('square')}<span class="status-tooltip"><strong>Kamelot Stance · ${escapeHtml(player.kamelotSuppressedZone.zoneType)} Zone Disabled</strong>This character receives no bonus from the affected connected special-Square zone until the beginning of their turn. A draw-Square bonus is suppressed before this effect expires.</span></div>` : '';
     const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Perk</strong>Merylin may use one additional Perk during this turn. The allowance expires at turn end.</span></div>` : '';
     const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Attack</strong>After normal Actions are exhausted, Merylin may use one additional Attack during this turn. The allowance expires at turn end.</span></div>` : '';
-    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Drain Strength, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
-    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Drain Strength, or Curse reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
+    const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Bone Chill, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
+    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, or Curse reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">${gameIcon('pass-through')}<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">${gameIcon('lightsaber')}<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('highground')}<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
@@ -1753,12 +1670,12 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">${gameIcon('panic')}${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">${gameIcon('spirit')}<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
-    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<b>${player.stoicShellStacks}</b><span class="status-tooltip"><strong>Stoic Shell · ${player.stoicShellStacks} Stack${player.stoicShellStacks === 1 ? '' : 's'}</strong>Below maximum HP, gain 1 Stack at turn start and restore 1 HP per Stack. At maximum HP, existing Stacks remain but do not increase. HP Damage removes all Stacks.</span></div>` : '';
+    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<span class="status-tooltip"><strong>Stoic Shell</strong>Restore 1 HP at the beginning of your turn, up to maximum HP. Healing does not stack. HP Damage removes Stoic Shell.</span></div>` : '';
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${player.spiritSiphonedMovement}</b><span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1800,6 +1717,17 @@ function renderHand() {
     if (!decay?.targetId || viewerId !== decay.targetId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Curse to resolve.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-decay-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'decay-discard', playerId: viewerId, cardInstanceId: button.dataset.decayDiscard! })));
+    return;
+  }
+  if (gameState.phase === 'choosing-sap-defend') {
+    const sap = (gameState as GameState & { sap?: { casterId: PlayerId; targetId?: PlayerId } | null }).sap;
+    if (!sap?.targetId || viewerId !== sap.targetId) { handElement.innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[sap?.targetId ?? gameState.activePlayerId].name)} to reveal a Defend Card for Sap.</div>`; return; }
+    handElement.innerHTML = viewer.hand.map((instance) => {
+      const card = cardDefinition(instance);
+      const eligible = card.kind === 'defend';
+      return `<button class="card ${cardVisualClass(card)}" data-sap-defend="${instance.instanceId}" ${!eligible || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${eligible ? 'SAP · SELECT TO REVEAL' : 'SAP · DEFEND CARD REQUIRED'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${eligible ? '<span class="card-interaction">Reveal this Card to Wreckna and keep it in Hand.</span>' : ''}</small></button>`;
+    }).join('');
+    handElement.querySelectorAll<HTMLButtonElement>('[data-sap-defend]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'sap-defend-reveal', playerId: viewerId, cardInstanceId: button.dataset.sapDefend! })));
     return;
   }
   if (gameState.phase === 'wreckna-wisdom-discard') {
@@ -2032,6 +1960,15 @@ function renderFlurryModal() {
 
 function renderArmDaWizModal() {
   const modal = byId('armDaWizModal');
+  const graveyard = (gameState as GameState & { graveyard?: { playerId: PlayerId; objectIds: string[] } | null }).graveyard;
+  if (gameState.phase === 'choosing-graveyard-tomb' && graveyard && canLocalAct(graveyard.playerId)) {
+    const choices = graveyard.objectIds.map((objectId) => gameState.objects.find((object) => object.id === objectId)).filter((object): object is NonNullable<typeof object> => object?.kind === 'tomb');
+    modal.classList.remove('hidden');
+    modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Graveyard</h2><p>You may sacrifice a Tomb to return Tomb Block to your Hand.</p><div class="choice-cards">${choices.map((object) => `<button data-graveyard-tomb="${escapeHtml(object.id)}"><strong>${escapeHtml(object.name)} · ${cellLabel(object.position)}</strong><small>Sacrifice this Tomb and return Tomb Block</small></button>`).join('')}</div><button class="choice-decline" id="graveyardDecline">Do not sacrifice a Tomb</button></div>`;
+    modal.querySelectorAll<HTMLButtonElement>('[data-graveyard-tomb]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'graveyard-tomb-choice', playerId: graveyard.playerId, objectId: button.dataset.graveyardTomb! })));
+    modal.querySelector('#graveyardDecline')?.addEventListener('click', () => dispatch({ type: 'graveyard-tomb-choice', playerId: graveyard.playerId, objectId: null }));
+    return;
+  }
   const immortality = (gameState as GameState & { immortality?: { playerId: PlayerId; objectIds: string[] } | null }).immortality;
   if (gameState.phase === 'choosing-immortality-phylactery' && immortality && canLocalAct(immortality.playerId)) {
     const choices = immortality.objectIds.map((objectId) => gameState.objects.find((object) => object.id === objectId)).filter((object): object is NonNullable<typeof object> => Boolean(object?.phylacteryType));
@@ -2112,7 +2049,7 @@ function renderManaModal() {
   if (gameState.phase !== 'choosing-mana-mode' || !playerId || !canLocalAct(playerId)) { modal.classList.add('hidden'); modal.innerHTML = ''; return; }
   const player = gameState.players[playerId];
   modal.classList.remove('hidden');
-  modal.innerHTML = `<div class="choice-panel mana-choice-panel"><span>CLASSIC WIZARDRY · START OF TURN</span><strong>${player.name} has 3 Mana</strong><p>Consume all 3 Mana to enable advanced Attack and Perk spell effects this turn? Normal spell resolution will not generate Mana while Consume is active.</p><div><button id="consumeMana">Consume · Advanced Spells</button><button id="generateMana">Reject · Keep Generating</button></div><button class="minimize-mana-choice" id="minimizeManaChoice">Minimize · Review Hand and Battlefield</button></div>`;
+  modal.innerHTML = `<div class="choice-panel mana-choice-panel"><span>CLASSIC WIZARDRY · START OF TURN</span><strong>${player.name} has 3 Mana</strong><p>Consume all 3 Mana to gain +1 Attack Range and enable advanced Attack and Perk spell effects this turn? Normal spell resolution will not generate Mana while Consume is active.</p><div><button id="consumeMana">Consume · Advanced Spells</button><button id="generateMana">Reject · Keep Generating</button></div><button class="minimize-mana-choice" id="minimizeManaChoice">Minimize · Review Hand and Battlefield</button></div>`;
   document.querySelector('#consumeMana')?.addEventListener('click', () => dispatch({ type: 'mana-choice', playerId, consume: true }));
   document.querySelector('#generateMana')?.addEventListener('click', () => dispatch({ type: 'mana-choice', playerId, consume: false }));
   document.querySelector('#minimizeManaChoice')?.addEventListener('click', () => dispatch({ type: 'minimize-mana-choice', playerId }));
@@ -2398,7 +2335,7 @@ function renderCombatReveal() {
     };
     const cardButtons = applicable.map((instance) => {
       const card = cardDefinition(instance);
-      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
@@ -2463,9 +2400,8 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Shield to absorb 1 Damage caused by this Attack Card's effects. Ordinary combat Damage is unaffected.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
-    modal.innerHTML = modal.innerHTML.replace('Remove Blessing: Shield to absorb 1 Damage caused by an enemy Attack or Defend Card. Ordinary combat Damage is unaffected.', 'Apply Blessing: Shield to absorb 1 Damage from enemy Attack/Defend Card effects and automatically block the first negative Status applied to you during the rest of this combat. Ordinary combat Damage and pre-combat Statuses are unaffected.').replace('USE В· ABSORB 1 EFFECT DAMAGE', 'USE В· SHIELD THIS COMBAT');
     document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2759,6 +2695,17 @@ function notify(message: string) {
   toast.textContent = message;
   toast.classList.add('visible');
   window.setTimeout(() => toast.classList.remove('visible'), 2600);
+}
+
+function renderPrivateNotice() {
+  const notice = (gameState as GameState & { privateNotice?: { id: string; playerId: PlayerId; message: string; createdAt: number } | null }).privateNotice;
+  const viewerId = mode === 'online' ? localSeat : gameState.activePlayerId;
+  if (!notice || notice.id === lastPrivateNoticeId || viewerId !== notice.playerId || Date.now() - notice.createdAt > 10_000) return;
+  lastPrivateNoticeId = notice.id;
+  window.clearTimeout(centerNoticeTimer);
+  centerNotice.textContent = notice.message;
+  centerNotice.classList.add('visible');
+  centerNoticeTimer = window.setTimeout(() => centerNotice.classList.remove('visible'), 1800);
 }
 
 function closeObjectAttackConfirmation() {
@@ -3598,6 +3545,12 @@ renderer.setAnimationLoop((time) => {
     if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
     const aura = group.getObjectByName('PhylacteryAura');
     if (aura) { aura.rotation.z = time * 0.0008; aura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
+    const lichIcon = group.getObjectByName('WrecknaTombLichIcon') as THREE.Sprite | undefined;
+    if (lichIcon?.visible) {
+      lichIcon.position.y = 3.05 + Math.sin(time * 0.0035) * 0.09;
+      const pulse = 0.96 + Math.sin(time * 0.005) * 0.055;
+      lichIcon.scale.set(0.72 * pulse, 0.72 * pulse, 1);
+    }
     if (group.userData.spectreReplica && !objectMovementAnimations.has(objectId)) {
       const body = group.children[0];
       if (group.userData.spectreAnimation) {
@@ -6598,7 +6551,27 @@ function createWrecknaTomb() {
   const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), bone); skull.position.set(0, 1.45, -0.39); skull.scale.set(0.85, 1, 0.62); skull.castShadow = true; root.add(skull);
   for (const side of [-1, 1]) { const boneBar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 7), bone); boneBar.position.set(0, 0.92, -0.39); boneBar.rotation.z = side * 0.78; root.add(boneBar); }
   const base = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.2, 0.74), darkStone); base.position.y = 0.11; base.castShadow = true; root.add(base);
+  const lichTexture = new THREE.TextureLoader().load(wrecknaLichIconSource);
+  lichTexture.colorSpace = THREE.SRGBColorSpace;
+  const lichIcon = new THREE.Sprite(new THREE.SpriteMaterial({ map: lichTexture, color: 0xffffff, transparent: true, depthTest: false, depthWrite: false }));
+  lichIcon.name = 'WrecknaTombLichIcon';
+  lichIcon.position.y = 3.05;
+  lichIcon.scale.set(0.72, 0.72, 1);
+  lichIcon.renderOrder = 115;
+  lichIcon.visible = false;
+  lichIcon.raycast = () => {};
+  root.add(lichIcon);
   return root;
+}
+
+function syncWrecknaTombLichIcon(group: THREE.Group, tombId: string) {
+  const icon = group.getObjectByName('WrecknaTombLichIcon') as THREE.Sprite | undefined;
+  if (!icon) return;
+  const occupant = Object.values(gameState.players).find((player) => player.character === 'wreckna' && player.wrecknaInsideTombId === tombId);
+  icon.visible = Boolean(occupant);
+  if (!occupant) { delete icon.userData.playerId; return; }
+  icon.userData.playerId = occupant.id;
+  (icon.material as THREE.SpriteMaterial).color.setHex(occupant.id === 'P1' ? 0x169bd3 : occupant.id === 'P2' ? 0xff5d68 : 0xa06cff);
 }
 
 type JohnAnimationState = {
@@ -7059,7 +7032,7 @@ function makeObiWanBladeMaterial(material: THREE.MeshStandardMaterial, bladeLeng
   return material;
 }
 
-function enhanceObiWanLightsaber(model: THREE.Group) {
+function enhanceObiWanLightsaber(model: THREE.Group, playerColor: number) {
   const saber = model.getObjectByName('Lightsaber');
   if (!saber) return;
   let saberMesh: THREE.Mesh | undefined;
@@ -7081,13 +7054,13 @@ function enhanceObiWanLightsaber(model: THREE.Group) {
   saberMesh.name = 'ObiWanImportedLightsaberHilt';
   saberMesh.material = new THREE.MeshStandardMaterial({ color: 0x5d666d, metalness: 0.82, roughness: 0.28 });
   const bladeLength = bladeGeometry.boundingBox?.max.y ?? bounds.max.y - bladeBase;
-  const bladeMaterial = makeObiWanBladeMaterial(new THREE.MeshStandardMaterial({ color: 0xa9e8ff, emissive: 0x249cff, emissiveIntensity: 5.5, metalness: 0.18, roughness: 0.12 }), bladeLength);
+  const bladeMaterial = makeObiWanBladeMaterial(new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 5.5, metalness: 0.18, roughness: 0.12 }), bladeLength);
   const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
   blade.name = 'ObiWanImportedLightsaberBlade';
   blade.position.y = bladeBase;
   saberMesh.add(blade);
   const center = bladeGeometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
-  const bladeLight = new THREE.PointLight(0x309dff, 0, 3.2, 2);
+  const bladeLight = new THREE.PointLight(playerColor, 0, 3.2, 2);
   bladeLight.name = 'ObiWanLightsaberLight';
   bladeLight.castShadow = false;
   bladeLight.userData.activeIntensity = 5.2;
@@ -7184,7 +7157,7 @@ function loadObiWanAsset() {
   });
 }
 
-async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
+async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerColor: number) {
   try {
     const asset = await loadObiWanAsset();
     if (body.parent !== root) return;
@@ -7202,7 +7175,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group) {
     });
     disposeTemporaryCharacterBody(body);
     body.add(model);
-    enhanceObiWanLightsaber(model);
+    enhanceObiWanLightsaber(model, playerColor);
     updateObiWanLightsaberAnimation(root, 0);
     const idleClip = asset.animations.find((clip) => clip.name === 'Idle');
     const casualWalkClip = asset.animations.find((clip) => clip.name === 'Casual_Walk');
@@ -7367,7 +7340,7 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
   state.mixer.update(deltaSeconds);
 }
 
-function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false) {
+function createObiWanShinobi(playerColor = 0x169bd3, previewLightsaber = false) {
   const root = new THREE.Group();
   root.userData.obiWanLightsaberVisible = previewLightsaber;
   root.userData.deathAnimationAvailable = false;
@@ -7382,7 +7355,7 @@ function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false)
   const skin = new THREE.MeshStandardMaterial({ color: 0xc69b7d, roughness: 0.72 });
   const hair = new THREE.MeshStandardMaterial({ color: 0x9da4a3, roughness: 0.95 });
   const metal = new THREE.MeshStandardMaterial({ color: 0x343c42, roughness: 0.28, metalness: 0.82 });
-  const saberBlue = new THREE.MeshStandardMaterial({ color: 0xa9e8ff, emissive: 0x179cff, emissiveIntensity: 4.5, roughness: 0.08 });
+  const saberMaterial = new THREE.MeshStandardMaterial({ color: playerColor, emissive: playerColor, emissiveIntensity: 4.5, roughness: 0.08 });
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], parent = body) => {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(...position);
@@ -7420,14 +7393,14 @@ function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false)
   const hilt = add(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 16), metal, [0.64, 1.15, -0.01], fallbackLightsaber);
   hilt.name = 'ObiWanFallbackLightsaberHilt';
   hilt.rotation.z = -0.52;
-  const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberBlue, [0.99, 1.85, -0.01], fallbackLightsaber);
+  const blade = add(new THREE.CylinderGeometry(0.035, 0.047, 1.38, 18), saberMaterial, [0.99, 1.85, -0.01], fallbackLightsaber);
   blade.name = 'ObiWanFallbackLightsaberBlade';
   blade.rotation.z = -0.52;
   const fallbackBladeBase = -0.69;
   blade.geometry.translate(0, -fallbackBladeBase, 0);
   blade.position.add(new THREE.Vector3(0, fallbackBladeBase, 0).applyQuaternion(blade.quaternion));
-  blade.material = makeObiWanBladeMaterial(saberBlue, 1.38);
-  const bladeGlow = new THREE.PointLight(0x229dff, 2.8, 3.2);
+  blade.material = makeObiWanBladeMaterial(saberMaterial, 1.38);
+  const bladeGlow = new THREE.PointLight(playerColor, 2.8, 3.2);
   bladeGlow.name = 'ObiWanFallbackLightsaberLight';
   bladeGlow.userData.activeIntensity = 2.8;
   bladeGlow.intensity = 0;
@@ -7448,7 +7421,7 @@ function createObiWanShinobi(_playerColor = 0x169bd3, previewLightsaber = false)
   targetRing.visible = false;
   root.add(targetRing);
   root.userData.player = true;
-  attachObiWanModel(root, body);
+  attachObiWanModel(root, body, playerColor);
   return root;
 }
 
@@ -8205,7 +8178,13 @@ function syncBoard() {
   syncHotPotatoVisual();
   const currentObjectIds = new Set(gameState.objects.map((object) => object.id));
   const animatedRemovalIds = new Set(gameState.objectPushAnimations.filter((event) => event.removeOnComplete && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId))).map((event) => event.objectId));
-  objectGroups.forEach((group, id) => { if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); if (group.userData.objectKind === 'spirit-guardian') disposeSpiritGuardianVisuals(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); } });
+  objectGroups.forEach((group, id) => {
+    if (!currentObjectIds.has(id)) {
+      const lichIcon = group.getObjectByName('WrecknaTombLichIcon');
+      if (lichIcon) lichIcon.visible = false;
+    }
+    if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); if (group.userData.objectKind === 'spirit-guardian') disposeSpiritGuardianVisuals(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); }
+  });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
     const expectedPillarVariant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
@@ -8220,6 +8199,7 @@ function syncBoard() {
     }
     if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     group.userData.objectId = object.id;
+    if (object.kind === 'tomb') syncWrecknaTombLichIcon(group, object.id);
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
     if (object.kind === 'spectre-replica') {
       ensureCharacterHitArea(group);
@@ -8798,10 +8778,10 @@ function highlightCells() {
     const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
     const necronomiconCaster = necronomicon ? gameState.players[necronomicon.casterId] : null;
     const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && Boolean(necronomiconCaster) && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType && wrecknaPerkTargetInRange(gameState, necronomiconCaster!, cell);
-    const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
+    const sap = (gameState as GameState & { sap?: { casterId: PlayerId; range: number } | null }).sap;
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
     const sapTargetValid = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sapCaster) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== sap!.casterId
-      && canLocalAct(sap!.casterId) && wrecknaPerkTargetInRange(gameState, sapCaster!, cell);
+      && canLocalAct(sap!.casterId) && wrecknaPerkTargetInRange(gameState, sapCaster!, cell, sap!.range);
     const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== decay!.casterId
@@ -8873,7 +8853,7 @@ function updateTargetHighlights(time: number) {
   const canShadowDirection = gameState.phase === 'choosing-arkane-arow-target' && Boolean(shadow) && canLocalAct(shadow!.casterId);
   const spectreOriginChoice = (gameState as any).spectrePerkOrigin as { casterId: PlayerId; perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   const canSpectreOriginChoice = gameState.phase === 'choosing-spectre-perk-origin' && Boolean(spectreOriginChoice) && canLocalAct(spectreOriginChoice!.casterId);
-  const sap = (gameState as GameState & { sap?: { casterId: PlayerId } | null }).sap;
+  const sap = (gameState as GameState & { sap?: { casterId: PlayerId; range: number } | null }).sap;
   const canSapTarget = (gameState.phase as string) === 'choosing-sap-target' && Boolean(sap) && canLocalAct(sap!.casterId);
   const decay = (gameState as GameState & { decay?: { casterId: PlayerId } | null }).decay;
   const canDecayTarget = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decay) && canLocalAct(decay!.casterId);
@@ -8898,7 +8878,7 @@ function updateTargetHighlights(time: number) {
     const magicCaster = magic ? gameState.players[magic.casterId] : null;
     const validMagic = canMagicTarget && !perkProtected && magic!.level >= 3 && playerId !== magic!.casterId && distance(magicCaster!.position, target.position) <= magicCaster!.attackRange && hasLineOfSight(gameState, magicCaster!.position, target.position);
     const sapCaster = sap ? gameState.players[sap.casterId] : null;
-    const validSap = canSapTarget && !perkProtected && playerId !== sap!.casterId && wrecknaPerkTargetInRange(gameState, sapCaster!, target.position);
+    const validSap = canSapTarget && !perkProtected && playerId !== sap!.casterId && wrecknaPerkTargetInRange(gameState, sapCaster!, target.position, sap!.range);
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const validDecay = canDecayTarget && !perkProtected && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
     const validSpectreOrigin = canSpectreOriginChoice && spectreOriginChoice!.perkId === 'shadow-dagger' && playerId === spectreOriginChoice!.casterId;
@@ -8944,7 +8924,7 @@ function updateTargetHighlights(time: number) {
       && distance(gameState.players[chain!.casterId].position, object!.position) <= effectiveAttackRange(gameState, gameState.players[chain!.casterId]) && hasLineOfSight(gameState, gameState.players[chain!.casterId].position, object!.position);
     const validFireballReplica = canFireballTarget && Boolean(object && replicaOwner && replicaOwner.id !== fireballTargeting!.casterId)
       && distance(gameState.players[fireballTargeting!.casterId].position, object!.position) <= 3 && hasLineOfSight(gameState, gameState.players[fireballTargeting!.casterId].position, object!.position);
-    const validSapReplica = canSapTarget && Boolean(object && replicaOwner && replicaOwner.id !== sap!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[sap!.casterId], object!.position);
+    const validSapReplica = canSapTarget && Boolean(object && replicaOwner && replicaOwner.id !== sap!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[sap!.casterId], object!.position, sap!.range);
     const validDecayReplica = canDecayTarget && Boolean(object && replicaOwner && replicaOwner.id !== decay!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[decay!.casterId], object!.position);
     const validReplicaEffect = !replicaPerkProtected && (validArcaneReplica || validChainReplica || validFireballReplica || validSapReplica || validDecayReplica);
     const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
@@ -9451,7 +9431,7 @@ function resize() {
 
 let browserCharacter: SelectableCharacter = CHARACTER_BROWSER_ORDER[0];
 let browserPerkIndex = 0;
-let browserCardKind: 'attack' | 'defend' | 'perk' = 'attack';
+let browserCardKind: 'attack' | 'defend' | 'perk' | 'status' | 'blessings' = 'attack';
 let characterPreviewRenderer: THREE.WebGLRenderer | null = null;
 let characterPreviewScene: THREE.Scene | null = null;
 let characterPreviewCamera: THREE.PerspectiveCamera | null = null;
@@ -9533,6 +9513,8 @@ function renderCharacterBrowserProfile() {
 }
 
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
+  if (kind === 'status') return characterStatusCards(character);
+  if (kind === 'blessings') return character === 'john-christ' ? CARDS.filter((card) => card.id.startsWith('blessing-')) : [];
   const definition = STARTING_DECKS[character];
   const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase, ...(character === 'john-christ' ? ['judgement' as const] : [])];
   return ids.flatMap((id) => {
@@ -9543,13 +9525,17 @@ function characterBrowserCards(character: SelectableCharacter, kind: typeof brow
 
 function renderCharacterBrowserCards() {
   const cards = characterBrowserCards(browserCharacter, browserCardKind);
-  byId('characterCardCategories').querySelectorAll<HTMLButtonElement>('[data-browser-card-kind]').forEach((button) => button.classList.toggle('active', button.dataset.browserCardKind === browserCardKind));
+  byId('characterCardCategories').querySelectorAll<HTMLButtonElement>('[data-browser-card-kind]').forEach((button) => {
+    button.classList.toggle('hidden', button.dataset.browserCardKind === 'blessings' && browserCharacter !== 'john-christ');
+    button.classList.toggle('active', button.dataset.browserCardKind === browserCardKind);
+    button.setAttribute('aria-pressed', String(button.dataset.browserCardKind === browserCardKind));
+  });
   byId('perkBrowserTrack').innerHTML = cards.map((card, index) => {
     const levels = 'levelEffects' in card && card.levelEffects ? card.levelEffects : [];
     const effectText = 'effectText' in card && card.effectText ? card.effectText : '';
     const levelCopy = levels.length ? levels.map((description, level) => `<p><b>LV ${level + 1}</b><span>${escapeHtml(description)}</span></p>`).join('') : '<p class="character-perk-empty">This Perk has a single direct effect.</p>';
-    const typeCopy = card.kind === 'attack' ? 'ACTION · ATTACK CARD' : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : 'ACTION: PERK · ONCE PER TURN';
-    const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : 'PERK VALUE';
+    const typeCopy = card.kind === 'attack' ? 'ACTION · ATTACK CARD' : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : card.kind === 'status' ? (card.id.startsWith('blessing-') ? 'STATUS · BLESSING CARD' : 'STATUS CARD') : 'ACTION: PERK · ONCE PER TURN';
+    const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : card.kind === 'status' ? 'CARD VALUE' : 'PERK VALUE';
     const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${escapeHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description">${escapeHtml(effectText || 'No additional effect.')}</p>`;
     return `<article class="character-perk-card ${card.kind}" data-browser-perk="${index}"><span>${typeCopy}</span><h4>${escapeHtml(card.name)}</h4><small>${card.value} ${valueCopy}</small>${rules}</article>`;
   }).join('');
@@ -9779,7 +9765,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   if (characterPreviewModel) characterPreviewScene.remove(characterPreviewModel);
   let model = characterPreviewModels.get(character);
   if (!model) {
-    model = character === 'shinobi' ? createObiWanShinobi(0x45c8ff, true)
+    model = character === 'shinobi' ? createObiWanShinobi(0xffffff, true)
       : character === 'orkk' ? createDaOrkk(0xff5d68, 8)
         : character === 'magician' ? createLongHatLogan(0x9b7cff)
           : character === 'john-christ' ? createJohnChrist(0xffd166)
