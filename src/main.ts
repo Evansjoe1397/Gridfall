@@ -3458,6 +3458,7 @@ renderer.setAnimationLoop((time) => {
   updateReplicatePullTethers(time);
   updateWizardLiftedTargets(time);
   updateObjectMovement(time);
+  animateHotPotato(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
   updateArcaneImpacts(deltaSeconds);
@@ -8405,13 +8406,73 @@ function createQuestFlag(color: number) {
 
 function createHotPotatoModel() {
   const root = new THREE.Group();
-  const potato = new THREE.Mesh(new THREE.SphereGeometry(.38, 18, 12), new THREE.MeshStandardMaterial({ color: 0x9a5528, roughness: .94 }));
-  potato.scale.set(1.25, .82, .92); potato.position.y = .4; potato.rotation.z = -.2; potato.castShadow = true; root.add(potato);
-  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x4d2818, roughness: 1 });
-  for (const [x, y, z] of [[-.18, .53, .29], [.13, .33, .35], [.24, .55, .18]] as [number, number, number][]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), eyeMaterial); eye.position.set(x, y, z); root.add(eye);
+  const floating = new THREE.Group();
+  floating.name = 'HotPotatoFloating';
+  root.add(floating);
+  const geometry = new THREE.SphereGeometry(.38, 48, 32);
+  const positions = geometry.attributes.position;
+  const colors = [];
+  for (let index = 0; index < positions.count; index++) {
+    const x = positions.getX(index), y = positions.getY(index), z = positions.getZ(index);
+    const grain = Math.sin(x * 43 + y * 29) * Math.cos(z * 37 - y * 19);
+    const bulge = 1 + .045 * Math.sin(x * 12 + y * 8) * Math.cos(z * 11);
+    // Bend the long axis and taper the ends into an organic tuber silhouette.
+    const along = x / .38;
+    const taper = 1 - .2 * Math.pow(Math.abs(along), 1.4);
+    const bend = .075 * along * along + .035 * along;
+    const dimples = [[-.2, .12, .3], [.1, -.13, .32], [.23, .16, .2], [-.25, -.05, -.26]];
+    let dent = 1;
+    for (const [dx, dy, dz] of dimples) {
+      const distanceSquared = (x - dx) ** 2 + (y - dy) ** 2 + (z - dz) ** 2;
+      dent -= .075 * Math.exp(-distanceSquared / .0025);
+    }
+    positions.setXYZ(index, x * bulge, y * bulge * taper * dent + bend, z * bulge * taper * dent);
+    const color = new THREE.Color(0xc77b3d).lerp(new THREE.Color(0x75401f), .22 + grain * .15);
+    colors.push(color.r, color.g, color.b);
   }
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const potato = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .78, emissive: 0xa83c0c, emissiveIntensity: .18 }));
+  potato.scale.set(1.35, .87, .94);
+  potato.rotation.z = -.22;
+  potato.castShadow = true;
+  floating.add(potato);
+  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x653518, roughness: .95 });
+  for (const [x, y, z] of [[-.22, .12, .31], [.12, -.12, .33], [.29, .15, .21], [-.34, -.05, -.25], [.13, .2, -.26]] as [number, number, number][]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(.026, 10, 8), eyeMaterial);
+    eye.position.set(x, y, z);
+    floating.add(eye);
+  }
+  const halo = new THREE.Mesh(new THREE.RingGeometry(.48, .56, 64), new THREE.MeshBasicMaterial({ color: 0xffbf61, transparent: true, opacity: .4, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.name = 'HotPotatoHalo';
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = .025;
+  root.add(halo);
+  const emberMaterial = new THREE.MeshBasicMaterial({ color: 0xffd58a, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending });
+  const emberGeometry = new THREE.SphereGeometry(.025, 8, 6);
+  const embers = new THREE.Group();
+  embers.name = 'HotPotatoEmbers';
+  for (let index = 0; index < 7; index++) embers.add(new THREE.Mesh(emberGeometry, emberMaterial));
+  root.add(embers);
   return root;
+}
+
+function animateHotPotato(time: number) {
+  if (!hotPotatoModel?.parent) return;
+  const seconds = time / 1000;
+  const floating = hotPotatoModel.getObjectByName('HotPotatoFloating')!;
+  floating.position.y = .72 + Math.sin(seconds * 2) * .075;
+  floating.rotation.y = seconds * .45;
+  floating.rotation.x = Math.sin(seconds * 1.4) * .06;
+  const halo = hotPotatoModel.getObjectByName('HotPotatoHalo')!;
+  halo.scale.setScalar(1 + Math.sin(seconds * 2) * .06);
+  hotPotatoModel.getObjectByName('HotPotatoEmbers')!.children.forEach((ember, index) => {
+    const phase = (seconds * .24 + index / 7) % 1;
+    const angle = index * 2.4 + seconds * .35;
+    const radius = .43 + phase * .12;
+    ember.position.set(Math.cos(angle) * radius, .18 + phase * .95, Math.sin(angle) * radius);
+    ember.scale.setScalar(Math.sin(phase * Math.PI));
+  });
 }
 
 function syncHotPotatoVisual() {
@@ -8419,8 +8480,9 @@ function syncHotPotatoVisual() {
   if (!potato || potato.carrierId) { hotPotatoModel?.removeFromParent(); return; }
   hotPotatoModel ??= createHotPotatoModel();
   if (hotPotatoModel.parent !== scene) scene.add(hotPotatoModel);
-  hotPotatoModel.position.set((potato.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (potato.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
-  hotPotatoModel.rotation.y = performance.now() * .001;
+  const surfaceY = visualArena().id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : .08;
+  hotPotatoModel.position.set((potato.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, surfaceY, (potato.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  animateHotPotato(performance.now());
 }
 
 function syncCaptureTheFlagVisual() {

@@ -554,9 +554,10 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .combat-countdown { margin: 8px 0 16px; color: #88aaa1; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
 .combat-countdown b { color: white; font: 800 25px 'Barlow Condensed'; }
 .combat-reveal-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-.combat-card label { display: block; margin-bottom: 7px; color: #8dac9f; font-size: 12px; letter-spacing: .12em; }
-.combat-card label strong { margin-left: 6px; color: white; font-size: 22px; }
-.combat-card > div { min-height: 265px; padding: 18px; display: flex; flex-direction: column; text-align: left; border: 1px solid #315a50; border-top: 5px solid var(--red); background: linear-gradient(145deg, #162722, #09120f); }
+.combat-card { display: flex; flex-direction: column; }
+.combat-card label { min-height: 27px; display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 7px; color: #8dac9f; font-size: 12px; line-height: 1; letter-spacing: .12em; }
+.combat-card label strong { color: white; font-size: 22px; }
+.combat-card > div { flex: 1; min-height: 265px; padding: 18px; display: flex; flex-direction: column; text-align: left; border: 1px solid #315a50; border-top: 5px solid var(--red); background: linear-gradient(145deg, #162722, #09120f); }
 .combat-card.defend > div { border-top-color: var(--blue); }
 .combat-card span { color: #71988e; font-size: 9px; letter-spacing: .16em; }
 .combat-card h3 { margin: 7px 0; font: 800 26px 'Barlow Condensed'; text-transform: uppercase; }
@@ -576,6 +577,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .combat-ack-status { margin: 15px 0 8px; color: #82a79e; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .combat-reveal-dialog > button { min-width: 240px; padding: 12px 22px; border: 1px solid #5fae98; background: #12392f; color: white; cursor: pointer; letter-spacing: .15em; }
 .combat-reveal-dialog > button:disabled { opacity: .5; cursor: default; }
+#closeCombatSummary { display: block; margin: 16px auto 0; }
 .combat-choice-buttons { display: flex; justify-content: center; gap: 12px; margin-top: 16px; }
 .combat-choice-buttons button { flex: 1 1 0; min-width: 0; padding: 8px 12px; border: 1px solid #5fae98; background: #12392f; color: white; cursor: pointer; letter-spacing: .05em; white-space: nowrap; }
 .combat-choice-buttons button:last-child { border-color: #8a654d; background: #281b14; }
