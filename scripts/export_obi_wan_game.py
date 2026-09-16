@@ -35,6 +35,11 @@ if armature.animation_data is None:
     armature.animation_data_create()
 armature.animation_data.action = idle
 bpy.context.scene.frame_set(round(idle.frame_range[0]))
+# Extra animation for the bone-parented saber is sampled from the scene range,
+# while armature ACTIONS use their own key ranges. Preserve the established
+# one-second saber track instead of inheriting whichever clip was last previewed.
+bpy.context.scene.frame_start = 1
+bpy.context.scene.frame_end = 24
 bpy.context.view_layer.update()
 
 

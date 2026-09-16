@@ -351,12 +351,12 @@ export type PlayerState = {
   matchStats?: MatchStats;
 };
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
-export type CombatModifier = { value: number; source: string };
+export type CombatModifier = { value: number; source: string; kind?: 'extra-damage'; timing?: 'during combat' | 'after combat' };
 export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'discarded-perk' | 'forced-attack' | 'forced-defend' | 'no-eligible' | 'prevented'; damage?: number };
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'moonwave' | 'mind-blast' };
 export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
@@ -1264,6 +1264,26 @@ function healPlayer(state: GameState, player: PlayerState, amount: number): numb
   return healed;
 }
 
+function showStatEffect(state: GameState, player: PlayerState, amount: number, stat: 'MOV' | 'ATT' | 'DEF') {
+  if (!amount) return;
+  state.objectPushAnimations.push({
+    id: `${state.turn}-stat-${player.id}-${stat}-${state.log.length}-${state.objectPushAnimations.length}`,
+    objectId: '',
+    from: { ...player.position },
+    to: { ...player.position },
+    dx: 0,
+    dy: 0,
+    collided: false,
+    statEffect: { playerId: player.id, amount, stat },
+  });
+}
+
+function showLightsaberStats(state: GameState, player: PlayerState) {
+  showStatEffect(state, player, 1, 'ATT');
+  showStatEffect(state, player, 1, 'DEF');
+  showStatEffect(state, player, 1, 'MOV');
+}
+
 export function determineTimedMatchWinner(state: GameState): PlayerId | null {
   const candidates = (Object.keys(state.players) as PlayerId[]).filter((id) => state.players[id].hp > 0 && state.players[id].character !== 'dummy');
   const ordered = [...candidates].sort((leftId, rightId) => {
@@ -1798,10 +1818,12 @@ function resolveFrostmourneDecision(state: GameState, playerId: PlayerId, use: b
 
 function activateLightTheSaber(state: GameState, attacker: PlayerState) {
   const previousMoveRange = effectiveMoveRange(attacker);
+  const newlyActive = !attacker.lightsaberBuff && !attacker.traitBlocked;
   attacker.lightsaberBuff = true;
   attacker.lightsaberMovementProtection = true;
   attacker.lightsaberAppliedWhileTraitBlocked = Boolean(attacker.traitBlocked);
   adjustUnspentMovementForRangeChange(attacker, previousMoveRange);
+  if (newlyActive) showLightsaberStats(state, attacker);
   state.log.unshift(`Light the Saber activated Lightsaber status for ${attacker.name}.`);
 }
 
@@ -1945,7 +1967,9 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.log.unshift(`Blessed Light created Blessing: Light for ${player.name}; a Box has no Deck that can receive Exhaust.`);
   }
   if (card.id === 'arcane-bolt') {
+    const previousBonus = player.arcaneBoltAttackBonus;
     player.arcaneBoltAttackBonus = player.manaMode === 'consume' ? 2 : 1;
+    showStatEffect(state, player, Math.max(0, player.arcaneBoltAttackBonus - previousBonus), 'ATT');
     state.log.unshift(`Arcane Bolt${player.manaMode === 'consume' ? ' (Consume)' : ''} granted ${player.name} +${player.arcaneBoltAttackBonus} ATT until end of turn after attacking an Object.`);
   }
   if (card.id === 'echo-strike') {
@@ -2035,10 +2059,10 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.log.unshift(`Snowball Effect (Consume) drew ${drawn} Card after attacking an Object; ${player.name} must discard 1 Card.`);
   } else if (card.id === 'dance-through' && player.character === 'shinobi') {
     state.phase = 'dance-through';
-    state.danceThrough = { stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
+    state.danceThrough = { playerId: player.id, stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
     state.log.unshift('Dance Through: Obi Wan Shinobi may move 1 Square up to 3 times after attacking the Object.');
   }
-  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin') {
+  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin' || player.character === 'shinobi') {
     const destruction = state.objectPushAnimations.slice(objectAnimationStart).find((event) => event.objectId === object.id && event.destroy);
     if (destruction) {
       destruction.attackAnimationPlayerId = player.id;
@@ -2452,7 +2476,15 @@ export function addForcedStatusCard(state: GameState, target: PlayerState, cardI
     state.log.unshift(`${target.name} already had 5 ${cardDefinition({ instanceId: '', cardId }).name} Cards; the excess forced copy became ${dealt} Damage instead.`);
     return false;
   }
+  const alreadyHadExhaustInHand = target.hand.some((card) => card.cardId === 'exhaust');
   target[destination].push({ instanceId: `${target.id}-${cardId}-${++instanceSequence}`, cardId, revealedToOpponent, sourcePlayerId: sourceId });
+  if (destination === 'hand' && cardId === 'pinned') showStatEffect(state, target, -1, 'MOV');
+  if (destination === 'hand' && cardId === 'exhaust' && !alreadyHadExhaustInHand) {
+    showStatEffect(state, target, -1, 'ATT');
+    showStatEffect(state, target, -1, 'DEF');
+  }
+  if (destination === 'hand' && cardId === 'blessing-swiftness') showStatEffect(state, target, 1, 'MOV');
+  if (destination === 'hand' && (cardId === 'banner' || cardId === 'banner-draw')) showStatEffect(state, target, 1, 'MOV');
   if (cardId === 'panic') target.panicAnimationSourceIds = [...new Set([...(target.panicAnimationSourceIds ?? []), sourceId])];
   return true;
 }
@@ -2583,6 +2615,7 @@ function addBlessingCardToJohn(state: GameState, player: PlayerState, cardId: Ca
   const card = cardDefinition({ instanceId: '', cardId });
   if (player.character !== 'john-christ' || !/\bBlessing\b/i.test(card.name)) return false;
   player.hand.push({ instanceId: `${player.id}-blessing-${++instanceSequence}`, cardId, revealedToOpponent: true });
+  if (cardId === 'blessing-swiftness') showStatEffect(state, player, 1, 'MOV');
   if (!player.traitBlocked) player.stoicShell = true;
   state.log.unshift(player.traitBlocked ? `${player.name} received ${card.name}, but Curse blocked Possessed from granting Stoic Shell.` : `${player.name} received ${card.name} and immediately gained Stoic Shell.`);
   return true;
@@ -2710,6 +2743,9 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
     exhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
     guardianPenalty && { value: -guardianPenalty, source: 'adjacent enemy Spirit Guardian' },
   ].filter((modifier): modifier is CombatModifier => Boolean(modifier));
+  if (card.id === 'mana-barrage' && attacker.manaMode === 'consume') {
+    attackModifiers.push({ value: 2, source: 'Mana Barrage Consume', kind: 'extra-damage', timing: 'after combat' });
+  }
   discardFromHand(attacker, instance.instanceId);
   attacker.actionsRemaining -= 1;
   if (card.id === 'deja-vu') {
@@ -3189,6 +3225,9 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       exhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
       guardianPenalty && { value: -guardianPenalty, source: 'adjacent enemy Spirit Guardian' },
     ].filter((modifier): modifier is CombatModifier => Boolean(modifier));
+    if (card.id === 'mana-barrage' && player.manaMode === 'consume') {
+      attackModifiers.push({ value: 2, source: 'Mana Barrage Consume', kind: 'extra-damage', timing: 'after combat' });
+    }
     state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + necronomiconBonus + barbarianBonus + excaliburRangeBonus + boneChillMeleeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, boneChillSteal: boneChillSteal || undefined, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
     consumeMerylinKamelotForAttack(state, player);
     const oracle = defender.character === 'merylin' ? defender.hand.find((entry) => entry.cardId === 'oracle') : undefined;
@@ -3471,9 +3510,13 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'barbarian-stance') {
+    const movementBefore = player.movementRemaining;
     player.movementRemaining = Math.max(0, player.movementRemaining - 1);
     const attackBonus = level >= 2 ? 2 : 1;
+    const previousAttackBonus = player.barbarianNextAttackBonus ?? 0;
     player.barbarianNextAttackBonus = Math.max(player.barbarianNextAttackBonus ?? 0, attackBonus);
+    showStatEffect(state, player, player.movementRemaining - movementBefore, 'MOV');
+    showStatEffect(state, player, player.barbarianNextAttackBonus - previousAttackBonus, 'ATT');
     if (level >= 2) grantMerylinSummon(state, player.id, 'Barbarian Stance');
     if (level >= 3) {
       player.barbarianIgnoreNegativeMovement = true;
@@ -3488,7 +3531,9 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     const previousBonus = player.windwalkerMoveBonus ?? 0;
     const newBonus = level >= 2 ? 3 : 1;
     player.windwalkerMoveBonus = Math.max(previousBonus, newBonus);
-    grantMovement(player, Math.max(0, player.windwalkerMoveBonus - previousBonus));
+    const gainedMovement = Math.max(0, player.windwalkerMoveBonus - previousBonus);
+    grantMovement(player, gainedMovement);
+    showStatEffect(state, player, gainedMovement, 'MOV');
     grantMerylinSummon(state, player.id, 'Windwalker Stance');
     if (level >= 3) player.windwalkerUnrestrictedMovement = true;
     state.log.unshift(`Windwalker Stance level ${level}: ${player.name} gained ${newBonus} MOV until turn end and Summon${level >= 3 ? '; movement may cross any occupied or restricted Square but must end on an empty Square' : ''}.`);
@@ -3497,7 +3542,11 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
   if (perk.id === 'carian-stance') {
     const drawn = drawCards(player, 1);
     grantMerylinSummon(state, player.id, 'Carian Stance');
-    if (level >= 2) player.merylinSummonedDefenseBonus = 1;
+    if (level >= 2) {
+      const gainedDefense = Math.max(0, 1 - (player.merylinSummonedDefenseBonus ?? 0));
+      player.merylinSummonedDefenseBonus = 1;
+      showStatEffect(state, player, gainedDefense, 'DEF');
+    }
     if (level >= 3) player.carianReturnNextDefend = true;
     state.log.unshift(`Carian Stance level ${level}: ${player.name} drew ${drawn} Card${drawn === 1 ? '' : 's'} and gained Summon${level >= 2 ? ' with +1 DEF while Summoned' : ''}${level >= 3 ? '; the next Defend Card played will return to Hand' : ''}.`);
     return;
@@ -3547,7 +3596,10 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     if (player.spectreRelocateTetherReplicaId && replicas.some((replica) => replica.id === player.spectreRelocateTetherReplicaId)) player.spectreRelocateTetherReplicaId = null;
     addForcedStatusCard(state, player, 'headache', 'hand', player.id, 'perk', true);
     const removedEffects = level >= 2 ? removeNegativeHandEffects(player) : 0;
-    if (level >= 3 && removedEffects > 0) player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + removedEffects;
+    if (level >= 3 && removedEffects > 0) {
+      player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + removedEffects;
+      showStatEffect(state, player, removedEffects, 'ATT');
+    }
     player.spectreShadowCloakActive = true;
     state.log.unshift(`Shadow Cloak dissolved ${replicas.length} replica${replicas.length === 1 ? '' : 's'}, granted Spell Immunity until the beginning of ${player.name}'s next turn, and added Headache${level >= 2 ? `; removed ${removedEffects} negative Hand effect${removedEffects === 1 ? '' : 's'}` : ''}${level >= 3 ? ` and granted +${removedEffects} ATT until turn end` : ''}.`);
     return;
@@ -3646,6 +3698,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     addBlessingCardToJohn(state, player, 'blessing-prayer');
     if (level >= 2) {
       grantMovement(player, 1);
+      showStatEffect(state, player, 1, 'MOV');
       state.log.unshift(`Blessed Prayer level 2 granted ${player.name} 1 MOV until end of turn.`);
     }
     if (level >= 3) {
@@ -3712,8 +3765,10 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     if (level >= 1) { const drawn = drawCards(player, 1); state.log.unshift(`${perk.name} level 1: ${player.name} drew ${drawn} card.`); }
     if (level >= 2 && player.character === 'shinobi') {
       const previousMoveRange = effectiveMoveRange(player);
+      const newlyActive = !player.lightsaberBuff && !player.traitBlocked;
       player.lightsaberBuff = true; player.lightsaberStacks += 1; player.lightsaberAppliedWhileTraitBlocked = Boolean(player.traitBlocked);
       adjustUnspentMovementForRangeChange(player, previousMoveRange);
+      if (newlyActive) showLightsaberStats(state, player);
       state.log.unshift(`${perk.name} level 2: Lightsaber gained 1 duration stack (${player.lightsaberStacks} total).`);
     }
     if (level >= 3) { player.highgroundAdvantageBuff = true; state.log.unshift(`${perk.name} level 3: Shinobi's next Attack card will return to Hand.`); }
@@ -3807,10 +3862,12 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
   }
   if (perk.id === 'swiftform') {
     const moveBonus = level >= 2 ? 2 : 1;
+    const gainedMovement = Math.max(0, moveBonus - (player.swiftformMoveBonus ?? 0));
     player.swiftformMoveBonus = moveBonus;
     player.swiftformCanPassEnemies = true;
     player.swiftformPinnedEnemyIds = [];
     if (player.freeMoveUsed) player.movementRemaining += moveBonus;
+    showStatEffect(state, player, gainedMovement, 'MOV');
     if (level >= 3 && player.character === 'shinobi') {
       player.swiftformLightsaberAtTurnEnd = true;
       player.swiftformPinsPassedEnemies = true;
@@ -4375,6 +4432,8 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
         adjustUnspentMovementForRangeChange(defender, previousRange);
         attacker.hexMovementBonus = (attacker.hexMovementBonus ?? 0) + 2;
         grantMovement(attacker, 2);
+        showStatEffect(state, defender, -2, 'MOV');
+        showStatEffect(state, attacker, 2, 'MOV');
         state.log.unshift('Drain Strength applied base Value 1 and stole 2 MOV after Defender pre-combat effects.');
       }
     }
@@ -4438,6 +4497,8 @@ function stealWrecknaMovement(state: GameState, attacker: PlayerState, target: P
   adjustUnspentMovementForRangeChange(target, previousTargetRange);
   attacker.hexMovementBonus = (attacker.hexMovementBonus ?? 0) + amount;
   grantMovement(attacker, amount);
+  showStatEffect(state, target, -amount, 'MOV');
+  showStatEffect(state, attacker, amount, 'MOV');
   state.log.unshift(`${attacker.name} used ${source} to steal ${amount} MOV from ${target.name}; the stolen MOV can power Phylactery of Might.`);
 }
 
@@ -5188,7 +5249,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (!attackEffectsCancelled && pending.cardId === 'arcane-bolt') {
     const logan = state.players[pending.attackerId];
+    const previousBonus = logan.arcaneBoltAttackBonus;
     logan.arcaneBoltAttackBonus = attackerBeforeCombatEffects.manaMode === 'consume' ? 2 : 1;
+    showStatEffect(state, logan, Math.max(0, logan.arcaneBoltAttackBonus - previousBonus), 'ATT');
     state.log.unshift(`Arcane Bolt${attackerBeforeCombatEffects.manaMode === 'consume' ? ' (Consume)' : ''} granted ${logan.name} +${logan.arcaneBoltAttackBonus} ATT until end of turn.`);
   }
   let manaBarrageCombatDamage = 0;
@@ -5499,7 +5562,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   else if (!attackEffectsCancelled && pending.cardId === 'dance-through') {
     state.phase = 'dance-through';
-    state.danceThrough = { stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
+    state.danceThrough = { playerId: pending.attackerId, stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
     state.log.unshift('Dance Through: Obi Wan Shinobi may move 1 square up to 3 times.');
   } else state.phase = 'active';
   if (devourNegatesDamage && !defenseEffectsCancelled && devourReplicas.length > 1 && state.phase !== 'finished') {
@@ -6095,6 +6158,8 @@ function resolveDecayTarget(state: GameState, playerId: PlayerId, targetId: stri
   adjustUnspentMovementForRangeChange(target, previousTargetRange);
   caster.decayMovementBonus = (caster.decayMovementBonus ?? 0) + 1;
   grantMovement(caster, 1);
+  showStatEffect(state, target, -1, 'MOV');
+  showStatEffect(state, caster, 1, 'MOV');
   state.log.unshift(`Curse level 1 stole 1 MOV from ${target.name}; Wreckna keeps the gained MOV until turn end and the penalty lasts through the target's next turn.`);
   if (pending.level >= 2) {
     addForcedStatusCard(state, target, 'headache', 'hand', playerId, 'perk', true);
@@ -7503,6 +7568,7 @@ function resolveSpectreHaunt(state: GameState, player: PlayerState, level: numbe
     }
   }
   player.spectreAttackBonus = (player.spectreAttackBonus ?? 0) + 1;
+  showStatEffect(state, player, 1, 'ATT');
   if (level >= 3) player.actionsRemaining += 1;
   state.log.unshift(`Haunt created ${created.length} replica${created.length === 1 ? '' : 's'}, granted +1 ATT until end of turn${level >= 3 ? ', and granted 1 Action' : ''}.`);
 }
@@ -7530,7 +7596,10 @@ function resolveSpectreRelocate(state: GameState, player: PlayerState, replica: 
     collided: false,
   });
   markCharacterMoved(player, 'own-card');
-  if (level >= 2) grantMovement(player, 1);
+  if (level >= 2) {
+    grantMovement(player, 1);
+    showStatEffect(state, player, 1, 'MOV');
+  }
   if (level >= 3) player.actionsRemaining += 1;
   const statuses = player.hand.filter(isNegativeStatusCard);
   if (level >= 2 && statuses.length > 0) {
@@ -7591,12 +7660,14 @@ function resolveSpectreShadowDirection(state: GameState, playerId: PlayerId, to:
   pending.trail = trail;
   caster.spectreShadowMoveBonus = (caster.spectreShadowMoveBonus ?? 0) + 1;
   grantMovement(caster, 1);
+  showStatEffect(state, caster, 1, 'MOV');
   const projectileId = `${playerId}-shadow-dagger-${++instanceSequence}`;
   const enemies = enemyBodies(state, playerId).filter((enemy) => !state.players[enemy.ownerId].spectreShadowCloakActive && trail.some((cell) => cell.x === enemy.position.x && cell.y === enemy.position.y));
   for (const enemy of enemies) {
     const owner = state.players[enemy.ownerId];
     if (pending.level >= 3) {
       owner.spectreShadowDefensePenalty = (owner.spectreShadowDefensePenalty ?? 0) + 1;
+      showStatEffect(state, owner, -1, 'DEF');
     }
     if (pending.level >= 2) {
       const damageEventStart = state.objectPushAnimations.length;
@@ -7720,7 +7791,7 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   const passedEnemy = passedReplica ?? (dance.enemyUnderfoot ? characterBody(state, 'player', dance.enemyUnderfoot) : null);
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
-  player.visualMovement = { from: enteredFrom, path: [{ ...to }] };
+  player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'dance-through' };
   player.position = to;
   applySlideSquare(state, player, enteredFrom);
   markCharacterMoved(player, 'own-card');
@@ -8084,7 +8155,10 @@ function finalizeTurn(state: GameState): GameState {
   if (next.character === 'spectre') {
     next.spectreAccumulateActive = next.spectreAccumulateStored ?? 0;
     next.spectreAccumulateStored = 0;
-    if (next.spectreAccumulateActive > 0) state.log.unshift(`Accumulate granted ${next.name} +${next.spectreAccumulateActive} ATT for this turn.`);
+    if (next.spectreAccumulateActive > 0) {
+      showStatEffect(state, next, next.spectreAccumulateActive, 'ATT');
+      state.log.unshift(`Accumulate granted ${next.name} +${next.spectreAccumulateActive} ATT for this turn.`);
+    }
   }
   if (next.character === 'john-christ') {
     removeOwnedGuardian(state, next.id, 'at the beginning of John\'s next turn');
@@ -8383,7 +8457,10 @@ function updateLightsaberAtTurnEnd(state: GameState, player: PlayerState) {
       player.lightsaberBuff = false;
     }
   } else {
-    if (!player.lightsaberBuff) state.log.unshift('Lightsaber empowered Obi Wan Shinobi with +1 ATT, +1 DEF, and +1 MOV.');
+    if (!player.lightsaberBuff) {
+      state.log.unshift('Lightsaber empowered Obi Wan Shinobi with +1 ATT, +1 DEF, and +1 MOV.');
+      showLightsaberStats(state, player);
+    }
     player.lightsaberBuff = true;
   }
   if (player.swiftformLightsaberAtTurnEnd) {

@@ -10,9 +10,12 @@ import { textureNagrandTile, textureNagrandPlatform } from './nagrand-floor-text
 import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
+import { stabilizeOrkkHeldProps } from './orkkHeldProps.ts';
 import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, johnPlaybackRate, type JohnAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
+import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, obiWanAttackClip, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
+import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
 import { FrostmourneEffects } from './frostmourneEffects.ts';
 import { StingEffects } from './stingEffects.ts';
 import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectSwingDeferredByChoice, shuffledMerylinWeapons, type MerylinWeapon } from './merylinWeapons.ts';
@@ -568,6 +571,15 @@ let completedCombatVisualAttackId: string | null = null;
 let merylinCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; weapon: MerylinWeapon } | null = null;
 let merylinCombatImpactPending = false;
 const merylinImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
+let obiWanCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; clip: ObiWanAttackClip } | null = null;
+let obiWanCombatImpactPending = false;
+const obiWanAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
+let orkkCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId } | null = null;
+let orkkCombatImpactPending = false;
+const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
+function combatAnimationImpactPending() {
+  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending;
+}
 function pendingSpiritVisualAttack(playerId: PlayerId) {
   const pending = gameState.pendingAttack;
   // A returned Attack Card can be played again with the same instance id. Once
@@ -587,6 +599,12 @@ function resetCombatSummary() {
   merylinCombatAttacker = null;
   merylinCombatImpactPending = false;
   merylinImpactWaits.clear();
+  obiWanCombatAttacker = null;
+  obiWanCombatImpactPending = false;
+  obiWanAttackImpactWaits.clear();
+  orkkCombatAttacker = null;
+  orkkCombatImpactPending = false;
+  orkkAttackImpactWaits.clear();
 }
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
@@ -2214,10 +2232,14 @@ function renderCombatReveal() {
     if (combatRevealWasVisible) {
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
       const swing = merylinCombatAttacker;
-      if (swing) {
-        // Frostmourne's after-combat choice is resolved before the swing. Keep
-        // damage/destruction presentation queued until its frame-28 impact.
-        merylinCombatImpactPending = true;
+      const obiWanAttack = obiWanCombatAttacker;
+      const orkkAttack = orkkCombatAttacker;
+      if (swing || obiWanAttack || orkkAttack) {
+        // Character attack animations begin after the reveal closes. Keep
+        // damage/destruction presentation queued until the authored hit frame.
+        if (swing) merylinCombatImpactPending = true;
+        if (obiWanAttack) obiWanCombatImpactPending = true;
+        if (orkkAttack) orkkCombatImpactPending = true;
         postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
       }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
@@ -2243,6 +2265,30 @@ function renderCombatReveal() {
         syncBoard();
       }, swing.weapon, target);
     }
+    const obiWanAttack = obiWanCombatAttacker;
+    if (obiWanAttack) {
+      obiWanCombatAttacker = null;
+      const attacker = dummyGroups.get(obiWanAttack.attackerId);
+      const target = dummyGroups.get(obiWanAttack.defenderId)?.position ?? worldPosition(gameState.players[obiWanAttack.defenderId].position);
+      if (attacker) attacker.rotation.y = obiWanAttackFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z, obiWanAttack.clip);
+      playObiWanAttack(obiWanAttack.attackerId, obiWanAttack.clip, () => {
+        obiWanCombatImpactPending = false;
+        postCombatVisualNotBefore = performance.now();
+        syncBoard();
+      });
+    }
+    const orkkAttack = orkkCombatAttacker;
+    if (orkkAttack) {
+      orkkCombatAttacker = null;
+      const attacker = dummyGroups.get(orkkAttack.attackerId);
+      const target = dummyGroups.get(orkkAttack.defenderId)?.position ?? worldPosition(gameState.players[orkkAttack.defenderId].position);
+      if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
+      playOrkkCharacterAttack(orkkAttack.attackerId, () => {
+        orkkCombatImpactPending = false;
+        postCombatVisualNotBefore = performance.now();
+        syncBoard();
+      });
+    }
     return;
   }
   lastCombatSummaryOpen = false;
@@ -2250,13 +2296,21 @@ function renderCombatReveal() {
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
-  const merylinAttackLanded = pendingSwing
+  const attackLanded = pendingSwing
     && reveal.combatWinnerId === pendingSwing.attackerId
     && (reveal.combatDamage ?? 0) > 0;
   // A blocked or lost attack still consumes Merylin's Summon in the rules, but
   // it closes without a sword swing because no hit is presented on the board.
-  merylinCombatAttacker = merylinAttackLanded && gameState.players[pendingSwing.attackerId].character === 'merylin'
+  merylinCombatAttacker = attackLanded && gameState.players[pendingSwing.attackerId].character === 'merylin'
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, weapon: merylinWeaponForCard(pendingSwing.cardId) } : null;
+  const obiWanClip = pendingSwing ? obiWanAttackClip(
+    gameState.players[pendingSwing.attackerId].character,
+    gameState.players[pendingSwing.attackerId].lightsaberBuff,
+  ) : null;
+  obiWanCombatAttacker = attackLanded && pendingSwing && obiWanClip
+    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, clip: obiWanClip } : null;
+  orkkCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'orkk'
+    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId } : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const attackTranslation = hintsLanguage === 'ru' ? CARD_RULES_RU[attackDefinition.id] : undefined;
@@ -2266,8 +2320,13 @@ function renderCombatReveal() {
     : undefined;
   const attack = {
     ...attackDefinition,
-    effectText: [attackEffectText, activeConsumeText].filter(Boolean).join(' · '),
+    effectText: attackEffectText,
+    activeConsumeText,
   };
+  const attackRulesHtml = [
+    attack.effectText ? `<span>${escapeHtml(attack.effectText)}</span>` : '',
+    attack.activeConsumeText ? `<em class="consume-effect active-consume-effect">${escapeHtml(attack.activeConsumeText)}</em>` : '',
+  ].filter(Boolean).join('');
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
   const modifier = (base: number, total: number) => total === base ? `${total}` : `${base} ${total > base ? '+' : '−'} ${Math.abs(total - base)} = ${total}`;
@@ -2275,7 +2334,7 @@ function renderCombatReveal() {
   const viewerParticipates = !viewer || !gameState.pendingAttack || [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId].includes(viewer);
   const acknowledged = viewer ? !viewerParticipates || reveal.acknowledged.includes(viewer) || combatAckRequestFor === reveal.expiresAt : false;
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
-    ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}</b> from ${escapeHtml(item.source)}</li>`).join('')
+    ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}${item.kind === 'extra-damage' ? ' DAMAGE' : ''}</b> from ${escapeHtml(item.source)}${item.timing ? ` · ${escapeHtml(item.timing)}` : ''}</li>`).join('')
     : '<li class="neutral">No bonus values applied</li>';
   const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml((defend.effectText ?? '').replace(/reveal \d+ Cards/, `reveal ${reveal.defendBase} Cards`))}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
   if (gameState.phase === 'choosing-combat-stack' && gameState.pendingAttack && (localSeat || mode === 'hotseat')) {
@@ -2287,7 +2346,7 @@ function renderCombatReveal() {
       const submissionStatus = combatants
         .map((id) => `${escapeHtml(gameState.players[id].name)}: ${submittedIds.includes(id) ? 'SUBMITTED' : 'CHOOSING'}`)
         .join(' · ');
-      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · SPECTATOR VIEW</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">${submissionStatus}</div><p class="combat-spectator-note">You are observing this combat. Combat Card choices remain private until both participants submit.</p></div>`;
+      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · SPECTATOR VIEW</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">${submissionStatus}</div><p class="combat-spectator-note">You are observing this combat. Combat Card choices remain private until both participants submit.</p></div>`;
       return;
     }
     const combatSeat = localSeat ?? combatants.find((id) => localCombatSelections[id] === undefined);
@@ -2320,7 +2379,7 @@ function renderCombatReveal() {
       ? `Exhaust cannot be attached: your played ${attacker ? 'Attack' : 'Defend'} Card resolved to 0 Value or less.`
       : '';
     if (applicable.length === 0 && localCombatSelections[combatSeat] !== undefined) {
-      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-stack-private combat-stack-waiting"><h3>No applicable Combat Card</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : '<p>Your no-card choice was submitted automatically.</p>'}<div class="combat-ack-status">Waiting for ${escapeHtml(gameState.players[opponentId].name)} to finish their private choice.</div></div></div>`;
+      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-stack-private combat-stack-waiting"><h3>No applicable Combat Card</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : '<p>Your no-card choice was submitted automatically.</p>'}<div class="combat-ack-status">Waiting for ${escapeHtml(gameState.players[opponentId].name)} to finish their private choice.</div></div></div>`;
       return;
     }
     const optionResult = (instance: (typeof player.hand)[number]) => {
@@ -2339,7 +2398,7 @@ function renderCombatReveal() {
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Use one extra card, or none</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : ''}${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>None</strong><small>Keep all Combat Cards. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Use one extra card, or none</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : ''}${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>None</strong><small>Keep all Combat Cards. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
     modal.querySelector<HTMLButtonElement>('#usePhylacteryMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'wreckna-might-choice', playerId: combatSeat, use: true }));
     modal.querySelectorAll<HTMLButtonElement>('[data-combat-stack-card]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
       if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
@@ -2359,7 +2418,7 @@ function renderCombatReveal() {
   if (reveal.manaBarrage) {
     const decisionPlayer = reveal.manaBarrage.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MANA BARRAGE · COMBAT EFFECT</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply 1 Mana Point?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Spend exactly 1 stored Mana Point to deal 1 Damage to the target during combat, or keep the Mana.</div><div class="combat-choice-buttons"><button id="useManaBarrage" ${mayDecide ? '' : 'disabled'}>SPEND · +1 DAMAGE</button><button id="keepManaBarrage" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MANA BARRAGE · COMBAT EFFECT</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply 1 Mana Point?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Spend exactly 1 stored Mana Point to deal 1 Damage to the target during combat, or keep the Mana.</div><div class="combat-choice-buttons"><button id="useManaBarrage" ${mayDecide ? '' : 'disabled'}>SPEND · +1 DAMAGE</button><button id="keepManaBarrage" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2368,7 +2427,7 @@ function renderCombatReveal() {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.viciousMockery.eligible.includes(decisionPlayer) && !reveal.viciousMockery.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
     const side = gameState.pendingAttack?.attackerId === decisionPlayer ? 'ATT' : 'DEF';
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>SPECIAL COMBAT CARD</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: use Vicious Mockery?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Vicious Mockery from the game to give the played Card +2 ${side}, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useViciousMockery" ${mayDecide ? '' : 'disabled'}>USE · +2 ${side}</button><button id="keepViciousMockery" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>SPECIAL COMBAT CARD</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: use Vicious Mockery?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Vicious Mockery from the game to give the played Card +2 ${side}, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useViciousMockery" ${mayDecide ? '' : 'disabled'}>USE · +2 ${side}</button><button id="keepViciousMockery" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useViciousMockery:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'vicious-mockery-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepViciousMockery:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'vicious-mockery-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2376,7 +2435,7 @@ function renderCombatReveal() {
   if (reveal.blessingLight) {
     const decisionPlayer = reveal.blessingLight.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2384,7 +2443,7 @@ function renderCombatReveal() {
   if (reveal.blessingMight) {
     const decisionPlayer = reveal.blessingMight.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2392,7 +2451,7 @@ function renderCombatReveal() {
   if (reveal.blessingFaith) {
     const decisionPlayer = reveal.blessingFaith.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT SANCTUARY</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Faith?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Faith to negate all combat-value and Card-effect Damage dealt to both attacker and defender in this combat.</div><div class="combat-choice-buttons"><button id="useBlessingFaith" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepBlessingFaith" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT SANCTUARY</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Faith?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Faith to negate all combat-value and Card-effect Damage dealt to both attacker and defender in this combat.</div><div class="combat-choice-buttons"><button id="useBlessingFaith" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepBlessingFaith" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2400,7 +2459,7 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
     document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
@@ -2409,7 +2468,7 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>REWARD · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Mythril Helmet?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Mythril Helmet from the Deck to negate all Damage in this combat, or keep it for later.</div><div class="combat-choice-buttons"><button id="useMythrilHelmet" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepMythrilHelmet" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>REWARD · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Mythril Helmet?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Mythril Helmet from the Deck to negate all Damage in this combat, or keep it for later.</div><div class="combat-choice-buttons"><button id="useMythrilHelmet" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepMythrilHelmet" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2417,7 +2476,7 @@ function renderCombatReveal() {
   if (reveal.exhaust) {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.exhaust.eligible.includes(decisionPlayer) && !reveal.exhaust.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -3 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -3</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -3 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -3</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
     document.querySelector('#attachExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2458,7 +2517,7 @@ function renderCombatReveal() {
   const appliedCombatCards = reveal.combatStackApplied
     ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${escapeHtml(cardDefinition({ instanceId: '', cardId }).name)}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
     : '';
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${escapeHtml(attack.effectText ?? '')}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
   activeCombatSummary = true;
   modal.classList.toggle('hidden', combatSummaryHidden);
@@ -3331,8 +3390,9 @@ const processedManaConsumeEvents = new Set<string>();
 const manaConsumeAnimations: { parent: THREE.Group; group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
+const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: number; startedAt: number }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
@@ -3501,6 +3561,7 @@ renderer.setAnimationLoop((time) => {
     updateWizardAnimation(group, locomoting, deltaSeconds);
     updateObiWanAnimation(group, id, locomoting, deltaSeconds);
     if (group.userData.character === 'shinobi') {
+      updateSwiftformVisual(group, obiWanHologramActive(group, id));
       updateObiWanLightsaberAnimation(group, deltaSeconds);
       updateObiWanLightsaberLightPosition(group);
     }
@@ -3570,6 +3631,8 @@ renderer.setAnimationLoop((time) => {
   });
   updateShadowTrail(spectreShadowTrailGroup, time / 1000);
   updateMerylinSwingImpacts(time);
+  updateObiWanAttackImpacts(time);
+  updateOrkkAttackImpacts(time);
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
@@ -3756,12 +3819,12 @@ function updateOverheadStatusRows(refreshContents = false) {
   });
 }
 
-function floatingNumberOrigin(playerId: PlayerId) {
+function floatingNumberOrigin(playerId: PlayerId, laneSpacing = 0.68) {
   const occupiedLanes = new Set(damageNumbers.filter((entry) => entry.playerId === playerId).map((entry) => entry.lane));
   let lane = 0;
   while (occupiedLanes.has(lane)) lane += 1;
   const laneDirection = lane % 2 === 1 ? 1 : -1;
-  const laneDistance = Math.ceil(lane / 2) * 0.68;
+  const laneDistance = Math.ceil(lane / 2) * laneSpacing;
   const screenRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
   const origin = (dummyGroups.get(playerId)?.position ?? worldPosition(gameState.players[playerId].position)).clone();
   origin.y += 2.25 + Math.ceil(lane / 2) * 0.08;
@@ -3800,6 +3863,19 @@ function spawnHealingVisual(playerId: PlayerId, amount: number) {
   const { lane, origin } = floatingNumberOrigin(playerId);
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
   damageNumbers.push({ sprite, playerId, lane, startedAt: performance.now(), origin });
+}
+
+function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' | 'ATT' | 'DEF') {
+  if (!amount) return;
+  const positive = amount > 0;
+  const occupiedSlots = new Set(statEffectBubbles.filter((entry) => entry.playerId === playerId).map((entry) => entry.slot));
+  let slot = 0;
+  while (occupiedSlots.has(slot)) slot += 1;
+  const element = document.createElement('div');
+  element.className = `stat-effect-bubble ${positive ? 'positive' : 'negative'}`;
+  element.textContent = `${positive ? '+' : '−'}${Math.abs(amount)} ${stat}`;
+  overheadStatusLayer.appendChild(element);
+  statEffectBubbles.push({ element, playerId, slot, startedAt: performance.now() });
 }
 
 const characterCalloutScreenPosition = new THREE.Vector3();
@@ -3938,6 +4014,40 @@ function updateDamageVisuals(time: number) {
     entry.sprite.position.copy(entry.origin); entry.sprite.position.y += progress * 1.15;
     entry.sprite.position.x += Math.sin(progress * Math.PI) * 0.18;
     entry.sprite.material.opacity = 1 - Math.max(0, (progress - 0.55) / 0.45);
+  }
+  const layerRect = overheadStatusLayer.getBoundingClientRect();
+  for (let index = statEffectBubbles.length - 1; index >= 0; index--) {
+    const entry = statEffectBubbles[index];
+    const progress = (time - entry.startedAt) / 1400;
+    if (progress >= 1) {
+      entry.element.remove();
+      statEffectBubbles.splice(index, 1);
+      continue;
+    }
+    const healthBar = characterHealthBars.get(entry.playerId);
+    const character = dummyGroups.get(entry.playerId);
+    if (!healthBar || !character?.visible) {
+      entry.element.classList.add('hidden');
+      continue;
+    }
+    perkLabelScreenPosition.copy(healthBar.position).project(camera);
+    const onScreen = perkLabelScreenPosition.z >= -1 && perkLabelScreenPosition.z <= 1;
+    entry.element.classList.toggle('hidden', !onScreen);
+    if (!onScreen) continue;
+    const projectedX = (perkLabelScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
+    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+    const statusRow = overheadStatusRows.get(entry.playerId);
+    const hasStatuses = Boolean(statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0);
+    const statusRect = hasStatuses ? statusRow!.getBoundingClientRect() : null;
+    const rightEdge = statusRect ? statusRect.right - layerRect.left : projectedX + 34;
+    const leftEdge = statusRect ? statusRect.left - layerRect.left : projectedX - 34;
+    const anchorY = statusRect ? statusRect.top - layerRect.top + statusRect.height / 2 : projectedY - 20;
+    const useLeft = rightEdge + 12 + entry.element.offsetWidth > renderer.domElement.clientWidth - 8;
+    const slotBand = entry.slot === 0 ? 0 : (entry.slot % 2 === 1 ? -1 : 1) * Math.ceil(entry.slot / 2);
+    entry.element.classList.toggle('left', useLeft);
+    entry.element.style.left = `${useLeft ? leftEdge - 12 : rightEdge + 12}px`;
+    entry.element.style.top = `${anchorY + slotBand * 23 - progress * 34}px`;
+    entry.element.style.opacity = String(1 - Math.max(0, (progress - 0.55) / 0.45));
   }
 }
 
@@ -4146,7 +4256,27 @@ function updateCharacterMovement(time: number) {
   movementAnimations.forEach((animation, playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group) return;
-    if (time < animation.startedAt) return;
+    if (animation.danceThrough && obiWanDanceThroughPresentationBlocked(playerId, group)) {
+      animation.turnStartedAt = time;
+      animation.startedAt = time + OBI_WAN_DANCE_THROUGH_TURN_MS;
+      animation.turnFromRotation = group.rotation.y;
+      return;
+    }
+    if (time < animation.startedAt) {
+      if (animation.turnStartedAt !== undefined && animation.turnFromRotation !== undefined && animation.turnToRotation !== undefined) {
+        const turnProgress = THREE.MathUtils.smoothstep(
+          time,
+          animation.turnStartedAt,
+          animation.startedAt,
+        );
+        const turnDelta = Math.atan2(
+          Math.sin(animation.turnToRotation - animation.turnFromRotation),
+          Math.cos(animation.turnToRotation - animation.turnFromRotation),
+        );
+        group.rotation.y = animation.turnFromRotation + turnDelta * turnProgress;
+      }
+      return;
+    }
     if (animation.faceToward && !animation.facingApplied) {
       const dx = animation.faceToward.x - group.position.x;
       const dz = animation.faceToward.z - group.position.z;
@@ -4177,6 +4307,7 @@ function updateCharacterMovement(time: number) {
       }
     }
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
+    if (animation.danceThrough) group.position.y = THREE.MathUtils.lerp(animation.from.y, animation.to.y, eased);
     if (!animation.verticalOnly && !animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) {
@@ -4189,7 +4320,8 @@ function updateCharacterMovement(time: number) {
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
-      movementAnimations.delete(playerId);
+      if (animation.danceThrough) animation.completed = true;
+      else movementAnimations.delete(playerId);
     }
   });
 }
@@ -4253,7 +4385,7 @@ function updateCharacterFacing(deltaSeconds: number) {
     const spectreAnimation = group.userData.spectreAnimation as SpectreAnimationState | undefined;
     if (spectreAnimation?.oneShot) return;
     const obiWanAnimation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-    if (obiWanAnimation?.power) return;
+    if (obiWanAnimation?.power || obiWanAnimation?.attack || obiWanAnimation?.danceThrough) return;
     const shieldStillFlying = [...objectMovementAnimations.keys()].some((objectId) => {
       const object = objectGroups.get(objectId);
       const animation = objectMovementAnimations.get(objectId);
@@ -4977,7 +5109,7 @@ function createDaOrkk(playerColor = 0xff5d68, previewRageStacks = 0) {
   return root;
 }
 
-type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'BoxAttack' | 'Dead';
+type OrkkAnimationName = 'IdleWithShield' | 'IdleNoShield' | 'CasualWalk' | 'Walking' | 'Running' | 'Encourage' | 'ShieldThrow' | 'CharacterAttack' | 'BoxAttack' | 'Dead';
 const ORKK_LOCOMOTION_FPS = 24;
 const ORKK_CASUAL_WALK_FRAMES = 33;
 const ORKK_CASUAL_WALK_TIME_SCALE = 1.2;
@@ -4989,11 +5121,14 @@ const ORKK_BASE_ATTACK_FPS = 24;
 const ORKK_BASE_ATTACK_END_FRAME = 45;
 const ORKK_BASE_ATTACK_IMPACT_FRAME = 23;
 const ORKK_BASE_ATTACK_TIME_SCALE = 1.4;
+const ORKK_CHARACTER_ATTACK_FPS = 24;
+const ORKK_CHARACTER_ATTACK_IMPACT_FRAME = 28;
 type OrkkAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<OrkkAnimationName, THREE.AnimationAction>;
   current: OrkkAnimationName;
   oneShotUntil?: number;
+  characterAttack?: { impactReached: boolean; finished?: boolean };
   deathEndsAt?: number;
   shieldThrowReleaseMs: number;
   shieldIdleSocketLocalQuaternion: THREE.Quaternion;
@@ -5026,6 +5161,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'DaOrkhImportedModel';
     model.scale.setScalar(1.6);
+    stabilizeOrkkHeldProps(model);
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
@@ -5036,7 +5172,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     body.add(model);
     installOrkkRageCoreGlow(root, model);
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
-    const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID', 'DaOrkh_Dead'];
+    const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Skill_03', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID', 'DaOrkh_Dead'];
     if (required.some((name) => !clips[name])) throw new Error(`Da Orkk GLB is missing: ${required.filter((name) => !clips[name]).join(', ')}`);
     const alignedCasualWalk = alignOrkkLocomotionRoot(clips.DaOrkh_Casual_Walk, clips.DaOrkh_Idle_With_Shield);
     const alignedWalking = alignOrkkLocomotionRoot(clips.DaOrkh_Walking, clips.DaOrkh_Idle_With_Shield);
@@ -5059,6 +5195,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
       Running: mixer.clipAction(alignedRunning),
       Encourage: mixer.clipAction(clips.DaOrkh_Skill_01),
       ShieldThrow: mixer.clipAction(clips.DaOrkh_Shield_Throw),
+      CharacterAttack: mixer.clipAction(clips.DaOrkh_Skill_03),
       BoxAttack: mixer.clipAction(baseAttack),
       Dead: mixer.clipAction(clips.DaOrkh_Dead),
     };
@@ -5067,6 +5204,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     actions.Running.timeScale = ORKK_RUNNING_TIME_SCALE;
     actions.Encourage.setLoop(THREE.LoopOnce, 1); actions.Encourage.clampWhenFinished = true;
     actions.ShieldThrow.setLoop(THREE.LoopOnce, 1); actions.ShieldThrow.clampWhenFinished = true;
+    actions.CharacterAttack.setLoop(THREE.LoopOnce, 1); actions.CharacterAttack.clampWhenFinished = true;
     actions.BoxAttack.setLoop(THREE.LoopOnce, 1); actions.BoxAttack.clampWhenFinished = true;
     actions.Dead.setLoop(THREE.LoopOnce, 1); actions.Dead.clampWhenFinished = true;
     actions.BoxAttack.timeScale = ORKK_BASE_ATTACK_TIME_SCALE;
@@ -5093,7 +5231,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     });
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
     if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
-    const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'BoxAttack' | undefined;
+    const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'CharacterAttack' | 'BoxAttack' | undefined;
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
   } catch (error) {
     console.error('Failed to load Da Orkk model; keeping procedural fallback.', error);
@@ -5147,17 +5285,51 @@ function updateMerylinSwingImpacts(time: number) {
   }
 }
 
+function playObiWanAttack(playerId: PlayerId, clip: ObiWanAttackClip, impact: () => void = () => {}) {
+  const waiting = obiWanAttackImpactWaits.get(playerId);
+  if (waiting) { waiting.callbacks.push(impact); return; }
+  const player = gameState.players[playerId];
+  if (!player || player.character !== 'shinobi') { impact(); return; }
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (state) startObiWanAttack(state, clip);
+  else if (group) group.userData.pendingObiWanAttack = clip;
+  obiWanAttackImpactWaits.set(playerId, {
+    callbacks: [impact],
+    fallbackAt: performance.now() + OBI_WAN_ATTACK_HIT_SECONDS[clip] * 1000,
+  });
+}
+
+function updateObiWanAttackImpacts(time: number) {
+  for (const [id, wait] of obiWanAttackImpactWaits) {
+    const group = dummyGroups.get(id);
+    const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    // Prefer the imported animation clock; fall back to authored timing if the
+    // asset is unavailable or still loading so presentation cannot deadlock.
+    if (state ? !state.attack?.impactReached && state.deathEndsAt === undefined
+      : (group && !group.userData.characterModelLoadSettled) || time < wait.fallbackAt) continue;
+    obiWanAttackImpactWaits.delete(id);
+    for (const callback of wait.callbacks) callback();
+  }
+}
+
 function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?:THREE.Vector3): number {
   const group = dummyGroups.get(playerId);
   if (group?.userData.character === 'merylin') {
     playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
     return Number.POSITIVE_INFINITY;
   }
+  const player = gameState.players[playerId];
+  const obiWanClip = player ? obiWanAttackClip(player.character, player.lightsaberBuff) : null;
+  if (obiWanClip) {
+    playObiWanAttack(playerId, obiWanClip, impact);
+    return Number.POSITIVE_INFINITY;
+  }
   playOrkkOneShot(playerId, 'BoxAttack');
   return (ORKK_BASE_ATTACK_IMPACT_FRAME / ORKK_BASE_ATTACK_FPS) * 1000 / ORKK_BASE_ATTACK_TIME_SCALE;
 }
 
-function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' | 'BoxAttack') {
+function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' | 'CharacterAttack' | 'BoxAttack') {
   const group = dummyGroups.get(playerId);
   const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!group) return;
@@ -5171,8 +5343,32 @@ function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' |
   }
   action.paused = false;
   action.enabled = true;
+  if (name === 'CharacterAttack') state.characterAttack = { impactReached: false };
   const effectiveTimeScale = Math.max(Math.abs(action.getEffectiveTimeScale()), Math.abs(action.timeScale), 0.001);
   state.oneShotUntil = performance.now() + action.getClip().duration * 1000 / effectiveTimeScale;
+}
+
+function playOrkkCharacterAttack(playerId: PlayerId, impact: () => void = () => {}) {
+  const waiting = orkkAttackImpactWaits.get(playerId);
+  if (waiting) { waiting.callbacks.push(impact); return; }
+  const player = gameState.players[playerId];
+  if (!player || player.character !== 'orkk') { impact(); return; }
+  playOrkkOneShot(playerId, 'CharacterAttack');
+  orkkAttackImpactWaits.set(playerId, {
+    callbacks: [impact],
+    fallbackAt: performance.now() + ORKK_CHARACTER_ATTACK_IMPACT_FRAME / ORKK_CHARACTER_ATTACK_FPS * 1000,
+  });
+}
+
+function updateOrkkAttackImpacts(time: number) {
+  for (const [id, wait] of orkkAttackImpactWaits) {
+    const group = dummyGroups.get(id);
+    const state = group?.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (state ? !state.characterAttack?.impactReached && state.deathEndsAt === undefined
+      : (group && !group.userData.characterModelLoadSettled) || time < wait.fallbackAt) continue;
+    orkkAttackImpactWaits.delete(id);
+    for (const callback of wait.callbacks) callback();
+  }
 }
 
 function playOrkkDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
@@ -5205,6 +5401,22 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
   if (!state) return;
   state.mixer.update(deltaSeconds);
   if (state.deathEndsAt !== undefined) return;
+  if (state.characterAttack) {
+    const action = state.actions.CharacterAttack;
+    state.characterAttack.impactReached ||= action.time >= ORKK_CHARACTER_ATTACK_IMPACT_FRAME / ORKK_CHARACTER_ATTACK_FPS;
+    if (action.isRunning()) return;
+    if (!state.characterAttack.finished) {
+      action.fadeOut(0.1);
+      const equippedShield = group.getObjectByName('EquippedShield');
+      const idle = gameState.players[playerId].shieldEquipped && equippedShield?.visible !== false ? 'IdleWithShield' : 'IdleNoShield';
+      state.actions[idle].reset().fadeIn(0.1).play();
+      state.current = idle;
+      state.oneShotUntil = undefined;
+      state.characterAttack.finished = true;
+      return;
+    }
+    state.characterAttack = undefined;
+  }
   if (state.oneShotUntil && Number.isFinite(state.oneShotUntil) && performance.now() < state.oneShotUntil) return;
   state.oneShotUntil = undefined;
   if (moving) {
@@ -5293,12 +5505,12 @@ function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
 function finishingBlowVisualsActive(time: number) {
   if (spellProjectileAnimations.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
   if (objectMovementAnimations.size > 0 || movementAnimations.size > 0 || objectImpactAnimations.size > 0 || impactAnimations.size > 0) return true;
-  if (damageNumbers.length > 0 || stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
+  if (damageNumbers.length > 0 || statEffectBubbles.length > 0 || stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
   for (const group of dummyGroups.values()) {
     const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
     if (wizard?.power) return true;
     const obiWan = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-    if (obiWan?.power) return true;
+    if (obiWan?.power || (obiWan?.attack && !obiWan.attack.finished)) return true;
     const orkk = group.userData.orkkAnimation as OrkkAnimationState | undefined;
     if (orkk?.deathEndsAt === undefined && orkk?.oneShotUntil && time < orkk.oneShotUntil) return true;
     const spectre = group.userData.spectreAnimation as SpectreAnimationState | undefined;
@@ -5386,7 +5598,7 @@ function createLongHatLogan(playerColor = 0x169bd3) {
 }
 
 function loadDaOrkhAsset() {
-  return daOrkhAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/da-orkh-optimized.glb?v=20260823-1`, (url) => new GLTFLoader().loadAsync(url)).then((asset) => {
+  return daOrkhAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/da-orkh-optimized-skill03.glb?v=20260916-1`, (url) => new GLTFLoader().loadAsync(url)).then((asset) => {
     daOrkhAsset = asset;
     asset.scene.updateWorldMatrix(true, true);
     return asset;
@@ -5565,6 +5777,10 @@ function updateObjectImpactAnimations(time: number) {
 
 function characterFacingRotation(group: THREE.Group, dx: number, dz: number) {
   return Math.atan2(dx, dz) + (group.userData.facingSide === 'negative-z' ? Math.PI : 0);
+}
+
+function obiWanAttackFacingRotation(group: THREE.Group, dx: number, dz: number, clip: ObiWanAttackClip) {
+  return characterFacingRotation(group, dx, dz) + OBI_WAN_ATTACK_FACING_OFFSET_RADIANS[clip];
 }
 
 function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) {
@@ -5976,8 +6192,13 @@ function updatePerkUseLabels(time: number) {
     perkLabelScreenPosition.copy(healthBar.position).project(camera);
     const onScreen = perkLabelScreenPosition.z >= -1 && perkLabelScreenPosition.z <= 1;
     label.element.classList.toggle('hidden', !onScreen);
+    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+    const statusRow = overheadStatusRows.get(playerId);
+    const statusTop = statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
+      ? statusRow.getBoundingClientRect().top - overheadStatusLayer.getBoundingClientRect().top
+      : projectedY - 26;
     label.element.style.left = `${(perkLabelScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
-    label.element.style.top = `${(-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight}px`;
+    label.element.style.top = `${Math.min(projectedY - 26, statusTop - 10)}px`;
     label.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
   });
 }
@@ -6943,8 +7164,10 @@ function updateStoicShellHealAnimations(time: number) {
 type ObiWanAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<string, THREE.AnimationAction>;
-  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead';
+  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead' | ObiWanAttackClip | typeof OBI_WAN_DANCE_THROUGH_CLIP;
   power?: ObiWanPowerRuntime;
+  attack?: { clip: ObiWanAttackClip; impactReached: boolean; finished?: boolean };
+  danceThrough?: { holding: boolean; stepStartFrame: number; stepEndFrame: number };
   deathEndsAt?: number;
 };
 
@@ -6989,6 +7212,19 @@ function alignObiWanLocomotionRoot(source: THREE.AnimationClip, idle: THREE.Anim
   for (let index = 0; index < movingHips.values.length; index += 3) {
     movingHips.values[index] += offsetX;
     movingHips.values[index + 2] += offsetZ;
+  }
+  return clip;
+}
+
+function prepareObiWanInPlaceClip(source: THREE.AnimationClip, idle: THREE.AnimationClip) {
+  const clip = source.clone();
+  const idleHips = idle.tracks.find((track) => track.name.endsWith('Hips.position'));
+  const movingHips = clip.tracks.find((track) => track.name.endsWith('Hips.position'));
+  if (!idleHips || !movingHips || idleHips.getValueSize() !== 3 || movingHips.getValueSize() !== 3) return clip;
+  for (let index = 0; index < movingHips.values.length; index += 3) {
+    movingHips.values[index] = idleHips.values[0];
+    movingHips.values[index + 1] = idleHips.values[1];
+    movingHips.values[index + 2] = idleHips.values[2];
   }
   return clip;
 }
@@ -7071,10 +7307,41 @@ function enhanceObiWanLightsaber(model: THREE.Group, playerColor: number) {
 }
 
 function syncObiWanLightsaberVisual(group: THREE.Group, player: GameState['players'][PlayerId]) {
-  const visible = player.character === 'shinobi' && player.lightsaberBuff;
+  const animation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  const playerId = group.userData.playerId as PlayerId | undefined;
+  const danceThroughBlocked = playerId ? obiWanDanceThroughPresentationBlocked(playerId, group) : false;
+  const danceThroughPlayerId = gameState.danceThrough?.playerId ?? gameState.activePlayerId;
+  const ownsDanceThrough = playerId === danceThroughPlayerId;
+  const visible = player.character === 'shinobi' && shouldShowObiWanLightsaberDuringDance(
+    player.lightsaberBuff,
+    danceThroughBlocked || !ownsDanceThrough ? undefined : player.visualMovement?.sourceCardId,
+    ownsDanceThrough && !danceThroughBlocked && Boolean(animation?.danceThrough || gameState.phase === 'dance-through'),
+  );
   group.userData.obiWanLightsaberVisible = visible;
   group.userData.obiWanLightsaberTarget = visible ? 1 : 0;
   if (group.userData.obiWanLightsaberProgress === undefined) group.userData.obiWanLightsaberProgress = visible ? 1 : 0;
+}
+
+function obiWanHologramActive(group: THREE.Group, playerId: PlayerId) {
+  const player = gameState.players[playerId];
+  if (!player || player.hp <= 0) return false;
+  const animation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  const danceThroughPlayerId = gameState.danceThrough?.playerId ?? gameState.activePlayerId;
+  const danceThroughActive = danceThroughPlayerId === playerId && !obiWanDanceThroughPresentationBlocked(playerId, group) && (
+    Boolean(animation?.danceThrough)
+    || (gameState.phase === 'dance-through' && danceThroughPlayerId === playerId)
+  );
+  return Boolean(player.swiftformCanPassEnemies || danceThroughActive);
+}
+
+function obiWanDanceThroughPresentationBlocked(playerId: PlayerId, group = dummyGroups.get(playerId)) {
+  const animation = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  if (obiWanAttackImpactWaits.has(playerId) || (animation?.attack && !animation.attack.finished)) return true;
+  return gameState.objectPushAnimations.some((event) => {
+    if (event.attackAnimationPlayerId !== playerId) return false;
+    if (!processedObjectPushAnimations.has(event.id)) return true;
+    return objectMovementAnimations.get(event.objectId)?.animationId === event.id;
+  });
 }
 
 function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: number) {
@@ -7152,7 +7419,7 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
 }
 
 function loadObiWanAsset() {
-  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260822-5`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
+  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260915-3`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
     obiWanAssetPromise = null;
     throw error;
   });
@@ -7185,11 +7452,16 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const runFastClip = asset.animations.find((clip) => clip.name === 'RunFast');
     const powerClip = asset.animations.find((clip) => clip.name === 'Power');
     const deadClip = asset.animations.find((clip) => clip.name === 'Dead');
-    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, and Dead clips.');
+    const legKickClip = asset.animations.find((clip) => clip.name === OBI_WAN_LEG_KICK_CLIP);
+    const doubleSwingClip = asset.animations.find((clip) => clip.name === OBI_WAN_DOUBLE_SWING_CLIP);
+    const danceThroughClip = asset.animations.find((clip) => clip.name === OBI_WAN_DANCE_THROUGH_CLIP);
+    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip || !legKickClip || !doubleSwingClip || !danceThroughClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, Dead, Leg_Kick, Double_Swing, and Dance_Through clips.');
     const alignedCasualWalk = alignObiWanLocomotionRoot(casualWalkClip, idleClip);
     const alignedWalking = alignObiWanLocomotionRoot(walkingClip, idleClip);
     const alignedRunning = alignObiWanLocomotionRoot(runningClip, idleClip);
     const alignedRunFast = alignObiWanLocomotionRoot(runFastClip, idleClip);
+    const preparedDoubleSwing = prepareObiWanInPlaceClip(doubleSwingClip, idleClip);
+    const preparedDanceThrough = prepareObiWanInPlaceClip(danceThroughClip, idleClip);
     const oneCellWalk = THREE.AnimationUtils.subclip(alignedCasualWalk, 'CasualWalkOneCell', 0, 35, OBI_WAN_WALK_FPS);
     const mixer = new THREE.AnimationMixer(model);
     const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
@@ -7197,6 +7469,8 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     actions.Walking = mixer.clipAction(alignedWalking);
     actions.Running = mixer.clipAction(alignedRunning);
     actions.RunFast = mixer.clipAction(alignedRunFast);
+    actions[OBI_WAN_DOUBLE_SWING_CLIP] = mixer.clipAction(preparedDoubleSwing);
+    actions[OBI_WAN_DANCE_THROUGH_CLIP] = mixer.clipAction(preparedDanceThrough);
     actions.CasualWalkOneCell.timeScale = OBI_WAN_WALK_TIME_SCALE;
     actions.Walking.timeScale = OBI_WAN_WALKING_TIME_SCALE;
     actions.Running.timeScale = OBI_WAN_RUN_TIME_SCALE;
@@ -7205,13 +7479,24 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     actions.Power.clampWhenFinished = true;
     actions.Dead.setLoop(THREE.LoopOnce, 1);
     actions.Dead.clampWhenFinished = true;
+    actions[OBI_WAN_LEG_KICK_CLIP].setLoop(THREE.LoopOnce, 1);
+    actions[OBI_WAN_LEG_KICK_CLIP].clampWhenFinished = true;
+    actions[OBI_WAN_DOUBLE_SWING_CLIP].setLoop(THREE.LoopOnce, 1);
+    actions[OBI_WAN_DOUBLE_SWING_CLIP].clampWhenFinished = true;
+    actions[OBI_WAN_DANCE_THROUGH_CLIP].setLoop(THREE.LoopRepeat, Infinity);
+    actions[OBI_WAN_DANCE_THROUGH_CLIP].clampWhenFinished = false;
     actions.Idle.play();
     mixer.update(0);
     root.userData.obiWanAnimation = { mixer, actions, current: 'Idle' } satisfies ObiWanAnimationState;
+    const pendingObiWanAttack = root.userData.pendingObiWanAttack as ObiWanAttackClip | undefined;
+    if (pendingObiWanAttack) {
+      delete root.userData.pendingObiWanAttack;
+      startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack);
+    }
     root.userData.deathAnimationAvailable = true;
     if (root === characterPreviewModels.get('shinobi')) applyCharacterPreviewStyle(root);
     const playerId = root.userData.playerId as PlayerId | undefined;
-    if (playerId && gameState.players[playerId]?.swiftformCanPassEnemies) updateSwiftformVisual(root, true);
+    if (playerId) updateSwiftformVisual(root, obiWanHologramActive(root, playerId));
     const pendingPowerIntents = root.userData.pendingObiWanPowerVisualIntents as ObiWanPowerVisualIntent[] | undefined;
     if (pendingPowerIntents) {
       delete root.userData.pendingObiWanPowerVisualIntents;
@@ -7233,12 +7518,94 @@ function finishObiWanPowerAnimation(state: ObiWanAnimationState) {
   state.power = undefined;
 }
 
+const OBI_WAN_DANCE_THROUGH_MODEL_Y_OFFSET = -0.08;
+
+function setObiWanDanceThroughGroundOffset(group: THREE.Group, active: boolean) {
+  const model = group.getObjectByName('ObiWanImportedModel');
+  if (model) model.position.y = active ? OBI_WAN_DANCE_THROUGH_MODEL_Y_OFFSET : 0;
+}
+
+function poseObiWanForDanceThrough(group: THREE.Group, state: ObiWanAnimationState) {
+  if (state.deathEndsAt !== undefined || state.danceThrough) return;
+  if (state.power) finishObiWanPowerAnimation(state);
+  state.attack = undefined;
+  state.actions[state.current].stop();
+  const action = state.actions[OBI_WAN_DANCE_THROUGH_CLIP];
+  action.reset().setEffectiveWeight(1).play();
+  action.time = OBI_WAN_DANCE_THROUGH_ENTRY_FRAME / OBI_WAN_DANCE_THROUGH_FPS;
+  state.mixer.update(0);
+  action.paused = true;
+  state.current = OBI_WAN_DANCE_THROUGH_CLIP;
+  state.danceThrough = {
+    holding: true,
+    stepStartFrame: OBI_WAN_DANCE_THROUGH_ENTRY_FRAME,
+    stepEndFrame: OBI_WAN_DANCE_THROUGH_STEP_FRAMES,
+  };
+  setObiWanDanceThroughGroundOffset(group, true);
+  group.userData.obiWanLightsaberVisible = true;
+  group.userData.obiWanLightsaberTarget = 1;
+  group.userData.obiWanLightsaberProgress = 1;
+}
+
+function startObiWanDanceThroughStep(group: THREE.Group, state: ObiWanAnimationState, movementDurationMs: number) {
+  if (state.deathEndsAt !== undefined) return;
+  if (state.power) finishObiWanPowerAnimation(state);
+  state.attack = undefined;
+  const action = state.actions[OBI_WAN_DANCE_THROUGH_CLIP];
+  const stepStartFrame = state.danceThrough?.holding ? state.danceThrough.stepStartFrame : OBI_WAN_DANCE_THROUGH_ENTRY_FRAME;
+  const stepEndFrame = state.danceThrough?.holding ? state.danceThrough.stepEndFrame : OBI_WAN_DANCE_THROUGH_STEP_FRAMES;
+  if (state.current !== OBI_WAN_DANCE_THROUGH_CLIP) {
+    state.actions[state.current].fadeOut(0.08);
+    action.reset().fadeIn(0.08).play();
+  } else {
+    action.time = stepStartFrame / OBI_WAN_DANCE_THROUGH_FPS;
+    action.play();
+  }
+  action.paused = false;
+  action.setEffectiveTimeScale(obiWanDanceThroughTimeScale(movementDurationMs, stepEndFrame - stepStartFrame));
+  state.current = OBI_WAN_DANCE_THROUGH_CLIP;
+  state.danceThrough = {
+    holding: false,
+    stepStartFrame,
+    stepEndFrame,
+  };
+  setObiWanDanceThroughGroundOffset(group, true);
+  group.userData.obiWanLightsaberVisible = true;
+  group.userData.obiWanLightsaberTarget = 1;
+  group.userData.obiWanLightsaberProgress = 1;
+}
+
+function finishObiWanDanceThrough(group: THREE.Group, playerId: PlayerId, state: ObiWanAnimationState) {
+  const action = state.actions[OBI_WAN_DANCE_THROUGH_CLIP];
+  action.paused = false;
+  action.fadeOut(0.12);
+  state.actions.Idle.reset().fadeIn(0.12).play();
+  state.current = 'Idle';
+  state.danceThrough = undefined;
+  setObiWanDanceThroughGroundOffset(group, false);
+  const lightsaberVisible = Boolean(gameState.players[playerId]?.lightsaberBuff);
+  group.userData.obiWanLightsaberVisible = lightsaberVisible;
+  group.userData.obiWanLightsaberTarget = lightsaberVisible ? 1 : 0;
+}
+
+function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip) {
+  if (state.deathEndsAt !== undefined) return;
+  if (state.power) finishObiWanPowerAnimation(state);
+  state.actions[state.current].fadeOut(0.08);
+  const action = state.actions[clip];
+  action.paused = false;
+  action.reset().setEffectiveTimeScale(1).fadeIn(0.08).play();
+  state.current = clip;
+  state.attack = { clip, impactReached: false };
+}
+
 function playObiWanDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
   const group = dummyGroups.get(playerId);
   const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
   if (!group || !state || !group.userData.deathAnimationAvailable) return null;
   if (state.deathEndsAt !== undefined) return state.deathEndsAt;
   if (state.power) finishObiWanPowerAnimation(state);
+  state.attack = undefined;
   state.actions[state.current].fadeOut(0.12);
   state.actions.Dead.reset().fadeIn(0.12).play();
   state.current = 'Dead';
@@ -7249,6 +7616,7 @@ function playObiWanDeathAnimation(playerId: PlayerId, startedAt: number): number
 
 function startObiWanPowerAnimation(state: ObiWanAnimationState) {
   if (state.power) finishObiWanPowerAnimation(state);
+  state.attack = undefined;
   state.actions[state.current].fadeOut(0.12);
   state.actions.Power.paused = false;
   state.actions.Power.reset().fadeIn(0.12).play();
@@ -7306,6 +7674,72 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
     state.mixer.update(deltaSeconds);
     return;
   }
+  const movement = movementAnimations.get(playerId);
+  const danceThroughPlayerId = gameState.danceThrough?.playerId ?? gameState.activePlayerId;
+  const ownsDanceThrough = danceThroughPlayerId === playerId;
+  if (state.attack) {
+    if (state.attack.finished) {
+      state.attack = undefined;
+    } else {
+      const action = state.actions[state.attack.clip];
+      state.mixer.update(deltaSeconds);
+      state.attack.impactReached ||= action.time >= OBI_WAN_ATTACK_HIT_SECONDS[state.attack.clip];
+      if (!action.isRunning()) {
+        action.fadeOut(0.1);
+        state.actions.Idle.reset().fadeIn(0.1).play();
+        state.current = 'Idle';
+        state.attack.finished = true;
+      }
+      return;
+    }
+  }
+  const danceThroughBlocked = obiWanDanceThroughPresentationBlocked(playerId, group);
+  if (ownsDanceThrough && gameState.phase === 'dance-through' && !state.danceThrough && !danceThroughBlocked) poseObiWanForDanceThrough(group, state);
+  const danceThroughMoving = Boolean(movement?.danceThrough);
+  if (danceThroughMoving && danceThroughBlocked) {
+    state.mixer.update(deltaSeconds);
+    return;
+  }
+  if (danceThroughMoving && movement) {
+    if (performance.now() < movement.startedAt) {
+      poseObiWanForDanceThrough(group, state);
+      state.actions[OBI_WAN_DANCE_THROUGH_CLIP].paused = true;
+      state.mixer.update(0);
+      return;
+    }
+    if (!state.danceThrough || state.danceThrough.holding) startObiWanDanceThroughStep(group, state, movement.duration);
+    const action = state.actions[OBI_WAN_DANCE_THROUGH_CLIP];
+    if (movement.completed) {
+      const stepEndFrame = state.danceThrough!.stepEndFrame;
+      const endsLoop = stepEndFrame >= OBI_WAN_DANCE_THROUGH_STEP_FRAMES * 2;
+      action.time = endsLoop
+        ? action.getClip().duration - 1e-6
+        : stepEndFrame / OBI_WAN_DANCE_THROUGH_FPS;
+      state.mixer.update(0);
+      action.paused = true;
+      state.danceThrough = {
+        holding: true,
+        stepStartFrame: endsLoop ? 0 : stepEndFrame,
+        stepEndFrame: endsLoop ? OBI_WAN_DANCE_THROUGH_STEP_FRAMES : OBI_WAN_DANCE_THROUGH_STEP_FRAMES * 2,
+      };
+      movementAnimations.delete(playerId);
+    } else {
+      state.mixer.update(deltaSeconds);
+    }
+    return;
+  }
+  if (state.danceThrough) {
+    if (ownsDanceThrough && shouldHoldObiWanDanceThrough(gameState.phase, false)) {
+      const action = state.actions[OBI_WAN_DANCE_THROUGH_CLIP];
+      action.paused = true;
+      state.danceThrough.holding = true;
+      state.mixer.update(0);
+    } else {
+      finishObiWanDanceThrough(group, playerId, state);
+      state.mixer.update(deltaSeconds);
+    }
+    return;
+  }
   if (state.power) {
     if (state.power.targetKind && state.power.targetId) {
       const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
@@ -7323,7 +7757,6 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
     }
     return;
   }
-  const movement = movementAnimations.get(playerId);
   const travelSquares = movement?.travelSquares ?? movement?.path?.length ?? 1;
   const locomoting = moving && movement && !movement.verticalOnly && !movement.forced;
   const next: ObiWanAnimationState['current'] = !locomoting
@@ -8110,6 +8543,7 @@ function syncBoard() {
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
+        const danceThrough = character === 'shinobi' && Boolean(recordedPathMatches) && isObiWanDanceThroughMovement(recordedMovement?.sourceCardId);
         const fullRouteLocomotionDuration = replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
@@ -8131,7 +8565,7 @@ function syncBoard() {
         const directSlide = slideSegmentIndex === 1;
         const slideStartsAtMs = slideSegmentIndex === undefined ? undefined : directSlide ? 0 : Math.max(0, locomotionDuration - SLIDE_EARLY_TRIGGER_MS);
         const duration = slideStartsAtMs === undefined ? locomotionDuration : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS : slideStartsAtMs + SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -8139,9 +8573,24 @@ function syncBoard() {
         }
         else {
           const pullDelay = replicatePull ? recordedMovement.delayMs ?? 0 : 0;
-          const movementStartedAt = performance.now() + pullDelay;
+          const movementQueuedAt = performance.now() + pullDelay;
+          const turnDuration = danceThrough ? OBI_WAN_DANCE_THROUGH_TURN_MS : 0;
+          const movementStartedAt = movementQueuedAt + turnDuration;
+          const firstMovementTarget = visualPath[0] ?? target;
+          const turnDx = firstMovementTarget.x - group.position.x;
+          const turnDz = firstMovementTarget.z - group.position.z;
+          const turnToRotation = danceThrough && Math.abs(turnDx) + Math.abs(turnDz) > 0.0001
+            ? characterFacingRotation(group, turnDx, turnDz)
+            : undefined;
           const pullSource = replicatePull && recordedMovement.source ? worldPosition(recordedMovement.source) : undefined;
-          movementAnimations.set(id, { ...movement, startedAt: movementStartedAt, faceToward: pullSource });
+          movementAnimations.set(id, {
+            ...movement,
+            startedAt: movementStartedAt,
+            turnStartedAt: danceThrough ? movementQueuedAt : undefined,
+            turnFromRotation: danceThrough ? group.rotation.y : undefined,
+            turnToRotation,
+            faceToward: pullSource,
+          });
           if (replicatePull && recordedMovement.source && recordedMovement.sourcePlayerId) {
             spawnReplicatePullTether(id, recordedMovement.tetherSource ?? recordedMovement.source, recordedMovement.sourceObjectId, movementStartedAt, duration);
           }
@@ -8164,7 +8613,7 @@ function syncBoard() {
       && gameState.objects.some((object) => object.id === event.objectId && object.ownerId === id)
       && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId)));
     if (equippedShield) equippedShield.visible = (gameState.players[id].shieldEquipped && !recallInFlight) || throwInFlight;
-    if (character === 'shinobi') updateSwiftformVisual(group, gameState.players[id].swiftformCanPassEnemies);
+    if (character === 'shinobi') updateSwiftformVisual(group, obiWanHologramActive(group, id));
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, gameState.players[id].stoicShell);
     syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
@@ -8246,8 +8695,17 @@ function syncBoard() {
       // destruction animation to route through the deferred branch below. Keep
       // its label queued while the combat summary is open, just like the
       // destruction callouts for Boxes and Shields.
-      if (gameState.combatReveal || merylinCombatImpactPending) return;
+      if (gameState.combatReveal || combatAnimationImpactPending()) return;
       processedObjectPushAnimations.add(event.id);
+      const attackPlayer = event.attackAnimationPlayerId ? gameState.players[event.attackAnimationPlayerId] : undefined;
+      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+      if (event.attackAnimationPlayerId && obiWanClip) {
+        const target = worldPosition(event.from);
+        const attacker = dummyGroups.get(event.attackAnimationPlayerId);
+        if (attacker) attacker.rotation.y = obiWanAttackFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z, obiWanClip);
+        playObiWanAttack(event.attackAnimationPlayerId, obiWanClip, () => spawnObjectCalloutBubble(event.objectId, event.objectCallout!.text));
+        return;
+      }
       spawnObjectCalloutBubble(event.objectId, event.objectCallout.text);
       return;
     }
@@ -8256,10 +8714,16 @@ function syncBoard() {
       spawnHealingVisual(event.healing.playerId, event.healing.amount);
       return;
     }
+    if (event.statEffect) {
+      if (gameState.combatReveal || combatAnimationImpactPending()) return;
+      processedObjectPushAnimations.add(event.id);
+      spawnStatEffectVisual(event.statEffect.playerId, event.statEffect.amount, event.statEffect.stat);
+      return;
+    }
     if (event.damage) {
       // Combat damage is calculated before the reveal dialog opens. Keep its
       // counter queued so it appears over the victim only after confirmation.
-      if (gameState.combatReveal || merylinCombatImpactPending) return;
+      if (gameState.combatReveal || combatAnimationImpactPending()) return;
       processedObjectPushAnimations.add(event.id);
       const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, triggerRouteProgress: event.damage.triggerRouteProgress };
       if (event.damage.triggerAnimationId) {
@@ -8273,7 +8737,7 @@ function syncBoard() {
     // Redirect and other combat effects can destroy an Object before the combat
     // result is acknowledged. Leave the event unprocessed so the intact visual
     // remains on the Board and the break animation begins when the summary closes.
-    if (event.destroy && (gameState.combatReveal || merylinCombatImpactPending)) return;
+    if (event.destroy && (gameState.combatReveal || combatAnimationImpactPending())) return;
     const waveTrigger = event as typeof event & { triggerAnimationId?: string; triggerRouteProgress?: number };
     if (event.destroy && waveTrigger.triggerAnimationId &&
       (moonwaveRouteProgress.get(waveTrigger.triggerAnimationId) ?? 0) < (waveTrigger.triggerRouteProgress ?? 1)) return;
@@ -8315,7 +8779,11 @@ function syncBoard() {
       if (attacker) {
         const dx = logicalFrom.x - attacker.position.x;
         const dz = logicalFrom.z - attacker.position.z;
-        if (Math.abs(dx) + Math.abs(dz) > 0.0001) attacker.rotation.y = characterFacingRotation(attacker, dx, dz);
+        const attackPlayer = gameState.players[event.attackAnimationPlayerId];
+        const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+        if (Math.abs(dx) + Math.abs(dz) > 0.0001) attacker.rotation.y = obiWanClip
+          ? obiWanAttackFacingRotation(attacker, dx, dz, obiWanClip)
+          : characterFacingRotation(attacker, dx, dz);
       }
       playBoxAttack(event.attackAnimationPlayerId, undefined, event.attackCardId, logicalFrom);
       return;
@@ -8367,7 +8835,11 @@ function syncBoard() {
     if (boxAttacker && event.destroy && event.attackAnimationPlayerId) {
       const dx = logicalFrom.x - boxAttacker.position.x;
       const dz = logicalFrom.z - boxAttacker.position.z;
-      if (Math.abs(dx) + Math.abs(dz) > 0.0001) boxAttacker.rotation.y = characterFacingRotation(boxAttacker, dx, dz);
+      const attackPlayer = gameState.players[event.attackAnimationPlayerId];
+      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) boxAttacker.rotation.y = obiWanClip
+        ? obiWanAttackFacingRotation(boxAttacker, dx, dz, obiWanClip)
+        : characterFacingRotation(boxAttacker, dx, dz);
       boxAttackDelay = playBoxAttack(event.attackAnimationPlayerId, () => {
         const animation = objectMovementAnimations.get(event.objectId);
         if (animation?.animationId === event.id) {
