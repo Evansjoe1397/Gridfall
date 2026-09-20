@@ -2668,7 +2668,10 @@ if (fingerNormalAttack.ok) {
   assert.equal(fingerNormalAttack.state.pendingAttack?.attackValue, 2, 'Finger of Death has Attack Value 2 without Phylactery of Might.');
   const fingerResolved = applyCommand(fingerNormalAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(fingerResolved.ok, true);
-  if (fingerResolved.ok) assert.equal(fingerResolved.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), true, "Finger of Death adds Exhaust to the target's Hand after combat.");
+  if (fingerResolved.ok) {
+    assert.equal(fingerResolved.state.players.P2.deck.at(-1)?.cardId, 'headache', "Finger of Death adds Headache on top of the target's Deck after combat.");
+    assert.equal(fingerResolved.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), false, "Finger of Death no longer adds Exhaust to the target's Hand.");
+  }
 }
 
 const empoweredFingerState = createHotseatTestState(true, 'wreckna', 2);
@@ -2743,15 +2746,8 @@ if (shadowBarterCombat.ok) {
   assert.equal(shadowBarterDiscard.ok, true);
   if (shadowBarterDiscard.ok) {
     assert.equal(shadowBarterDiscard.state.players.P2.discard.some((card) => card.instanceId === 'shadow-barter-enemy-card'), true, 'The enemy discards 1 chosen Card after Shadow Barter.');
-    assert.equal(shadowBarterDiscard.state.phase, 'shadow-barter-tomb-offer');
-    const acceptShadowBarterTomb = applyGameCommand(shadowBarterDiscard.state, { type: 'shadow-barter-tomb-choice', playerId: 'P1', use: true });
-    assert.equal(acceptShadowBarterTomb.ok, true);
-    const placeShadowBarterTomb = acceptShadowBarterTomb.ok ? applyGameCommand(acceptShadowBarterTomb.state, { type: 'shadow-barter-tomb-square', playerId: 'P1', to: { x: 2, y: 3 } }) : acceptShadowBarterTomb;
-    assert.equal(placeShadowBarterTomb.ok, true);
-    if (placeShadowBarterTomb.ok) {
-      assert.equal(placeShadowBarterTomb.state.objects.some((object) => object.kind === 'tomb' && object.position.x === 2 && object.position.y === 3), true, 'Shadow Barter creates a Tomb on the chosen empty Square within Range 1.');
-      assert.equal(placeShadowBarterTomb.state.phase, 'active');
-    }
+    assert.equal(shadowBarterDiscard.state.objects.some((object) => object.kind === 'tomb'), false, 'Shadow Barter does not create a Tomb.');
+    assert.equal(shadowBarterDiscard.state.phase, 'active');
   }
 }
 
@@ -2771,7 +2767,22 @@ assert.equal(enfeebleCombat.ok, true);
 if (enfeebleCombat.ok) {
   assert.equal(enfeebleCombat.state.players.P2.hand.filter((card: any) => cardDefinition(card).kind === 'attack').length, 1, 'Enfeeble forces exactly 1 random Attack Card from the target\'s Hand into Discard.');
   assert.equal(enfeebleCombat.state.players.P2.discard.filter((card: any) => ['attack-2', 'attack-3'].includes(card.cardId)).length, 1);
-  assert.equal(enfeebleCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), true, 'Enfeeble adds Exhaust directly to the target\'s Discard.');
+  assert.equal(enfeebleCombat.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), false, 'Enfeeble does not add Exhaust when it successfully discards an Attack Card.');
+  assert.equal(enfeebleCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), false);
+}
+
+const enfeebleFallbackState = createHotseatTestState(true, 'wreckna', 2);
+enfeebleFallbackState.objects = [];
+enfeebleFallbackState.players.P1.position = { x: 2, y: 2 };
+enfeebleFallbackState.players.P2.position = { x: 3, y: 2 };
+enfeebleFallbackState.players.P1.hand = [{ instanceId: 'enfeeble-fallback-attack', cardId: 'enfeeble' }];
+enfeebleFallbackState.players.P2.hand = [{ instanceId: 'enfeeble-fallback-defend', cardId: 'defend-1' }];
+const enfeebleFallbackAttack = applyCommand(enfeebleFallbackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'enfeeble-fallback-attack', targetId: 'P2' });
+const enfeebleFallbackCombat = enfeebleFallbackAttack.ok ? applyCommand(enfeebleFallbackAttack.state, { type: 'pass-defense', playerId: 'P2' }) : enfeebleFallbackAttack;
+assert.equal(enfeebleFallbackCombat.ok, true);
+if (enfeebleFallbackCombat.ok) {
+  assert.equal(enfeebleFallbackCombat.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), true, 'Enfeeble adds Exhaust to the target\'s Hand only when no Attack Card can be discarded.');
+  assert.equal(enfeebleFallbackCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), false);
 }
 
 const blockedEnfeebleState = createHotseatTestState(true, 'wreckna', 2, 'shinobi');
@@ -3497,7 +3508,9 @@ if (exhaustAttack.ok) {
     assert.equal(attached.ok, true);
     if (attached.ok) {
       assert.equal(attached.state.players.P1.hand.some((card) => card.cardId === 'exhaust'), false, 'Attached Exhaust is Removed rather than discarded.');
-      assert.equal(attached.state.players.P2.hp, 20, 'Attaching Exhaust changes the played Attack from -1 to -3 Value before resolution.');
+      assert.equal(attached.state.combatReveal?.attackTotal, 1, 'Attaching Exhaust changes the played Attack from a passive -1 to an active -2 Value penalty.');
+      assert.deepEqual(attached.state.combatReveal?.attackModifiers?.filter((modifier) => modifier.source.includes('Exhaust')), [{ value: -2, source: 'attached Exhaust' }]);
+      assert.equal(attached.state.players.P2.hp, 20, 'The -2 Exhaust penalty leaves Attack and Defend tied.');
     }
   }
 }
