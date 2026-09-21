@@ -1,6 +1,8 @@
 import './style.css';
 import { characterStatusCards } from './character-status-cards.ts';
-import { buildCombatSummaryXlsx, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-xlsx.ts';
+import { combatPortrait } from './combat-portraits.ts';
+import { characterProfile } from './character-profiles.ts';
+import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
@@ -545,7 +547,7 @@ function isWaitingForResolvedCardTarget() {
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
-  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-sacrifice-tomb-square' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
   return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
 }
 
@@ -644,7 +646,7 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
-  wreckna: { name: 'Wreckna', hp: 16, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
+  wreckna: { name: 'Wreckna', hp: 15, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
@@ -654,12 +656,14 @@ const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
 };
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
-  const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${gameIcon(info.traitIcon)}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span>${info.trait}</small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
-  return `<button ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></button>`;
+  const portrait = characterProfile(character);
+  const portraitMarkup = portrait ? `<img src="${portrait}" alt="" draggable="false">` : '';
+  const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${gameIcon(info.traitIcon)}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span><span>${info.trait}</span></small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
+  return `<button class="character-choice-card" data-profile-character="${character}" ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-choice-layout"><span class="character-choice-portrait" aria-hidden="true">${portraitMarkup}</span><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></span></button>`;
 }
 
 function dummySelectButton(): string {
-  return `<button data-hotseat-opponent="dummy"><strong>Test Dummy</strong><span class="character-core-stats"><small><b>20</b> MAX HP</small><small><b>2</b> MOV</small><small><b>2</b> ATT RANGE</small><small class="character-trait-stat">TRAINING OPPONENT</small></span></button>`;
+  return `<button class="character-choice-card" data-hotseat-opponent="dummy"><strong>Test Dummy</strong><span class="character-choice-layout"><span class="character-choice-portrait" aria-hidden="true"></span><span class="character-core-stats"><small><b>20</b> MAX HP</small><small><b>2</b> MOV</small><small><b>2</b> ATT RANGE</small><small class="character-trait-stat"><span>TRAINING OPPONENT</span></small></span></span></button>`;
 }
 
 function showHotseatArenaSelect() {
@@ -1040,18 +1044,16 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-wreckna-phylactery') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-immortality-phylactery') return (gameState as GameState & { immortality?: { playerId: PlayerId } }).immortality?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-graveyard-tomb') return (gameState as GameState & { graveyard?: { playerId: PlayerId } }).graveyard?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-sap-defend') return (gameState as GameState & { sap?: { targetId?: PlayerId } }).sap?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-sacrifice-tomb-square') return (gameState as GameState & { sacrificeTomb?: { casterId: PlayerId } }).sacrificeTomb?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-lichdom-copy') return (gameState as GameState & { lichdom?: { casterId: PlayerId } }).lichdom?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string).startsWith('choosing-dakkoth-')) return (gameState as GameState & { dakkoth?: { casterId: PlayerId } }).dakkoth?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-sap-target') return (gameState as GameState & { sap?: { casterId: PlayerId } }).sap?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-necronomicon-tomb') return (gameState as GameState & { necronomicon?: { casterId: PlayerId } }).necronomicon?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-necronomicon-discard') return (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId }[] } }).necronomicon?.discardQueue[0]?.playerId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
-  if (gameState.phase === 'shadow-barter-tomb-offer' || gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
   if (gameState.phase === 'choosing-blink-teleport') return gameState.pendingAttack!.defenderId;
@@ -1256,11 +1258,10 @@ function renderUI() {
   if (gameState.phase === 'choosing-arm-da-wiz-create-payment') prompt.textContent = 'Arm da Wiz: spend 1 HP or 1 Rage Stack to create Shield · Escape to cancel';
   if (gameState.phase === 'choosing-arm-da-wiz-target') prompt.textContent = 'Arm da Wiz: select your Shield anywhere on the Board · Escape to cancel';
   if (gameState.phase === 'choosing-test-phylactery-target') {
-    const sacrifice = Boolean((gameState as GameState & { testPhylactery?: { sacrificeEnemyId?: PlayerId } | null }).testPhylactery?.sacrificeEnemyId);
-    prompt.textContent = sacrifice ? `Sacrifice: select a non-Column Object within Range ${effectiveAttackRange(gameState, actor)}` : 'Test Phylactery: select any Object except a Column · Escape to cancel';
+    prompt.textContent = 'Test Phylactery: select any Object except a Column · Escape to cancel';
   }
+  if (gameState.phase === 'choosing-sacrifice-tomb-square') prompt.textContent = `Sacrifice: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
   if (gameState.phase === 'choosing-immortality-phylactery') prompt.textContent = 'Immortality: choose an active Phylactery to sacrifice and teleport onto';
-  if (gameState.phase === 'choosing-graveyard-tomb') prompt.textContent = 'Graveyard: choose a Tomb to sacrifice, or refuse in the popup';
   if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = `Lichdom: select an Object within Range ${effectiveAttackRange(gameState, actor)} except a Column · Escape to cancel`;
   if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
@@ -1268,10 +1269,6 @@ function renderUI() {
   if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `Dakkoth: select another Object within Range ${effectiveAttackRange(gameState, actor)} except a Column`;
   if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = `Necronomicon: select a Tomb within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
-  if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
-    const pending = (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId; remaining: number }[] } }).necronomicon?.discardQueue[0];
-    if (pending) prompt.textContent = `${gameState.players[pending.playerId].name}: discard ${pending.remaining} Card${pending.remaining === 1 ? '' : 's'} for Necronomicon`;
-  }
   if ((gameState.phase as string) === 'choosing-decay-target') prompt.textContent = `Curse: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${(gameState as GameState & { sap?: { range: number } }).sap?.range ?? effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if (gameState.phase === 'choosing-sap-defend') prompt.textContent = `${gameState.players[actingPlayer()].name}: choose a Defend Card to reveal for Sap`;
@@ -1289,8 +1286,6 @@ function renderUI() {
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
-  if (gameState.phase === 'shadow-barter-tomb-offer') prompt.textContent = 'Shadow Barter: choose whether to create a Tomb';
-  if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = 'Shadow Barter: select an empty Square within Range 1';
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
   if (gameState.phase === 'choosing-fireball-target') {
     const fireSpell = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' };
@@ -1370,7 +1365,7 @@ function renderMatchResults() {
     const totalDamage = stats.attackDamage + stats.perkDamage + (stats.defensiveRetaliationDamage ?? 0);
     return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${stats.defensiveRetaliationDamage ?? 0}</td><td>${totalDamage}</td><td>${stats.objectsDestroyed ?? 0}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
   }).join('');
-  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><div class="match-results-actions"><button type="button" id="downloadCombatSummary">Download Excel summary</button><button type="button" id="closeMatchResults">Review battlefield</button></div></section>`;
+  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><div class="match-results-actions"><button type="button" id="downloadCombatSummary">Download CSV summary</button><button type="button" id="closeMatchResults">Review battlefield</button></div></section>`;
   modal.classList.remove('hidden');
   byId('downloadCombatSummary').addEventListener('click', downloadCombatSummary);
   byId('closeMatchResults').addEventListener('click', () => modal.classList.add('hidden'));
@@ -1380,7 +1375,7 @@ async function downloadCombatSummary() {
   if (gameState.phase !== 'finished') return;
   const button = byId('downloadCombatSummary') as HTMLButtonElement;
   button.disabled = true;
-  button.textContent = 'Preparing Excel summary…';
+  button.textContent = 'Preparing CSV summary…';
   const summary: CombatSummaryExport = {
     winner: gameState.winner ? gameState.players[gameState.winner].name : null,
     turnsPlayed: gameState.turn,
@@ -1405,9 +1400,8 @@ async function downloadCombatSummary() {
     }),
   };
   try {
-    const bytes = await buildCombatSummaryXlsx(summary);
-    const workbookBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    const blob = new Blob([workbookBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const csv = buildCombatSummaryCsv(summary);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1416,13 +1410,13 @@ async function downloadCombatSummary() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    button.textContent = 'Excel summary downloaded';
+    button.textContent = 'CSV summary downloaded';
   } catch (error) {
     console.error('Could not export the combat summary.', error);
-    button.textContent = 'Excel export failed — retry';
+    button.textContent = 'CSV export failed — retry';
   } finally {
     button.disabled = false;
-    setTimeout(() => { if (button.isConnected) button.textContent = 'Download Excel summary'; }, 2_500);
+    setTimeout(() => { if (button.isConnected) button.textContent = 'Download CSV summary'; }, 2_500);
   }
 }
 
@@ -1582,7 +1576,7 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
 }
 
 function playerUiColor(playerId: PlayerId) {
-  return playerId === 'P1' ? '#45c8ff' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
+  return playerId === 'P1' ? '#5e54ff' : playerId === 'P2' ? '#d11f4f' : '#50c878';
 }
 
 function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
@@ -1640,7 +1634,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">${gameIcon('pinned')}<b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
     const handHeadacheIcon = headacheInHand > 0 ? `<div class="status-icon headache-status in-hand" tabindex="0">${gameIcon('headache')}${headacheInHand > 1 ? `<b>${headacheInHand}</b>` : ''}<span class="status-tooltip"><strong>Headache · Hand</strong>${headacheInHand} Headache Card${headacheInHand === 1 ? '' : 's'} currently filling this player's Hand. Filled red while active in Hand.</span></div>` : '';
     const discardHeadacheIcon = headacheInDiscard > 0 ? `<div class="status-icon headache-status in-discard" tabindex="0">${gameIcon('headache')}${headacheInDiscard > 1 ? `<b>${headacheInDiscard}</b>` : ''}<span class="status-tooltip"><strong>Headache · Discard</strong>${headacheInDiscard} Headache Card${headacheInDiscard === 1 ? '' : 's'} currently in this player's Discard. Filled orange while discarded.</span></div>` : '';
-    const handExhaustIcon = exhaustInHand > 0 ? `<div class="status-icon exhaust-status in-hand" tabindex="0">${gameIcon('exhaust')}${exhaustInHand > 1 ? `<b>${exhaustInHand}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Hand</strong>Cards have -1 Attack and Defend Value per Exhaust. During combat, one may be Removed for a -3 modifier instead.</span></div>` : '';
+    const handExhaustIcon = exhaustInHand > 0 ? `<div class="status-icon exhaust-status in-hand" tabindex="0">${gameIcon('exhaust')}${exhaustInHand > 1 ? `<b>${exhaustInHand}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Hand</strong>Cards have -1 Attack and Defend Value while Exhaust is held. During combat, one may be Removed for a -2 modifier instead.</span></div>` : '';
     const storedExhaustIcon = exhaustStored > 0 ? `<div class="status-icon exhaust-status in-discard" tabindex="0">${gameIcon('exhaust')}${exhaustStored > 1 ? `<b>${exhaustStored}</b>` : ''}<span class="status-tooltip"><strong>Exhaust · Stored</strong>${exhaustStored} Exhaust Card${exhaustStored === 1 ? '' : 's'} in this player's Deck or Discard.</span></div>` : '';
     const consumeIcon = player.character === 'magician' && player.manaMode === 'consume' ? `<div class="status-icon arcane-attack-status" tabindex="0" aria-label="Consume: +1 Attack Range until end of turn">${gameIcon('magic')}<b>+1</b><span class="status-tooltip"><strong>Classic Wizardry · Consume</strong>+1 Attack Range until the end of this turn. Attack and Perk spells gain their Consume effects. Normal spell resolution does not generate Mana while Consume is active.</span></div>` : '';
     const arcaneAttackIcon = player.character === 'magician' && player.arcaneBoltAttackBonus > 0 ? `<div class="status-icon arcane-attack-status" tabindex="0">${gameIcon('magic')}<b>+${player.arcaneBoltAttackBonus}</b><span class="status-tooltip"><strong>Arcane Bolt · Empowered</strong>Attack Cards have +${player.arcaneBoltAttackBonus} ATT until the end of this turn.</span></div>` : '';
@@ -1662,8 +1656,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('dagger')}<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
     const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('dagger')}<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('ice')}<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
-    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0" aria-label="Dakkoth: +${player.dakkothRangeBonus} Attack Range until end of turn">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · +${player.dakkothRangeBonus} Attack Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the end of this turn. Level 3 grants an additional +1 Attack Range.</span></div>` : '';
-    const necronomiconIcon = (player.necronomiconAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('spellbook')}<b>+${player.necronomiconAttackBonus}</b><span class="status-tooltip"><strong>Necronomicon · Next Attack</strong>The next Attack Card gains +${player.necronomiconAttackBonus} Attack Value. This lasts until used; another Necronomicon may improve but never stack the bonus.</span></div>` : '';
+    const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0" aria-label="Dakkoth: +${player.dakkothRangeBonus} Attack Range until the start of Wreckna's next turn">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · +${player.dakkothRangeBonus} Attack Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the start of Wreckna's next turn. Level 3 grants an additional +1 Attack Range for the same duration.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · ${player.traitBlocked ? 'Suppressed by Curse' : 'Attack Ready'}</strong>Swordcraft has summoned a sword from another realm.${player.traitBlocked ? ' Curse blocks Swordcraft, so Summon cannot enable Attack Cards until the end of this turn.' : ' Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.'}</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
     const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shield')}<b>↩</b><span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
@@ -1690,7 +1683,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1721,7 +1714,8 @@ function renderHand() {
         : `<button class="card attack" id="oracleReveal" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>ORACLE · WHILE IN HAND</span><strong>REVEAL ATTACK CARD</strong><div><b>${cardBaseValue(oracle)} → ${Math.max(1, cardBaseValue(oracle) - 1)}</b> ORACLE VALUE</div><small>Reveal the played Attack Card. Oracle cannot Defend this combat.</small></button>`
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && instance.cardId !== 'graveyard') || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -1767,13 +1761,6 @@ function renderHand() {
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
-    return;
-  }
-  if ((gameState.phase as string) === 'choosing-necronomicon-discard') {
-    const pending = (gameState as GameState & { necronomicon?: { discardQueue: { playerId: PlayerId; remaining: number }[] } }).necronomicon?.discardQueue[0];
-    if (!pending || viewerId !== pending.playerId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for an enemy to discard for Necronomicon.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-necronomicon-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `NECRONOMICON · DISCARD ${pending.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
-    handElement.querySelectorAll<HTMLButtonElement>('[data-necronomicon-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'necronomicon-discard', playerId: viewerId, cardInstanceId: button.dataset.necronomiconDiscard! })));
     return;
   }
   if (gameState.phase === 'choosing-force-disarm-discard') {
@@ -1975,29 +1962,12 @@ function renderFlurryModal() {
 
 function renderArmDaWizModal() {
   const modal = byId('armDaWizModal');
-  const graveyard = (gameState as GameState & { graveyard?: { playerId: PlayerId; objectIds: string[] } | null }).graveyard;
-  if (gameState.phase === 'choosing-graveyard-tomb' && graveyard && canLocalAct(graveyard.playerId)) {
-    const choices = graveyard.objectIds.map((objectId) => gameState.objects.find((object) => object.id === objectId)).filter((object): object is NonNullable<typeof object> => object?.kind === 'tomb');
-    modal.classList.remove('hidden');
-    modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Graveyard</h2><p>You may sacrifice a Tomb to return Tomb Block to your Hand.</p><div class="choice-cards">${choices.map((object) => `<button data-graveyard-tomb="${escapeHtml(object.id)}"><strong>${escapeHtml(object.name)} · ${cellLabel(object.position)}</strong><small>Sacrifice this Tomb and return Tomb Block</small></button>`).join('')}</div><button class="choice-decline" id="graveyardDecline">Do not sacrifice a Tomb</button></div>`;
-    modal.querySelectorAll<HTMLButtonElement>('[data-graveyard-tomb]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'graveyard-tomb-choice', playerId: graveyard.playerId, objectId: button.dataset.graveyardTomb! })));
-    modal.querySelector('#graveyardDecline')?.addEventListener('click', () => dispatch({ type: 'graveyard-tomb-choice', playerId: graveyard.playerId, objectId: null }));
-    return;
-  }
   const immortality = (gameState as GameState & { immortality?: { playerId: PlayerId; objectIds: string[] } | null }).immortality;
   if (gameState.phase === 'choosing-immortality-phylactery' && immortality && canLocalAct(immortality.playerId)) {
     const choices = immortality.objectIds.map((objectId) => gameState.objects.find((object) => object.id === objectId)).filter((object): object is NonNullable<typeof object> => Boolean(object?.phylacteryType));
     modal.classList.remove('hidden');
     modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Immortality</h2><p>Choose an active Phylactery to sacrifice. Wreckna will teleport onto its Square.</p><div class="choice-cards">${choices.map((object) => `<button data-immortality-phylactery="${object.id}"><strong>Of ${object.phylacteryType![0].toUpperCase()}${object.phylacteryType!.slice(1)}</strong><small>Sacrifice ${escapeHtml(object.name)} at ${cellLabel(object.position)} and teleport there</small></button>`).join('')}</div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-immortality-phylactery]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'immortality-phylactery-choice', playerId: immortality.playerId, objectId: button.dataset.immortalityPhylactery! })));
-    return;
-  }
-  const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
-  if (gameState.phase === 'shadow-barter-tomb-offer' && shadowBarter && canLocalAct(shadowBarter.attackerId)) {
-    modal.classList.remove('hidden');
-    modal.innerHTML = `<div class="choice-dialog"><span>AFTER COMBAT</span><h2>Shadow Barter</h2><p>You may create a Tomb on an empty Square within Range 1.</p><div class="choice-cards"><button id="shadowBarterCreateTomb"><strong>Create Tomb</strong><small>Select an adjacent empty Square</small></button></div><button class="choice-decline" id="shadowBarterDeclineTomb">Do not create</button></div>`;
-    modal.querySelector('#shadowBarterCreateTomb')?.addEventListener('click', () => dispatch({ type: 'shadow-barter-tomb-choice', playerId: shadowBarter.attackerId, use: true }));
-    modal.querySelector('#shadowBarterDeclineTomb')?.addEventListener('click', () => dispatch({ type: 'shadow-barter-tomb-choice', playerId: shadowBarter.attackerId, use: false }));
     return;
   }
   const wrecknaState = gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; availableTypes: ('might' | 'wisdom' | 'ritual')[] } | null };
@@ -2154,7 +2124,7 @@ function renderActionQuestPanel() {
       ? `<button class="quest-reward-toggle" id="questRewardToggle">SHOW REWARD</button>`
       : `<div class="quest-reward-card ${rewardCard.kind}" data-quest-reward-preview="${rewardCard.id}" tabindex="0"><span>REWARD</span><strong>${escapeHtml(rewardCard.name)}</strong><small>${escapeHtml(rewardCard.effectText ?? '')}</small><button class="quest-reward-hide" id="questRewardHide" type="button">HIDE</button></div>`
     : `<small>Reward: ${escapeHtml(definition?.reward ?? 'None')}</small>`;
-  panel.innerHTML = `${controls}<span>ACTION QUEST · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = player.id === 'P1' ? '#45c8ff' : player.id === 'P2' ? '#ff5d68' : '#a06cff'; return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  panel.innerHTML = `${controls}<span>ACTION QUEST · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = playerUiColor(player.id); return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
   bindActionQuestControls(panel);
   panel.querySelector<HTMLButtonElement>('#questRewardToggle, #questRewardHide')?.addEventListener('click', () => {
     hiddenQuestRewardId = rewardHidden ? null : current.id;
@@ -2226,6 +2196,9 @@ function renderCombatReveal() {
   activeCombatSummary = false;
   modal.classList.toggle('hidden', !reveal);
   if (!reveal) {
+    modal.style.removeProperty('--combat-attack-portrait');
+    modal.style.removeProperty('--combat-defend-portrait');
+    modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
     if (combatRevealWasVisible) {
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
       const swing = merylinCombatAttacker;
@@ -2288,6 +2261,20 @@ function renderCombatReveal() {
     }
     return;
   }
+  const attackPortraitVariant = reveal.attackCardId === 'lightbringer'
+    && reveal.attackModifiers?.some((modifier) => modifier.value > 0 && modifier.source.includes('High Ground'))
+    ? 'highground'
+    : undefined;
+  const portraitAttack = gameState.pendingAttack
+    ? combatPortrait(gameState.players[gameState.pendingAttack.attackerId].character, 'attack', reveal.attackCardId, attackPortraitVariant)
+    : undefined;
+  const portraitDefend = gameState.pendingAttack && reveal.defendCardId
+    ? combatPortrait(gameState.players[gameState.pendingAttack.defenderId].character, 'defend', reveal.defendCardId)
+    : undefined;
+  modal.style.setProperty('--combat-attack-portrait', portraitAttack ? `url("${portraitAttack}")` : 'none');
+  modal.style.setProperty('--combat-defend-portrait', portraitDefend ? `url("${portraitDefend}")` : 'none');
+  modal.classList.toggle('has-attack-portrait', Boolean(portraitAttack));
+  modal.classList.toggle('has-defend-portrait', Boolean(portraitDefend));
   lastCombatSummaryOpen = false;
   if (!combatRevealWasVisible) combatSummaryHidden = false;
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
@@ -2310,20 +2297,8 @@ function renderCombatReveal() {
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId } : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
-  const attackTranslation = hintsLanguage === 'ru' ? CARD_RULES_RU[attackDefinition.id] : undefined;
-  const attackEffectText = attackTranslation?.effectText ?? attackDefinition.effectText;
-  const activeConsumeText = gameState.pendingAttack?.attackerUsedManaConsume
-    ? attackTranslation?.consumeText ?? attackDefinition.consumeText
-    : undefined;
-  const attack = {
-    ...attackDefinition,
-    effectText: attackEffectText,
-    activeConsumeText,
-  };
-  const attackRulesHtml = [
-    attack.effectText ? `<span>${escapeHtml(attack.effectText)}</span>` : '',
-    attack.activeConsumeText ? `<em class="consume-effect active-consume-effect">${escapeHtml(attack.activeConsumeText)}</em>` : '',
-  ].filter(Boolean).join('');
+  const attack = attackDefinition;
+  const attackRulesHtml = cardRulesHtml(attack, false);
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
   const modifier = (base: number, total: number) => total === base ? `${total}` : `${base} ${total > base ? '+' : '−'} ${Math.abs(total - base)} = ${total}`;
@@ -2333,7 +2308,7 @@ function renderCombatReveal() {
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
     ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}${item.kind === 'extra-damage' ? ' DAMAGE' : ''}</b> from ${escapeHtml(item.source)}${item.timing ? ` · ${escapeHtml(item.timing)}` : ''}</li>`).join('')
     : '<li class="neutral">No bonus values applied</li>';
-  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${escapeHtml((defend.effectText ?? '').replace(/reveal \d+ Cards/, `reveal ${reveal.defendBase} Cards`))}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${cardRulesHtml(defend, false)}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
   if (gameState.phase === 'choosing-combat-stack' && gameState.pendingAttack && (localSeat || mode === 'hotseat')) {
     const pending = gameState.pendingAttack;
     const combatants = [pending.attackerId, pending.defenderId];
@@ -2383,7 +2358,7 @@ function renderCombatReveal() {
       const definition = cardDefinition(instance);
       const ownValue = attacker ? reveal.attackTotal : reveal.defendTotal;
       if (instance.cardId === 'vicious-mockery' || instance.cardId === 'vicious-mockery-1') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + definition.value}`;
-      if (instance.cardId === 'exhaust') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue - 2} · attached Exhaust replaces its held -1 with -3`;
+      if (instance.cardId === 'exhaust') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue - 1} · attached Exhaust replaces its held -1 with -2`;
       if (instance.cardId === 'blessing-might') return `ATT ${reveal.attackTotal} → ${reveal.attackTotal + 2}`;
       if (instance.cardId === 'blessing-light') return `Enemy DEF ${reveal.defendTotal} → ${reveal.defendTotal - 1}`;
       if (instance.cardId === 'banner') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 1}`;
@@ -2391,7 +2366,7 @@ function renderCombatReveal() {
     };
     const cardButtons = applicable.map((instance) => {
       const card = cardDefinition(instance);
-      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -3 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -2 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
@@ -2473,7 +2448,7 @@ function renderCombatReveal() {
   if (reveal.exhaust) {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.exhaust.eligible.includes(decisionPlayer) && !reveal.exhaust.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -3 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -3</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -2 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -2</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
     document.querySelector('#attachExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -2640,7 +2615,7 @@ function cardVisualClass(card: ReturnType<typeof cardDefinition>): string {
   return `${card.kind}${card.kind === 'status' && card.name.startsWith('Blessing:') ? ' blessing-status' : ''}${card.id === 'panic' ? ' panic-card' : ''}`;
 }
 
-function cardRulesHtml(card: ReturnType<typeof cardDefinition>): string {
+function cardRulesHtml(card: ReturnType<typeof cardDefinition>, includeFallback = true): string {
   const translation = hintsLanguage === 'ru' ? CARD_RULES_RU[card.id] : undefined;
   const levelEffects = translation?.levelEffects ?? card.levelEffects;
   const effectText = translation?.effectText ?? card.effectText;
@@ -2651,7 +2626,7 @@ function cardRulesHtml(card: ReturnType<typeof cardDefinition>): string {
     : '';
   const consume = consumeText ? `<em class="consume-effect">${escapeHtml(consumeText)}</em>` : '';
   if (levels || effect || consume) return [escapeHtml(levels), effect, consume].filter(Boolean).join('\n');
-  return escapeHtml(cardRulesText(card));
+  return includeFallback ? escapeHtml(cardRulesText(card)) : '';
 }
 
 const originalInterfaceText = new WeakMap<Text, string>();
@@ -3733,7 +3708,7 @@ function updateCharacterHealthBars(refreshContents = false) {
     const canvas = material.map!.image as HTMLCanvasElement;
     const context = canvas.getContext('2d')!;
     const ratio = THREE.MathUtils.clamp(player.hp / Math.max(1, player.maxHp), 0, 1);
-    const fill = playerId === 'P1' ? '#169bd3' : playerId === 'P2' ? '#ff5d68' : '#a06cff';
+    const fill = playerUiColor(playerId);
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.shadowColor = 'rgba(0, 0, 0, 0.55)';
     context.shadowBlur = 6;
@@ -9258,13 +9233,14 @@ function highlightCells() {
       Boolean(guardianPending) && distance(gameState.players[guardianPending!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[guardianPending!.casterId])
       || Boolean(spectrePlacement) && distance(spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell) <= spectrePlacement!.range && hasReplicaPlacementLineOfSight(gameState, spectrePlacement!.origin ?? gameState.players[spectrePlacement!.casterId].position, cell, Boolean(gameState.players[spectrePlacement!.casterId].spectreOnBoxId) && !spectrePlacement!.origin)
     );
-    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
-    const shadowBarterTombValid = gameState.phase === 'choosing-shadow-barter-tomb-square' && Boolean(shadowBarter) && !occupiedByPlayer && !occupiedByObject
-      && distance(gameState.players[shadowBarter!.attackerId].position, cell) === 1;
     const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
     const dakkothCaster = dakkoth ? gameState.players[dakkoth.casterId] : null;
     const dakkothTombSquareValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-square' && Boolean(dakkothCaster) && !occupiedByPlayer && !occupiedByObject
       && distance(dakkothCaster!.position, cell) <= effectiveAttackRange(gameState, dakkothCaster!);
+    const sacrificeTomb = (gameState as GameState & { sacrificeTomb?: { casterId: PlayerId } | null }).sacrificeTomb;
+    const sacrificeCaster = sacrificeTomb ? gameState.players[sacrificeTomb.casterId] : null;
+    const sacrificeTombSquareValid = gameState.phase === 'choosing-sacrifice-tomb-square' && Boolean(sacrificeCaster) && !occupiedByPlayer && !occupiedByObject
+      && wrecknaPerkTargetInRange(gameState, sacrificeCaster!, cell);
     const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || objectOnCell!.kind !== 'wall-pillar');
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = activePlayer.character === 'spectre'
@@ -9320,10 +9296,10 @@ function highlightCells() {
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid || targetSquareValid;
+    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
-    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || shadowBarterTombValid || dakkothTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
       slideRamp.traverse((child) => {
@@ -9560,14 +9536,14 @@ function onBoardClick(event: MouseEvent) {
     const guardian = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId } }).spiritGuardian;
     if (cellHit && spectrePlacement) dispatch({ type: 'spectre-replica-square', playerId: spectrePlacement.casterId, to: cellHit.object.userData.cell });
     else if (cellHit && guardian) dispatch({ type: 'spirit-guardian-square', playerId: guardian.casterId, to: cellHit.object.userData.cell });
-  } else if (gameState.phase === 'choosing-shadow-barter-tomb-square') {
-    const cellHit = hits.find((hit) => hit.object.userData.cell);
-    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
-    if (cellHit && shadowBarter) dispatch({ type: 'shadow-barter-tomb-square', playerId: shadowBarter.attackerId, to: cellHit.object.userData.cell });
   } else if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
     if (cellHit && dakkoth) dispatch({ type: 'dakkoth-tomb-square', playerId: dakkoth.casterId, to: cellHit.object.userData.cell });
+  } else if (gameState.phase === 'choosing-sacrifice-tomb-square') {
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const sacrificeTomb = (gameState as GameState & { sacrificeTomb?: { casterId: PlayerId } | null }).sacrificeTomb;
+    if (cellHit && sacrificeTomb) dispatch({ type: 'sacrifice-tomb-square', playerId: sacrificeTomb.casterId, to: cellHit.object.userData.cell });
   } else if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;

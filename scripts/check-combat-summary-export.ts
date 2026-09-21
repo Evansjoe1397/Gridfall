@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import ExcelJS from 'exceljs';
-import { buildCombatSummaryXlsx, combatSummaryFilename } from '../src/combat-summary-xlsx.ts';
+import { buildCombatSummaryCsv, combatSummaryFilename } from '../src/combat-summary-csv.ts';
 
 const createdAt = new Date(2026, 8, 14, 12, 30, 0);
-const workbook = await buildCombatSummaryXlsx({
+const csv = buildCombatSummaryCsv({
   winner: 'John & Christ',
   turnsPlayed: 12,
   rows: [{
@@ -14,19 +13,12 @@ const workbook = await buildCombatSummaryXlsx({
   }],
 }, createdAt);
 
-assert.equal(new DataView(workbook.buffer, workbook.byteOffset, workbook.byteLength).getUint32(0, true), 0x04034b50, 'The export starts with a ZIP local-file signature.');
-assert.equal(combatSummaryFilename(createdAt), 'gridfall-combat-summary-2026-09-14.xlsx');
+assert.equal(combatSummaryFilename(createdAt), 'gridfall-combat-summary-2026-09-14.csv');
+assert.equal(csv.startsWith('\uFEFF"Gridfall Combat Summary"\r\n'), true, 'The CSV includes a UTF-8 BOM and title.');
+assert.equal(csv.includes('"Winner","John & Christ"'), true);
+assert.equal(csv.includes('"Combat Damage Blocked"'), true);
+assert.equal(csv.includes('"P1","John & Christ","Winner","4","13","9","7","2","1","10","3","4","5"'), true, 'The CSV contains every summary statistic.');
 
-const parsed = new ExcelJS.Workbook();
-await parsed.xlsx.load(workbook);
-const sheet = parsed.getWorksheet('Combat Summary');
-assert.ok(sheet, 'The generated workbook contains the Combat Summary worksheet.');
-assert.equal(sheet.getCell('A1').value, 'Gridfall Combat Summary');
-assert.equal(sheet.getCell('B2').value, 'John & Christ');
-assert.equal(sheet.getCell('M5').value, 'Combat Damage Blocked');
-assert.equal(sheet.getCell('J6').value, 10, 'The exported Total Damage remains numeric.');
-assert.equal(sheet.autoFilter, 'A5:M6', 'The summary data has an Excel filter.');
+if (process.argv[2]) writeFileSync(process.argv[2], csv, 'utf8');
 
-if (process.argv[2]) writeFileSync(process.argv[2], workbook);
-
-console.log('Combat summary XLSX export checks passed.');
+console.log('Combat summary CSV export checks passed.');
