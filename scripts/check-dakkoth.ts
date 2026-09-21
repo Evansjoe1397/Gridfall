@@ -3,7 +3,7 @@ import { applyCommand, cardDefinition, createHotseatTestState, effectiveAttackRa
 
 assert.equal(
   cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[2],
-  'Gain 1 Action, +1 Att. Range and 1 MOV',
+  'Gain 1 Action, +1 Att. Range until the start of your next turn and 1 MOV',
   'Dakkoth Level 3 describes its additional Attack Range bonus.',
 );
 
@@ -37,6 +37,10 @@ assert.equal(effectiveAttackRange(completed.state, completed.state.players.P1), 
 
 const ended = applyCommand(completed.state, { type: 'end-turn', playerId: 'P1' });
 assert.equal(ended.ok, true, 'Wreckna can end the turn after Dakkoth resolves.');
-assert.equal(ended.state.players.P1.dakkothRangeBonus, 0, 'All temporary Dakkoth Attack Range expires at turn end.');
+assert.equal(ended.state.players.P1.dakkothRangeBonus, 2, 'Dakkoth Attack Range remains active through the enemy turn.');
+const enemyEnded = applyCommand(ended.state, { type: 'end-turn', playerId: 'P2' });
+assert.equal(enemyEnded.ok, true, 'The enemy can end their turn.');
+assert.equal(enemyEnded.state.activePlayerId, 'P1', 'Wreckna begins the next turn.');
+assert.equal(enemyEnded.state.players.P1.dakkothRangeBonus, 0, 'All temporary Dakkoth Attack Range expires at the start of Wreckna\'s next turn.');
 
 console.log('Dakkoth checks passed.');

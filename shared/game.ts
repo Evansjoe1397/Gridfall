@@ -54,17 +54,16 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('wreckna-might-choice'), playerId: PlayerIdSchema, use: z.boolean() }),
   z.object({ type: z.literal('wreckna-phylactery-choice'), playerId: PlayerIdSchema, phylacteryType: z.enum(['might', 'wisdom', 'ritual']) }),
   z.object({ type: z.literal('immortality-phylactery-choice'), playerId: PlayerIdSchema, objectId: z.string() }),
-  z.object({ type: z.literal('graveyard-tomb-choice'), playerId: PlayerIdSchema, objectId: z.string().nullable() }),
   z.object({ type: z.literal('test-phylactery-target'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('lichdom-target'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('lichdom-copy-choice'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('dakkoth-tomb-square'), playerId: PlayerIdSchema, to: CellSchema }),
+  z.object({ type: z.literal('sacrifice-tomb-square'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('dakkoth-tomb-sacrifice'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('dakkoth-phylactery-target'), playerId: PlayerIdSchema, objectId: z.string() }),
   z.object({ type: z.literal('sap-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('sap-defend-reveal'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('necronomicon-tomb-target'), playerId: PlayerIdSchema, objectId: z.string() }),
-  z.object({ type: z.literal('necronomicon-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('decay-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('decay-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
   z.object({ type: z.literal('shadow-barter-discard'), playerId: PlayerIdSchema, cardInstanceId: z.string() }),
@@ -144,7 +143,7 @@ export const CARDS: readonly Card[] = [
   { id: 'yamato', name: 'Yamato', kind: 'defend', value: 2, effectText: 'Before combat: may move 1 Square. If lost combat: deal 1 Damage to each adjacent enemy. After combat: Summon.' },
   { id: 'oracle', name: 'Oracle', kind: 'defend', value: 3, effectText: "While in Hand: reveal the Attack Card or use Oracle to Defend. Lose 1 base Value per Reveal and Oracle can't Defend against the revealed Card. At base Value 1, Oracle must Defend. After combat: reveal 3 Cards in the attacker's Hand." },
   { id: 'hex', name: 'Hex', kind: 'attack', value: 2, effectText: 'Before combat: steal 1 MOV from Target.' },
-  { id: 'tomb-block', name: 'Tomb Block', kind: 'defend', value: 2, effectText: 'Before combat: cancel the Attack card effect. After combat: create a Tomb at a random adjacent Square. Then restore 1 HP if you have an active Phylactery.' },
+  { id: 'tomb-block', name: 'Tomb Block', kind: 'defend', value: 2, effectText: 'Before combat: cancel the Attack card effect. After combat: create a Tomb at a random adjacent Square.' },
   { id: 'test-phylactery', name: 'Test Phylactery', kind: 'perk', value: 1, levelEffects: ['Sacrifice 1 HP to create a Phylactery', 'Sacrifice 1 HP to create a Phylactery', 'Sacrifice 1 HP to create a Phylactery'] },
   { id: 'shadow-barter', name: 'Shadow Barter', kind: 'attack', value: 0, effectText: 'After combat: Draw 1 Card, then the Defender discards 1 Card.' },
   { id: 'enfeeble', name: 'Enfeeble', kind: 'attack', value: 2, effectText: "After combat: the target Discards 1 random Attack Card. If they can't - add Exhaust to their Hand." },
@@ -152,14 +151,14 @@ export const CARDS: readonly Card[] = [
   { id: 'drain-strength', name: 'Drain Strength', kind: 'attack', value: 3, effectText: 'Before combat: force the target to Discard a Defend Card from Hand. If they cannot, this Card has Attack Value 1, but steal 2 MOV from the target.' },
   { id: 'bone-chill', name: 'Bone Chill', kind: 'attack', value: 3, effectText: 'Value is 4 if attacking range is melee. After combat: steal MOV from target equal to your attacking range (up to 2).' },
   { id: 'brain-freeze', name: 'Brain Freeze', kind: 'defend', value: 2, effectText: "Before combat: the attacker can't use Combat Cards or Combat Effects in this combat or until the end of this turn." },
-  { id: 'sacrifice', name: 'Sacrifice', kind: 'defend', value: 1, effectText: 'If you lost this fight: force the enemy to sacrifice 1 HP and create a Phylactery within your attacking range.' },
+  { id: 'sacrifice', name: 'Sacrifice', kind: 'defend', value: 1, effectText: 'If you lost this fight: force the enemy to sacrifice 1 HP and create Tomb within your attacking range.' },
   { id: 'immortality', name: 'Immortality', kind: 'defend', value: 0, effectText: "Prevent all combat and effect damage, if you have an active Phylactery. Choose a Phylactery to sacrifice after this combat and teleport onto it's location." },
-  { id: 'graveyard', name: 'Graveyard', kind: 'defend', value: 3, effectText: 'Before combat: If Tomb Block is in your Hand, then value of this card is 4. Otherwise, after combat: you may sacrifice a Tomb to return Tomb Block in your Hand.' },
+  { id: 'graveyard', name: 'Graveyard', kind: 'defend', value: 3, effectText: 'Value of this card is 4, if adjacent or inside the Tomb. Can use from inside Tomb.' },
   { id: 'lichdom', name: 'Lichdom', kind: 'perk', value: 1, levelEffects: ['Draw 1 Card', 'Sacrifice 1 Hit Point to create a Phylactery', 'Choose a Card in Hand to create a one-time copy'] },
-  { id: 'dakkoth', name: 'Dakkoth', kind: 'perk', value: 1, levelEffects: ['Gain 1 Range until the end of the turn. Create a Tomb within Range', 'Sacrifice a Tomb to create a Phylactery', 'Gain 1 Action, +1 Att. Range and 1 MOV'] },
+  { id: 'dakkoth', name: 'Dakkoth', kind: 'perk', value: 1, levelEffects: ['Gain 1 Range until the start of your next turn. Create a Tomb within Range', 'Sacrifice a Tomb to create a Phylactery', 'Gain 1 Action, +1 Att. Range until the start of your next turn and 1 MOV'] },
   { id: 'sap', name: 'Sap', kind: 'perk', value: 1, levelEffects: ['Target in Range chooses a Defend card to Reveal', '+2 Range', 'Force the target to discard the highest occupied Perk from Spell Echo, checking level 3, then 2, then 1'] },
-  { id: 'necronomicon', name: 'Necronomicon', kind: 'perk', value: 1, levelEffects: ['Infuse a Tomb to create a Phylactery', 'Your next Attack Card gains +1 Attack Value per Tomb', 'Each enemy adjacent to a Tomb discards 1 Card for each adjacent Tomb'] },
-  { id: 'decay', name: 'Curse', kind: 'perk', value: 1, levelEffects: ['Steal 1 MOV from the target', "Add Headache to the target's Hand", "Block the target's Trait until the end of their turn"] },
+  { id: 'necronomicon', name: 'Necronomicon', kind: 'perk', value: 1, levelEffects: ['Infuse a Tomb to create a Phylactery', 'Teleport into infused Tomb', 'Restore 1 HP, draw 1 card'] },
+  { id: 'decay', name: 'Curse', kind: 'perk', value: 1, levelEffects: ['Steal 1 MOV from the target', "Add Exhaust to the target's Discard", "Block the target's Trait until the end of their turn"] },
   { id: 'blessed-light', name: 'Blessed Light', kind: 'attack', value: 2, effectText: "Shuffle Exhaust into the target's Deck. Create Blessing: Light." },
   { id: 'cleanse', name: 'Cleanse', kind: 'attack', value: 1, effectText: "Apply a Burning Status Card to the target's Hand after combat." },
   { id: 'repent', name: 'Repent!', kind: 'attack', value: 1, effectText: 'After combat, deal 1 Damage to John and 2 Damage to each adjacent enemy.' },
@@ -342,7 +341,6 @@ export type PlayerState = {
   kamelotSuppressedZone?: { sourceId: PlayerId; zoneType: 'draw' | 'base' | 'highground' | 'trench'; cells: string[] } | null;
   spellsingerExtraPerkUses?: number;
   spellsingerExtraAttacks?: number;
-  necronomiconAttackBonus?: number;
   decayMovementBonus?: number;
   visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate' | 'lightbringer-swap'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
   visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability' | 'movement-cancelled';
@@ -356,7 +354,7 @@ export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
 export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'moonwave' | 'mind-blast' };
-export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'choosing-test-phylactery-target' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
+export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'choosing-test-phylactery-target' | 'choosing-sacrifice-tomb-square' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number; dakkothRangeBonus?: number; spellsingerExtraPerkUses?: number };
@@ -906,9 +904,20 @@ export function createWrecknaTomb(state: GameState, ownerId: PlayerId, position:
   state.log.unshift(`${state.players[ownerId].name} created a Tomb at ${cellLabel(position)}.`);
   return tomb;
 }
-type WrecknaChoiceState = GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; objectId: string; availableTypes: PhylacteryType[]; sacrificeHp: number; sacrificeTombId?: string; resumePhase?: GamePhase } | null; testPhylactery?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; sacrificeEnemyId?: PlayerId; resumePhase?: GamePhase } | null; lichdom?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'target' | 'phylactery' | 'copy' } | null; dakkoth?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'tomb' | 'sacrifice' | 'target' | 'phylactery' } | null; sap?: { casterId: PlayerId; level: number; range: number; targetId?: PlayerId; targetKind?: 'player' | 'replica'; undo: PerkTargetingUndo | null } | null; necronomicon?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'tomb' | 'phylactery' | 'discard'; discardQueue: { playerId: PlayerId; remaining: number }[] } | null; decay?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; targetId?: PlayerId; remaining: number } | null };
+function availableWrecknaTombSquares(state: GameState, ownerId: PlayerId): Cell[] {
+  const owner = state.players[ownerId];
+  const squares: Cell[] = [];
+  for (let x = 1; x <= boardWidth(state); x++) for (let y = 0; y < boardHeight(state); y++) {
+    const position = { x, y };
+    if (!wrecknaPerkTargetInRange(state, owner, position)) continue;
+    if (state.objects.some((object) => object.position.x === x && object.position.y === y)) continue;
+    if (Object.values(state.players).some((player) => player.hp > 0 && player.position.x === x && player.position.y === y)) continue;
+    squares.push(position);
+  }
+  return squares;
+}
+type WrecknaChoiceState = GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; objectId: string; availableTypes: PhylacteryType[]; sacrificeHp: number; sacrificeTombId?: string; resumePhase?: GamePhase } | null; testPhylactery?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; resumePhase?: GamePhase } | null; sacrificeTomb?: { casterId: PlayerId; resumePhase: GamePhase } | null; lichdom?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'target' | 'phylactery' | 'copy' } | null; dakkoth?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'tomb' | 'sacrifice' | 'target' | 'phylactery' } | null; sap?: { casterId: PlayerId; level: number; range: number; targetId?: PlayerId; targetKind?: 'player' | 'replica'; undo: PerkTargetingUndo | null } | null; necronomicon?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; stage: 'tomb' | 'phylactery'; tombObjectId?: string } | null; decay?: { casterId: PlayerId; level: number; undo: PerkTargetingUndo | null; targetId?: PlayerId; remaining: number } | null };
 type PrivateNoticeState = GameState & { privateNotice?: { id: string; playerId: PlayerId; message: string; createdAt: number } | null };
-type GraveyardChoiceState = GameState & { graveyard?: { playerId: PlayerId; objectIds: string[]; resumePhase: GamePhase } | null };
 export function beginWrecknaPhylacteryChoice(state: GameState, casterId: PlayerId, objectId: string, sacrifice: { hp?: number; tombObjectId?: string } = {}): CommandResult {
   const caster = state.players[casterId];
   const object = state.objects.find((entry) => entry.id === objectId);
@@ -997,42 +1006,6 @@ function resolveImmortalityPhylacteryChoice(state: GameState, playerId: PlayerId
   return ok(state);
 }
 
-function resolveGraveyardTombChoice(state: GameState, playerId: PlayerId, objectId: string | null): CommandResult {
-  const extended = state as GraveyardChoiceState;
-  const choice = extended.graveyard;
-  if (state.phase !== 'choosing-graveyard-tomb' || !choice || choice.playerId !== playerId) return fail(state, 'Graveyard is not waiting for a Tomb choice.');
-  const player = state.players[playerId];
-  if (!player) return fail(state, 'That player does not exist.');
-  if (objectId === null) {
-    state.phase = choice.resumePhase;
-    if (choice.resumePhase === 'active') state.pendingAttack = null;
-    extended.graveyard = null;
-    state.log.unshift(`${player.name} declined to sacrifice a Tomb for Graveyard.`);
-    return ok(state);
-  }
-  if (!choice.objectIds.includes(objectId)) return fail(state, 'That Tomb was not offered for Graveyard.');
-  const tomb = state.objects.find((object) => object.id === objectId && object.kind === 'tomb');
-  if (!tomb) return fail(state, 'That Tomb no longer exists.');
-  const deckIndex = player.deck.findIndex((card) => card.cardId === 'tomb-block');
-  const discardIndex = player.discard.findIndex((card) => card.cardId === 'tomb-block');
-  const source = deckIndex >= 0 ? player.deck : player.discard;
-  const sourceIndex = deckIndex >= 0 ? deckIndex : discardIndex;
-  const tombBlock = sourceIndex >= 0
-    ? source.splice(sourceIndex, 1)[0]
-    : { instanceId: `${playerId}-tomb-block-${++instanceSequence}`, cardId: 'tomb-block' as const };
-  tombBlock.revealedToOpponent = false;
-  player.hand.push(tombBlock);
-  if (source === player.deck && sourceIndex === player.deck.length) {
-    player.knownTopCardId = null;
-    player.knownTopCardIds = [];
-  }
-  destroyObject(state, tomb.id, playerId, 'Graveyard');
-  state.phase = choice.resumePhase;
-  if (choice.resumePhase === 'active') state.pendingAttack = null;
-  extended.graveyard = null;
-  state.log.unshift(`Graveyard sacrificed ${tomb.name} at ${cellLabel(tomb.position)} and returned Tomb Block to ${player.name}'s Hand.`);
-  return ok(state);
-}
 function isFixedWallObject(object: BoardObject): boolean { return object.kind === 'wall-pillar'; }
 
 function ownedGuardian(state: GameState, playerId: PlayerId): BoardObject | undefined {
@@ -1635,7 +1608,7 @@ function createPlayer(id: PlayerId, name: string, character: PlayerState['charac
   const isWreckna = character === 'wreckna';
   const isSpectre = character === 'spectre';
   const isMerylin = character === 'merylin';
-  const maximumHp = isMerylin ? 20 : isOrkk ? 24 : isMagician ? 18 : isSpectre ? 16 : isJohn ? 14 : isWreckna ? 16 : 20;
+  const maximumHp = isMerylin ? 20 : isOrkk ? 24 : isMagician ? 18 : isSpectre ? 16 : isJohn ? 14 : isWreckna ? 15 : 20;
   return { id, name, character, hp: maximumHp, maxHp: maximumHp, moveRange: isOrkk || isMagician || isJohn || isSpectre ? 3 : 2, attackRange: isJohn ? 3 : isMagician || isWreckna ? 2 : 1, position, deck, hand, discard: [], knownTopCardId: null, spellEcho: [null, null, null], actionsRemaining: 2, perkUsed: false, freeMoveUsed: false, movementRemaining: 0, movedThisTurn: false, lightsaberBuff: false, lightsaberStacks: 0, lightsaberMovementProtection: false, highgroundAdvantageBuff: false, pinnedStacks: 0, pinnedGainedThisTurn: 0, turnEndPinnedRemoved: false, swiftformMoveBonus: 0, grimoireMoveBonus: 0, swiftformCanPassEnemies: false, swiftformPinsPassedEnemies: false, swiftformLightsaberAtTurnEnd: false, swiftformEnemyUnderfoot: null, swiftformPinnedEnemyIds: [], movementAnnulledByBlessedSwiftness: false, rageStacks: 0, shieldEquipped: isOrkk, rageGainLocked: false, doubleRageUntilEnemyTurnEnd: false, manaPoints: 0, manaMode: 'generate', manaConsumeEventId: null, arcaneBoltAttackBonus: 0, damagedDuringEnemyTurn: false, spiritForm: false, spiritEnemyUnderfoot: null, spiritObjectUnderfoot: null, spiritSiphonedEnemyIds: [], spiritSiphonedMovement: 0, johnCumulativeMovementRemaining: 0, spiritMovementDepleted: false, spiritMovementSpentThisTurn: false, stoicShell: false, stoicShellStacks: 0, queuedBlessingCardIds: [], stoicShellHealedTurn: null, stoicShellHealEventId: null, stoicShellHealAmount: 0, spectreAttackBonus: 0, spectreAphoticShieldRemaining: 0, spectreAphoticAttackBonus: 0, spectreAccumulateStored: 0, spectreAccumulateActive: 0, spectreShadowMoveBonus: 0, spectreShadowDefensePenalty: 0, spectreOnBoxId: null, merylinSummonActive: false, matchStats: { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 } };
 }
 
@@ -1876,7 +1849,6 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   const highGroundBonus = baseHighGroundBonus * (card.id === 'lightbringer' ? 2 : 1);
   const spectreBonus = player.character === 'spectre' ? (player.spectreAttackBonus ?? 0) + (player.spectreAccumulateActive ?? 0) : 0;
   const fingerOfDeathBonus = card.id === 'finger-of-death' && activeWrecknaPhylactery(state, player.id, 'might') ? 2 : 0;
-  const necronomiconBonus = player.necronomiconAttackBonus ?? 0;
   const barbarianBonus = player.character === 'merylin' ? player.barbarianNextAttackBonus ?? 0 : 0;
   const excaliburRangeBonus = card.id === 'excalibur' && distance(attackOrigin, object.position) === 2 ? 1 : 0;
   const boneChillMeleeBonus = card.id === 'bone-chill' && distance(attackOrigin, object.position) === 1 ? 1 : 0;
@@ -1891,7 +1863,6 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     + excaliburRangeBonus
     + boneChillMeleeBonus
     + fingerOfDeathBonus
-    + necronomiconBonus
     + barbarianBonus
     + (player.character === 'shinobi' && player.lightsaberBuff && !player.traitBlocked ? 1 : 0)
     + rageSpent
@@ -1911,10 +1882,6 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   if (barbarianBonus > 0) {
     player.barbarianNextAttackBonus = 0;
     state.log.unshift(`Barbarian Stance added +${barbarianBonus} Attack Value to ${card.name} and was consumed.`);
-  }
-  if (necronomiconBonus > 0) {
-    player.necronomiconAttackBonus = 0;
-    state.log.unshift(`Necronomicon added +${necronomiconBonus} Attack Value to ${card.name} and was consumed.`);
   }
   if (card.id === 'deja-vu') {
     if (spectreReplica(state, player.id)) {
@@ -2902,7 +2869,6 @@ function automaticBannerDiscardCommand(result: CommandResult): GameCommand | nul
   let playerId: PlayerId | undefined;
   let type: GameCommand['type'] | undefined;
   if (state.phase === 'wreckna-wisdom-discard') { playerId = (state as WrecknaChoiceState).wrecknaWisdom?.playerId; type = 'wreckna-wisdom-discard'; }
-  else if ((state.phase as string) === 'choosing-necronomicon-discard') { playerId = (state as WrecknaChoiceState).necronomicon?.discardQueue[0]?.playerId; type = 'necronomicon-discard'; }
   else if ((state.phase as string) === 'choosing-decay-discard') { playerId = (state as WrecknaChoiceState).decay?.targetId; type = 'decay-discard'; }
   else if (state.phase === 'choosing-force-disarm-discard') { playerId = state.forceDisarm?.targetId; type = 'force-disarm-discard'; }
   else if (state.phase === 'choosing-flurry-enemy-discard') { playerId = state.flurry?.attackerId; type = 'flurry-enemy-discard'; }
@@ -2932,17 +2898,16 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'wreckna-wisdom-discard') return resolveWrecknaWisdomDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'wreckna-phylactery-choice') return resolveWrecknaPhylacteryChoice(state, command.playerId, command.phylacteryType);
   if (command.type === 'immortality-phylactery-choice') return resolveImmortalityPhylacteryChoice(state, command.playerId, command.objectId);
-  if (command.type === 'graveyard-tomb-choice') return resolveGraveyardTombChoice(state, command.playerId, command.objectId);
   if (command.type === 'test-phylactery-target') return resolveTestPhylacteryTarget(state, command.playerId, command.objectId);
   if (command.type === 'lichdom-target') return resolveLichdomTarget(state, command.playerId, command.objectId);
   if (command.type === 'lichdom-copy-choice') return resolveLichdomCopyChoice(state, command.playerId, command.cardInstanceId);
   if (command.type === 'dakkoth-tomb-square') return resolveDakkothTombSquare(state, command.playerId, command.to);
+  if (command.type === 'sacrifice-tomb-square') return resolveSacrificeTombSquare(state, command.playerId, command.to);
   if (command.type === 'dakkoth-tomb-sacrifice') return resolveDakkothTombSacrifice(state, command.playerId, command.objectId);
   if (command.type === 'dakkoth-phylactery-target') return resolveDakkothPhylacteryTarget(state, command.playerId, command.objectId);
   if (command.type === 'sap-target') return resolveSapTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'sap-defend-reveal') return resolveSapDefendReveal(state, command.playerId, command.cardInstanceId);
   if (command.type === 'necronomicon-tomb-target') return resolveNecronomiconTombTarget(state, command.playerId, command.objectId);
-  if (command.type === 'necronomicon-discard') return resolveNecronomiconDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'decay-target') return resolveDecayTarget(state, command.playerId, command.targetId, command.targetKind);
   if (command.type === 'decay-discard') return resolveDecayDiscard(state, command.playerId, command.cardInstanceId);
   if (command.type === 'place-character') return resolveLordaeronPlacement(state, command.playerId, command.to);
@@ -3166,14 +3131,18 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     const card = cardDefinition(instance);
     if (spiritFormBlocksCard(player, card)) return fail(source, 'John Christ cannot use Cards containing “Bless” while in Spirit Form.');
     state.movementUndo = null;
-    if (command.targetKind === 'object') return resolveObjectAttack(state, player, instance, command.targetId);
-    const defender = state.players[command.targetId as PlayerId];
+    const targetedObject = command.targetKind === 'object' ? state.objects.find((object) => object.id === command.targetId) : undefined;
+    const entombedGraveyardDefender = targetedObject?.kind === 'tomb'
+      ? Object.values(state.players).find((candidate) => candidate.wrecknaInsideTombId === targetedObject.id && candidate.hand.some((held) => held.cardId === 'graveyard'))
+      : undefined;
+    if (command.targetKind === 'object' && !entombedGraveyardDefender) return resolveObjectAttack(state, player, instance, command.targetId);
+    const defender = entombedGraveyardDefender ?? state.players[command.targetId as PlayerId];
     if (!defender) return fail(source, 'That enemy does not exist.');
     if (command.targetId === command.playerId) return fail(source, 'A character cannot attack itself.');
     const occupiedTomb = defender.wrecknaInsideTombId
       ? state.objects.find((object) => object.id === defender.wrecknaInsideTombId && object.kind === 'tomb')
       : undefined;
-    if (occupiedTomb) return resolveObjectAttack(state, player, instance, occupiedTomb.id);
+    if (occupiedTomb && !defender.hand.some((held) => held.cardId === 'graveyard')) return resolveObjectAttack(state, player, instance, occupiedTomb.id);
     if (!attackCardTargetInRange(state, player, card.id, defender.position)) return fail(source, 'Target is outside the attack range or not in Excalibur\'s direct line.');
     if (!hasLineOfSight(state, player.position, defender.position)) return fail(source, 'A Wall Object blocks line of sight to that target.');
     if (!canAttackTargetSquare(state, player.position, defender.position)) return fail(source, 'Terrain protection prevents an Attack from this Square.');
@@ -3198,7 +3167,6 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     const spiritAttackBonus = player.character === 'john-christ' && player.spiritForm && !player.traitBlocked ? 2 : 0;
     const manaBlastConsumeBonus = card.id === 'mana-blast' && player.manaMode === 'consume' ? 2 : 0;
     const fingerOfDeathBonus = card.id === 'finger-of-death' && activeWrecknaPhylactery(state, player.id, 'might') ? 2 : 0;
-    const necronomiconBonus = player.necronomiconAttackBonus ?? 0;
     const barbarianBonus = player.character === 'merylin' ? player.barbarianNextAttackBonus ?? 0 : 0;
     const excaliburRangeBonus = card.id === 'excalibur' && distance(player.position, defender.position) === 2 ? 1 : 0;
     const boneChillSteal = card.id === 'bone-chill' ? Math.min(2, Math.max(1, distance(player.position, defender.position))) : 0;
@@ -3211,7 +3179,6 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       spiritAttackBonus && { value: spiritAttackBonus, source: 'Spirit Form' },
       manaBlastConsumeBonus && { value: manaBlastConsumeBonus, source: 'Mana Blast Consume' },
       fingerOfDeathBonus && { value: fingerOfDeathBonus, source: 'Finger of Death · Phylactery of Might' },
-      necronomiconBonus && { value: necronomiconBonus, source: 'Necronomicon · next Attack' },
       barbarianBonus && { value: barbarianBonus, source: 'Barbarian Stance · next Attack' },
       excaliburRangeBonus && { value: excaliburRangeBonus, source: 'Excalibur · Range 2' },
       boneChillMeleeBonus && { value: boneChillMeleeBonus, source: 'Bone Chill · melee' },
@@ -3222,14 +3189,10 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     if (card.id === 'mana-barrage' && player.manaMode === 'consume') {
       attackModifiers.push({ value: 2, source: 'Mana Barrage Consume', kind: 'extra-damage', timing: 'after combat' });
     }
-    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + necronomiconBonus + barbarianBonus + excaliburRangeBonus + boneChillMeleeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, boneChillSteal: boneChillSteal || undefined, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
+    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + barbarianBonus + excaliburRangeBonus + boneChillMeleeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, boneChillSteal: boneChillSteal || undefined, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
     consumeMerylinKamelotForAttack(state, player);
     const oracle = defender.character === 'merylin' ? defender.hand.find((entry) => entry.cardId === 'oracle') : undefined;
     if (oracle) Object.assign(state.pendingAttack, { oracleInstanceId: oracle.instanceId, oracleValueAtCombatStart: cardBaseValue(oracle), oracleRevealedThisCombat: false, oracleAttackRevealed: false });
-    if (necronomiconBonus > 0) {
-      player.necronomiconAttackBonus = 0;
-      state.log.unshift(`Necronomicon added +${necronomiconBonus} Attack Value to ${card.name} and was consumed.`);
-    }
     if (barbarianBonus > 0) {
       player.barbarianNextAttackBonus = 0;
       state.log.unshift(`Barbarian Stance added +${barbarianBonus} Attack Value to ${card.name} and was consumed.`);
@@ -3239,7 +3202,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       state.phase = 'wreckna-wisdom-offer';
       state.log.unshift(`Phylactery of Wisdom may draw 1 Card before ${defender.name} chooses a Defend Card.`);
     } else state.phase = 'defending';
-    state.log.unshift(`${player.name} played and discarded ${card.name} (${state.pendingAttack.attackValue}${fingerOfDeathBonus ? ', including +2 Phylactery of Might' : ''}${necronomiconBonus ? `, including +${necronomiconBonus} Necronomicon` : ''}${barbarianBonus ? `, including +${barbarianBonus} Barbarian Stance` : ''}${lightsaberBonus ? ', including +1 Lightsaber' : ''}${rageBonus ? `, including +${rageBonus} Rage` : ''}${spiritAttackBonus ? ', including +2 Spirit Form' : ''}${highGroundBonus ? `, including +${highGroundBonus} High Ground` : ''}${bannerBonus ? ', including +1 The Banner' : ''}${magicianAttackBonus ? `, including +${magicianAttackBonus} Arcane Bolt` : ''}${manaBlastConsumeBonus ? ', including +2 Mana Blast Consume' : ''}${exhaustPenalty ? `, including -${exhaustPenalty} Exhaust` : ''}${guardianPenalty ? ', including -1 adjacent enemy Spirit Guardian' : ''}). ${defender.name} may defend.`);
+    state.log.unshift(`${player.name} played and discarded ${card.name} (${state.pendingAttack.attackValue}${fingerOfDeathBonus ? ', including +2 Phylactery of Might' : ''}${barbarianBonus ? `, including +${barbarianBonus} Barbarian Stance` : ''}${lightsaberBonus ? ', including +1 Lightsaber' : ''}${rageBonus ? `, including +${rageBonus} Rage` : ''}${spiritAttackBonus ? ', including +2 Spirit Form' : ''}${highGroundBonus ? `, including +${highGroundBonus} High Ground` : ''}${bannerBonus ? ', including +1 The Banner' : ''}${magicianAttackBonus ? `, including +${magicianAttackBonus} Arcane Bolt` : ''}${manaBlastConsumeBonus ? ', including +2 Mana Blast Consume' : ''}${exhaustPenalty ? `, including -${exhaustPenalty} Exhaust` : ''}${guardianPenalty ? ', including -1 adjacent enemy Spirit Guardian' : ''}). ${defender.name} may defend.`);
     deferSpiritAttackExit(state, player);
     return ok(state);
   }
@@ -3609,7 +3572,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'necronomicon') {
-    (state as WrecknaChoiceState).necronomicon = { casterId: player.id, level, undo: null, stage: 'tomb', discardQueue: [] };
+    (state as WrecknaChoiceState).necronomicon = { casterId: player.id, level, undo: null, stage: 'tomb' };
     state.phase = 'choosing-necronomicon-tomb' as GamePhase;
     state.log.unshift(`Necronomicon level ${level}: choose a Tomb to infuse as a Phylactery.`);
     return;
@@ -3625,7 +3588,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     player.dakkothRangeBonus = (player.dakkothRangeBonus ?? 0) + 1;
     (state as WrecknaChoiceState).dakkoth = { casterId: player.id, level, undo: null, stage: 'tomb' };
     state.phase = 'choosing-dakkoth-tomb-square' as GamePhase;
-    state.log.unshift(`Dakkoth level 1: ${player.name} gained +1 Attack Range until turn end and must create a Tomb within Range ${effectiveAttackRange(state, player)}.`);
+    state.log.unshift(`Dakkoth level 1: ${player.name} gained +1 Attack Range until the start of their next turn and must create a Tomb within Range ${effectiveAttackRange(state, player)}.`);
     return;
   }
   if (perk.id === 'lichdom') {
@@ -4158,6 +4121,12 @@ function graveyardDefenseBonus(pending: PendingAttack, defenseCardId: CardTypeId
   return defenseCardId === 'graveyard' ? pending.graveyardDefenseBonus ?? 0 : 0;
 }
 
+function graveyardEmpoweredByTomb(state: GameState, defender: PlayerState, position: Cell): boolean {
+  return state.objects.some((object) => object.kind === 'tomb'
+    && distance(object.position, position) <= 1
+    && (object.position.x !== position.x || object.position.y !== position.y || defender.wrecknaInsideTombId === object.id));
+}
+
 const COMBAT_CARD_IDS = new Set<CardTypeId>(['exhaust', 'vicious-mockery', 'vicious-mockery-1', 'banner', 'helmet', 'mythril-helmet', 'blessing-light', 'blessing-might', 'blessing-shield', 'blessing-faith']);
 
 function combatCardApplicable(state: GameState, player: PlayerState, card: CardInstance, defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>): boolean {
@@ -4353,10 +4322,10 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
       state.log.unshift(`Redirect prepared ${preparedObjectIds.length} adjacent Object${preparedObjectIds.length === 1 ? '' : 's'} to absorb combat Damage, Attack Card effect Damage, and an applied Status in order.`);
     }
     if (defenseCardId === 'graveyard' && !defenseEffectsCancelled) {
-      pending.graveyardDefenseBonus = defender.hand.some((card) => card.cardId === 'tomb-block') ? 1 : 0;
+      pending.graveyardDefenseBonus = graveyardEmpoweredByTomb(state, defender, defenderCombatPosition) ? 1 : 0;
       state.log.unshift(pending.graveyardDefenseBonus
-        ? `Graveyard has Value 4 because Tomb Block is in ${defender.name}'s Hand.`
-        : `Graveyard remains Value 3 because Tomb Block is not in ${defender.name}'s Hand.`);
+        ? `Graveyard has Value 4 because ${defender.name} is adjacent to or inside a Tomb.`
+        : `Graveyard remains Value 3 because ${defender.name} is not adjacent to or inside a Tomb.`);
     }
 
   if (defenseCardId === 'block') {
@@ -4529,10 +4498,6 @@ function applyTombBlockAfterCombat(state: GameState, defender: PlayerState) {
     if (replacedObject) destroyObject(state, replacedObject.id, defender.id, 'Tomb Block');
     createWrecknaTomb(state, defender.id, tombSquare);
   } else state.log.unshift(`${defender.name} could not create a Tomb because no eligible adjacent Square was available.`);
-  if (state.objects.some((object) => object.phylacteryOwnerId === defender.id && object.phylacteryType)) {
-    const restored = healPlayer(state, defender, 1);
-    state.log.unshift(`${defender.name} restored ${restored} HP from Tomb Block because a Phylactery exists.`);
-  }
 }
 
 function resolveWrecknaMightChoice(state: GameState, playerId: PlayerId, use: boolean): CommandResult {
@@ -4735,6 +4700,8 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   if (command.type === 'defend') {
     const selectedDefense = defender.hand.find((card) => card.instanceId === command.cardInstanceId);
     if (!selectedDefense || cardDefinition(selectedDefense).kind !== 'defend') return fail(state, 'That Defend card is not in the hand.');
+    const defenderInsideTomb = Boolean(defender.wrecknaInsideTombId && state.objects.some((object) => object.id === defender.wrecknaInsideTombId && object.kind === 'tomb'));
+    if (defenderInsideTomb && selectedDefense.cardId !== 'graveyard') return fail(state, 'Only Graveyard can be used to Defend from inside a Tomb.');
     if (spiritFormBlocksCard(defender, cardDefinition(selectedDefense))) return fail(state, 'John Christ cannot use Cards containing “Bless” while in Spirit Form.');
     const forcedBlocks = soulStrikeForcedCards(defender, 'defend');
     if (forcedBlocks.length > 0 && !forcedBlocks.some((card) => card.instanceId === selectedDefense.instanceId)) return fail(state, 'Soul Strike requires a marked Block Card to be used first, or you may take the hit.');
@@ -4967,7 +4934,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     tacticianEmpowered = tacticianBonus > 0;
     defenseValue = Math.max(0, cardBaseValue(instance) + graveyardBonus + manaBaryerTransformation + manaShieldBonus + lightsaberDefenseBonus + equippedShieldBonus + baseDefenseBonus + guardianDefenseBonus + doubleJumpBonus + bannerDefenseBonus + helmetDefenseBonus + mythrilHelmetDefenseBonus(defender) + carianStanceDefenseBonus + tacticianBonus + defenderMockery - guardianEnemyPenalty - heldExhaustPenalty - shadowDaggerDefensePenalty - (defenderAttachedExhaust ? 2 : 0) - (pending.blessingLightApplied ? 1 : 0));
     defendModifiers = [
-      graveyardBonus && { value: graveyardBonus, source: 'Graveyard with Tomb Block in Hand' },
+      graveyardBonus && { value: graveyardBonus, source: 'Graveyard adjacent to or inside a Tomb' },
       manaBaryerTransformation && { value: manaBaryerTransformation, source: 'Mana Baryer with equipped Shield' },
       manaShieldBonus && { value: manaShieldBonus, source: `${manaShieldBonus} stored Mana Point${manaShieldBonus === 1 ? '' : 's'}` },
       lightsaberDefenseBonus && { value: lightsaberDefenseBonus, source: 'Lightsaber status' },
@@ -5694,26 +5661,17 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     postCombatChoicePending = true;
   }
   if (defenseCardId === 'sacrifice' && !defenseEffectsCancelled && pending.attackValue > defenseValue && defender.character === 'wreckna' && state.phase !== 'finished') {
-    const availableTypes = (['might', 'wisdom', 'ritual'] as PhylacteryType[]).filter((type) => !activeWrecknaPhylactery(state, defender.id, type));
-    const eligibleObjects = state.objects.filter((object) => object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian' && distance(defender.position, object.position) <= effectiveAttackRange(state, defender) && hasLineOfSight(state, defender.position, object.position));
-    if (activeWrecknaPhylacteryCount(state, defender.id) >= MAX_ACTIVE_PHYLACTERIES) state.log.unshift(`Sacrifice created no Phylactery because ${defender.name} already has the maximum of ${MAX_ACTIVE_PHYLACTERIES} active Phylacteries.`);
-    else if (availableTypes.length > 0 && eligibleObjects.length > 0) {
-      const resumePhase = state.phase;
-      (state as WrecknaChoiceState).testPhylactery = { casterId: defender.id, level: 0, undo: null, sacrificeEnemyId: attacker.id, resumePhase };
-      state.phase = 'choosing-test-phylactery-target';
-      postCombatChoicePending = true;
-      state.log.unshift(`Sacrifice: ${defender.name} must choose an Object within attacking range to create a Phylactery; ${attacker.name} will sacrifice 1 HP.`);
-    } else if (availableTypes.length === 0) state.log.unshift(`Sacrifice created no Phylactery because all three types are already active.`);
-    else state.log.unshift(`Sacrifice created no Phylactery because no eligible Object is within ${defender.name}'s attacking range.`);
-  }
-  if (defenseCardId === 'graveyard' && !defenseEffectsCancelled && !defender.hand.some((card) => card.cardId === 'tomb-block') && state.phase !== 'finished') {
-    const tombIds = state.objects.filter((object) => object.kind === 'tomb').map((object) => object.id);
-    if (tombIds.length > 0) {
-      const resumePhase = state.phase;
-      (state as GraveyardChoiceState).graveyard = { playerId: defender.id, objectIds: tombIds, resumePhase };
-      state.phase = 'choosing-graveyard-tomb';
-      postCombatChoicePending = true;
-      state.log.unshift(`Graveyard: ${defender.name} may sacrifice a Tomb to return Tomb Block to their Hand.`);
+    dealDamage(state, attacker, 1, false, defender.id, 'defense');
+    state.log.unshift(`${attacker.name} sacrificed 1 HP for ${defender.name}'s Sacrifice.`);
+    if (!state.winner && attacker.hp > 0) {
+      const hasEligibleSquare = availableWrecknaTombSquares(state, defender.id).length > 0;
+      if (hasEligibleSquare) {
+        const resumePhase = state.phase;
+        (state as WrecknaChoiceState).sacrificeTomb = { casterId: defender.id, resumePhase };
+        state.phase = 'choosing-sacrifice-tomb-square';
+        postCombatChoicePending = true;
+        state.log.unshift(`Sacrifice: ${defender.name} must choose an empty Square within attacking range to create a Tomb.`);
+      } else state.log.unshift(`Sacrifice created no Tomb because no eligible Square is within ${defender.name}'s attacking range.`);
     }
   }
   if (defenseCardId === 'immortality' && !defenseEffectsCancelled && pending.immortalityNegatesDamage && state.phase !== 'finished') {
@@ -5960,7 +5918,7 @@ function completeDakkoth(state: GameState, playerId: PlayerId) {
     player.actionsRemaining += 1;
     player.dakkothRangeBonus = (player.dakkothRangeBonus ?? 0) + 1;
     player.movementRemaining += 1;
-    state.log.unshift(`Dakkoth level 3: ${player.name} gained 1 Action, +1 Attack Range, and 1 MOV.`);
+    state.log.unshift(`Dakkoth level 3: ${player.name} gained 1 Action, +1 Attack Range until the start of their next turn, and 1 MOV.`);
   }
   extended.dakkoth = null;
   state.phase = 'active';
@@ -6083,31 +6041,11 @@ function resolveNecronomiconTombTarget(state: GameState, playerId: PlayerId, obj
   if (tomb.phylacteryType) return fail(state, 'That Tomb is already a Phylactery.');
   if (!wrecknaPerkTargetInRange(state, state.players[playerId], tomb.position)) return fail(state, `Necronomicon requires a Tomb within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
   pending.stage = 'phylactery';
+  pending.tombObjectId = objectId;
   const result = beginWrecknaPhylacteryChoice(state, playerId, objectId);
-  if (!result.ok) { pending.stage = 'tomb'; return result; }
+  if (!result.ok) { pending.stage = 'tomb'; pending.tombObjectId = undefined; return result; }
   if (!(result.state as WrecknaChoiceState).wrecknaPhylacteryChoice) completeNecronomiconAfterPhylactery(result.state, playerId);
   return result;
-}
-
-function advanceNecronomiconDiscard(state: GameState, playerId: PlayerId) {
-  const extended = state as WrecknaChoiceState;
-  const pending = extended.necronomicon;
-  if (!pending || pending.casterId !== playerId) return;
-  while (pending.discardQueue.length > 0) {
-    const next = pending.discardQueue[0];
-    const target = state.players[next.playerId];
-    const eligible = target.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
-    next.remaining = Math.min(next.remaining, eligible.length);
-    if (next.remaining > 0) {
-      pending.stage = 'discard';
-      state.phase = 'choosing-necronomicon-discard' as GamePhase;
-      state.log.unshift(`Necronomicon requires ${target.name} to discard ${next.remaining} Card${next.remaining === 1 ? '' : 's'}.`);
-      return;
-    }
-    pending.discardQueue.shift();
-  }
-  extended.necronomicon = null;
-  state.phase = 'active';
 }
 
 function completeNecronomiconAfterPhylactery(state: GameState, playerId: PlayerId) {
@@ -6115,38 +6053,25 @@ function completeNecronomiconAfterPhylactery(state: GameState, playerId: PlayerI
   const pending = extended.necronomicon;
   if (!pending || pending.casterId !== playerId) return;
   const caster = state.players[playerId];
-  const tombs = state.objects.filter((object) => object.kind === 'tomb');
+  const tomb = pending.tombObjectId ? state.objects.find((object) => object.id === pending.tombObjectId && object.kind === 'tomb' && object.phylacteryOwnerId === playerId && Boolean(object.phylacteryType)) : undefined;
   if (pending.level >= 2) {
-    const previous = caster.necronomiconAttackBonus ?? 0;
-    caster.necronomiconAttackBonus = Math.max(previous, tombs.length);
-    state.log.unshift(`Necronomicon level 2 set ${caster.name}'s next Attack bonus to +${caster.necronomiconAttackBonus} from ${tombs.length} Tomb${tombs.length === 1 ? '' : 's'}; the bonus did not stack.`);
+    if (tomb) {
+      const origin = { ...caster.position };
+      caster.position = { ...tomb.position };
+      caster.wrecknaInsideTombId = tomb.id;
+      caster.visualMovement = { from: origin, path: [{ ...tomb.position }] };
+      markCharacterMoved(caster, 'own-card');
+      recordQuestMovement(state, playerId, distance(origin, tomb.position), true, tomb.position);
+      state.log.unshift(`Necronomicon level 2 teleported ${caster.name} into the infused Tomb at ${cellLabel(tomb.position)}.`);
+    } else state.log.unshift(`Necronomicon level 2 could not teleport ${caster.name} because the selected Tomb was not infused.`);
   }
   if (pending.level >= 3) {
-    pending.discardQueue = (Object.keys(state.players) as PlayerId[])
-      .filter((id) => id !== playerId && state.players[id].hp > 0 && !state.players[id].spectreShadowCloakActive)
-      .map((id) => ({ playerId: id, remaining: tombs.filter((tomb) => distance(tomb.position, state.players[id].position) === 1).length }))
-      .filter((entry) => entry.remaining > 0);
-    advanceNecronomiconDiscard(state, playerId);
-  } else {
-    extended.necronomicon = null;
-    state.phase = 'active';
+    const healed = healPlayer(state, caster, 1);
+    const drawn = drawCards(caster, 1);
+    state.log.unshift(`Necronomicon level 3 restored ${healed} HP and drew ${drawn} Card for ${caster.name}.`);
   }
-}
-
-function resolveNecronomiconDiscard(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {
-  const extended = state as WrecknaChoiceState;
-  const pending = extended.necronomicon;
-  const current = pending?.discardQueue[0];
-  if ((state.phase as string) !== 'choosing-necronomicon-discard' || !pending || pending.stage !== 'discard' || !current || current.playerId !== playerId) return fail(state, 'Necronomicon is not waiting for this discard.');
-  const target = state.players[playerId];
-  const card = target.hand.find((entry) => entry.instanceId === cardInstanceId);
-  if (!card || cardDefinition(card).cannotBeDiscarded) return fail(state, 'Choose a discardable Card from Hand.');
-  discardFromHand(target, cardInstanceId);
-  current.remaining -= 1;
-  state.log.unshift(`${target.name} discarded ${cardDefinition(card).name} because of Necronomicon.`);
-  if (current.remaining <= 0 || !target.hand.some((entry) => !cardDefinition(entry).cannotBeDiscarded)) pending.discardQueue.shift();
-  advanceNecronomiconDiscard(state, pending.casterId);
-  return ok(state);
+  extended.necronomicon = null;
+  state.phase = 'active';
 }
 
 function resolveDecayTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
@@ -6168,8 +6093,8 @@ function resolveDecayTarget(state: GameState, playerId: PlayerId, targetId: stri
   showStatEffect(state, caster, 1, 'MOV');
   state.log.unshift(`Curse level 1 stole 1 MOV from ${target.name}; Wreckna keeps the gained MOV until turn end and the penalty lasts through the target's next turn.`);
   if (pending.level >= 2) {
-    addForcedStatusCard(state, target, 'headache', 'hand', playerId, 'perk', true);
-    state.log.unshift(`Curse level 2 added Headache to ${target.name}'s Hand.`);
+    addForcedStatusCard(state, target, 'exhaust', 'discard', playerId, 'perk', true);
+    state.log.unshift(`Curse level 2 added Exhaust to ${target.name}'s Discard.`);
   }
   if (pending.level >= 3) {
     target.traitBlocked = true;
@@ -6203,26 +6128,9 @@ function resolveTestPhylacteryTarget(state: GameState, playerId: PlayerId, objec
   if (state.phase !== 'choosing-test-phylactery-target' || !pending || pending.casterId !== playerId) return fail(state, 'Test Phylactery is not waiting for an Object.');
   const object = state.objects.find((entry) => entry.id === objectId);
   if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian') return fail(state, 'Test Phylactery requires an Object that is not a Column.');
-  if (!wrecknaPerkTargetInRange(state, state.players[playerId], object.position)) return fail(state, `${pending.sacrificeEnemyId ? 'Sacrifice' : 'Test Phylactery'} requires an Object within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
-  const sacrificeEnemyId = pending.sacrificeEnemyId;
-  const resumePhase = pending.resumePhase ?? 'active';
+  if (!wrecknaPerkTargetInRange(state, state.players[playerId], object.position)) return fail(state, `Test Phylactery requires an Object within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
   extended.testPhylactery = null;
   state.phase = 'active';
-  if (sacrificeEnemyId && !activeWrecknaPhylactery(state, playerId, 'ritual')) {
-    const enemy = state.players[sacrificeEnemyId];
-    dealDamage(state, enemy, 1, false, playerId, 'defense');
-    state.log.unshift(`${enemy.name} sacrificed 1 HP for ${state.players[playerId].name}'s Sacrifice.`);
-    if (state.winner || enemy.hp <= 0) return ok(state);
-  } else if (sacrificeEnemyId) state.log.unshift(`Phylactery of Ritual ignored Sacrifice's enemy HP cost.`);
-  if (sacrificeEnemyId) {
-    const result = beginWrecknaPhylacteryChoice(state, playerId, objectId);
-    if (result.ok) {
-      const choice = (result.state as WrecknaChoiceState).wrecknaPhylacteryChoice;
-      if (choice) choice.resumePhase = resumePhase;
-      else result.state.phase = resumePhase;
-    }
-    return result;
-  }
   const result = beginWrecknaPhylacteryChoice(state, playerId, objectId, { hp: 1 });
   if (result.ok) state.log.unshift(`${state.players[playerId].name} selected ${object.name} for Test Phylactery.`);
   return result;
@@ -6310,7 +6218,7 @@ function resolveSweetPotatoChoice(state: GameState, playerId: PlayerId, choice: 
 }
 
 function cancelCardTargeting(state: GameState, playerId: PlayerId): CommandResult {
-  if (state.phase === 'choosing-test-phylactery-target' && (state as WrecknaChoiceState).testPhylactery?.sacrificeEnemyId) return fail(state, 'Sacrifice requires Wreckna to choose an eligible Object.');
+  if (state.phase === 'choosing-sacrifice-tomb-square' && (state as WrecknaChoiceState).sacrificeTomb?.casterId === playerId) return fail(state, 'Sacrifice requires Wreckna to choose an eligible Square.');
   if (state.phase === 'choosing-spectre-perk-origin' && (state as SpectreTargetingState).spectrePerkOrigin?.perkId === 'devour') return fail(state, 'Devour requires Spectre to choose a replica to destroy.');
   if (state.phase === 'choosing-boomerang-target' && state.boomerang?.casterId === playerId) {
     state.boomerang = null; state.phase = 'active';
@@ -6546,6 +6454,20 @@ function resolveShadowBarterDiscard(state: GameState, playerId: PlayerId, cardIn
   discardFromHand(defender, cardInstanceId);
   state.log.unshift(`${defender.name} discarded ${cardDefinition(card).name} for Shadow Barter.`);
   state.phase = 'active'; state.pendingAttack = null; (state as ShadowBarterState).shadowBarter = null;
+  return ok(state);
+}
+
+function resolveSacrificeTombSquare(state: GameState, playerId: PlayerId, to: Cell): CommandResult {
+  const extended = state as WrecknaChoiceState;
+  const pending = extended.sacrificeTomb;
+  if (state.phase !== 'choosing-sacrifice-tomb-square' || !pending || pending.casterId !== playerId) return fail(state, 'Sacrifice is not waiting for a Tomb Square.');
+  const caster = state.players[playerId];
+  if (!wrecknaPerkTargetInRange(state, caster, to)) return fail(state, `Sacrifice must create its Tomb within Range ${effectiveAttackRange(state, caster)} and line of sight.`);
+  if (!createWrecknaTomb(state, playerId, to)) return fail(state, 'Sacrifice requires an empty Square for its Tomb.');
+  const resumePhase = pending.resumePhase;
+  extended.sacrificeTomb = null;
+  state.phase = resumePhase;
+  if (resumePhase === 'active') state.pendingAttack = null;
   return ok(state);
 }
 
@@ -8040,8 +7962,6 @@ function endTurn(state: GameState): GameState {
   }
   if ((current.decayMovementBonus ?? 0) > 0) state.log.unshift(`Curse's stolen +${current.decayMovementBonus} MOV expired for ${current.name} at turn end.`);
   current.decayMovementBonus = 0;
-  if ((current.dakkothRangeBonus ?? 0) > 0) state.log.unshift(`Dakkoth's +${current.dakkothRangeBonus} Attack Range expired for ${current.name}.`);
-  current.dakkothRangeBonus = 0;
   if ((current.windwalkerMoveBonus ?? 0) > 0) state.log.unshift(`Windwalker Stance's +${current.windwalkerMoveBonus} MOV${current.windwalkerUnrestrictedMovement ? ' and unrestricted traversal' : ''} expired for ${current.name}.`);
   current.windwalkerMoveBonus = 0;
   current.windwalkerUnrestrictedMovement = false;
@@ -8102,6 +8022,10 @@ function finalizeTurn(state: GameState): GameState {
   }
   state.activePlayerId = nextId; state.phase = 'active'; state.pendingAttack = null; state.dashCancellation = null; state.danceThrough = null; state.doubleJump = null; state.forceThrow = null; state.forcePull = null; state.arkaneArow = null; state.armDaWiz = null; state.preparation = null; state.arcaneMissle = null; state.chainLightning = null; state.magicHand = null; state.shizzle = null; state.mindTricks = null; state.forceDisarm = null; state.flurry = null; state.pendingManaChoice = null;
   const next = state.players[nextId];
+  if (next.character === 'wreckna' && (next.dakkothRangeBonus ?? 0) > 0) {
+    state.log.unshift(`Dakkoth's +${next.dakkothRangeBonus} Attack Range expired for ${next.name} at the start of their turn.`);
+    next.dakkothRangeBonus = 0;
+  }
   if (next.character === 'spectre' && next.spectreShadowCloakActive) {
     next.spectreShadowCloakActive = false;
     state.log.unshift(`${next.name}'s Shadow Cloak expired at the beginning of their turn.`);
