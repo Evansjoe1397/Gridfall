@@ -3328,8 +3328,9 @@ type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; sta
 const characterCalloutBubbles: CharacterCalloutBubble[] = [];
 type ObjectCalloutBubble = { element: HTMLDivElement; objectId: string; startedAt: number; delay: number; anchorOffsetY: number; worldPosition: THREE.Vector3 };
 const objectCalloutBubbles: ObjectCalloutBubble[] = [];
-const CHARACTER_CALLOUT_DURATION_MS = 900;
-const OBJECT_CALLOUT_DURATION_MS = 1450;
+const CHARACTER_CALLOUT_DURATION_MS = 2500;
+const OBJECT_CALLOUT_DURATION_MS = 2500;
+const STAT_EFFECT_BUBBLE_DURATION_MS = 2500;
 const SLIDE_EARLY_TRIGGER_MS = 100;
 const SLIDE_GLIDE_DURATION_MS = 210;
 const DIRECT_SLIDE_GLIDE_DURATION_MS = 320;
@@ -4015,7 +4016,7 @@ function updateDamageVisuals(time: number) {
   const layerRect = overheadStatusLayer.getBoundingClientRect();
   for (let index = statEffectBubbles.length - 1; index >= 0; index--) {
     const entry = statEffectBubbles[index];
-    const progress = (time - entry.startedAt) / 1400;
+    const progress = (time - entry.startedAt) / STAT_EFFECT_BUBBLE_DURATION_MS;
     if (progress >= 1) {
       entry.element.remove();
       statEffectBubbles.splice(index, 1);
