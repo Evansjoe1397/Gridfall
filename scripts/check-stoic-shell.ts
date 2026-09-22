@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyCommand, createHotseatTestState, type GameState } from '../shared/game.ts';
+import { applyCommand, createHotseatTestState, queueBlessingCard, type GameState } from '../shared/game.ts';
 
 function endTurn(state: GameState): GameState {
   const result = applyCommand(state, { type: 'end-turn', playerId: state.activePlayerId });
@@ -38,4 +38,22 @@ for (const missingHp of [0, 1]) {
   assert.equal(healed.stoicShell, true);
   if (!missingHp) assert.equal(healed.stoicShellHealEventId, null);
 }
+
+const blocked = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+blocked.activePlayerId = 'P2';
+assert.equal(queueBlessingCard(blocked.players.P1, 'blessing-swiftness'), true);
+const blockResolved = endTurn(blocked);
+assert.equal(blockResolved.blessingAnimations.at(-1)?.source, 'block');
+assert.equal(blockResolved.blessingAnimations.at(-1)?.cardId, 'blessing-swiftness');
+
+const perkState = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+perkState.phase = 'active';
+perkState.players.P1.hand = [{ instanceId: 'prayer', cardId: 'blessed-prayer' }];
+perkState.players.P1.deck = [];
+perkState.players.P1.discard = [];
+const perkResult = applyCommand(perkState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'prayer', destination: 'direct' });
+assert.equal(perkResult.ok, true);
+if (!perkResult.ok) throw new Error(perkResult.error);
+assert.equal(perkResult.state.blessingAnimations.at(-1)?.source, 'perk');
+assert.equal(perkResult.state.blessingAnimations.at(-1)?.cardId, 'blessing-prayer');
 console.log('Stoic Shell checks passed (flat 1 HP, repeated turns, legacy Stacks, HP cap).');

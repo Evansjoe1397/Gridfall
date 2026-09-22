@@ -4,6 +4,7 @@ import { buildCombatSummaryXlsx, combatSummaryFilename, type CombatSummaryExport
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
+import { JohnRepentFire } from './johnRepentFire.ts';
 import { textureTrenchTile } from './trench-tile-textures.ts';
 import { textureLordaeronTile } from './lordaeron-tile-textures.ts';
 import { textureNagrandTile, textureNagrandPlatform } from './nagrand-floor-textures.ts';
@@ -11,7 +12,7 @@ import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
 import { stabilizeOrkkHeldProps } from './orkkHeldProps.ts';
-import { JOHN_CLIPS, JOHN_MODEL_SCALE, johnMovementClip, johnMovementDuration, johnPlaybackRate, type JohnAnimationName } from './johnChristLocomotion.ts';
+import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS, JOHN_MIND_BLAST_IMPACT_SECONDS, JOHN_MODEL_SCALE, JOHN_SCEPTER_HEAD_LOCAL, JOHN_SPIRIT_ATTACK_CLIP, JOHN_SPIRIT_ATTACK_DAMAGE_SECONDS, johnAnimationAvailableInForm, johnAttackAnimation, johnAttackReleaseSeconds, johnAttackUsesProjectile, johnCastProjectileDurationMs, johnMovementClip, johnMovementDuration, johnPlaybackRate, johnUsesCastOverhead, type JohnAnimationName, type JohnAttackAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
 import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, obiWanAttackClip, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
@@ -22,6 +23,8 @@ import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectS
 import { merylinHitDirections, merylinAttackYaw } from './merylinAttackFacing.ts';
 import { softenMerylinPreviewFace } from './merylinPreview.ts';
 import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
+import { JOHN_BLESSED_BEAM_FPS, JOHN_BLESSED_BEAM_HOLD_SECONDS, JOHN_BLESSED_BEAM_RECOVERY_SECONDS, JOHN_BLESSED_BEAM_SPEED, johnAttackPlaybackRate } from './johnChristLocomotion.ts';
+import { JohnBlessedBeam } from './johnBlessedBeam.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import {
   createShadowDaggerProjectile,
@@ -89,7 +92,7 @@ import {
   movementPath,
   movementCost,
   orkkActionEventForCommand,
-  perkUseEventForCommand,
+  perkUseEventForTransition,
   phaseCardCandidates,
   kykDirectionAllowed,
   pinnedCount,
@@ -102,6 +105,7 @@ import {
   wizardActionEventForCommand,
   wrecknaPerkTargetInRange,
   type CardTypeId,
+  type BlessingAnimation,
   type Cell,
   type GameCommand,
   type GameState,
@@ -560,6 +564,7 @@ function isWaitingForSelectedCardTarget() {
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
 let combatRevealWasVisible = false;
+let blockedCombatTargetId: PlayerId | null = null;
 let activeCombatSummary = false;
 let combatSummaryHidden = false;
 let lastCombatSummaryHtml = '';
@@ -577,8 +582,13 @@ const obiWanAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>
 let orkkCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId } | null = null;
 let orkkCombatImpactPending = false;
 const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
+let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
+let johnCombatImpactPending = false;
 function combatAnimationImpactPending() {
-  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending;
+  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending;
+}
+function combatImpactUiDeferred() {
+  return Boolean(gameState.combatReveal) || combatAnimationImpactPending();
 }
 function pendingSpiritVisualAttack(playerId: PlayerId) {
   const pending = gameState.pendingAttack;
@@ -605,6 +615,15 @@ function resetCombatSummary() {
   orkkCombatAttacker = null;
   orkkCombatImpactPending = false;
   orkkAttackImpactWaits.clear();
+  johnCombatAttacker = null;
+  johnCombatImpactPending = false;
+  blockedCombatTargetId = null;
+  johnCastWaits.clear();
+  repentFireAnimations.forEach((fire) => fire.dispose());
+  repentFireAnimations.length = 0;
+  for (const beam of johnBlessedBeams) beam.effect.dispose();
+  johnBlessedBeams.length = 0;
+  pendingMindBlastCastEvents.clear();
 }
 function submitOnlineCombatAcknowledgement(revealExpiresAt: number) {
   if (!localSeat || combatAckRequestFor === revealExpiresAt) return;
@@ -891,6 +910,7 @@ function normalizeOnlineState(state: GameState): GameState {
   state.elevations ??= {};
   state.objectPushAnimations ??= [];
   state.spellProjectiles ??= [];
+  state.blessingAnimations ??= [];
   state.log ??= [];
   Object.values(state.players).forEach((player) => {
     player.moveRange ??= player.character === 'orkk' ? 3 : 2;
@@ -1145,7 +1165,6 @@ function dispatch(command: GameCommand) {
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
   const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
-  const perkUseEvent = perkUseEventForCommand(gameState, command);
   const movementCancellationTarget = command.type === 'cancel-movement' ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
@@ -1153,9 +1172,11 @@ function dispatch(command: GameCommand) {
     room.send('command', command);
     return;
   }
+  const previousGameState = gameState;
   const result = applyCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
+  const perkUseEvent = perkUseEventForTransition(previousGameState, command, gameState);
   selection.send({ type: 'CLEAR' });
   if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
@@ -1575,6 +1596,9 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   const element = byId(elementId);
   element.className = `fighter ${side}${elementId === 'p3Stats' ? ' violet' : ''}`;
   element.style.setProperty('--fighter-color', playerUiColor(id));
+  // Combat is resolved in state before its authored attack animation reaches
+  // the victim. Preserve the last presented HP/statuses until that hit frame.
+  if (combatImpactUiDeferred() && element.querySelector('.hp-copy')) return;
   const hpPercent = player.hp / player.maxHp * 100;
   const manaMode = player.manaMode === 'consume' ? '<small>CONSUME</small>' : '';
   const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}${manaMode}</div>` : '';
@@ -1688,7 +1712,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">${gameIcon('panic')}${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">${gameIcon('spirit')}<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
-    const shellIcon = player.stoicShell ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<span class="status-tooltip"><strong>Stoic Shell</strong>Restore 1 HP at the beginning of your turn, up to maximum HP. Healing does not stack. HP Damage removes Stoic Shell.</span></div>` : '';
+    const shellIcon = displayedStoicShell(player.id, player.stoicShell) ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<span class="status-tooltip"><strong>Stoic Shell</strong>Restore 1 HP at the beginning of your turn, up to maximum HP. Healing does not stack. HP Damage removes Stoic Shell.</span></div>` : '';
     const spiritSiphonIcon = player.spiritSiphonedMovement > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${player.spiritSiphonedMovement}</b><span class="status-tooltip"><strong>Spirit Movement Siphoned</strong>John Christ's Spirit Form crossed this character. Their MOV is reduced by ${player.spiritSiphonedMovement} until their end-turn process begins.</span></div>` : '';
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
@@ -1698,7 +1722,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
 
 function renderHand() {
   const viewerId = actingPlayer();
-  const viewer = gameState.players[viewerId];
+  const actualViewer = gameState.players[viewerId];
+  const viewer = { ...actualViewer, hand: actualViewer.hand.filter((card) => !unreleasedBlessingForCard(card.instanceId)) };
   const handElement = byId('hand');
   handElement.classList.toggle('compact-hand', compactHandMode);
   handElement.classList.toggle('hand-overflow', viewer.hand.length > 5);
@@ -2231,15 +2256,21 @@ function renderCombatReveal() {
   if (!reveal) {
     if (combatRevealWasVisible) {
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
+      if (blockedCombatTargetId) {
+        spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
+        blockedCombatTargetId = null;
+      }
       const swing = merylinCombatAttacker;
       const obiWanAttack = obiWanCombatAttacker;
       const orkkAttack = orkkCombatAttacker;
-      if (swing || obiWanAttack || orkkAttack) {
+      const johnAttack = johnCombatAttacker;
+      if (swing || obiWanAttack || orkkAttack || johnAttack) {
         // Character attack animations begin after the reveal closes. Keep
         // damage/destruction presentation queued until the authored hit frame.
         if (swing) merylinCombatImpactPending = true;
         if (obiWanAttack) obiWanCombatImpactPending = true;
         if (orkkAttack) orkkCombatImpactPending = true;
+        if (johnAttack) johnCombatImpactPending = true;
         postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
       }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
@@ -2263,6 +2294,7 @@ function renderCombatReveal() {
         merylinCombatImpactPending = false;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        refreshCombatImpactUi();
       }, swing.weapon, target);
     }
     const obiWanAttack = obiWanCombatAttacker;
@@ -2275,6 +2307,7 @@ function renderCombatReveal() {
         obiWanCombatImpactPending = false;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        refreshCombatImpactUi();
       });
     }
     const orkkAttack = orkkCombatAttacker;
@@ -2287,7 +2320,22 @@ function renderCombatReveal() {
         orkkCombatImpactPending = false;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        refreshCombatImpactUi();
       });
+    }
+    const johnAttack = johnCombatAttacker;
+    if (johnAttack) {
+      johnCombatAttacker = null;
+      const attacker = dummyGroups.get(johnAttack.attackerId);
+      const target = dummyGroups.get(johnAttack.defenderId)?.position.clone().add(new THREE.Vector3(0, 1.25, 0))
+        ?? worldPosition(gameState.players[johnAttack.defenderId].position).add(new THREE.Vector3(0, 1.25, 0));
+      if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
+      playJohnCast(johnAttack.attackerId, target, () => {
+        johnCombatImpactPending = false;
+        postCombatVisualNotBefore = performance.now();
+        syncBoard();
+        refreshCombatImpactUi();
+      }, johnAttack.attackerWasInSpiritForm, johnAttack.cardId, { targetId: johnAttack.defenderId });
     }
     return;
   }
@@ -2297,10 +2345,9 @@ function renderCombatReveal() {
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
   const attackLanded = pendingSwing
-    && reveal.combatWinnerId === pendingSwing.attackerId
-    && (reveal.combatDamage ?? 0) > 0;
-  // A blocked or lost attack still consumes Merylin's Summon in the rules, but
-  // it closes without a sword swing because no hit is presented on the board.
+    && ((reveal.combatDamage ?? 0) > 0 || (reveal.afterCombatAttackDamage ?? 0) > 0);
+  blockedCombatTargetId = pendingSwing && !attackLanded ? pendingSwing.defenderId : null;
+  // Only animate an attack when combat or its after-effects actually deal damage.
   merylinCombatAttacker = attackLanded && gameState.players[pendingSwing.attackerId].character === 'merylin'
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, weapon: merylinWeaponForCard(pendingSwing.cardId) } : null;
   const obiWanClip = pendingSwing ? obiWanAttackClip(
@@ -2309,8 +2356,18 @@ function renderCombatReveal() {
   ) : null;
   obiWanCombatAttacker = attackLanded && pendingSwing && obiWanClip
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, clip: obiWanClip } : null;
-  orkkCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'orkk'
+  orkkCombatAttacker = attackLanded && pendingSwing && gameState.players[pendingSwing.attackerId].character === 'orkk'
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId } : null;
+  johnCombatAttacker = attackLanded
+    && pendingSwing
+    && gameState.players[pendingSwing.attackerId].character === 'john-christ'
+    ? {
+      attackerId: pendingSwing.attackerId,
+      defenderId: pendingSwing.defenderId,
+      cardId: pendingSwing.cardId,
+      attackerWasInSpiritForm: Boolean(pendingSwing.attackerWasInSpiritForm),
+    }
+    : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
   const attackTranslation = hintsLanguage === 'ru' ? CARD_RULES_RU[attackDefinition.id] : undefined;
@@ -2598,12 +2655,13 @@ function renderOpponentHand() {
   container.innerHTML = opponentIds.map((opponentId, index) => {
     const opponent = gameState.players[opponentId];
     const ownerColor = playerUiColor(opponentId);
-    const cards = opponent.hand.map((instance) => {
+    const visibleHand = opponent.hand.filter((card) => !unreleasedBlessingForCard(card.instanceId));
+    const cards = visibleHand.map((instance) => {
       const card = cardDefinition(instance);
       if (!isCardRevealedToOpponents(opponent, instance, viewerId) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"></div>`;
       return `<div class="opponent-card revealed ${cardVisualClass(card)}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
     }).join('');
-    return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${opponent.hand.length} CARD${opponent.hand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
+    return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${visibleHand.length} CARD${visibleHand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
   document.querySelectorAll<HTMLElement>('[data-preview-card]').forEach((element) => {
     element.addEventListener('mouseenter', () => showCardPreview(element.dataset.previewCard!));
@@ -2747,7 +2805,8 @@ function hideCardPreview() {
 }
 
 function canLocalAct(playerId: PlayerId) {
-  return mode === 'hotseat' || localSeat === playerId;
+  const blessingPending = (blessingPresentationQueues.get(playerId) ?? []).some((presentation) => !presentation.released);
+  return !blessingPending && (mode === 'hotseat' || localSeat === playerId);
 }
 
 function notify(message: string) {
@@ -3327,7 +3386,7 @@ const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
-type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number };
+type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number; duration: number };
 const characterCalloutBubbles: CharacterCalloutBubble[] = [];
 type ObjectCalloutBubble = { element: HTMLDivElement; objectId: string; startedAt: number; delay: number; anchorOffsetY: number; worldPosition: THREE.Vector3 };
 const objectCalloutBubbles: ObjectCalloutBubble[] = [];
@@ -3380,10 +3439,19 @@ const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
+const pendingMindBlastCastEvents = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
+type JohnCastWait = { callbacks: Array<() => void>; target: THREE.Vector3; targetId?: PlayerId; fallbackReleaseAt: number; projectile: boolean; beam: false | 'light' | 'might'; beamEndAt?: number; released: boolean; spirit: boolean };
+const johnCastWaits = new Map<PlayerId, JohnCastWait>();
+const johnBlessedBeams: { playerId: PlayerId; wait: JohnCastWait; effect: JohnBlessedBeam }[] = [];
+const johnCastProjectiles: { playerId: PlayerId; group: THREE.Group; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; callbacks: Array<() => void> }[] = [];
+type BlessingPresentation = BlessingAnimation & { released: boolean; attackObserved: boolean };
+const processedBlessingAnimations = new Set<string>();
+const blessingPresentationQueues = new Map<PlayerId, BlessingPresentation[]>();
 const moonwaveAnimations: { animationId: string; casterId: PlayerId; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number | null; fallbackAt: number; duration: number }[] = [];
 const moonwaveRouteProgress = new Map<string, number>();
-const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; startedAt: number }[] = [];
+const repentFireAnimations: JohnRepentFire[] = [];
+const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; ring?: THREE.Mesh; startedAt: number; duration: number; style: 'holy-fire' | 'cleanse-immolate' }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const processedManaConsumeEvents = new Set<string>();
@@ -3414,6 +3482,8 @@ const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: s
 const questFlagModels = new Map<string, THREE.Group>();
 let questFlagVisualKey = '';
 let hotPotatoModel: THREE.Group | null = null;
+let hotPotatoCarrier: PlayerId | null = null;
+let hotPotatoPickup: { waitForTile: boolean; startedAt: number | null; from: THREE.Vector3; fromScale: number } | null = null;
 let boardVisualKey = '';
 let fittedArenaKey = '';
 let lightingArenaId: ArenaId | null = null;
@@ -3518,7 +3588,6 @@ renderer.setAnimationLoop((time) => {
   updateReplicatePullTethers(time);
   updateWizardLiftedTargets(time);
   updateObjectMovement(time);
-  animateHotPotato(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
   updateArcaneImpacts(deltaSeconds);
@@ -3633,10 +3702,13 @@ renderer.setAnimationLoop((time) => {
   updateMerylinSwingImpacts(time);
   updateObiWanAttackImpacts(time);
   updateOrkkAttackImpacts(time);
+  updateBlessingPresentationQueues(time);
+  updateJohnCastProjectiles(time);
   updateDamageVisuals(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
+  animateHotPotato(time);
   updatePerkUseLabels(time);
   updateCharacterCalloutBubbles(time);
   updateObjectCalloutBubbles(time);
@@ -3701,6 +3773,7 @@ function visibleCharacterTop(character: THREE.Group) {
 }
 
 function updateCharacterHealthBars(refreshContents = false) {
+  const deferCombatRefresh = combatImpactUiDeferred();
   const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
   characterHealthBars.forEach((sprite, playerId) => {
     if (playerIds.has(playerId)) return;
@@ -3714,7 +3787,10 @@ function updateCharacterHealthBars(refreshContents = false) {
     const player = gameState.players[playerId];
     const character = dummyGroups.get(playerId);
     const sprite = characterHealthBars.get(playerId) ?? createCharacterHealthBar(playerId);
-    sprite.visible = healthBarsVisible && player.hp > 0 && Boolean(character?.visible);
+    const displayedHp = deferCombatRefresh && sprite.userData.healthKey
+      ? Number(String(sprite.userData.healthKey).split('/')[0])
+      : player.hp;
+    sprite.visible = healthBarsVisible && displayedHp > 0 && Boolean(character?.visible);
     if (!character) return;
     sprite.position.copy(character.position);
     const minimumTopOffset = player.character === 'shinobi' ? 2.35 : player.character === 'spectre' ? 2.45 : 0;
@@ -3727,7 +3803,7 @@ function updateCharacterHealthBars(refreshContents = false) {
         : player.character === 'merylin' ? -0.67
           : 0.28;
     sprite.position.y = characterTop + headClearance;
-    if (!refreshContents && sprite.userData.healthKey) return;
+    if ((deferCombatRefresh || !refreshContents) && sprite.userData.healthKey) return;
     const healthKey = `${player.hp}/${player.maxHp}`;
     if (sprite.userData.healthKey === healthKey) return;
     sprite.userData.healthKey = healthKey;
@@ -3767,7 +3843,7 @@ function updateCharacterHealthBars(refreshContents = false) {
     context.restore();
     material.map!.needsUpdate = true;
   });
-  updateOverheadStatusRows(refreshContents);
+  updateOverheadStatusRows(refreshContents && !deferCombatRefresh);
 }
 
 const overheadStatusScreenPosition = new THREE.Vector3();
@@ -3843,6 +3919,14 @@ function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolea
   const { lane, origin } = floatingNumberOrigin(playerId);
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
   damageNumbers.push({ sprite, playerId, lane, startedAt, origin });
+  const damagedGroup = dummyGroups.get(playerId);
+  if (startedAt < Number(damagedGroup?.userData.repentDamagePending ?? 0)) {
+    damagedGroup!.userData.repentSpiritNotBefore = startedAt + 550;
+    delete damagedGroup!.userData.repentDamagePending;
+  }
+  // Damage counters are the presentation's canonical hit moment. Refresh both
+  // board and HUD vitals in this same frame after combat's deferred state opens.
+  refreshCombatImpactUi();
   if (collision) impactAnimations.set(playerId, startedAt);
   if (fatal) {
     const group = dummyGroups.get(playerId);
@@ -3851,6 +3935,14 @@ function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolea
       pendingDeathAnimationIds.delete(playerId);
     }
   }
+}
+
+function refreshCombatImpactUi() {
+  updateCharacterHealthBars(true);
+  const hudPlayerIds = hudSeatPlayerIds();
+  renderFighter(hudPlayerIds[0], 'p1Stats', 'left');
+  renderFighter(hudPlayerIds[1], 'p2Stats', 'right');
+  if (hudPlayerIds[2]) renderFighter(hudPlayerIds[2], 'p3Stats', 'right');
 }
 
 function spawnHealingVisual(playerId: PlayerId, amount: number) {
@@ -3865,21 +3957,25 @@ function spawnHealingVisual(playerId: PlayerId, amount: number) {
   damageNumbers.push({ sprite, playerId, lane, startedAt: performance.now(), origin });
 }
 
-function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' | 'ATT' | 'DEF') {
-  if (!amount) return;
-  const positive = amount > 0;
+function spawnEffectMessage(playerId: PlayerId, text: string, tone: 'positive' | 'negative' | 'blessing') {
   const occupiedSlots = new Set(statEffectBubbles.filter((entry) => entry.playerId === playerId).map((entry) => entry.slot));
   let slot = 0;
   while (occupiedSlots.has(slot)) slot += 1;
   const element = document.createElement('div');
-  element.className = `stat-effect-bubble ${positive ? 'positive' : 'negative'}`;
-  element.textContent = `${positive ? '+' : '−'}${Math.abs(amount)} ${stat}`;
+  element.className = `stat-effect-bubble ${tone}`;
+  element.textContent = text;
   overheadStatusLayer.appendChild(element);
   statEffectBubbles.push({ element, playerId, slot, startedAt: performance.now() });
 }
 
+function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' | 'ATT' | 'DEF') {
+  if (!amount) return;
+  const positive = amount > 0;
+  spawnEffectMessage(playerId, `${positive ? '+' : '−'}${Math.abs(amount)} ${stat}`, positive ? 'positive' : 'negative');
+}
+
 const characterCalloutScreenPosition = new THREE.Vector3();
-function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall') {
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked') {
   const element = document.createElement('div');
   element.className = `character-callout-bubble ${text.toLowerCase()}`;
   element.style.setProperty('--player-color', playerUiColor(playerId));
@@ -3891,14 +3987,14 @@ function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall')
     ? Math.max(0, movement.startedAt + movement.slideStartsAtMs - now)
     : 0;
   const queuedForPlayer = characterCalloutBubbles.filter((bubble) => bubble.playerId === playerId).length;
-  characterCalloutBubbles.push({ element, playerId, startedAt: now, delay: slideDelay + queuedForPlayer * 120 });
+  characterCalloutBubbles.push({ element, playerId, startedAt: now, delay: slideDelay + queuedForPlayer * 120, duration: text === 'Attack blocked' ? 2500 : CHARACTER_CALLOUT_DURATION_MS });
 }
 
 function updateCharacterCalloutBubbles(time: number) {
   for (let index = characterCalloutBubbles.length - 1; index >= 0; index--) {
     const bubble = characterCalloutBubbles[index];
     const elapsed = time - bubble.startedAt - bubble.delay;
-    if (elapsed >= CHARACTER_CALLOUT_DURATION_MS) {
+    if (elapsed >= bubble.duration) {
       bubble.element.remove();
       characterCalloutBubbles.splice(index, 1);
       continue;
@@ -3909,7 +4005,7 @@ function updateCharacterCalloutBubbles(time: number) {
       bubble.element.classList.add('hidden');
       continue;
     }
-    const progress = THREE.MathUtils.clamp(elapsed / CHARACTER_CALLOUT_DURATION_MS, 0, 1);
+    const progress = THREE.MathUtils.clamp(elapsed / bubble.duration, 0, 1);
     const opacity = progress < 0.08 ? progress / 0.08 : 1 - THREE.MathUtils.smoothstep(progress, 0.28, 1);
     characterCalloutScreenPosition.copy(healthBar.position).project(camera);
     const onScreen = characterCalloutScreenPosition.z >= -1 && characterCalloutScreenPosition.z <= 1;
@@ -4051,19 +4147,88 @@ function updateDamageVisuals(time: number) {
   }
 }
 
+function spawnMindBlastImpact(event: { id: string; casterId: PlayerId; to: Cell }) {
+  const position = worldPosition(event.to).add(new THREE.Vector3(0, 1.85, 0));
+  const mesh = createMindBlast();
+  mesh.position.copy(position);
+  scene.add(mesh);
+  spellProjectileAnimations.push({ animationId: event.id, mesh, points: [position, position], startedAt: performance.now(), duration: 820, delay: 0, casterId: event.casterId });
+}
+
+function spawnJohnFireImpact(event: { style?: string; to: Cell; targetId?: string }) {
+  const cleanseImmolate = event.style === 'cleanse-immolate';
+  const group = new THREE.Group();
+  group.name = cleanseImmolate ? 'CleanseImmolate' : 'RepentHolyFire';
+  const targetGroup = event.targetId
+    ? dummyGroups.get(event.targetId as PlayerId) ?? objectGroups.get(event.targetId)
+    : undefined;
+  if (targetGroup) {
+    targetGroup.add(group);
+    group.position.set(0, 0.08, 0);
+  } else {
+    group.position.copy(worldPosition(event.to)); group.position.y += 0.08;
+    scene.add(group);
+  }
+  const flames: THREE.Mesh[] = [];
+  const flameCount = cleanseImmolate ? 7 : 9;
+  for (let index = 0; index < flameCount; index++) {
+    const angle = index / flameCount * Math.PI * 2;
+    const radius = cleanseImmolate ? 0.3 + (index % 2) * 0.08 : index % 3 === 0 ? 0.16 : 0.48;
+    const material = new THREE.MeshStandardMaterial({
+      color: cleanseImmolate ? (index % 2 ? 0xff9d2e : 0xffe3a0) : (index % 2 ? 0xffd84d : 0xfff3a0),
+      emissive: cleanseImmolate ? (index % 2 ? 0xff3000 : 0xff8a00) : (index % 2 ? 0xff7a00 : 0xffd83d),
+      emissiveIntensity: cleanseImmolate ? 5 : 4,
+      transparent: true,
+      opacity: .9,
+    });
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(cleanseImmolate ? 0.13 + (index % 3) * 0.025 : 0.16 + (index % 3) * 0.035, cleanseImmolate ? 0.72 + (index % 3) * 0.13 : 0.9 + (index % 4) * 0.17, 8),
+      material,
+    );
+    flame.position.set(Math.cos(angle) * radius, flame.geometry.parameters.height / 2, Math.sin(angle) * radius);
+    flame.rotation.z = Math.sin(angle) * .12; flame.rotation.x = Math.cos(angle) * .12;
+    flame.userData.baseY = flame.position.y;
+    group.add(flame); flames.push(flame);
+  }
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(cleanseImmolate ? 0.42 : 0.52, cleanseImmolate ? 0.035 : 0.05, 8, 32),
+    new THREE.MeshBasicMaterial({ color: cleanseImmolate ? 0xff5a12 : 0xffbf32, transparent: true, opacity: 0.72, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.04;
+  group.add(ring);
+  const light = new THREE.PointLight(cleanseImmolate ? 0xff5a18 : 0xffc33d, cleanseImmolate ? 4.2 : 5, cleanseImmolate ? 4 : 5);
+  light.position.y = 1; group.add(light);
+  holyFireAnimations.push({ group, flames, ring, startedAt: performance.now(), duration: cleanseImmolate ? 1450 : 2000, style: cleanseImmolate ? 'cleanse-immolate' : 'holy-fire' });
+}
+
 function syncSpellProjectiles() {
   const lightningHops = new Map<PlayerId, number>();
   for (const event of gameState.spellProjectiles ?? []) {
     if (processedSpellProjectiles.has(event.id)) continue;
     if (event.style === 'moonwave' && gameState.combatReveal) continue;
-    processedSpellProjectiles.add(event.id);
+    if ((event.style === 'holy-fire' || event.style === 'cleanse-immolate' || event.style === 'repent-fire')
+      && (gameState.combatReveal || combatRevealWasVisible || combatAnimationImpactPending() || johnCastWaits.has(event.casterId))) continue;
     if (event.style === 'mind-blast') {
-      const position = worldPosition(event.to).add(new THREE.Vector3(0, 1.85, 0));
-      const mesh = createMindBlast();
-      mesh.position.copy(position); scene.add(mesh);
-      spellProjectileAnimations.push({ animationId: event.id, mesh, points: [position, position], startedAt: performance.now(), duration: 820, delay: 0, casterId: event.casterId });
+      const caster = gameState.players[event.casterId];
+      if (caster && johnUsesCastOverhead(caster.character, caster.spiritForm)) {
+        if (pendingMindBlastCastEvents.has(event.id)) continue;
+        pendingMindBlastCastEvents.add(event.id);
+        const target = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
+        const casterGroup = dummyGroups.get(event.casterId);
+        if (casterGroup) casterGroup.rotation.y = characterFacingRotation(casterGroup, target.x - casterGroup.position.x, target.z - casterGroup.position.z);
+        playJohnCast(event.casterId, target, () => {
+          pendingMindBlastCastEvents.delete(event.id);
+          processedSpellProjectiles.add(event.id);
+          spawnMindBlastImpact(event);
+        }, undefined, 'mind-blast', { projectile: false, releaseSeconds: JOHN_MIND_BLAST_IMPACT_SECONDS });
+        continue;
+      }
+      processedSpellProjectiles.add(event.id);
+      spawnMindBlastImpact(event);
       continue;
     }
+    processedSpellProjectiles.add(event.id);
     if (event.style === 'lightning') {
       const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0));
       const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
@@ -4098,21 +4263,17 @@ function syncSpellProjectiles() {
       }
       continue;
     }
-    if (event.style === 'holy-fire') {
-      const group = new THREE.Group();
-      group.position.copy(worldPosition(event.to)); group.position.y += 0.08;
-      const flames: THREE.Mesh[] = [];
-      for (let index = 0; index < 9; index++) {
-        const angle = index / 9 * Math.PI * 2;
-        const radius = index % 3 === 0 ? 0.16 : 0.48;
-        const material = new THREE.MeshStandardMaterial({ color: index % 2 ? 0xffd84d : 0xfff3a0, emissive: index % 2 ? 0xff7a00 : 0xffd83d, emissiveIntensity: 4, transparent: true, opacity: .9 });
-        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16 + (index % 3) * 0.035, 0.9 + (index % 4) * 0.17, 8), material);
-        flame.position.set(Math.cos(angle) * radius, flame.geometry.parameters.height / 2, Math.sin(angle) * radius);
-        flame.rotation.z = Math.sin(angle) * .12; flame.rotation.x = Math.cos(angle) * .12;
-        group.add(flame); flames.push(flame);
-      }
-      const light = new THREE.PointLight(0xffc33d, 5, 5); light.position.y = 1; group.add(light);
-      scene.add(group); holyFireAnimations.push({ group, flames, startedAt: performance.now() });
+    if (event.style === 'holy-fire' || event.style === 'cleanse-immolate' || event.style === 'repent-fire') {
+      if (event.style === 'repent-fire') {
+        const tiles: THREE.Vector3[] = [];
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+          const cell = { x: event.to.x + dx, y: event.to.y + dy };
+          if (cell.x >= 1 && cell.x <= visualBoardWidth() && cell.y >= 0 && cell.y < visualBoardHeight()) tiles.push(worldPosition(cell));
+        }
+        const fire = new JohnRepentFire(performance.now(), worldPosition(event.to), tiles);
+        scene.add(fire.group);
+        repentFireAnimations.push(fire);
+      } else spawnJohnFireImpact(event);
       continue;
     }
     const shadowDagger = event.id.includes('-shadow-dagger-');
@@ -4236,17 +4397,36 @@ function updateSpellProjectiles(time: number) {
       moonwaveAnimations.splice(index, 1);
     }
   }
+  for (let index = repentFireAnimations.length - 1; index >= 0; index--) {
+    if (repentFireAnimations[index].update(time)) {
+      repentFireAnimations[index].dispose();
+      repentFireAnimations.splice(index, 1);
+    }
+  }
   for (let index = holyFireAnimations.length - 1; index >= 0; index--) {
     const animation = holyFireAnimations[index];
-    const progress = Math.min(1, (time - animation.startedAt) / 2000);
+    const progress = Math.min(1, (time - animation.startedAt) / animation.duration);
+    if (animation.style === 'cleanse-immolate') animation.group.rotation.y = progress * Math.PI * 1.35;
     animation.flames.forEach((flame, flameIndex) => {
-      const pulse = .72 + Math.sin(time * .012 + flameIndex * 1.7) * .24;
-      flame.scale.set(pulse, .75 + Math.sin(time * .016 + flameIndex) * .3, pulse);
+      const cleanseImmolate = animation.style === 'cleanse-immolate';
+      const pulse = (cleanseImmolate ? .62 : .72) + Math.sin(time * (cleanseImmolate ? .018 : .012) + flameIndex * 1.7) * (cleanseImmolate ? .2 : .24);
+      flame.scale.set(pulse, (cleanseImmolate ? .62 : .75) + Math.sin(time * .016 + flameIndex) * .3, pulse);
+      flame.position.y = Number(flame.userData.baseY) + (cleanseImmolate ? progress * 0.35 : 0);
       (flame.material as THREE.MeshStandardMaterial).opacity = progress > .72 ? Math.max(0, (1 - progress) / .28) : .9;
     });
+    if (animation.ring) {
+      const ringMaterial = animation.ring.material as THREE.MeshBasicMaterial;
+      animation.ring.scale.setScalar(0.7 + progress * 1.25);
+      ringMaterial.opacity = Math.max(0, 0.72 * (1 - progress));
+    }
     if (progress >= 1) {
-      scene.remove(animation.group);
-      animation.flames.forEach((flame) => { flame.geometry.dispose(); (flame.material as THREE.Material).dispose(); });
+      animation.group.removeFromParent();
+      animation.group.traverse((part) => {
+        if (!(part instanceof THREE.Mesh)) return;
+        part.geometry.dispose();
+        const materials = Array.isArray(part.material) ? part.material : [part.material];
+        materials.forEach((material) => material.dispose());
+      });
       holyFireAnimations.splice(index, 1);
     }
   }
@@ -4386,6 +4566,10 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (spectreAnimation?.oneShot) return;
     const obiWanAnimation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
     if (obiWanAnimation?.power || obiWanAnimation?.attack || obiWanAnimation?.danceThrough) return;
+    const johnAnimation = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
+    const johnSpiritAnimation = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+    if (johnAnimation?.attack || johnSpiritAnimation?.attack || johnCastWaits.has(playerId)
+      || group.userData.pendingJohnCast || group.userData.pendingJohnSpiritAttack) return;
     const shieldStillFlying = [...objectMovementAnimations.keys()].some((objectId) => {
       const object = objectGroups.get(objectId);
       const animation = objectMovementAnimations.get(objectId);
@@ -5028,6 +5212,15 @@ function installArenaProp(root: THREE.Group, fallback: THREE.Group, asset: Await
   if (fallback.parent !== root || root.userData.destroying) return;
   const model = asset.scene.clone(true) as THREE.Group;
   model.name = name;
+  // Object highlighting changes material emissive values at runtime. GLTF scene
+  // clones share materials by default, so every prop instance needs its own
+  // material objects or highlighting one crate will make all crates glow.
+  model.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.material = Array.isArray(child.material)
+      ? child.material.map((material) => material.clone())
+      : child.material.clone();
+  });
   improveImportedTextureQuality(model);
   const sourceSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
   if (sourceSize.x <= 0 || sourceSize.y <= 0 || sourceSize.z <= 0) throw new Error(`${name} has invalid bounds.`);
@@ -5313,6 +5506,301 @@ function updateObiWanAttackImpacts(time: number) {
   }
 }
 
+function startJohnCastAnimation(state: JohnAnimationState, animation: JohnAttackAnimationName = 'Attack') {
+  if (!johnAnimationAvailableInForm(animation, state.spirit)) return false;
+  state.actions[state.current].fadeOut(0.08);
+  const action = state.actions[animation];
+  action.stop();
+  action.reset().setEffectiveTimeScale(johnAttackPlaybackRate(animation)).fadeIn(0.08).play();
+  state.current = animation;
+  state.attack = { animation, releaseSeconds: johnAttackReleaseSeconds(animation), releaseReached: false };
+  if (state.staff) applyJohnScepterPose(state.staff, animation);
+  return true;
+}
+
+function playJohnCast(
+  playerId: PlayerId,
+  target: THREE.Vector3,
+  impact: () => void = () => {},
+  attackerWasInSpiritForm?: boolean,
+  cardId?: string,
+  presentation?: { projectile?: boolean; releaseSeconds?: number; targetId?: PlayerId },
+) {
+  const character = dummyGroups.get(playerId);
+  if (character) {
+    const dx = target.x - character.position.x;
+    const dz = target.z - character.position.z;
+    if (Math.abs(dx) + Math.abs(dz) > 0.0001) character.rotation.y = characterFacingRotation(character, dx, dz);
+  }
+  const waiting = johnCastWaits.get(playerId);
+  if (waiting) { waiting.callbacks.push(impact); return; }
+  const player = gameState.players[playerId];
+  if (!player || player.character !== 'john-christ') { impact(); return; }
+  const spirit = Boolean(attackerWasInSpiritForm ?? player.spiritForm);
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData[spirit ? 'johnSpiritAnimation' : 'johnNormalAnimation'] as JohnAnimationState | undefined;
+  const animation: JohnAttackAnimationName = spirit ? 'Attack' : johnAttackAnimation(cardId);
+  let releaseSeconds = presentation?.releaseSeconds
+    ?? (spirit ? JOHN_SPIRIT_ATTACK_DAMAGE_SECONDS : johnAttackReleaseSeconds(animation));
+  if (cardId === 'repent' && !spirit) {
+    // Match the animation updater's end-of-clip tolerance so it cannot retire
+    // the raised-hand pose before releasing the impact and damage counters.
+    releaseSeconds = (state?.actions.Cleanse.getClip().duration ?? 26 / 24) - 1 / 120;
+    if (group) group.userData.repentDamagePending = performance.now() + 5000;
+  }
+  if (state) {
+    // A loaded rig starts immediately; only an absent rig gets a pending-load
+    // marker. A stale marker would hold Spirit Form or the Blessing queue open.
+    if (group) {
+      delete group.userData[spirit ? 'pendingJohnSpiritAttack' : 'pendingJohnCast'];
+      delete group.userData[spirit ? 'pendingJohnSpiritAttackReleaseSeconds' : 'pendingJohnCastReleaseSeconds'];
+    }
+    if (!startJohnCastAnimation(state, animation)) { impact(); return; }
+  } else if (group) {
+    if (spirit) {
+      group.userData.pendingJohnSpiritAttack = true;
+      group.userData.pendingJohnSpiritAttackReleaseSeconds = releaseSeconds;
+    } else {
+      group.userData.pendingJohnCast = animation;
+      group.userData.pendingJohnCastReleaseSeconds = releaseSeconds;
+    }
+  }
+  if (state?.attack) state.attack.releaseSeconds = releaseSeconds;
+  johnCastWaits.set(playerId, {
+    callbacks: [impact],
+    target: target.clone(),
+    targetId: presentation?.targetId,
+    fallbackReleaseAt: performance.now() + releaseSeconds * 1000 / johnAttackPlaybackRate(animation),
+    projectile: presentation?.projectile ?? (!spirit && johnAttackUsesProjectile(cardId)),
+    beam: !spirit && animation === 'BlessedBeam' ? cardId === 'blessed-might' ? 'might' : 'light' : false,
+    released: false,
+    spirit,
+  });
+}
+
+function launchJohnCastProjectile(playerId: PlayerId, wait: JohnCastWait, time: number) {
+  const character = dummyGroups.get(playerId);
+  const state = character?.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  character?.updateWorldMatrix(true, true);
+  const staffHead = state?.staff?.getObjectByName('JohnChristScepterHeadSocket');
+  const hand = state?.model.getObjectByName('RightHand');
+  const from = staffHead?.getWorldPosition(new THREE.Vector3())
+    ?? hand?.getWorldPosition(new THREE.Vector3())
+    ?? character?.position.clone().add(new THREE.Vector3(0, 1.45, 0))
+    ?? wait.target.clone();
+  const direction = wait.target.clone().sub(from).normalize();
+  from.addScaledVector(direction, 0.13);
+  const group = new THREE.Group();
+  group.name = 'JohnCastOverheadProjectile';
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13, 14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xfff0a6, emissive: 0xffa800, emissiveIntensity: 5.5, roughness: 0.18 }),
+  );
+  core.scale.set(1, 0.72, 1.6);
+  core.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
+  group.add(core);
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffcf45, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  group.add(halo);
+  group.add(new THREE.PointLight(0xffb62e, 4.8, 2.8, 2));
+  group.position.copy(from);
+  scene.add(group);
+  johnCastProjectiles.push({
+    playerId,
+    group,
+    from,
+    to: wait.target.clone(),
+    startedAt: time,
+    duration: johnCastProjectileDurationMs(from.distanceTo(wait.target)),
+    callbacks: wait.callbacks,
+  });
+  wait.released = true;
+}
+
+function updateJohnCastProjectiles(time: number) {
+  johnCastWaits.forEach((wait, playerId) => {
+    if (wait.released) return;
+    const state = dummyGroups.get(playerId)?.userData[wait.spirit ? 'johnSpiritAnimation' : 'johnNormalAnimation'] as JohnAnimationState | undefined;
+    if (wait.beam && state?.attack) {
+      if (!state.attack.releaseReached) return;
+    } else if (!state?.attack?.releaseReached && time < wait.fallbackReleaseAt + (state ? 180 : 0)) return;
+    if (wait.beam) {
+      const origin = johnBeamOrigin(playerId, wait.target);
+      const target = johnBeamTarget(wait);
+      const effect = new JohnBlessedBeam(time, origin.distanceTo(target), () => {
+        for (const callback of wait.callbacks) callback();
+        syncBoard();
+      }, wait.beam);
+      wait.released = true;
+      wait.beamEndAt = effect.endsAt;
+      johnBlessedBeams.push({ playerId, wait, effect });
+      scene.add(effect.group);
+      if (!state) {
+        const group = dummyGroups.get(playerId);
+        if (group) { delete group.userData.pendingJohnCast; delete group.userData.pendingJohnCastReleaseSeconds; }
+      }
+      return;
+    }
+    if (wait.projectile) {
+      launchJohnCastProjectile(playerId, wait, time);
+      return;
+    }
+    wait.released = true;
+    johnCastWaits.delete(playerId);
+    for (const callback of wait.callbacks) callback();
+    syncBoard();
+  });
+  for (let index = johnBlessedBeams.length - 1; index >= 0; index--) {
+    const beam = johnBlessedBeams[index];
+    if (!beam.effect.update(time, johnBeamOrigin(beam.playerId, beam.wait.target), johnBeamTarget(beam.wait))) continue;
+    beam.effect.dispose();
+    johnBlessedBeams.splice(index, 1);
+    if (johnCastWaits.get(beam.playerId) === beam.wait) johnCastWaits.delete(beam.playerId);
+  }
+  for (let index = johnCastProjectiles.length - 1; index >= 0; index--) {
+    const projectile = johnCastProjectiles[index];
+    const progress = Math.min(1, (time - projectile.startedAt) / projectile.duration);
+    const eased = 1 - Math.pow(1 - progress, 2);
+    projectile.group.position.lerpVectors(projectile.from, projectile.to, eased);
+    projectile.group.position.y += Math.sin(progress * Math.PI) * 0.12;
+    projectile.group.scale.setScalar(0.9 + Math.sin(progress * Math.PI) * 0.28);
+    if (progress < 1) continue;
+    scene.remove(projectile.group);
+    projectile.group.traverse((part) => {
+      if (!(part instanceof THREE.Mesh)) return;
+      part.geometry.dispose();
+      (part.material as THREE.Material).dispose();
+    });
+    johnCastProjectiles.splice(index, 1);
+    johnCastWaits.delete(projectile.playerId);
+    for (const callback of projectile.callbacks) callback();
+  }
+}
+
+function johnBeamOrigin(playerId: PlayerId, fallback: THREE.Vector3) {
+  const group = dummyGroups.get(playerId);
+  const state = group?.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  group?.updateWorldMatrix(true, true);
+  return state?.staff?.getObjectByName('JohnChristScepterHeadSocket')?.getWorldPosition(new THREE.Vector3())
+    ?? group?.localToWorld(new THREE.Vector3(0, 1.8, -0.5))
+    ?? fallback.clone();
+}
+
+function johnBeamTarget(wait: JohnCastWait) {
+  const target = wait.targetId ? dummyGroups.get(wait.targetId) : undefined;
+  return target?.localToWorld(new THREE.Vector3(0, 1.25, 0)) ?? wait.target.clone();
+}
+
+function syncBlessingPresentationEvents() {
+  for (const event of gameState.blessingAnimations) {
+    if (processedBlessingAnimations.has(event.id)) continue;
+    processedBlessingAnimations.add(event.id);
+    const queue = blessingPresentationQueues.get(event.playerId) ?? [];
+    queue.push({ ...event, released: false, attackObserved: false });
+    blessingPresentationQueues.set(event.playerId, queue);
+  }
+}
+
+function unreleasedBlessingForCard(instanceId: string) {
+  for (const queue of blessingPresentationQueues.values()) {
+    if (queue.some((presentation) => presentation.cardInstanceId === instanceId && !presentation.released)) return true;
+  }
+  return false;
+}
+
+function displayedStoicShell(playerId: PlayerId, actual: boolean) {
+  if (!actual) return false;
+  return !(blessingPresentationQueues.get(playerId) ?? []).some((presentation) => presentation.revealStoicShell && !presentation.released);
+}
+
+function johnAttackAnimationActive(playerId: PlayerId) {
+  const group = dummyGroups.get(playerId);
+  const normal = group?.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  const spirit = group?.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+  return Boolean(normal?.attack || spirit?.attack || group?.userData.pendingJohnCast || group?.userData.pendingJohnSpiritAttack || johnCastWaits.has(playerId));
+}
+
+function enemyAttackAnimationActive(defenderId: PlayerId, time: number) {
+  for (const [playerId, group] of dummyGroups) {
+    if (playerId === defenderId) continue;
+    const merylin = group.userData.merylinAnimation as MerylinAnimation | undefined;
+    if (merylin?.isAttacking) return true;
+    const obiWan = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    if (obiWan?.attack && !obiWan.attack.finished) return true;
+    const orkk = group.userData.orkkAnimation as OrkkAnimationState | undefined;
+    if (orkk?.characterAttack && !orkk.characterAttack.finished) return true;
+    if (orkk?.oneShotUntil && time < orkk.oneShotUntil && (orkk.current === 'CharacterAttack' || orkk.current === 'BoxAttack')) return true;
+    const john = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
+    const johnSpirit = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+    if (john?.attack || johnSpirit?.attack) return true;
+  }
+  return false;
+}
+
+function startJohnBlessingAnimation(state: JohnAnimationState, presentation: BlessingPresentation) {
+  if (!johnAnimationAvailableInForm('Blessing', state.spirit)) return false;
+  state.actions[state.current].fadeOut(0.08);
+  const action = state.actions.Blessing;
+  action.stop();
+  action.reset().setEffectiveTimeScale(1).fadeIn(0.08).play();
+  state.current = 'Blessing';
+  state.blessing = { presentation };
+  if (state.staff) applyJohnScepterPose(state.staff, 'Blessing');
+  return true;
+}
+
+function releaseBlessingPresentation(presentation: BlessingPresentation) {
+  if (presentation.released) return;
+  presentation.released = true;
+  spawnEffectMessage(presentation.playerId, cardDefinition({ instanceId: presentation.cardInstanceId, cardId: presentation.cardId }).name, 'blessing');
+  if (presentation.cardId === 'blessing-swiftness') spawnStatEffectVisual(presentation.playerId, 1, 'MOV');
+  const group = dummyGroups.get(presentation.playerId);
+  const player = gameState.players[presentation.playerId];
+  if (group && player) updateStoicShellAura(group, displayedStoicShell(presentation.playerId, player.stoicShell));
+  renderUI();
+}
+
+function updateBlessingPresentationQueues(time: number) {
+  for (const [playerId, queue] of blessingPresentationQueues) {
+    const presentation = queue[0];
+    if (!presentation) { blessingPresentationQueues.delete(playerId); continue; }
+    const player = gameState.players[playerId];
+    const group = dummyGroups.get(playerId);
+    const state = group?.userData.johnNormalAnimation as JohnAnimationState | undefined;
+    if (!player || player.character !== 'john-christ' || player.hp <= 0) {
+      releaseBlessingPresentation(presentation);
+      queue.shift();
+      continue;
+    }
+    // Gameplay must never wait for a clip that does not exist in the active
+    // form. Resolve the event immediately and skip only its presentation.
+    if (!johnAnimationAvailableInForm('Blessing', player.spiritForm)) {
+      releaseBlessingPresentation(presentation);
+      queue.shift();
+      continue;
+    }
+    if (!state) {
+      if (group?.userData.characterModelLoadSettled !== false) {
+        releaseBlessingPresentation(presentation);
+        queue.shift();
+      }
+      continue;
+    }
+    if (state.blessing) continue;
+    if (presentation.source === 'attack' && presentation.playAttackFirst) {
+      if (johnAttackAnimationActive(playerId)) presentation.attackObserved = true;
+      if (!presentation.attackObserved || state.attack) continue;
+    }
+    if (presentation.source === 'block' && enemyAttackAnimationActive(playerId, time)) continue;
+    if (!startJohnBlessingAnimation(state, presentation)) {
+      releaseBlessingPresentation(presentation);
+      queue.shift();
+    }
+  }
+}
+
 function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?:THREE.Vector3): number {
   const group = dummyGroups.get(playerId);
   if (group?.userData.character === 'merylin') {
@@ -5323,6 +5811,10 @@ function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId
   const obiWanClip = player ? obiWanAttackClip(player.character, player.lightsaberBuff) : null;
   if (obiWanClip) {
     playObiWanAttack(playerId, obiWanClip, impact);
+    return Number.POSITIVE_INFINITY;
+  }
+  if (player?.character === 'john-christ') {
+    playJohnCast(playerId, (target ?? group?.position ?? new THREE.Vector3()).clone().add(new THREE.Vector3(0, 0.8, 0)), impact, player.spiritForm, cardId);
     return Number.POSITIVE_INFINITY;
   }
   playOrkkOneShot(playerId, 'BoxAttack');
@@ -5503,7 +5995,7 @@ function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
 }
 
 function finishingBlowVisualsActive(time: number) {
-  if (spellProjectileAnimations.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
+  if (spellProjectileAnimations.length > 0 || johnCastProjectiles.length > 0 || johnBlessedBeams.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
   if (objectMovementAnimations.size > 0 || movementAnimations.size > 0 || objectImpactAnimations.size > 0 || impactAnimations.size > 0) return true;
   if (damageNumbers.length > 0 || statEffectBubbles.length > 0 || stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
   for (const group of dummyGroups.values()) {
@@ -6809,7 +7301,34 @@ type JohnAnimationState = {
   staff?: THREE.Object3D;
   movementStartedAt?: number;
   routeDistance: number;
+  attack?: { animation: JohnAttackAnimationName; releaseSeconds: number; releaseReached: boolean; beamRecoveryStarted?: boolean };
+  blessing?: { presentation: BlessingPresentation };
 };
+
+function johnRepentRaiseDefersSpiritVisual(group: THREE.Group, playerId: PlayerId): boolean {
+  if (gameState.players[playerId]?.hp <= 0) return false;
+  const pending = gameState.pendingAttack;
+  const pendingNormalRepent = pending?.attackerId === playerId
+    && pending.cardId === 'repent'
+    && !pending.attackerWasInSpiritForm;
+  const queuedNormalRepent = johnCombatAttacker?.attackerId === playerId
+    && johnCombatAttacker.cardId === 'repent'
+    && !johnCombatAttacker.attackerWasInSpiritForm;
+  const normal = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
+  const raisingHand = normal?.attack?.animation === 'Cleanse';
+  const counterReading = performance.now() < Number(group.userData.repentSpiritNotBefore ?? 0);
+  return Boolean(pendingNormalRepent || queuedNormalRepent || raisingHand || counterReading);
+}
+
+function johnSpiritAttackDefersNormalVisual(group: THREE.Group, playerId: PlayerId): boolean {
+  if (gameState.players[playerId]?.hp <= 0) return false;
+  const queuedSpiritAttack = johnCombatAttacker?.attackerId === playerId
+    && johnCombatAttacker.attackerWasInSpiritForm;
+  const spirit = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+  const loadingSpiritAttack = group.userData.pendingJohnSpiritAttack === true;
+  const waitingSpiritImpact = johnCastWaits.get(playerId)?.spirit === true;
+  return Boolean(queuedSpiritAttack || spirit?.attack || loadingSpiritAttack || waitingSpiritImpact);
+}
 
 // Bone-local transforms authored in Blender for the optimized scepter. Blender
 // stores quaternions as w,x,y,z; Three.js expects x,y,z,w.
@@ -6821,6 +7340,11 @@ const JOHN_SCEPTER_POSES: Record<JohnAnimationName, {
   Idle: { position: [-1.29069448, 12.61922646, 2.85937119], quaternion: [0.68877989, -0.7156539, 0.05587576, 0.10148717], scale: 67.68447 },
   Walk: { position: [8.76818562, 13.34613705, -1.54648757], quaternion: [0.64134777, -0.57101053, -0.22247671, 0.46165374], scale: 67.68447 },
   Run: { position: [-0.40190029, 15.96422958, -1.52334976], quaternion: [0.655083, -0.58753252, -0.19742815, 0.43208089], scale: 67.68447 },
+  Attack: { position: [-1.29069448, 12.61922646, 2.85937119], quaternion: [0.68877989, -0.7156539, 0.05587576, 0.10148717], scale: 67.68447 },
+  Cleanse: { position: [-1.29069448, 12.61922646, 2.85937119], quaternion: [0.68877989, -0.7156539, 0.05587576, 0.10148717], scale: 67.68447 },
+  MindBlast: { position: [1.07135069, 6.8659, 1.21547055], quaternion: [-0.97138727, 0.18215443, 0.07831559, 0.13074103], scale: 67.68445 },
+  Blessing: { position: [3.26746321, 13.90686035, -1.33904958], quaternion: [0.63792229, -0.63442659, -0.11687256, 0.42059341], scale: 67.68447 },
+  BlessedBeam: { position: [-1.29069448, 12.61922646, 2.85937119], quaternion: [0.68877989, -0.7156539, 0.05587576, 0.10148717], scale: 67.68447 },
 };
 
 // glTF converted mesh vertices (x,y,z) to (x,z,-y), while the
@@ -6852,7 +7376,7 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
       `${import.meta.env.BASE_URL}models/john-christ-spirit.glb?v=20260911-1`,
       (url) => new GLTFLoader().loadAsync(url),
     ).catch((error) => { johnSpiritAssetPromise = null; throw error; })) : (johnAssetPromise ??= retryAssetLoad(
-      `${import.meta.env.BASE_URL}models/john-christ.glb?v=20260911-1`,
+      `${import.meta.env.BASE_URL}models/john-christ.glb?v=20260922-7`,
       (url) => new GLTFLoader().loadAsync(url),
     ).catch((error) => { johnAssetPromise = null; throw error; })));
     if (body.parent !== root) return;
@@ -6879,6 +7403,10 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
           child.receiveShadow = true;
           child.material = Array.isArray(child.material) ? child.material.map((m) => m.clone()) : child.material.clone();
         });
+        const headSocket = new THREE.Object3D();
+        headSocket.name = 'JohnChristScepterHeadSocket';
+        headSocket.position.set(...JOHN_SCEPTER_HEAD_LOCAL);
+        staff.add(headSocket);
         applyJohnScepterPose(staff, 'Idle');
         hand.add(staff);
       } catch (error) {
@@ -6888,11 +7416,25 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     const mixer = new THREE.AnimationMixer(model);
     const actions = {} as Record<JohnAnimationName, THREE.AnimationAction>;
     for (const name of Object.keys(JOHN_CLIPS) as JohnAnimationName[]) {
-      const clip = spirit
-        ? name === 'Idle' ? createJohnSpiritIdle(model, asset.animations.find(c => c.name === 'Alert')!) : asset.animations.find(c => c.name === 'Unsteady_Walk')
+      const sourceClip = spirit
+        ? name === 'Idle'
+          ? createJohnSpiritIdle(model, asset.animations.find(c => c.name === 'Alert')!)
+          : asset.animations.find(c => c.name === (name === 'Attack' ? JOHN_SPIRIT_ATTACK_CLIP : 'Unsteady_Walk'))
         : asset.animations.find((candidate) => candidate.name === JOHN_CLIPS[name]);
-      if (!clip) throw new Error(`John Christ GLB missing ${JOHN_CLIPS[name]}`);
-      actions[name] = mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity);
+      if (!sourceClip) throw new Error(`John Christ GLB missing ${JOHN_CLIPS[name]}`);
+      const clip = !spirit && (name === 'MindBlast' || name === 'BlessedBeam') ? sourceClip.clone() : sourceClip;
+      if (!spirit && name === 'BlessedBeam') {
+        // Blender exports frame 1 at 1/fps; start this clip at source frame 1.
+        clip.tracks.forEach((track) => track.shift(-1 / JOHN_BLESSED_BEAM_FPS));
+        clip.resetDuration();
+      }
+      if (!spirit && name === 'MindBlast') {
+        clip.tracks.forEach((track) => track.trim(0, JOHN_MIND_BLAST_END_SECONDS));
+        clip.duration = JOHN_MIND_BLAST_END_SECONDS;
+      }
+      const oneShot = name === 'Attack' || name === 'Cleanse' || name === 'MindBlast' || name === 'BlessedBeam' || name === 'Blessing';
+      actions[name] = mixer.clipAction(clip).setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
+      if (oneShot) actions[name].clampWhenFinished = false;
     }
     const playerId = root.userData.playerId as PlayerId | undefined;
     model.traverse((child) => {
@@ -6911,9 +7453,24 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     if (spirit && !deathClip) throw new Error('Spirit model is missing Dead');
     const death = deathClip ? mixer.clipAction(deathClip).setLoop(THREE.LoopOnce, 1) : undefined;
     if (death) death.clampWhenFinished = true;
-    const state = { mixer, actions, current: 'Idle', body, model, spirit, healthAnchor, death, staff, routeDistance: 0 } satisfies JohnAnimationState;
+    const state: JohnAnimationState = { mixer, actions, current: 'Idle', body, model, spirit, healthAnchor, death, staff, routeDistance: 0 };
     root.userData[spirit ? 'johnSpiritAnimation' : 'johnNormalAnimation'] = state;
     if (!spirit) root.userData.johnAnimation = state;
+    if (!spirit && root.userData.pendingJohnCast) {
+      const pendingJohnCast = root.userData.pendingJohnCast as JohnAttackAnimationName;
+      const pendingJohnCastReleaseSeconds = Number(root.userData.pendingJohnCastReleaseSeconds);
+      delete root.userData.pendingJohnCast;
+      delete root.userData.pendingJohnCastReleaseSeconds;
+      startJohnCastAnimation(state, pendingJohnCast);
+      if (state.attack && Number.isFinite(pendingJohnCastReleaseSeconds)) state.attack.releaseSeconds = pendingJohnCastReleaseSeconds;
+    }
+    if (spirit && root.userData.pendingJohnSpiritAttack) {
+      const releaseSeconds = Number(root.userData.pendingJohnSpiritAttackReleaseSeconds);
+      delete root.userData.pendingJohnSpiritAttack;
+      delete root.userData.pendingJohnSpiritAttackReleaseSeconds;
+      startJohnCastAnimation(state, 'Attack');
+      if (state.attack && Number.isFinite(releaseSeconds)) state.attack.releaseSeconds = releaseSeconds;
+    }
     model.visible = !spirit;
     if (playerId) updateSpiritFormVisual(root, Boolean(gameState.players[playerId].spiritForm));
     if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
@@ -6938,9 +7495,11 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
         pending?.cardInstanceId,
         Boolean(pending),
         completedCombatVisualAttackId ?? undefined,
+        johnSpiritAttackDefersNormalVisual(group, playerId),
       );
+      const presentedDesired = desired && !johnRepentRaiseDefersSpiritVisual(group, playerId);
       const current = Boolean(group.userData.spiritVisualTarget);
-      const released = resolveSpiritVisualTarget(current, desired, performance.now(), postCombatVisualNotBefore);
+      const released = resolveSpiritVisualTarget(current, presentedDesired, performance.now(), postCombatVisualNotBefore);
       if (released !== current) updateSpiritFormVisual(group, released);
     }
     const active = Boolean(group.userData.spiritVisualTarget);
@@ -6961,6 +7520,47 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
       state.actions.Idle.reset().play(); state.current = 'Idle';
       if (!state.spirit && state.staff) applyJohnScepterPose(state.staff, 'Idle');
     } else { state.mixer.update(deltaSeconds); return; }
+  }
+  if (state.attack) {
+    const action = state.actions[state.attack.animation];
+    if (state.attack.animation === 'BlessedBeam' && !state.attack.beamRecoveryStarted) {
+      const toHold = Math.max(0, (JOHN_BLESSED_BEAM_HOLD_SECONDS - action.time) / JOHN_BLESSED_BEAM_SPEED);
+      state.mixer.update(Math.min(deltaSeconds, toHold));
+      state.attack.releaseReached ||= action.time >= state.attack.releaseSeconds;
+      if (action.time >= JOHN_BLESSED_BEAM_HOLD_SECONDS - 1e-6) {
+        const wait = playerId ? johnCastWaits.get(playerId) : undefined;
+        if (wait && (wait.beamEndAt === undefined || performance.now() < wait.beamEndAt)) return;
+        state.attack.beamRecoveryStarted = true;
+        action.time = JOHN_BLESSED_BEAM_RECOVERY_SECONDS;
+        state.mixer.update(0);
+      }
+      return;
+    }
+    state.mixer.update(deltaSeconds);
+    state.attack.releaseReached ||= action.time >= state.attack.releaseSeconds;
+    if (action.isRunning() && action.time < action.getClip().duration - 1 / 120) return;
+    if (playerId && state.attack.releaseReached && johnCastWaits.get(playerId)?.released === false) return;
+    state.attack = undefined;
+    action.fadeOut(0.08);
+    state.actions.Idle.reset().setEffectiveTimeScale(1).fadeIn(0.08).play();
+    state.current = 'Idle';
+    if (state.staff) applyJohnScepterPose(state.staff, 'Idle');
+    return;
+  }
+  if (state.blessing) {
+    state.mixer.update(deltaSeconds);
+    const action = state.actions.Blessing;
+    if (action.time >= JOHN_BLESSING_RELEASE_SECONDS) releaseBlessingPresentation(state.blessing.presentation);
+    if (action.isRunning() && action.time < action.getClip().duration - 1 / 120) return;
+    releaseBlessingPresentation(state.blessing.presentation);
+    const queue = playerId ? blessingPresentationQueues.get(playerId) : undefined;
+    if (queue?.[0] === state.blessing.presentation) queue.shift();
+    state.blessing = undefined;
+    action.fadeOut(0.16);
+    state.actions.Idle.reset().setEffectiveTimeScale(1).fadeIn(0.16).play();
+    state.current = 'Idle';
+    if (state.staff) applyJohnScepterPose(state.staff, 'Idle');
+    return;
   }
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
   const now = performance.now();
@@ -8466,6 +9066,7 @@ function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPi
 }
 
 function syncBoard() {
+  syncBlessingPresentationEvents();
   const arenaId = visualArena().id;
   if (lightingArenaId !== arenaId) {
     lightingArenaId = arenaId;
@@ -8615,7 +9216,7 @@ function syncBoard() {
     if (equippedShield) equippedShield.visible = (gameState.players[id].shieldEquipped && !recallInFlight) || throwInFlight;
     if (character === 'shinobi') updateSwiftformVisual(group, obiWanHologramActive(group, id));
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
-    updateStoicShellAura(group, gameState.players[id].stoicShell);
+    updateStoicShellAura(group, displayedStoicShell(id, gameState.players[id].stoicShell));
     syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
@@ -8933,6 +9534,43 @@ function animateHotPotato(time: number) {
   if (!hotPotatoModel?.parent) return;
   const seconds = time / 1000;
   const floating = hotPotatoModel.getObjectByName('HotPotatoFloating')!;
+  if (hotPotatoCarrier) {
+    const character = dummyGroups.get(hotPotatoCarrier);
+    if (!character) return;
+    if (hotPotatoPickup?.waitForTile) {
+      const anchor = (gameState as GameStateWithQuestPhases).questPhases?.hotPotato?.anchor;
+      const x = character.position.x / 1.92 + (visualBoardWidth() + 1) / 2;
+      const y = character.position.z / 1.92 + (visualBoardHeight() - 1) / 2;
+      const reachedTile = anchor && x >= Math.floor(anchor.x) - .5 && x <= Math.ceil(anchor.x) + .5
+        && y >= Math.floor(anchor.y) - .5 && y <= Math.ceil(anchor.y) + .5;
+      const queued = [...impactTriggeredCharacterMovements.values()].some((entries) => entries.some((entry) => entry.playerId === hotPotatoCarrier));
+      if (reachedTile || (!movementAnimations.has(hotPotatoCarrier) && !queued)) hotPotatoPickup.waitForTile = false;
+    }
+    if (!hotPotatoPickup?.waitForTile) {
+      const target = hotPotatoHeadPosition(hotPotatoCarrier, character);
+      if (hotPotatoPickup) {
+        if (hotPotatoPickup.startedAt === null) {
+          hotPotatoPickup.startedAt = time;
+          floating.getWorldPosition(hotPotatoPickup.from);
+        }
+        const progress = THREE.MathUtils.clamp((time - hotPotatoPickup.startedAt) / 620, 0, 1);
+        const eased = THREE.MathUtils.smoothstep(progress, 0, 1);
+        hotPotatoModel.position.lerpVectors(hotPotatoPickup.from, target, eased);
+        hotPotatoModel.position.y += Math.sin(progress * Math.PI) * .4;
+        hotPotatoModel.scale.setScalar(THREE.MathUtils.lerp(hotPotatoPickup.fromScale, .36, eased));
+        if (progress === 1) hotPotatoPickup = null;
+      } else {
+        hotPotatoModel.position.copy(target);
+        hotPotatoModel.scale.setScalar(.36);
+      }
+      floating.position.y = 0;
+      floating.rotation.y = seconds * .8;
+      floating.rotation.x = Math.sin(seconds * 1.4) * .06;
+      hotPotatoModel.getObjectByName('HotPotatoHalo')!.visible = false;
+      hotPotatoModel.getObjectByName('HotPotatoEmbers')!.visible = false;
+      return;
+    }
+  }
   floating.position.y = .72 + Math.sin(seconds * 2) * .075;
   floating.rotation.y = seconds * .45;
   floating.rotation.x = Math.sin(seconds * 1.4) * .06;
@@ -8947,11 +9585,47 @@ function animateHotPotato(time: number) {
   });
 }
 
+function hotPotatoHeadPosition(playerId: PlayerId, character: THREE.Group) {
+  const healthBar = characterHealthBars.get(playerId);
+  const anchor = healthBar?.position.clone() ?? character.position.clone().setY(visibleCharacterTop(character) + .4);
+  // Use screen-up so orbiting/zooming cannot project the potato onto the HUD strip.
+  const depth = Math.max(.1, anchor.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())));
+  const pixelsPerUnit = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * depth);
+  const row = overheadStatusRows.get(playerId);
+  const statusScale = THREE.MathUtils.clamp(pixelsPerUnit * .46 / 64, .28, 1.15);
+  const stripHeight = healthBarsVisible && row && row.childElementCount > 0 ? 9 + 71 * statusScale : 0;
+  const clearancePixels = Math.max(stripHeight, .275 * pixelsPerUnit / 2) + 10 + .24 * pixelsPerUnit;
+  return anchor.addScaledVector(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1), clearancePixels / Math.max(1, pixelsPerUnit));
+}
+
 function syncHotPotatoVisual() {
   const potato = (gameState as GameState & { questPhases?: { hotPotato?: { anchor: { x: number; y: number }; carrierId: PlayerId | null } | null } }).questPhases?.hotPotato;
-  if (!potato || potato.carrierId) { hotPotatoModel?.removeFromParent(); return; }
+  if (!potato) {
+    hotPotatoModel?.removeFromParent();
+    hotPotatoCarrier = null;
+    hotPotatoPickup = null;
+    return;
+  }
+  const wasVisible = hotPotatoModel?.parent === scene;
   hotPotatoModel ??= createHotPotatoModel();
   if (hotPotatoModel.parent !== scene) scene.add(hotPotatoModel);
+  if (potato.carrierId) {
+    if (potato.carrierId !== hotPotatoCarrier) {
+      hotPotatoPickup = wasVisible ? {
+        waitForTile: hotPotatoCarrier === null,
+        startedAt: null,
+        from: new THREE.Vector3(),
+        fromScale: hotPotatoModel.scale.x,
+      } : null;
+      hotPotatoCarrier = potato.carrierId;
+    }
+    return;
+  }
+  hotPotatoCarrier = null;
+  hotPotatoPickup = null;
+  hotPotatoModel.scale.setScalar(1);
+  hotPotatoModel.getObjectByName('HotPotatoHalo')!.visible = true;
+  hotPotatoModel.getObjectByName('HotPotatoEmbers')!.visible = true;
   const surfaceY = visualArena().id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : .08;
   hotPotatoModel.position.set((potato.anchor.x - (visualBoardWidth() + 1) / 2) * 1.92, surfaceY, (potato.anchor.y - (visualBoardHeight() - 1) / 2) * 1.92);
   animateHotPotato(performance.now());
@@ -9042,7 +9716,9 @@ function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
       pending?.cardInstanceId,
       Boolean(pending),
       completedCombatVisualAttackId ?? undefined,
+      johnSpiritAttackDefersNormalVisual(group, playerId),
     );
+    if (active && johnRepentRaiseDefersSpiritVisual(group, playerId)) active = false;
   }
   // Combat damage updates game state while its reveal still covers the board.
   // Hold the currently displayed form until the same post-combat gate used by
@@ -9064,7 +9740,7 @@ function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
     applySpiritBlend(normal.model, spirit.model, body, group.userData.spiritVisualBlend ?? 0);
     return;
   }
-  body.scale.setScalar(active ? 1.13 : 1);
+  body.scale.setScalar(1);
   const bulk = group.getObjectByName('SpiritBulk');
   if (bulk) bulk.scale.set(active ? 1.2 : 1, active ? 1.08 : 1, active ? 1.16 : 1);
   const leftArm = group.getObjectByName('JohnArmLeft');
@@ -9178,6 +9854,14 @@ function spectreAttackOriginForTarget(attacker: GameState['players'][PlayerId], 
   return candidates.find(({ position, range }) => distance(position, target) <= range && hasLineOfSight(gameState, position, target) && canAttackTargetSquare(gameState, position, target))?.origin ?? null;
 }
 
+function selectedAttackCanReach(attacker: GameState['players'][PlayerId], selectedCard: GameState['players'][PlayerId]['hand'][number] | null | undefined, target: Cell): boolean {
+  if (attacker.character === 'spectre') return Boolean(spectreAttackOriginForTarget(attacker, target));
+  return Boolean(selectedCard)
+    && attackCardTargetInRange(gameState, attacker, selectedCard!.cardId, target)
+    && hasLineOfSight(gameState, attacker.position, target)
+    && canAttackTargetSquare(gameState, attacker.position, target);
+}
+
 function highlightCells() {
   const selected = selection.getSnapshot().context.selection;
   const movementPlayerId = gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId
@@ -9269,9 +9953,7 @@ function highlightCells() {
       && distance(dakkothCaster!.position, cell) <= effectiveAttackRange(gameState, dakkothCaster!);
     const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || objectOnCell!.kind !== 'wall-pillar');
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
-    const attackTargetReachable = activePlayer.character === 'spectre'
-      ? Boolean(spectreAttackOriginForTarget(activePlayer, cell))
-      : Boolean(selectedCard && attackCardTargetInRange(gameState, activePlayer, selectedCard.cardId, cell) && hasLineOfSight(gameState, activePlayer.position, cell) && canAttackTargetSquare(gameState, activePlayer.position, cell));
+    const attackTargetReachable = selectedAttackCanReach(activePlayer, selectedCard, cell);
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && !playerOnCellIsEntombed) || (attackableObject && !(objectOnCell!.kind === 'spectre-replica' && objectOnCell!.ownerId === activePlayer.id)))
       && attackTargetReachable;
     const selectedPerkTargetValid = selected.kind === 'perk' && gameState.phase === 'active' && (
@@ -9400,9 +10082,7 @@ function updateTargetHighlights(time: number) {
     }
     const targetIsEntombed = Boolean(target.wrecknaInsideTombId && gameState.objects.some((object) => object.id === target.wrecknaInsideTombId && object.kind === 'tomb'));
     const perkProtected = isShadowCloakedPerkTarget(gameState, 'player', playerId);
-    const attackTargetReachable = attacker.character === 'spectre'
-      ? Boolean(spectreAttackOriginForTarget(attacker, target.position))
-      : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, target.position) && hasLineOfSight(gameState, attacker.position, target.position) && canAttackTargetSquare(gameState, attacker.position, target.position);
+    const attackTargetReachable = selectedAttackCanReach(attacker, selectedAttack, target.position);
     const validAttack = canTarget && playerId !== attacker.id && !targetIsEntombed && attackTargetReachable;
     const pullCaster = pull ? gameState.players[pull.casterId] : null;
     const validPull = canPullTarget && !perkProtected && playerId !== pull!.casterId && distance(pullCaster!.position, target.position) <= pull!.targetRange && hasLineOfSight(gameState, pullCaster!.position, target.position);
@@ -9432,9 +10112,7 @@ function updateTargetHighlights(time: number) {
   });
   objectGroups.forEach((group, objectId) => {
     const object = gameState.objects.find((entry) => entry.id === objectId);
-    const attackObjectReachable = object && (attacker.character === 'spectre'
-      ? Boolean(spectreAttackOriginForTarget(attacker, object.position))
-      : Boolean(selectedAttack) && attackCardTargetInRange(gameState, attacker, selectedAttack!.cardId, object.position) && hasLineOfSight(gameState, attacker.position, object.position) && canAttackTargetSquare(gameState, attacker.position, object.position));
+    const attackObjectReachable = object && selectedAttackCanReach(attacker, selectedAttack, object.position);
     const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || object!.kind !== 'wall-pillar')
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
     const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
@@ -9733,25 +10411,25 @@ function onBoardClick(event: MouseEvent) {
       selectedSpectreAttackOrigin = 'replica';
       notify('Attack origin: Replica. Now select an enemy body.');
       renderUI();
-    } else if (occupiedTomb) {
+    } else if (occupiedTomb && selectedAttackCanReach(attacker, selectedAttackCard, occupiedTomb.position)) {
       if (attacker.character === 'spectre') {
         const origin = spectreAttackOriginForTarget(attacker, occupiedTomb.position);
         if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: occupiedTomb.id, targetKind: 'object' }); }
       } else dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: occupiedTomb.id, targetKind: 'object' });
-    } else if (playerHit && attacker.character === 'spectre') {
+    } else if (playerHit && attacker.character === 'spectre' && selectedAttackCanReach(attacker, selectedAttackCard, gameState.players[playerHit].position)) {
       const origin = spectreAttackOriginForTarget(attacker, gameState.players[playerHit].position);
       if (origin) { selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: playerHit, targetKind: 'player' }); }
     }
-    else if (hitObject?.kind === 'spectre-replica' && hitObject.ownerId !== attacker.id) {
+    else if (hitObject?.kind === 'spectre-replica' && hitObject.ownerId !== attacker.id && selectedAttackCanReach(attacker, selectedAttackCard, hitObject.position)) {
       const origin = attacker.character === 'spectre' ? spectreAttackOriginForTarget(attacker, hitObject.position) : 'spectre';
       if (origin) { if (attacker.character === 'spectre') selectedSpectreAttackOrigin = origin; dispatch({ type: 'spectre-attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, origin, targetId: hitObject.id, targetKind: 'replica' }); }
     }
-    else if (playerHit) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
+    else if (playerHit && selectedAttackCanReach(attacker, selectedAttackCard, gameState.players[playerHit].position)) dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: playerHit, targetKind: 'player' });
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
       const normallyAttackable = object?.kind !== 'wall-pillar';
-      if (object && (normallyAttackable || moonlightCanTargetWall)) {
+      if (object && (normallyAttackable || moonlightCanTargetWall) && selectedAttackCanReach(attacker, selectedAttackCard, object.position)) {
         const targetsWall = moonlightCanTargetWall && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield');
         const message = targetsWall
           ? 'Moonlight leaves this Wall Object standing and creates the moonwave behind it.'

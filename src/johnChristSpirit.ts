@@ -10,8 +10,9 @@ export function spiritVisualDesired(
   pendingAttackId?: string,
   pendingAttackUsedSpirit = false,
   completedAttackId?: string,
+  holdSpiritUntilAttackFinishes = false,
 ): boolean {
-  return defeated || spiritForm || Boolean(pendingAttackUsedSpirit && pendingAttackId && pendingAttackId !== completedAttackId);
+  return defeated || spiritForm || holdSpiritUntilAttackFinishes || Boolean(pendingAttackUsedSpirit && pendingAttackId && pendingAttackId !== completedAttackId);
 }
 
 export function advanceSpiritBlend(value: number, active: boolean, delta: number): number {
@@ -22,7 +23,7 @@ export function applySpiritBlend(normal: THREE.Object3D, spirit: THREE.Object3D,
   const t = value * value * (3 - 2 * value);
   normal.visible = value < 1;
   spirit.visible = value > 0;
-  body.scale.setScalar(1 + 0.13 * t);
+  body.scale.setScalar(1);
   for (const [model, opacity] of [[normal, 1 - t], [spirit, 0.7 * t]] as const) {
     model.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;

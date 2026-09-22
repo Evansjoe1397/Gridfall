@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, perkUseEventForCommand, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, perkUseEventForCommand, perkUseEventForTransition, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 import { grantMerylinSummon } from '../shared/game.ts';
 import { addForcedStatusCard, forcedStatusCount } from '../shared/game.ts';
 
@@ -27,6 +27,37 @@ assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-perk', pla
 assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'use-echo-perk', playerId: 'P1', position: 2 }), { playerId: 'P1', cardId: 'echo-pulse', name: 'Echo Pulse', level: 2 }, 'A Spell Echo Perk announces its occupied level.');
 assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-free-action', playerId: 'P1', cardInstanceId: 'label-portal' }), { playerId: 'P1', cardId: 'portal', name: 'Portal' }, 'Portal announces without a level suffix.');
 assert.deepEqual(perkUseEventForCommand(perkLabelState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'label-leveled', destination: 'echo' }), { playerId: 'P1', cardId: 'echo-pulse', name: 'Echo Pulse', level: 1 }, 'Placing a Perk into Spell Echo announces the level 1 effects that are used immediately.');
+
+const delayedPerkLabelState = structuredClone(perkLabelState);
+delayedPerkLabelState.objects = [];
+delayedPerkLabelState.players.P1.position = { x: 2, y: 2 };
+delayedPerkLabelState.players.P2.position = { x: 3, y: 2 };
+delayedPerkLabelState.players.P1.spellEcho = [{ instanceId: 'label-firebolt', cardId: 'firebolt' }, null, null];
+const beginDelayedPerk = { type: 'use-echo-perk', playerId: 'P1', position: 1 } as const;
+const delayedPerkStarted = applyGameCommand(delayedPerkLabelState, beginDelayedPerk);
+assert.equal(delayedPerkStarted.ok, true);
+if (delayedPerkStarted.ok) {
+  assert.equal(perkUseEventForTransition(delayedPerkLabelState, beginDelayedPerk, delayedPerkStarted.state), null, 'Selecting a targeted Spell Echo Perk does not announce it yet.');
+  const cancelDelayedPerk = { type: 'cancel-targeting', playerId: 'P1' } as const;
+  const delayedPerkCancelled = applyGameCommand(delayedPerkStarted.state, cancelDelayedPerk);
+  assert.equal(delayedPerkCancelled.ok, true);
+  if (delayedPerkCancelled.ok) {
+    assert.equal(perkUseEventForTransition(delayedPerkStarted.state, cancelDelayedPerk, delayedPerkCancelled.state), null, 'Cancelling a selected Perk with Escape never announces it.');
+  }
+}
+
+const resolvedPerkLabelState = structuredClone(delayedPerkLabelState);
+const resolvedPerkStarted = applyGameCommand(resolvedPerkLabelState, beginDelayedPerk);
+assert.equal(resolvedPerkStarted.ok, true);
+if (resolvedPerkStarted.ok) {
+  assert.equal(perkUseEventForTransition(resolvedPerkLabelState, beginDelayedPerk, resolvedPerkStarted.state), null);
+  const resolveDelayedPerk = { type: 'fireball-target', playerId: 'P1', targetId: 'P2', targetKind: 'player' } as const;
+  const delayedPerkResolved = applyGameCommand(resolvedPerkStarted.state, resolveDelayedPerk);
+  assert.equal(delayedPerkResolved.ok, true);
+  if (delayedPerkResolved.ok) {
+    assert.deepEqual(perkUseEventForTransition(resolvedPerkStarted.state, resolveDelayedPerk, delayedPerkResolved.state), { playerId: 'P1', cardId: 'firebolt', name: 'Firebolt' }, 'A targeted Spell Echo Perk announces when its target is confirmed and the Perk resolves.');
+  }
+}
 
 const noCombatAcknowledgement = createGameInitialState();
 assert.equal(applyGameCommand(noCombatAcknowledgement, { type: 'ack-combat', playerId: 'P1', combatExpiresAt: 123 }).ok, true, 'A delayed acknowledgement is idempotent after its combat result has already closed.');
@@ -6585,6 +6616,7 @@ if (cleanseAttack.ok) {
       assert.ok(burning, 'Cleanse adds Burning to the target’s Hand after combat.');
       assert.equal(burning?.revealedToOpponent, true, 'The applied Burning Status is public information.');
       assert.equal(burning?.sourcePlayerId, 'P1', 'Burning remembers John as its source.');
+      assert.equal(cleanseAckTwo.state.spellProjectiles.some((event) => event.style === 'cleanse-immolate' && event.targetId === 'P2'), true, 'Cleanse emits its immolate presentation on the Burning target.');
     }
   }
 }
@@ -6732,7 +6764,7 @@ if (repentAttack.ok) {
       assert.equal(repentAckTwo.state.players.P1.hp, 1, 'Repent! deals 1 HP Damage to John after combat.');
       assert.equal(repentAckTwo.state.players.P1.spiritForm, true, 'Surviving HP Damage from Repent! makes John enter Spirit Form.');
       assert.equal(repentAckTwo.state.players.P2.hp, 17, 'The adjacent target takes combat Damage and 2 additional Repent! Damage.');
-      assert.equal(repentAckTwo.state.spellProjectiles.some((event) => event.style === 'holy-fire' && event.targetId === 'P2'), true, 'Repent! emits Holy Fire under each affected adjacent enemy.');
+      assert.equal(repentAckTwo.state.spellProjectiles.some((event) => event.style === 'repent-fire' && event.targetId === 'P1'), true, 'Repent! emits a flame circle centered on John.');
     }
   }
 }

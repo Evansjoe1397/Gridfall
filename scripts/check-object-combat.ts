@@ -24,6 +24,21 @@ function attack(state: GameState): GameState {
   return command(state, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetKind: 'object', targetId: 'target' });
 }
 
+const outOfRangeBlessedMight = setup('blessed-might', 'john-christ');
+outOfRangeBlessedMight.objects[0].position = { x: 7, y: 2 };
+const rejectedBlessedMight = applyCommand(outOfRangeBlessedMight, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetKind: 'object', targetId: 'target' });
+assert.equal(rejectedBlessedMight.ok, false);
+if (!rejectedBlessedMight.ok) assert.equal(rejectedBlessedMight.error, "Object is outside Blessed Might's attack range.");
+const rejectedBlessedMightPlayer = applyCommand(outOfRangeBlessedMight, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetKind: 'player', targetId: 'P2' });
+assert.equal(rejectedBlessedMightPlayer.ok, false);
+if (!rejectedBlessedMightPlayer.ok) assert.equal(rejectedBlessedMightPlayer.error, "Target is outside Blessed Might's attack range.");
+
+const outOfRangeExcalibur = setup('excalibur', 'merylin');
+outOfRangeExcalibur.objects[0].position = { x: 4, y: 3 };
+const rejectedExcalibur = applyCommand(outOfRangeExcalibur, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetKind: 'object', targetId: 'target' });
+assert.equal(rejectedExcalibur.ok, false);
+if (!rejectedExcalibur.ok) assert.equal(rejectedExcalibur.error, "Object is outside Excalibur's Range 2 or not in a direct line.");
+
 // Box attacks emit one Merylin swing event (boxes break regardless of stored HP).
 for (const hp of [1,100]) {
   const initial=setup('attack-2','merylin');
@@ -82,6 +97,11 @@ for (const lightsaberBuff of [false, true]) {
 for (const [cardId, blessing] of [['blessed-light', 'blessing-light'], ['blessed-might', 'blessing-might']] as const) {
   assert.equal(attack(setup(cardId, 'john-christ')).players.P1.hand.some((card) => card.cardId === blessing), true);
 }
+const normalJohnBoxAttack = attack(setup('attack-2', 'john-christ'));
+assert.equal(normalJohnBoxAttack.objectPushAnimations.some((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1'), true, 'Normal-form John emits Cast Overhead for a Box attack.');
+const spiritJohnBoxAttack = setup('attack-2', 'john-christ');
+spiritJohnBoxAttack.players.P1.spiritForm = true;
+assert.equal(attack(spiritJohnBoxAttack).objectPushAnimations.some((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1'), false, 'Spirit-form John keeps its existing Box attack presentation.');
 const judgement = setup('judgement', 'john-christ');
 judgement.players.P1.spiritForm = true;
 const judged = attack(judgement);
@@ -95,7 +115,7 @@ const repented = attack(repent);
 assert.equal(repented.players.P1.hp, repent.players.P1.hp - 1);
 assert.equal(repented.players.P2.hp, repent.players.P2.hp - 2);
 assert.equal(repented.players.P1.matchStats.attackDamage, 2);
-assert.equal(repented.spellProjectiles.some((event) => event.style === 'holy-fire'), true);
+assert.equal(repented.spellProjectiles.some((event) => event.style === 'repent-fire'), true);
 
 let barter = attack(setup('shadow-barter', 'wreckna'));
 assert.equal(barter.players.P1.hand.some((card) => card.instanceId === 'draw'), true);

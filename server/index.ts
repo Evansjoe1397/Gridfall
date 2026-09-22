@@ -1,7 +1,7 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
-import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForCommand, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
 type GameFormat = 'duel' | 'ffa';
@@ -94,13 +94,14 @@ class DuelRoom extends Room {
     const wizardActionEvent = wizardActionEventForCommand(this.game, parsed.data);
     const forcePowerActionEvent = forcePowerActionEventForCommand(this.game, parsed.data);
     const spectreActionEvent = spectreActionEventForCommand(this.game, parsed.data);
-    const perkUseEvent = perkUseEventForCommand(this.game, parsed.data);
+    const previousGame = this.game;
     const result = applyCommand(this.game, parsed.data);
     if (!result.ok) {
       client.send('error', result.error);
       return;
     }
     this.game = result.state;
+    const perkUseEvent = perkUseEventForTransition(previousGame, parsed.data, this.game);
     if (orkkActionEvent) this.broadcast('orkk-action', orkkActionEvent);
     if (wizardActionEvent) this.broadcast('wizard-action', wizardActionEvent);
     if (spectreActionEvent) this.broadcast('spectre-action', spectreActionEvent);

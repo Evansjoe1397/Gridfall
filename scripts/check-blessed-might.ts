@@ -32,6 +32,9 @@ for (const card of ['thorns', 'flurry-defensive-strikes'] as const) {
   assert.equal(result.players.P1.hand.some((entry) => entry.cardId === 'burning'), false);
   assert.notEqual(result.phase, 'flurry-offer');
   assert.equal(hasBlessing(result), true);
+  assert.equal(result.blessingAnimations.at(-1)?.source, 'attack');
+  assert.equal(result.blessingAnimations.at(-1)?.cardId, 'blessing-might');
+  assert.equal(result.blessingAnimations.at(-1)?.playAttackFirst, true);
 }
 const mana = setup('mana-shield', 'magician');
 mana.players.P2.manaPoints = 1;

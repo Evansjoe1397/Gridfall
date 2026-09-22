@@ -289,6 +289,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .perk-use-label { position: absolute; max-width: 280px; transform: translate(-50%, -100%); color: var(--player-color); font: 800 18px 'Barlow Condensed', sans-serif; line-height: 1; letter-spacing: .035em; text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.95), 0 0 8px color-mix(in srgb, var(--player-color) 72%, transparent); white-space: nowrap; will-change: left, top, opacity; }
 .stat-effect-bubble { position: absolute; transform: translateY(-50%); color: #66f2cf; font: 900 18px 'Barlow Condensed', sans-serif; line-height: 1; letter-spacing: .035em; white-space: nowrap; text-shadow: -2px -2px 0 rgba(0,36,32,.96), 2px -2px 0 rgba(0,36,32,.96), -2px 2px 0 rgba(0,36,32,.96), 2px 2px 0 rgba(0,36,32,.96), 0 0 8px rgba(102,242,207,.65); will-change: left, top, opacity; }
 .stat-effect-bubble.negative { color: #d88cff; text-shadow: -2px -2px 0 rgba(31,7,48,.96), 2px -2px 0 rgba(31,7,48,.96), -2px 2px 0 rgba(31,7,48,.96), 2px 2px 0 rgba(31,7,48,.96), 0 0 8px rgba(216,140,255,.65); }
+.stat-effect-bubble.blessing { color: #ffe08a; text-shadow: -2px -2px 0 rgba(48,31,5,.96), 2px -2px 0 rgba(48,31,5,.96), -2px 2px 0 rgba(48,31,5,.96), 2px 2px 0 rgba(48,31,5,.96), 0 0 9px rgba(255,224,138,.72); }
 .stat-effect-bubble.left { transform: translate(-100%, -50%); }
 .overhead-character-statuses { position: absolute; top: 0; left: 0; display: flex; gap: 12px; transform: translate3d(var(--overhead-x, -1000px), var(--overhead-y, -1000px), 0) translate(-50%, calc(-100% - 9px)) scale(var(--overhead-scale, .5)); transform-origin: bottom center; pointer-events: none; backface-visibility: hidden; will-change: transform; }
 .overhead-status-layer .overhead-character-statuses .status-icon { width: 64px; height: 64px; flex: 0 0 64px; font-size: 34px; pointer-events: auto; border-width: 2px; }
@@ -562,7 +563,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .combat-card label strong { color: white; font-size: 22px; }
 .combat-card > div { flex: 1; min-height: 265px; padding: 18px; display: flex; flex-direction: column; text-align: left; border: 1px solid #315a50; border-top: 5px solid var(--red); background: linear-gradient(145deg, #162722, #09120f); }
 .combat-card.defend > div { border-top-color: var(--blue); }
-.combat-card span { color: #71988e; font-size: 9px; letter-spacing: .16em; }
+.combat-card > div > span { color: #71988e; font-size: 9px; letter-spacing: .16em; }
 .combat-card h3 { margin: 7px 0; font: 800 26px 'Barlow Condensed'; text-transform: uppercase; }
 .combat-card > div > b { padding-top: 8px; border-top: 1px solid #29443d; color: white; font: 800 40px 'Barlow Condensed'; }
 .combat-card small { margin-top: auto; color: #a5c4bc; font-size: 13px; line-height: 1.45; }
