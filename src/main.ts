@@ -3947,7 +3947,7 @@ function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' |
 }
 
 const characterCalloutScreenPosition = new THREE.Vector3();
-function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked') {
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | '+1 Range') {
   const element = document.createElement('div');
   element.className = `character-callout-bubble ${text.toLowerCase()}`;
   element.style.setProperty('--player-color', playerUiColor(playerId));
@@ -7661,6 +7661,7 @@ function syncManaConsumeAnimation(playerId: PlayerId, group: THREE.Group) {
   const eventId = gameState.players[playerId].manaConsumeEventId;
   if (!eventId || processedManaConsumeEvents.has(eventId)) return;
   processedManaConsumeEvents.add(eventId);
+  spawnCharacterCalloutBubble(playerId, '+1 Range');
   const effect = new THREE.Group();
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.64, 7, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0xb978ff, transparent: true, opacity: 0.72, depthWrite: false, blending: THREE.AdditiveBlending }));
   beam.position.y = 4.1;
