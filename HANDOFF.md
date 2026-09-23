@@ -1,134 +1,108 @@
 # Gridfall Development Handoff
 
-Updated 2026-09-09. Read this document completely before continuing.
+Updated 2026-09-20. Read this document completely before continuing.
 
 ## Workspace and instructions
 
-- Workspace: C:\Users\evans\BoardGame\BoardGame2
-- Repository: https://github.com/Evansjoe1397/Gridfall.git
-- Branch: main
-- Local HEAD and last-fetched origin/main: 17869c7 (Update character rules and merge latest interface improvements).
-- No fetch was performed for this handoff. Check GitHub again only when relevant to the user's request.
-- Preserve all existing work. Do not commit or push unless explicitly requested.
-- Read AGENTS.md. It prohibits browser checks/automation unless the user explicitly overrides it; the user handles visual verification.
-- Use apply_patch for file edits. Launch background processes with hidden windows.
-- No new development task is pending: the user requested this handoff and a fresh conversation.
+- Workspace: `C:\Users\evans\BoardGame\BoardGame2`
+- Repository: `https://github.com/Evansjoe1397/Gridfall.git`
+- Branch: `main`
+- Local HEAD: `4da1925` (`Cycle character archive animations`)
+- At this handoff, `main` is not reported ahead of or behind `origin/main` by `git status -sb`. No fetch was performed while preparing the handoff.
+- Read `AGENTS.md` before doing any work. It prohibits browser checks and browser automation unless the user explicitly overrides that rule.
+- Preserve all existing work. Do not commit or push unless the user explicitly requests it.
+- Use `apply_patch` for source edits and hidden windows for long-running background processes.
+- The user requested this handoff so development can continue in a different chat. No additional feature request is pending.
 
 ## Uncommitted work to preserve
 
-Before this document was updated, these files were modified:
-- server/index.ts
-- src/main.ts
-- src/style.css
+The post-game combat-summary download is being migrated from Excel (`.xlsx`) to CSV (`.csv`). The working tree intentionally contains:
 
-They contain the new live character-selection model previews. HANDOFF.md is now also modified. The preview changes have NOT been committed or pushed.
+- `package.json` - removed the `exceljs` dependency.
+- `package-lock.json` - dependency tree updated by `npm uninstall exceljs` (91 packages removed).
+- `src/main.ts` - imports the CSV helper, downloads a UTF-8 CSV blob, uses a `.csv` filename, and displays CSV-specific button/status text.
+- `src/combat-summary-csv.ts` - new CSV serializer and filename helper.
+- `src/combat-summary-xlsx.ts` - deleted because the Excel exporter is no longer used.
+- `scripts/check-combat-summary-export.ts` - changed from XLSX workbook checks to CSV content, escaping, safety, and filename checks.
+- `HANDOFF.md` - this handoff update.
 
-A safety stash remains:
-stash@{0}: On main: Preserve local gameplay changes before 2026-09-08 pull
+The CSV keeps the existing exported data: winner, turns, player, character, result, final/max HP, movement, attack/perk/retaliation/total damage, objects destroyed, HP healed, and combat damage blocked. It uses a UTF-8 BOM, CRLF rows, quoted cells, escaped quotes, and protection against spreadsheet formula injection for string values beginning with spreadsheet control characters.
 
-That stash contains older gameplay work already restored, merged, and committed in 17869c7. Do not apply it again. Leave it alone unless cleanup is requested.
+Do not restore the deleted XLSX module or reinstall `exceljs` unless the user changes direction.
 
-## Latest feature: live model previews in online character selection
+## Validation of the CSV migration
 
-User requested Mortal Kombat-style previews in the empty areas beside the central character picker:
-- Local player's highlighted model on the left.
-- Opponent's highlighted model on the right.
-- Highlighting does not confirm selection.
-- Online clients see one another's current highlight.
-- In three-player matches both opponents appear on the right.
+Completed successfully before this handoff:
 
-Implementation:
-- src/main.ts: lobbyModelPreviews and renderLobbyModelPreviews near the bottom of the file.
-- Separate cached model roots per seat reuse the existing createObiWanShinobi, createDaOrkk, createLongHatLogan, createJohnChrist, createSpectre, createWreckna, and createMerylin factories.
-- Independent transparent Three.js renderers, lighting, full-body camera framing, and imported-model idle animation updates. Models are separate from archive/board roots.
-- renderOnlineLobby and renderOnlineSelectionFrames update the previews.
-- Pointer entry and keyboard focus immediately update local selection and send hover-character. Last highlight persists when the pointer leaves.
-- A click confirms only after the required players have joined.
-- server/index.ts allows previewCharacter while waiting for other players. Confirmation still requires a full lobby.
-- Existing lobby-state selections and characters distinguish highlight from confirmed selection.
-- CSS positions previews beside #onlineWaiting. Below 1100px they sit above the picker; FFA opponents share the right side.
-- Animation rendering skips hidden/disconnected preview hosts.
-- This feature targets the online waiting/selection screen; the separate Hotseat picker was not changed.
+- `npm run check:combat-summary-export`: PASS (`Combat summary CSV export checks passed.`)
+- `npm run typecheck`: PASS
+- `npm run build`: PASS
+- `git diff --check`: PASS, with only normal Git LF/CRLF working-copy warnings
 
-Verification after the final preview edits:
-- npm run typecheck: PASS
-- npm run build: PASS
-- git diff --check: PASS (Git reports normal LF/CRLF warnings)
-- Non-browser SDK smoke test against the running local server: PASS for highlight before another player joins, late-join highlight snapshot, remote highlight swaps, and confirmation remaining separate.
-- No browser/visual verification was performed. User may still report layout, framing, or animation refinements. FFA preview layout has not been visually verified.
-- The production build was refreshed, making the preview code available through the public server while it was running.
+The production build still emits the known non-fatal JavaScript chunk-size warning. No browser or visual verification was performed, in accordance with `AGENTS.md`.
 
-## Runtime state and launch instructions
+## Current Git state
 
-At handoff, Get-Process found no node or cloudflared processes. The Cloudflare log records shutdown on 2026-09-08 at 20:13 UTC. Check ports/processes again before launching.
+Expected status after this handoff:
 
-Last temporary public URL:
-https://raid-genius-construction-volunteer.trycloudflare.com
+```text
+## main...origin/main
+ M HANDOFF.md
+ M package-lock.json
+ M package.json
+ M scripts/check-combat-summary-export.ts
+ D src/combat-summary-xlsx.ts
+ M src/main.ts
+?? src/combat-summary-csv.ts
+```
 
-Treat that URL as expired; do not promise it is available.
+There are several historical safety stashes (`stash@{0}` through `stash@{4}`). They were created around earlier pulls and their work has generally already been restored or committed. Do not apply or drop any stash without first inspecting it and confirming it is actually needed.
 
-Development:
-1. Check ports 5173 and 2567 to avoid duplicate servers.
-2. Run npm run dev from the workspace.
-3. Local Vite client: http://localhost:5173/
-4. Multiplayer server: http://localhost:2567/
+## Recent committed baseline
 
-Public multiplayer:
-1. Run npm run build; port 2567 serves dist, not Vite's current source.
-2. Keep the multiplayer server running.
-3. Launch cloudflared tunnel --url http://127.0.0.1:2567 --no-autoupdate
-4. Read the new temporary URL and verify HTTP reachability with a non-browser request.
+Recent commits, newest first:
 
-Use hidden Start-Process helpers. Existing log names:
-- dev-server.log / dev-server-error.log
-- cloudflared.log / cloudflared-error.log
+- `4da1925` Cycle character archive animations
+- `07d1d67` Merge branch `main`
+- `8fb4ded` Fixed the hot potato placement and style
+- `841de4d` Add Da Orkk attack animation
+- `2add5b4` Obi Wan attack animations plus combat/effect text improvements
+- `047ebfc` Merge branch `main`
+- `3d8ee25` UI improvements and Merylin animation fixes
+- `7035f42` Added models and animations for Merylin Pendragon
 
-One tunnel to port 2567 serves both the game and WebSocket rooms. Rebuild after source/model changes for public players to receive them. Server source edits under tsx watch restart the server and can interrupt active rooms.
+The character archive animation cycle introduced in `4da1925` excludes movement animations, per the user's follow-up request.
 
-## Recent committed work
+Many gameplay and UI changes from prior development sessions are already committed, including combat effect ordering, object combat handling, character/card/perk updates, archive status tabs, post-match statistics export, and public multiplayer work. Treat the current code and regression scripts as authoritative rather than relying on old handoff descriptions.
 
-17869c7 combined local gameplay updates with:
-- fc12e4e: icons, HP bars, box pop-ups
-- 192f9a5: sky improvements
+## Runtime and launch guidance
 
-The merge preserved the upstream gameIcon system and local character rule changes. Important recent gameplay details:
-- Merylin starts at 20/20 HP; archive metadata and setup assertions match.
-- Moonlight second-square damage is 2; Lightbringer doubles its High Ground bonus.
-- John Christ gains a unique Hand-only Judgement when entering Spirit Form if not already held. Attack Value 2; after combat gain Stoic Shell if victorious. Removed whenever it leaves Hand and at turn end; cannot pay Guard/Dash; automatic removal for overstacking.
-- Feed the Spirit's Blessing payment additionally heals actual HP lost from combat damage, excluding attacking card post-combat effect damage.
-- Wreckna's Decay was renamed Curse. Internal card/command ID decay remains for compatibility.
-- Curse: level 1 steal 1 MOV; level 2 add Headache to target Hand; level 3 block target trait until target end turn. traitBlocked and status UI gate affected character traits.
-- Curse gates Lightsaber bonuses/passive renewal, John's Spirit entry and Stoic healing, Merylin's Summon-enabled attacks, Spectre replica origins, Logan Mana generation/Consume, and passive Rage generation/attack spending. Card-generated statuses/resources follow the requested exceptions. Wreckna trait powers also respect suppression.
-- Multiplayer FFA opening focus independence and combat spectator UI are included in that commit.
+No listener was detected on ports `5173` or `2567` while preparing this handoff. Full process command-line inspection was denied by the current shell permissions, so recheck ports and processes before launching.
 
-These are implementation summaries, not replacements for reading the current authoritative rules.
+Development mode:
 
-## Known validation limitation
+1. Check ports `5173` and `2567` to avoid duplicate servers.
+2. Run `npm run dev` from the repository root.
+3. Vite client: `http://localhost:5173/`
+4. Multiplayer server: `http://localhost:2567/`
 
-The last full npm run check:rules stopped at the previously reported assertion:
-"Each tied Tank Junior leader receives Helmet."
-scripts/check-rules.ts:774
+Public multiplayer must follow the workflow in `AGENTS.md`: build, run the production server on port `2567`, expose that same origin with one Cloudflare Quick Tunnel, and verify local and public HTTP reachability without a browser. Quick-tunnel URLs are temporary.
 
-This was present before the latest merge and preview work. It remains unresolved; do not claim the full rules suite passes. Assertions after this failure do not execute. Do not broaden a routine UI task into unrelated rule repair.
+## Code map and validation guidance
 
-The production build has the known non-fatal chunk-size warning (>500 kB).
+- `shared/game.ts`: authoritative cards, state, commands, targeting, combat, traits, quests, and combat statistics.
+- `shared/arenas.ts`: boards and arena definitions.
+- `server/index.ts`: Colyseus rooms, seats, lobby state, and broadcasts.
+- `src/main.ts`: primary UI, online client, Three.js board/characters, archive, lobby previews, and post-match UI.
+- `src/style.css`: layout and visual styling.
+- `src/combat-summary-csv.ts`: uncommitted post-match CSV serializer.
+- `scripts/check-combat-summary-export.ts`: focused CSV regression check.
+- Other `scripts/check-*.ts` files: focused gameplay regressions.
 
-## Code map and development guidance
+Large rules and UI files contain layered historical logic. Search related selectors, state, and command handlers before making changes. Keep Hotseat and multiplayer behavior aligned unless explicitly directed otherwise.
 
-- shared/game.ts: authoritative cards, state, commands, targeting, combat, traits, quests.
-- shared/arenas.ts: board and arena definitions.
-- server/index.ts: Colyseus rooms, seats, lobby highlight/confirmation, state broadcasts.
-- src/main.ts: UI, online client, Three.js board and character factories, archive and lobby previews.
-- src/style.css: responsive layout and visual styling.
-- src/game-icons.ts and src/assets/icons/: current icon system.
-- src/i18n.ts: translations.
-- scripts/check-rules.ts and scripts/check-replica-targeting.ts: rule regressions.
-- public/models/: imported character assets.
-
-Online roster includes Shinobi, Da Orkk, Logan, John Christ, Spectre, Wreckna, and Merylin. Multiple players can select the same character. Keep Hotseat and multiplayer rules aligned unless explicitly directed otherwise.
-
-Large rules/UI files contain layered historical logic. Search related selectors and command handlers before changing behavior. Use dealDamage with source attribution and existing movement/statistics helpers. Inspect current FFA victory logic rather than assuming every death immediately ends a match.
+The last documented full `npm run check:rules` run stopped at the pre-existing assertion `Each tied Tank Junior leader receives Helmet.` in `scripts/check-rules.ts`. Do not claim the complete rules suite passes unless it is rerun successfully, and do not broaden unrelated work into fixing that assertion without a request.
 
 ## Prompt for the new conversation
 
-Continue development of Gridfall in C:\Users\evans\BoardGame\BoardGame2. Read HANDOFF.md completely and AGENTS.md first, inspect Git status, and preserve the uncommitted character-selection model previews. Do not reapply the old safety stash. Do not commit or push unless I explicitly request it. Use non-browser verification as instructed by AGENTS.md. Wait for my next development request.
+Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` and `AGENTS.md` completely first. Inspect Git status and preserve the uncommitted CSV combat-summary migration described in the handoff. Do not apply or drop the historical safety stashes unless they are inspected and demonstrably needed. Do not commit or push unless I explicitly request it. Use non-browser verification as required by `AGENTS.md`. Wait for my next development request.

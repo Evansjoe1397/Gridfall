@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { arenaForPlayerCount, LORDAERON_ARENA, nagrandQuarter, NAGRAND_ARENA, randomNagrandBoxSpawns, randomTrenchBoxSpawns, THE_TRENCH_ARENA } from '../shared/arenas.ts';
-import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, perkUseEventForCommand, perkUseEventForTransition, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
+import { ACTION_QUEST_POOL, STARTING_DECKS, activeWrecknaPhylactery, applicableCombatCardInstanceIds, applyCommand as applyGameCommand, applyPinned, armDaWizPath, beginWrecknaPhylacteryChoice, canAttackTargetSquare, cardBaseValue, cardDefinition, cellLabel, createHotseatTestState, createInitialState as createGameInitialState, createLordaeronMultiplayerState, createMultiplayerState, createTrenchTestState, createWrecknaTomb, dealDamage, determineTimedMatchWinner, distance, drawCards, effectiveMoveRange, hasLineOfSight, hasReplicaPlacementLineOfSight, isCardRevealedToOpponents, isForbiddenSlideAscent, kykDirectionAllowed, markCharacterMoved, movementCost, movementPath, orkkActionEventForCommand, perkUseEventForCommand, perkUseEventForTransition, phaseCardCandidates, removeCard, resolveMultiplayerCombatStack, revealCardToOpponent, shieldRecallEnemyCount, spectreReplica, spectreReplicas, wizardActionEventForCommand, type CardTypeId, type LordaeronGameState } from '../shared/game.ts';
 import { grantMerylinSummon } from '../shared/game.ts';
 import { addForcedStatusCard, forcedStatusCount } from '../shared/game.ts';
 
@@ -570,7 +570,7 @@ if (consumedArcaneBolt.ok) {
   if (resolvedConsumedArcaneBolt.ok) assert.equal(resolvedConsumedArcaneBolt.state.players.P1.arcaneBoltAttackBonus, 2, 'Arcane Bolt Consume upgrades its end-of-turn Attack bonus to +2 ATT.');
 }
 const rangedArcaneBoltState = structuredClone(arcaneBoltConsumeState);
-rangedArcaneBoltState.players.P2.position = { x: 5, y: 2 };
+rangedArcaneBoltState.players.P2.position = { x: 6, y: 2 };
 assert.equal(applyCommand(rangedArcaneBoltState, { type: 'attack', playerId: 'P1', cardInstanceId: 'consume-arcane-bolt', targetId: 'P2' }).ok, false, 'Arcane Bolt Consume no longer grants Global Range.');
 
 const manaBarrageConsumeState = createHotseatTestState(true, 'magician', 2, 'dummy');
@@ -1335,8 +1335,8 @@ assert.equal(duelHotseat.players.P2.character, 'dummy');
 const wrecknaHotseat = createHotseatTestState(false, 'wreckna', 2);
 assert.equal(wrecknaHotseat.players.P1.character, 'wreckna', 'Wreckna is available in Hotseat character selection state.');
 assert.equal(wrecknaHotseat.players.P1.name, 'Wreckna');
-assert.equal(wrecknaHotseat.players.P1.maxHp, 16);
-assert.equal(wrecknaHotseat.players.P1.hp, 16);
+assert.equal(wrecknaHotseat.players.P1.maxHp, 15);
+assert.equal(wrecknaHotseat.players.P1.hp, 15);
 assert.equal(wrecknaHotseat.players.P1.moveRange, 2);
 assert.equal(wrecknaHotseat.players.P1.attackRange, 2);
 assert.equal(wrecknaHotseat.phase, 'choosing-focus', 'Wreckna uses the standard opening Focus flow.');
@@ -1526,7 +1526,7 @@ if (frostmourneAttack.ok) {
     const frostmournePaid = applyCommand(frostmourneCombat.state, { type: 'frostmourne-decision', playerId: 'P1', use: true });
     assert.equal(frostmournePaid.ok, true);
     if (frostmournePaid.ok) {
-      assert.equal(frostmournePaid.state.players.P1.hp, 21, 'Frostmourne sacrifices 1 Hit Point from Merylin.');
+      assert.equal(frostmournePaid.state.players.P1.hp, 19, 'Frostmourne sacrifices 1 Hit Point from Merylin.');
       assert.equal(frostmournePaid.state.players.P1.actionsRemaining, 2, 'Frostmourne restores 1 Action after the Attack spent one.');
       assert.equal(frostmournePaid.state.players.P1.merylinSummonActive, true, 'Paying Frostmourne\'s sacrifice grants Summon for Merylin\'s next Attack.');
       assert.equal(frostmournePaid.state.players.P1.deck.at(-1)?.instanceId, 'frostmourne-use', 'The exact used Frostmourne is placed on top of Merylin\'s Deck.');
@@ -2049,7 +2049,12 @@ if (dakkothLevelOne.ok) {
     assert.equal(placedDakkothTomb.state.objects.some((object) => object.kind === 'tomb' && object.position.x === 5 && object.position.y === 2), true);
     const endedDakkothTurn = applyGameCommand(placedDakkothTomb.state, { type: 'end-turn', playerId: 'P1' });
     assert.equal(endedDakkothTurn.ok, true);
-    if (endedDakkothTurn.ok) assert.equal(endedDakkothTurn.state.players.P1.dakkothRangeBonus, 0, 'Dakkoth Range expires at turn end.');
+    if (endedDakkothTurn.ok) {
+      assert.equal(endedDakkothTurn.state.players.P1.dakkothRangeBonus, 1, 'Dakkoth Range remains active through the enemy turn.');
+      const endedEnemyTurn = applyGameCommand(endedDakkothTurn.state, { type: 'end-turn', playerId: 'P2' });
+      assert.equal(endedEnemyTurn.ok, true);
+      if (endedEnemyTurn.ok) assert.equal(endedEnemyTurn.state.players.P1.dakkothRangeBonus, 0, 'Dakkoth Range expires at the start of Wreckna\'s next turn.');
+    }
   }
 }
 
@@ -2107,43 +2112,23 @@ necronomiconState.objects = [];
 necronomiconState.players.P1.position = { x: 2, y: 1 };
 necronomiconState.players.P2.position = { x: 4, y: 2 };
 const necronomiconTombOne = createWrecknaTomb(necronomiconState, 'P1', { x: 3, y: 2 })!;
-createWrecknaTomb(necronomiconState, 'P1', { x: 3, y: 3 });
 necronomiconState.players.P1.hand = [];
+necronomiconState.players.P1.hp = 13;
+necronomiconState.players.P1.deck = [{ instanceId: 'necronomicon-drawn-card', cardId: 'attack-2' }];
 necronomiconState.players.P1.spellEcho = [null, null, { instanceId: 'necronomicon-three', cardId: 'necronomicon' }];
-necronomiconState.players.P1.necronomiconAttackBonus = 1;
-necronomiconState.players.P2.hand = [
-  { instanceId: 'necronomicon-discard-one', cardId: 'attack-2' },
-  { instanceId: 'necronomicon-discard-two', cardId: 'defend-1' },
-];
+necronomiconState.players.P2.hand = [{ instanceId: 'necronomicon-enemy-card', cardId: 'defend-1' }];
 const necronomiconThree = applyGameCommand(necronomiconState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 const necronomiconTarget = necronomiconThree.ok ? applyGameCommand(necronomiconThree.state, { type: 'necronomicon-tomb-target', playerId: 'P1', objectId: necronomiconTombOne.id }) : necronomiconThree;
 const necronomiconChoice = necronomiconTarget.ok ? applyGameCommand(necronomiconTarget.state, { type: 'wreckna-phylactery-choice', playerId: 'P1', phylacteryType: 'might' }) : necronomiconTarget;
 assert.equal(necronomiconChoice.ok, true);
 if (necronomiconChoice.ok) {
-  assert.equal(necronomiconChoice.state.players.P1.necronomiconAttackBonus, 2, 'Necronomicon improves an existing +1 next-Attack bonus to +2 from two Tombs instead of stacking to +3.');
-  assert.equal(necronomiconChoice.state.phase as string, 'choosing-necronomicon-discard', 'An enemy adjacent orthogonally and diagonally to two Tombs must discard twice.');
-  const firstNecronomiconDiscard = applyGameCommand(necronomiconChoice.state, { type: 'necronomicon-discard', playerId: 'P2', cardInstanceId: 'necronomicon-discard-one' });
-  assert.equal(firstNecronomiconDiscard.ok, true);
-  if (firstNecronomiconDiscard.ok) {
-    assert.equal(firstNecronomiconDiscard.state.phase as string, 'choosing-necronomicon-discard');
-    const secondNecronomiconDiscard = applyGameCommand(firstNecronomiconDiscard.state, { type: 'necronomicon-discard', playerId: 'P2', cardInstanceId: 'necronomicon-discard-two' });
-    assert.equal(secondNecronomiconDiscard.ok, true);
-    if (secondNecronomiconDiscard.ok) {
-      assert.equal(secondNecronomiconDiscard.state.phase, 'active');
-      assert.equal(secondNecronomiconDiscard.state.players.P2.discard.length, 2, 'The affected enemy manually discards one Card for each adjacent Tomb.');
-      secondNecronomiconDiscard.state.players.P1.perkUsed = false;
-      secondNecronomiconDiscard.state.players.P1.actionsRemaining = 2;
-      secondNecronomiconDiscard.state.players.P1.position = { x: 4, y: 4 };
-      secondNecronomiconDiscard.state.elevations = {};
-      secondNecronomiconDiscard.state.players.P1.hand = [{ instanceId: 'necronomicon-buffed-attack', cardId: 'attack-2' }];
-      const necronomiconAttack = applyGameCommand(secondNecronomiconDiscard.state, { type: 'attack', playerId: 'P1', cardInstanceId: 'necronomicon-buffed-attack', targetId: 'P2' });
-      assert.equal(necronomiconAttack.ok, true);
-      if (necronomiconAttack.ok) {
-        assert.equal(necronomiconAttack.state.pendingAttack?.attackValue, 4, 'The next Attack receives the stored +2 Necronomicon bonus.');
-        assert.equal(necronomiconAttack.state.players.P1.necronomiconAttackBonus, 0, 'The indefinite Necronomicon bonus expires only when an Attack is used.');
-      }
-    }
-  }
+  assert.equal(necronomiconChoice.state.phase, 'active', 'Necronomicon resolves after the Phylactery type is chosen.');
+  assert.equal(necronomiconChoice.state.objects.find((object) => object.id === necronomiconTombOne.id)?.phylacteryType, 'might', 'Necronomicon infuses the selected Tomb.');
+  assert.deepEqual(necronomiconChoice.state.players.P1.position, necronomiconTombOne.position, 'Necronomicon Level 2 teleports Wreckna into the infused Tomb.');
+  assert.equal(necronomiconChoice.state.players.P1.wrecknaInsideTombId, necronomiconTombOne.id, 'Wreckna is marked as inside the infused Tomb after teleporting.');
+  assert.equal(necronomiconChoice.state.players.P1.hp, 14, 'Necronomicon Level 3 restores 1 HP.');
+  assert.equal(necronomiconChoice.state.players.P1.hand.some((card) => card.instanceId === 'necronomicon-drawn-card'), true, 'Necronomicon Level 3 draws 1 Card.');
+  assert.equal(necronomiconChoice.state.players.P2.hand.length, 1, 'Necronomicon no longer forces enemies to discard.');
 }
 
 const decayState = createHotseatTestState(true, 'wreckna', 2);
@@ -2161,7 +2146,8 @@ if (decayTargeted.ok) {
   assert.equal(decayTargeted.state.players.P1.decayMovementBonus, 1, 'Curse grants Wreckna 1 stolen MOV until Wreckna\'s turn ends.');
   assert.equal(decayTargeted.state.players.P1.movementRemaining, 3, 'Curse applies its stolen MOV after automatically resolving Free Move + Draw.');
   assert.equal(decayTargeted.state.players.P2.hexMovementPenalty, 1, 'Curse applies -1 MOV through the target\'s next turn.');
-  assert.equal(decayTargeted.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Curse Level 2 adds Headache to the target\'s Hand.');
+  assert.equal(decayTargeted.state.players.P2.discard.some((card) => card.cardId === 'exhaust'), true, 'Curse Level 2 adds Exhaust to the target\'s Discard.');
+  assert.equal(decayTargeted.state.players.P2.hand.some((card) => card.cardId === 'headache'), false, 'Curse Level 2 no longer adds Headache to the target\'s Hand.');
   assert.equal(decayTargeted.state.players.P2.traitBlocked, true, 'Curse Level 3 blocks the target\'s Trait.');
   const decayCasterTurnEnded = applyGameCommand(decayTargeted.state, { type: 'end-turn', playerId: 'P1' });
     assert.equal(decayCasterTurnEnded.ok, true);
@@ -2404,53 +2390,18 @@ if (powerlessImmortalityDefense.ok) {
 }
 
 const graveyardReductionState = createHotseatTestState(true, 'shinobi', 2, 'wreckna');
-graveyardReductionState.objects = [];
 graveyardReductionState.players.P1.position = { x: 2, y: 2 };
 graveyardReductionState.players.P2.position = { x: 3, y: 2 };
+graveyardReductionState.objects = [{ id: 'graveyard-adjacent-tomb', name: 'Tomb', kind: 'tomb', ownerId: 'P2', hp: 3, maxHp: 3, position: { x: 4, y: 2 }, heavy: true }];
 graveyardReductionState.players.P1.hand = [{ instanceId: 'graveyard-reduction-attack', cardId: 'attack-3' }];
-graveyardReductionState.players.P2.hand = [
-  { instanceId: 'graveyard-reduction-defense', cardId: 'graveyard' },
-  { instanceId: 'graveyard-held-tomb-block', cardId: 'tomb-block' },
-];
+graveyardReductionState.players.P2.hand = [{ instanceId: 'graveyard-reduction-defense', cardId: 'graveyard' }];
 const graveyardReductionAttack = applyGameCommand(graveyardReductionState, { type: 'attack', playerId: 'P1', cardInstanceId: 'graveyard-reduction-attack', targetId: 'P2' });
 const graveyardReductionDefense = graveyardReductionAttack.ok ? applyGameCommand(graveyardReductionAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-reduction-defense' }) : graveyardReductionAttack;
 assert.equal(graveyardReductionDefense.ok, true);
 if (graveyardReductionDefense.ok) {
   assert.equal(graveyardReductionDefense.state.combatReveal?.attackTotal, 3, 'Graveyard no longer decreases the played Attack Value.');
-  assert.equal(graveyardReductionDefense.state.combatReveal?.defendTotal, 4, 'Graveyard has Value 4 when Tomb Block is already in Wreckna\'s Hand.');
-  assert.equal(graveyardReductionDefense.state.players.P2.hand.some((card) => card.cardId === 'tomb-block'), true, 'The held Tomb Block remains in Hand.');
-}
-
-const graveyardDeckReturnState = createHotseatTestState(true, 'shinobi', 2, 'wreckna');
-graveyardDeckReturnState.objects = [];
-graveyardDeckReturnState.players.P1.position = { x: 2, y: 2 };
-graveyardDeckReturnState.players.P2.position = { x: 3, y: 2 };
-graveyardDeckReturnState.players.P1.hand = [{ instanceId: 'graveyard-deck-attack', cardId: 'attack-3' }];
-graveyardDeckReturnState.players.P2.hand = [{ instanceId: 'graveyard-deck-defense', cardId: 'graveyard' }];
-graveyardDeckReturnState.players.P2.deck = [{ instanceId: 'graveyard-deck-tomb-block', cardId: 'tomb-block' }];
-graveyardDeckReturnState.players.P2.discard = [];
-const graveyardDeckAttack = applyGameCommand(graveyardDeckReturnState, { type: 'attack', playerId: 'P1', cardInstanceId: 'graveyard-deck-attack', targetId: 'P2' });
-const graveyardDeckDefense = graveyardDeckAttack.ok ? applyGameCommand(graveyardDeckAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-deck-defense' }) : graveyardDeckAttack;
-assert.equal(graveyardDeckDefense.ok, true);
-if (graveyardDeckDefense.ok) {
-  assert.equal(graveyardDeckDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-deck-tomb-block'), false, 'Graveyard does not return Tomb Block without sacrificing a Tomb.');
-  assert.equal(graveyardDeckDefense.state.players.P2.deck.length, 1);
-}
-
-const graveyardDiscardReturnState = createHotseatTestState(true, 'shinobi', 2, 'wreckna');
-graveyardDiscardReturnState.objects = [];
-graveyardDiscardReturnState.players.P1.position = { x: 2, y: 2 };
-graveyardDiscardReturnState.players.P2.position = { x: 3, y: 2 };
-graveyardDiscardReturnState.players.P1.hand = [{ instanceId: 'graveyard-discard-attack', cardId: 'attack-3' }];
-graveyardDiscardReturnState.players.P2.hand = [{ instanceId: 'graveyard-discard-defense', cardId: 'graveyard' }];
-graveyardDiscardReturnState.players.P2.deck = [];
-graveyardDiscardReturnState.players.P2.discard = [{ instanceId: 'graveyard-discard-tomb-block', cardId: 'tomb-block' }];
-const graveyardDiscardAttack = applyGameCommand(graveyardDiscardReturnState, { type: 'attack', playerId: 'P1', cardInstanceId: 'graveyard-discard-attack', targetId: 'P2' });
-const graveyardDiscardDefense = graveyardDiscardAttack.ok ? applyGameCommand(graveyardDiscardAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard-discard-defense' }) : graveyardDiscardAttack;
-assert.equal(graveyardDiscardDefense.ok, true);
-if (graveyardDiscardDefense.ok) {
-  assert.equal(graveyardDiscardDefense.state.players.P2.hand.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), false, 'Graveyard does not return Tomb Block from Discard without sacrificing a Tomb.');
-  assert.equal(graveyardDiscardDefense.state.players.P2.discard.some((card) => card.instanceId === 'graveyard-discard-tomb-block'), true);
+  assert.equal(graveyardReductionDefense.state.combatReveal?.defendTotal, 4, 'Graveyard has Value 4 when Wreckna is adjacent to a Tomb.');
+  assert.equal(graveyardReductionDefense.state.objects.some((object) => object.id === 'graveyard-adjacent-tomb'), true, 'Graveyard no longer sacrifices a Tomb.');
 }
 
 const lichdomDirectState = createHotseatTestState(true, 'wreckna', 2);
@@ -2477,7 +2428,7 @@ assert.equal(lichdomLevelTwo.ok, true);
 if (lichdomLevelTwo.ok) {
   assert.equal(lichdomLevelTwo.state.phase, 'choosing-lichdom-target', 'Lichdom Level 2 selects an Object before drawing or paying HP.');
   assert.equal(lichdomLevelTwo.state.players.P1.hand.length, 0, 'Lichdom does not draw before Object selection.');
-  assert.equal(lichdomLevelTwo.state.players.P1.hp, 16, 'Lichdom does not sacrifice HP before Object selection.');
+  assert.equal(lichdomLevelTwo.state.players.P1.hp, 15, 'Lichdom does not sacrifice HP before Object selection.');
   assert.equal(applyGameCommand(lichdomLevelTwo.state, { type: 'lichdom-target', playerId: 'P1', objectId: 'lichdom-out-of-range-object' }).ok, false, 'A Wreckna Perk cannot select an Object beyond Wreckna\'s current Attack Range.');
   const cancelledLichdom = applyGameCommand(lichdomLevelTwo.state, { type: 'cancel-targeting', playerId: 'P1' });
   assert.equal(cancelledLichdom.ok, true);
@@ -2488,7 +2439,7 @@ if (lichdomLevelTwo.ok) {
     const targetedLichdom = restartedLichdom.ok ? applyGameCommand(restartedLichdom.state, { type: 'lichdom-target', playerId: 'P1', objectId: 'lichdom-level-two-object' }) : restartedLichdom;
     assert.equal(targetedLichdom.ok, true);
     if (targetedLichdom.ok) {
-      assert.equal(targetedLichdom.state.players.P1.hp, 15, 'Lichdom Level 2 sacrifices 1 HP after Object selection.');
+      assert.equal(targetedLichdom.state.players.P1.hp, 14, 'Lichdom Level 2 sacrifices 1 HP after Object selection.');
       const completedLichdom = applyGameCommand(targetedLichdom.state, { type: 'wreckna-phylactery-choice', playerId: 'P1', phylacteryType: 'might' });
       assert.equal(completedLichdom.ok, true);
       if (completedLichdom.ok) {
@@ -2615,7 +2566,7 @@ const tombBlockAttack = applyGameCommand(tombBlockState, { type: 'attack', playe
 const tombBlockDefense = tombBlockAttack.ok ? applyCommand(tombBlockAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tomb-block-defense' }) : tombBlockAttack;
 assert.equal(tombBlockDefense.ok, true);
 if (tombBlockDefense.ok) {
-  assert.equal(tombBlockDefense.state.players.P2.hp, 15, 'Tomb Block restores 1 HP when Wreckna has an active Phylactery.');
+  assert.equal(tombBlockDefense.state.players.P2.hp, 14, 'Tomb Block does not restore HP when Wreckna has an active Phylactery.');
   assert.equal(tombBlockDefense.state.objects.filter((object) => object.kind === 'tomb' && object.ownerId === 'P2').length, 1, 'Tomb Block creates one Tomb on an empty adjacent Square.');
   const createdTomb = tombBlockDefense.state.objects.find((object) => object.kind === 'tomb' && object.ownerId === 'P2')!;
   assert.equal(distance(createdTomb.position, tombBlockDefense.state.players.P2.position), 1, 'Tomb Block creates its Tomb adjacent to Wreckna.');
@@ -2651,15 +2602,14 @@ const sacrificeAttack = applyGameCommand(sacrificeState, { type: 'attack', playe
 const sacrificeDefense = sacrificeAttack.ok ? applyCommand(sacrificeAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'sacrifice-defense' }) : sacrificeAttack;
 assert.equal(sacrificeDefense.ok, true);
 if (sacrificeDefense.ok) {
-  assert.equal(sacrificeDefense.state.phase, 'choosing-test-phylactery-target', 'Losing with Sacrifice requires Wreckna to choose an Object within attacking range.');
-  const sacrificeTarget = applyGameCommand(sacrificeDefense.state, { type: 'test-phylactery-target', playerId: 'P2', objectId: 'sacrifice-object' });
+  assert.equal(sacrificeDefense.state.players.P1.hp, 19, 'Sacrifice immediately forces the attacking enemy to sacrifice 1 HP.');
+  assert.equal(sacrificeDefense.state.phase, 'choosing-sacrifice-tomb-square', 'Losing with Sacrifice requires Wreckna to choose an empty Square within attacking range.');
+  const sacrificeTarget = applyGameCommand(sacrificeDefense.state, { type: 'sacrifice-tomb-square', playerId: 'P2', to: { x: 4, y: 3 } });
   assert.equal(sacrificeTarget.ok, true);
   if (sacrificeTarget.ok) {
-    assert.equal(sacrificeTarget.state.players.P1.hp, 19, 'Sacrifice forces the attacking enemy to sacrifice 1 HP.');
-    assert.equal(sacrificeTarget.state.phase, 'choosing-wreckna-phylactery');
-    const sacrificeType = applyGameCommand(sacrificeTarget.state, { type: 'wreckna-phylactery-choice', playerId: 'P2', phylacteryType: 'might' });
-    assert.equal(sacrificeType.ok, true);
-    if (sacrificeType.ok) assert.equal(sacrificeType.state.objects.find((object) => object.id === 'sacrifice-object')?.phylacteryType, 'might', 'Sacrifice creates the selected available Phylactery type.');
+    assert.equal(sacrificeTarget.state.phase, 'active');
+    assert.equal(sacrificeTarget.state.objects.some((object) => object.kind === 'tomb' && object.ownerId === 'P2' && object.position.x === 4 && object.position.y === 3), true, 'Sacrifice creates a Tomb on the selected empty Square.');
+    assert.equal(sacrificeTarget.state.objects.some((object) => Boolean(object.phylacteryType)), false, 'Sacrifice no longer creates a Phylactery.');
   }
 }
 
@@ -2699,7 +2649,10 @@ if (fingerNormalAttack.ok) {
   assert.equal(fingerNormalAttack.state.pendingAttack?.attackValue, 2, 'Finger of Death has Attack Value 2 without Phylactery of Might.');
   const fingerResolved = applyCommand(fingerNormalAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(fingerResolved.ok, true);
-  if (fingerResolved.ok) assert.equal(fingerResolved.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), true, "Finger of Death adds Exhaust to the target's Hand after combat.");
+  if (fingerResolved.ok) {
+    assert.equal(fingerResolved.state.players.P2.deck.at(-1)?.cardId, 'headache', "Finger of Death adds Headache on top of the target's Deck after combat.");
+    assert.equal(fingerResolved.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), false, "Finger of Death no longer adds Exhaust to the target's Hand.");
+  }
 }
 
 const empoweredFingerState = createHotseatTestState(true, 'wreckna', 2);
@@ -2774,15 +2727,8 @@ if (shadowBarterCombat.ok) {
   assert.equal(shadowBarterDiscard.ok, true);
   if (shadowBarterDiscard.ok) {
     assert.equal(shadowBarterDiscard.state.players.P2.discard.some((card) => card.instanceId === 'shadow-barter-enemy-card'), true, 'The enemy discards 1 chosen Card after Shadow Barter.');
-    assert.equal(shadowBarterDiscard.state.phase, 'shadow-barter-tomb-offer');
-    const acceptShadowBarterTomb = applyGameCommand(shadowBarterDiscard.state, { type: 'shadow-barter-tomb-choice', playerId: 'P1', use: true });
-    assert.equal(acceptShadowBarterTomb.ok, true);
-    const placeShadowBarterTomb = acceptShadowBarterTomb.ok ? applyGameCommand(acceptShadowBarterTomb.state, { type: 'shadow-barter-tomb-square', playerId: 'P1', to: { x: 2, y: 3 } }) : acceptShadowBarterTomb;
-    assert.equal(placeShadowBarterTomb.ok, true);
-    if (placeShadowBarterTomb.ok) {
-      assert.equal(placeShadowBarterTomb.state.objects.some((object) => object.kind === 'tomb' && object.position.x === 2 && object.position.y === 3), true, 'Shadow Barter creates a Tomb on the chosen empty Square within Range 1.');
-      assert.equal(placeShadowBarterTomb.state.phase, 'active');
-    }
+    assert.equal(shadowBarterDiscard.state.objects.some((object) => object.kind === 'tomb'), false, 'Shadow Barter does not create a Tomb.');
+    assert.equal(shadowBarterDiscard.state.phase, 'active');
   }
 }
 
@@ -2802,7 +2748,22 @@ assert.equal(enfeebleCombat.ok, true);
 if (enfeebleCombat.ok) {
   assert.equal(enfeebleCombat.state.players.P2.hand.filter((card: any) => cardDefinition(card).kind === 'attack').length, 1, 'Enfeeble forces exactly 1 random Attack Card from the target\'s Hand into Discard.');
   assert.equal(enfeebleCombat.state.players.P2.discard.filter((card: any) => ['attack-2', 'attack-3'].includes(card.cardId)).length, 1);
-  assert.equal(enfeebleCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), true, 'Enfeeble adds Exhaust directly to the target\'s Discard.');
+  assert.equal(enfeebleCombat.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), false, 'Enfeeble does not add Exhaust when it successfully discards an Attack Card.');
+  assert.equal(enfeebleCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), false);
+}
+
+const enfeebleFallbackState = createHotseatTestState(true, 'wreckna', 2);
+enfeebleFallbackState.objects = [];
+enfeebleFallbackState.players.P1.position = { x: 2, y: 2 };
+enfeebleFallbackState.players.P2.position = { x: 3, y: 2 };
+enfeebleFallbackState.players.P1.hand = [{ instanceId: 'enfeeble-fallback-attack', cardId: 'enfeeble' }];
+enfeebleFallbackState.players.P2.hand = [{ instanceId: 'enfeeble-fallback-defend', cardId: 'defend-1' }];
+const enfeebleFallbackAttack = applyCommand(enfeebleFallbackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'enfeeble-fallback-attack', targetId: 'P2' });
+const enfeebleFallbackCombat = enfeebleFallbackAttack.ok ? applyCommand(enfeebleFallbackAttack.state, { type: 'pass-defense', playerId: 'P2' }) : enfeebleFallbackAttack;
+assert.equal(enfeebleFallbackCombat.ok, true);
+if (enfeebleFallbackCombat.ok) {
+  assert.equal(enfeebleFallbackCombat.state.players.P2.hand.some((card: any) => card.cardId === 'exhaust'), true, 'Enfeeble adds Exhaust to the target\'s Hand only when no Attack Card can be discarded.');
+  assert.equal(enfeebleFallbackCombat.state.players.P2.discard.some((card: any) => card.cardId === 'exhaust'), false);
 }
 
 const blockedEnfeebleState = createHotseatTestState(true, 'wreckna', 2, 'shinobi');
@@ -2841,7 +2802,7 @@ assert.equal(loganTestState.players.P3.character, 'dummy');
 assert.equal(loganTestState.players.P3.name, 'Test Dummy 2');
 assert.equal(loganTestState.players.P3.hand.length, 5);
 assert.equal(cellLabel(loganTestState.players.P3.position), 'G7');
-assert.equal(loganTestState.players.P2.hand.every((instance) => ['attack-2', 'attack-3', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse'].includes(instance.cardId)), true);
+assert.equal(loganTestState.players.P2.hand.every((instance) => ['attack-2', 'attack-3', 'light-the-saber', 'dance-through', 'force-disarm', 'cut-them-legs', 'hello-there', 'arcane-bolt', 'snowball-effect', 'mana-blast', 'mana-barrage', 'grimoire-cleanse', 'feint', 'weak-feint', 'judgement'].includes(instance.cardId)), true);
 const chainTest = createHotseatTestState(true);
 chainTest.players.P1.position = { x: 1, y: 3 };
 chainTest.players.P2.position = { x: 3, y: 3 };
@@ -3528,7 +3489,9 @@ if (exhaustAttack.ok) {
     assert.equal(attached.ok, true);
     if (attached.ok) {
       assert.equal(attached.state.players.P1.hand.some((card) => card.cardId === 'exhaust'), false, 'Attached Exhaust is Removed rather than discarded.');
-      assert.equal(attached.state.players.P2.hp, 20, 'Attaching Exhaust changes the played Attack from -1 to -3 Value before resolution.');
+      assert.equal(attached.state.combatReveal?.attackTotal, 1, 'Attaching Exhaust changes the played Attack from a passive -1 to an active -2 Value penalty.');
+      assert.deepEqual(attached.state.combatReveal?.attackModifiers?.filter((modifier) => modifier.source.includes('Exhaust')), [{ value: -2, source: 'attached Exhaust' }]);
+      assert.equal(attached.state.players.P2.hp, 20, 'The -2 Exhaust penalty leaves Attack and Defend tied.');
     }
   }
 }
@@ -5766,6 +5729,7 @@ if (feintAttack.ok) {
 }
 
 const weakFeintDiscardState = createInitialState();
+weakFeintDiscardState.phase = 'choosing-end-discard';
 weakFeintDiscardState.players.P1.hand = [{ instanceId: 'discard-weak-feint', cardId: 'weak-feint', revealedToOpponent: false }];
 const discardedWeakFeint = applyCommand(weakFeintDiscardState, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'discard-weak-feint' });
 assert.equal(discardedWeakFeint.ok, true);
