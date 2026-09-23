@@ -99,6 +99,13 @@ for (const [cardId, blessing] of [['blessed-light', 'blessing-light'], ['blessed
 }
 const normalJohnBoxAttack = attack(setup('attack-2', 'john-christ'));
 assert.equal(normalJohnBoxAttack.objectPushAnimations.some((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1'), true, 'Normal-form John emits Cast Overhead for a Box attack.');
+for (const cardId of ['cleanse', 'repent'] as const) {
+  const resolved = attack(setup(cardId, 'john-christ'));
+  const animation = resolved.objectPushAnimations.find((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1');
+  assert.equal(animation?.attackCardId, cardId, `${cardId} preserves its dedicated animation for an Object attack.`);
+  assert.equal(animation?.attackerWasInSpiritForm, false, `${cardId} preserves John's form from the start of the Object attack.`);
+  assert.equal(resolved.spellProjectiles.some((event) => event.style === 'cleanse-immolate' && event.targetId === 'target'), true, `${cardId} emits its target fire presentation on an Object.`);
+}
 const spiritJohnBoxAttack = setup('attack-2', 'john-christ');
 spiritJohnBoxAttack.players.P1.spiritForm = true;
 assert.equal(attack(spiritJohnBoxAttack).objectPushAnimations.some((event) => event.objectId === 'target' && event.attackAnimationPlayerId === 'P1'), false, 'Spirit-form John keeps its existing Box attack presentation.');

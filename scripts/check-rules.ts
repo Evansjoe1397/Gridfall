@@ -1216,7 +1216,19 @@ noCombatCardsState.players.P2.hand = [];
 const noStackAttack = applyGameCommand(noCombatCardsState, { type: 'attack', playerId: 'P1', cardInstanceId: 'no-stack-attack', targetId: 'P2' });
 const noStackDefense = noStackAttack.ok ? applyGameCommand(noStackAttack.state, { type: 'pass-defense', playerId: 'P2' }) : noStackAttack;
 assert.equal(noStackDefense.ok, true);
-if (noStackDefense.ok) assert.notEqual(noStackDefense.state.phase, 'choosing-combat-stack', 'Combat Stack questions are skipped when neither Player has an applicable Combat Card.');
+if (noStackDefense.ok) {
+  assert.notEqual(noStackDefense.state.phase, 'choosing-combat-stack', 'Combat Stack questions are skipped when neither Player has an applicable Combat Card.');
+  assert.equal(noStackDefense.state.log.some((line) => line.startsWith('Extra Combat Cards:')), true, 'The joint reveal log identifies none as the optional extra Combat Card choice.');
+  const hpAfterFirstResolution = noStackDefense.state.players.P2.hp;
+  const damageEventsAfterFirstResolution = noStackDefense.state.damageLog.length;
+  const repeatedTakeHit = applyGameCommand(noStackDefense.state, { type: 'pass-defense', playerId: 'P2' });
+  assert.equal(repeatedTakeHit.ok, true, 'A repeated Take the Hit command is handled idempotently after combat resolution was committed.');
+  if (repeatedTakeHit.ok) {
+    assert.equal(repeatedTakeHit.state.players.P2.hp, hpAfterFirstResolution, 'A repeated Take the Hit command cannot deal combat Damage twice.');
+    assert.equal(repeatedTakeHit.state.damageLog.length, damageEventsAfterFirstResolution, 'A repeated Take the Hit command cannot append a duplicate Damage Log entry.');
+    assert.equal(repeatedTakeHit.state.log.filter((line) => line.includes('declined to defend and received 2 damage.')).length, 1, 'A repeated Take the Hit command cannot append a duplicate combat log line.');
+  }
+}
 
 const oneSidedCombatCardsState = createGameInitialState() as any;
 oneSidedCombatCardsState.simultaneousCombatStack = true;
@@ -3778,6 +3790,22 @@ if (equippedShieldBashAttack.ok) {
   }
 }
 
+const shieldBashObjectState = createHotseatTestState(true, 'orkk', 2, 'dummy');
+shieldBashObjectState.players.P1.position = { x: 1, y: 3 };
+shieldBashObjectState.players.P1.shieldEquipped = false;
+shieldBashObjectState.players.P1.hand = [{ instanceId: 'shield-bash-object-attack', cardId: 'shield-bash' }];
+shieldBashObjectState.objects = [
+  { id: 'shield-bash-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 2, y: 3 } },
+  { id: 'shield-bash-object-shield', name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 4, y: 3 } },
+];
+const shieldBashObject = applyCommand(shieldBashObjectState, { type: 'attack', playerId: 'P1', cardInstanceId: 'shield-bash-object-attack', targetId: 'shield-bash-box', targetKind: 'object' });
+assert.equal(shieldBashObject.ok, true);
+if (shieldBashObject.ok) {
+  const recall = shieldBashObject.state.objectPushAnimations.find((event) => event.objectId === 'shield-bash-object-shield');
+  const attackPresentation = shieldBashObject.state.objectPushAnimations.find((event) => event.attackAnimationPlayerId === 'P1' && event.attackCardId === 'shield-bash');
+  assert.equal(attackPresentation?.waitForAnimationId, recall?.id, 'Shield Bash waits for Shield Recall to finish before presenting an attack against an Object.');
+}
+
 const kneeBlastState = createGameInitialState();
 kneeBlastState.players.P1.position = { x: 5, y: 1 };
 kneeBlastState.players.P2.position = { x: 6, y: 1 };
@@ -3792,6 +3820,7 @@ if (kneeBlastAttack.ok) {
   assert.equal(kneeBlastResult.ok, true);
   if (kneeBlastResult.ok) {
     assert.deepEqual(kneeBlastResult.state.players.P2.position, { x: 8, y: 1 }, 'Knee Blast pushes directly away from Da Orkk until the Board edge interrupts its Rage distance.');
+    assert.equal(kneeBlastResult.state.players.P2.visualMovement?.sourceCardId, 'knee-blast', 'Knee Blast marks its push so presentation waits for Da Orkk\'s hit frame.');
     assert.equal(kneeBlastResult.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Colliding with the Board edge adds Headache.');
     assert.equal(kneeBlastResult.state.players.P2.hp, 14, 'Knee Blast collision itself causes no additional damage.');
   }
@@ -7474,6 +7503,41 @@ if (dejaObjectCopied.ok) {
   assert.equal(dejaObjectCopied.state.players.P1.hand.some((card) => card.instanceId === 'deja-copy-object'), true, 'Object-targeting Deja Vu returns to Hand without a replica.');
   assert.equal(dejaObjectCopied.state.players.P1.discard.some((card) => card.instanceId === 'deja-copy-object'), false, 'Object-targeting Deja Vu does not remain in Discard.');
   assert.deepEqual(dejaObjectCopied.state.players.P1.deck, objectDejaDeckBefore, 'Object-targeting Deja Vu does not change or shuffle the Deck.');
+}
+
+const dejaEmptyPilesState = createHotseatTestState(true, 'spectre', 'dummy');
+dejaEmptyPilesState.phase = 'active'; dejaEmptyPilesState.activePlayerId = 'P1';
+dejaEmptyPilesState.players.P1.position = { x: 3, y: 3 }; dejaEmptyPilesState.players.P2.position = { x: 4, y: 3 };
+dejaEmptyPilesState.players.P1.hand = [{ instanceId: 'deja-empty-piles', cardId: 'deja-vu' }];
+dejaEmptyPilesState.players.P1.deck = []; dejaEmptyPilesState.players.P1.discard = [];
+dejaEmptyPilesState.objects = [{ id: 'deja-empty-piles-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 1, y: 1 } }];
+const dejaEmptyPilesActions = dejaEmptyPilesState.players.P1.actionsRemaining;
+const dejaEmptyPilesAttack = applyGameCommand(dejaEmptyPilesState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-empty-piles', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(dejaEmptyPilesAttack.ok, true);
+if (dejaEmptyPilesAttack.ok) {
+  const player = dejaEmptyPilesAttack.state.players.P1;
+  assert.equal(player.actionsRemaining, dejaEmptyPilesActions, 'Replica Deja Vu restores its spent Action even when no Card can be drawn.');
+  assert.equal(player.hand.some((card) => card.instanceId === 'deja-empty-piles'), false, 'Deja Vu cannot draw itself when it is the only Card available.');
+  assert.deepEqual(player.deck, [], 'Deja Vu leaves an otherwise empty Deck empty.');
+  assert.deepEqual(player.discard.map((card) => card.instanceId), ['deja-empty-piles'], 'The resolving Deja Vu enters Discard only after its draw attempt.');
+}
+
+const dejaObjectReshuffleState = createHotseatTestState(true, 'spectre', 'dummy');
+dejaObjectReshuffleState.phase = 'active'; dejaObjectReshuffleState.activePlayerId = 'P1';
+dejaObjectReshuffleState.players.P1.position = { x: 3, y: 3 };
+dejaObjectReshuffleState.players.P1.hand = [{ instanceId: 'deja-object-reshuffle', cardId: 'deja-vu' }];
+dejaObjectReshuffleState.players.P1.deck = [];
+dejaObjectReshuffleState.players.P1.discard = [{ instanceId: 'deja-prior-discard', cardId: 'attack-2' }];
+dejaObjectReshuffleState.objects = [
+  { id: 'deja-object-replica', name: "Spectre's Replica", kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: { x: 1, y: 1 } },
+  { id: 'deja-object-target', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 3 } },
+];
+const dejaObjectReshuffle = applyGameCommand(dejaObjectReshuffleState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'deja-object-reshuffle', origin: 'spectre', targetKind: 'object', targetId: 'deja-object-target' });
+assert.equal(dejaObjectReshuffle.ok, true);
+if (dejaObjectReshuffle.ok) {
+  const player = dejaObjectReshuffle.state.players.P1;
+  assert.deepEqual(player.hand.map((card) => card.instanceId), ['deja-prior-discard'], 'Object-targeting Deja Vu draws from the previous Discard when its Deck is empty.');
+  assert.deepEqual(player.discard.map((card) => card.instanceId), ['deja-object-reshuffle'], 'Object-targeting Deja Vu is excluded from its own reshuffle and then discarded.');
 }
 
 const solitudeBeforeCombatState = createHotseatTestState(true, 'spectre', 'dummy');

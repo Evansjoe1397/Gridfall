@@ -21,8 +21,8 @@ for (let i = 0; i < 3; i++) {
   assert.equal(material.depthWrite, true);
 }
 const len=bytes.readUInt32LE(12);
-assert.equal(advanceSpiritBlend(0, true, 0.2), 0.5);
-assert.equal(advanceSpiritBlend(0.5, false, 0.2), 0);
+assert.equal(advanceSpiritBlend(0, true, 0.425), 0.5);
+assert.equal(advanceSpiritBlend(0.5, false, 0.375), 0);
 assert.equal(advanceSpiritBlend(0, true, 1), 1);
 assert.equal(resolveSpiritVisualTarget(false, true, 499, 500), false);
 assert.equal(resolveSpiritVisualTarget(false, true, 500, 500), true);

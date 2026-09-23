@@ -16,11 +16,11 @@ export function spiritVisualDesired(
 }
 
 export function advanceSpiritBlend(value: number, active: boolean, delta: number): number {
-  return active ? Math.min(1, value + Math.max(0, delta) / 0.4) : Math.max(0, value - Math.max(0, delta) / 0.4);
+  return active ? Math.min(1, value + Math.max(0, delta) / 0.85) : Math.max(0, value - Math.max(0, delta) / 0.75);
 }
 
 export function applySpiritBlend(normal: THREE.Object3D, spirit: THREE.Object3D, body: THREE.Object3D, value: number): number {
-  const t = value * value * (3 - 2 * value);
+  const t = value * value * value * (value * (value * 6 - 15) + 10);
   normal.visible = value < 1;
   spirit.visible = value > 0;
   body.scale.setScalar(1);

@@ -349,10 +349,10 @@ export type PlayerState = {
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
 export type CombatModifier = { value: number; source: string; kind?: 'extra-damage'; timing?: 'during combat' | 'after combat' };
 export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'discarded-perk' | 'forced-attack' | 'forced-defend' | 'no-eligible' | 'prevented'; damage?: number };
-export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>> };
+export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
@@ -1753,6 +1753,23 @@ function resolveStingAfterCombat(state: GameState, attacker: PlayerState, cardIn
   if (returnDiscardedCardToHand(attacker, cardInstanceId)) state.log.unshift(`Sting found no enemy Character within 2 Squares and returned to ${attacker.name}'s Hand.`);
 }
 
+function resolveDejaVuAtDeclaration(state: GameState, attacker: PlayerState, cardInstanceId: string, controlsReplica: boolean, targetDescription = '') {
+  if (!controlsReplica) {
+    returnDiscardedCardToHand(attacker, cardInstanceId);
+    state.log.unshift(`Deja Vu found no replica and returned to ${attacker.name}'s Hand${targetDescription}.`);
+    return;
+  }
+
+  // The played card is still resolving and must not be eligible for the draw it creates.
+  // Keep it outside the Discard while drawCards performs any empty-Deck reshuffle.
+  const discardIndex = attacker.discard.findIndex((card) => card.instanceId === cardInstanceId);
+  const resolvingCard = discardIndex >= 0 ? attacker.discard.splice(discardIndex, 1)[0] : null;
+  attacker.actionsRemaining += 1;
+  const drawn = drawCards(attacker, 1);
+  if (resolvingCard) attacker.discard.push(resolvingCard);
+  state.log.unshift(`Deja Vu found Spectre's replica, restored 1 Action, and drew ${drawn} Card${targetDescription}.`);
+}
+
 type FrostmourneChoiceState = GameState & { frostmourne?: { playerId: PlayerId; cardInstanceId: string; resumePhase: GamePhase } | null };
 function beginFrostmourneChoice(state: GameState, attacker: PlayerState, cardInstanceId: string, resumePhase: GamePhase): boolean {
   if (attacker.hp <= 1 || !attacker.discard.some((card) => card.instanceId === cardInstanceId && card.cardId === 'frostmourne')) {
@@ -1807,8 +1824,10 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   if (player.wrecknaInsideTombId && state.objects.some((entry) => entry.id === player.wrecknaInsideTombId && entry.kind === 'tomb')) return fail(state, 'Wreckna cannot use Attack Cards while inside a Tomb.');
   const object = state.objects.find((entry) => entry.id === objectId);
   const card = cardDefinition(instance);
+  const attackerWasInSpiritForm = player.character === 'john-christ' && player.spiritForm;
   if (!object || (card.id !== 'moonlight' && isWallObject(object) && object.kind !== 'spirit-guardian' && object.kind !== 'tomb' && object.kind !== 'orkk-shield')) return fail(state, 'Only destructible Objects and Spirit Guardians can be attacked unless Moonlight targets the Wall Object.');
   const objectAnimationStart = state.objectPushAnimations.length;
+  let shieldBashRecallAnimationId: string | undefined;
   const shieldEquippedAtStart = player.shieldEquipped;
   if (card.id === 'excalibur' ? !attackCardTargetInRange(state, player, card.id, object.position) : distance(attackOrigin, object.position) > attackRange) {
     return fail(state, card.id === 'excalibur'
@@ -1891,14 +1910,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.log.unshift(`Barbarian Stance added +${barbarianBonus} Attack Value to ${card.name} and was consumed.`);
   }
   if (card.id === 'deja-vu') {
-    if (spectreReplica(state, player.id)) {
-      player.actionsRemaining += 1;
-      const drawn = drawCards(player, 1);
-      state.log.unshift(`Deja Vu found Spectre's replica, restored 1 Action, and drew ${drawn} Card after targeting an Object.`);
-    } else {
-      returnDiscardedCardToHand(player, instance.instanceId);
-      state.log.unshift(`Deja Vu found no replica and returned to ${player.name}'s Hand after targeting an Object.`);
-    }
+    resolveDejaVuAtDeclaration(state, player, instance.instanceId, Boolean(spectreReplica(state, player.id)), ' after targeting an Object');
   }
   if (card.id === 'moonlight' && isWallObject(object)) state.log.unshift(`${card.name} struck ${object.name}, but its direct hit cannot destroy a Wall Object.`);
   else if (!isGuardianWall(object)) destroyObject(state, object.id, player.id, `${card.name} Attack Card`);
@@ -1913,6 +1925,9 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
   if (card.id === 'judgement' && attackValue > 0 && !state.objects.some((entry) => entry.id === object.id)) {
     player.stoicShell = true;
     state.log.unshift(`Judgement won combat and granted Stoic Shell to ${player.name}.`);
+  }
+  if (card.id === 'cleanse') {
+    state.spellProjectiles.push({ id: `${state.turn}-cleanse-target-${++instanceSequence}`, casterId: player.id, targetId: object.id, from: { ...object.position }, to: { ...object.position }, path: [], count: 1, damage: 0, style: 'cleanse-immolate' });
   }
   if (card.id === 'repent') {
     state.spellProjectiles.push({ id: `${state.turn}-repent-fire-${++instanceSequence}`, casterId: player.id, targetId: player.id, from: { ...player.position }, to: { ...player.position }, path: [], count: 1, damage: 0, style: 'repent-fire' });
@@ -1996,6 +2011,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
         const { shield, path } = recall;
         if (path.length > 0) {
           const recallAnimationId = `${state.turn}-shield-bash-object-${state.objectPushAnimations.length}`;
+          shieldBashRecallAnimationId = recallAnimationId;
           const crossedEnemyIds = new Set<string>();
           for (const [pathIndex, cell] of path.entries()) {
             const enemy = enemyBodyAt(state, player.id, cell);
@@ -2034,11 +2050,13 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.danceThrough = { playerId: player.id, stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
     state.log.unshift('Dance Through: Obi Wan Shinobi may move 1 Square up to 3 times after attacking the Object.');
   }
-  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin' || player.character === 'shinobi' || (player.character === 'john-christ' && !player.spiritForm)) {
+  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin' || player.character === 'shinobi' || (player.character === 'john-christ' && !attackerWasInSpiritForm)) {
     const destruction = state.objectPushAnimations.slice(objectAnimationStart).find((event) => event.objectId === object.id && event.destroy);
     if (destruction) {
       destruction.attackAnimationPlayerId = player.id;
       destruction.attackCardId = card.id;
+      destruction.attackerWasInSpiritForm = attackerWasInSpiritForm;
+      destruction.waitForAnimationId = shieldBashRecallAnimationId;
     }
     else state.objectPushAnimations.push({
       id: `${state.turn}-${player.character}-box-attack-${object.id}-${state.objectPushAnimations.length}`,
@@ -2050,6 +2068,8 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
       collided: false,
       attackAnimationPlayerId: player.id,
       attackCardId: card.id,
+      attackerWasInSpiritForm,
+      waitForAnimationId: shieldBashRecallAnimationId,
     });
   }
   if (card.id === 'moonlight') resolveMoonlightWave(state, player, attackOrigin, object.position);
@@ -2320,7 +2340,7 @@ function registerCharacterDefeat(state: GameState, target: PlayerState, preferre
   state.log.unshift(`${target.name} was defeated and remains on the Board. ${living.length} Characters remain.`);
 }
 
-export function dealDamage(state: GameState, target: PlayerState, amount: number, collision = false, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other'): number {
+export function dealDamage(state: GameState, target: PlayerState, amount: number, collision = false, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other', effect = false): number {
   let resolvedAmount = Math.max(0, amount);
   const pending = state.pendingAttack;
   const helmetProtectsCombatDamage = resolvedAmount > 0 && sourceKind === 'attack' && pending?.mythrilHelmetApplied
@@ -2373,7 +2393,7 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
     if (questState.currentQuest?.id === 'damage-contest') questState.currentQuest.progress[sourceId] = (questState.currentQuest.progress[sourceId] ?? 0) + dealt;
   }
   if (dealt > 0 && state.activePlayerId !== target.id) target.damagedDuringEnemyTurn = true;
-  if (dealt > 0) state.objectPushAnimations.push({ id: `${state.turn}-damage-${target.id}-${state.log.length}-${state.objectPushAnimations.length}`, objectId: '', from: { ...target.position }, to: { ...target.position }, dx: 0, dy: 0, collided: false, damage: { playerId: target.id, amount: dealt, collision, fatal: target.hp === 0 } });
+  if (dealt > 0) state.objectPushAnimations.push({ id: `${state.turn}-damage-${target.id}-${state.log.length}-${state.objectPushAnimations.length}`, objectId: '', from: { ...target.position }, to: { ...target.position }, dx: 0, dy: 0, collided: false, damage: { playerId: target.id, amount: dealt, collision, fatal: target.hp === 0, effect: effect || undefined } });
   if (dealt > 0 && target.character === 'orkk' && !target.traitBlocked && !target.rageGainLocked) {
     const gainedRage = target.doubleRageUntilEnemyTurnEnd ? 2 : 1;
     target.rageStacks += gainedRage;
@@ -2511,7 +2531,7 @@ function dealCombatCardEffectDamage(state: GameState, target: PlayerState, amoun
       recordCombatDamageBlocked(state, target, 1);
     }
   }
-  return dealDamage(state, target, adjusted, collision, sourceId, sourceKind);
+  return dealDamage(state, target, adjusted, collision, sourceId, sourceKind, true);
 }
 
 function blessingShieldBlocksCombatStatus(state: GameState, target: PlayerState, statusId: CardTypeId): boolean {
@@ -2789,14 +2809,7 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
   discardFromHand(attacker, instance.instanceId);
   attacker.actionsRemaining -= 1;
   if (card.id === 'deja-vu') {
-    if (replicas.length > 0) {
-      attacker.actionsRemaining += 1;
-      const drawn = drawCards(attacker, 1);
-      state.log.unshift(`Deja Vu found Spectre's replica, restored 1 Action, and drew ${drawn} Card.`);
-    } else {
-      returnDiscardedCardToHand(attacker, instance.instanceId);
-      state.log.unshift(`Deja Vu found no replica and returned to ${attacker.name}'s Hand.`);
-    }
+    resolveDejaVuAtDeclaration(state, attacker, instance.instanceId, replicas.length > 0);
   }
   state.movementUndo = null;
   state.pendingAttack = {
@@ -4344,7 +4357,7 @@ export function resolveMultiplayerCombatStack(state: GameState, selections: Part
   pending.combatStackApplied = applied;
   state.combatReveal = null;
   state.phase = 'defending';
-  state.log.unshift(`Combat Cards revealed together: ${[pending.attackerId, pending.defenderId].map((id) => `${state.players[id].name}: ${(applied[id] ?? []).map((cardId) => cardDefinition({ instanceId: '', cardId }).name).join(', ') || 'none'}`).join(' · ')}.`);
+  state.log.unshift(`Extra Combat Cards: ${[pending.attackerId, pending.defenderId].map((id) => `${state.players[id].name}: ${(applied[id] ?? []).map((cardId) => cardDefinition({ instanceId: '', cardId }).name).join(', ') || 'none'}`).join(' · ')}.`);
   return resolveDefense(state, defenseCommand, true, defenderAttachedExhaust, true, defenderMockery);
 }
 
@@ -4763,6 +4776,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   const preCombatLogStart = state.log.length;
   if (state.phase !== 'defending' || !pending) return fail(state, 'There is no attack to defend.');
   if (pending.defenderId !== command.playerId) return fail(state, 'Only the targeted player may respond.');
+  if (pending.combatResolutionCommitted) return ok(state);
   const defender = state.players[command.playerId];
   const oraclePending = pending as OraclePendingAttack;
   if (oraclePending.oracleValueAtCombatStart === 1) {
@@ -5071,6 +5085,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     defender.doubleRageUntilEnemyTurnEnd = true;
     state.log.unshift(`Double! will double all Rage ${defender.name} receives until the end of ${state.players[pending.attackerId].name}'s turn.`);
   }
+  pending.combatResolutionCommitted = true;
   const defenderDamageEventStart = ((state as GameState & { damageLog?: DamageLogEntry[] }).damageLog ?? []).length;
   const combatDamageDealt = dealDamage(state, defender, damage, false, pending.attackerId, 'attack');
   pending.feedSpiritCombatDamage = combatDamageDealt;
@@ -5290,10 +5305,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.spellProjectiles.push({ id: `${state.turn}-repent-target-${++instanceSequence}`, casterId: john.id, targetId: impactTarget?.id ?? pending.defenderReplicaId ?? defender.id, from: { ...impactPosition }, to: { ...impactPosition }, path: [], count: 1, damage: 0, style: 'cleanse-immolate' });
     const adjacentEnemies = enemyBodies(state, john.id).filter((body) => distance(john.position, body.position) === 1);
     const allCombatDamageNegated = pending.blessingFaithApplied || pending.mythrilHelmetApplied;
-    const selfDamage = john.hp > 0 && !allCombatDamageNegated ? dealDamage(state, john, 1, false, john.id, 'attack') : 0;
+    const selfDamage = john.hp > 0 && !allCombatDamageNegated ? dealDamage(state, john, 1, false, john.id, 'attack', true) : 0;
     if (john.hp > 0 && allCombatDamageNegated) recordCombatDamageBlocked(state, john, 1);
     for (const enemy of adjacentEnemies.filter((body) => body.id !== (impactTarget?.id ?? pending.defenderReplicaId ?? defender.id))) state.spellProjectiles.push({ id: `${state.turn}-repent-immolate-${enemy.id}-${++instanceSequence}`, casterId: john.id, targetId: enemy.id, from: { ...enemy.position }, to: { ...enemy.position }, path: [{ ...enemy.position }, { ...enemy.position }], count: 1, damage: 2, style: 'cleanse-immolate' });
-    const damagedEnemies = adjacentEnemies.map((enemy) => ({ enemy, dealt: enemy.ownerId === defender.id && defenseNegatesDamage ? 0 : enemy.ownerId === defender.id ? combatDamageCharacterBody(state, enemy, 2, john.id, 'attack') : damageCharacterBody(state, enemy, 2, false, john.id, 'attack') }));
+    const damagedEnemies = adjacentEnemies.map((enemy) => ({ enemy, dealt: enemy.ownerId === defender.id && defenseNegatesDamage ? 0 : enemy.ownerId === defender.id ? combatDamageCharacterBody(state, enemy, 2, john.id, 'attack') : dealDamage(state, state.players[enemy.ownerId], 2, false, john.id, 'attack', true) }));
     state.log.unshift(`Repent! dealt ${selfDamage} Damage to ${john.name} and 2 Damage to ${damagedEnemies.filter(({ dealt }) => dealt > 0).map(({ enemy }) => enemy.name).join(', ') || 'no adjacent enemies'} after combat.`);
   }
   if (attackCardDebuffsPrevented && ['light-the-saber', 'cut-them-legs'].includes(pending.cardId)) {
@@ -5407,7 +5422,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     const attackingBodyPosition = pending.attackerPosition ?? attacker.position;
     const dx = Math.sign(target.position.x - attackingBodyPosition.x);
     const dy = Math.sign(target.position.y - attackingBodyPosition.y);
+    const pushAnimationStart = state.objectPushAnimations.length;
     const collided = pushDistance > 0 && pushEntity(state, target, dx, dy, pushDistance, 1, attacker.id, false, 'attack');
+    if (target.kind === 'player' && state.players[target.id as PlayerId].visualMovement) {
+      state.players[target.id as PlayerId].visualMovement!.sourceCardId = 'knee-blast';
+    }
+    for (const event of state.objectPushAnimations.slice(pushAnimationStart)) event.attackCardId = 'knee-blast';
     state.log.unshift(`Knee Blast pushed ${targetReplica ? `${defender.name}'s attacked replica` : defender.name} ${pushDistance} Square${pushDistance === 1 ? '' : 's'} away from ${attacker.name}${collided ? ' until a collision' : ''}.`);
     if (collided && !attackCardDebuffsPrevented) {
       if (!blessingShieldBlocksCombatStatus(state, defender, 'headache')) {
@@ -5749,7 +5769,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     postCombatChoicePending = true;
   }
   if (defenseCardId === 'sacrifice' && !defenseEffectsCancelled && pending.attackValue > defenseValue && defender.character === 'wreckna' && state.phase !== 'finished') {
-    dealDamage(state, attacker, 1, false, defender.id, 'defense');
+    dealDamage(state, attacker, 1, false, defender.id, 'defense', true);
     state.log.unshift(`${attacker.name} sacrificed 1 HP for ${defender.name}'s Sacrifice.`);
     if (!state.winner && attacker.hp > 0) {
       const hasEligibleSquare = availableWrecknaTombSquares(state, defender.id).length > 0;

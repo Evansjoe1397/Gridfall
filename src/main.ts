@@ -21,13 +21,14 @@ import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_W
 import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
 import { FrostmourneEffects } from './frostmourneEffects.ts';
 import { StingEffects } from './stingEffects.ts';
-import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectSwingDeferredByChoice, type MerylinWeapon } from './merylinWeapons.ts';
+import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectSwingDeferredByChoice, shuffledMerylinWeapons, type MerylinWeapon } from './merylinWeapons.ts';
 import { merylinHitDirections, merylinAttackYaw } from './merylinAttackFacing.ts';
 import { softenMerylinPreviewFace } from './merylinPreview.ts';
 import { johnSpiritMovementDuration, johnSpiritPlaybackRate } from './johnChristLocomotion.ts';
 import { JOHN_BLESSED_BEAM_FPS, JOHN_BLESSED_BEAM_HOLD_SECONDS, JOHN_BLESSED_BEAM_RECOVERY_SECONDS, JOHN_BLESSED_BEAM_SPEED, johnAttackPlaybackRate } from './johnChristLocomotion.ts';
 import { JohnBlessedBeam } from './johnBlessedBeam.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
+import { updateJohnSpiritTransition } from './johnChristTransition.ts';
 import {
   createShadowDaggerProjectile,
   makeSpectreReplicaMaterialOpaque,
@@ -127,6 +128,9 @@ const STANDARD_HIGHGROUND_CENTER_Y = 0.19;
 const STANDARD_HIGHGROUND_TOP_Y = STANDARD_HIGHGROUND_CENTER_Y + STANDARD_HIGHGROUND_HEIGHT / 2;
 const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 let characterPreviewJohnCycleStartedAt = 0;
+let characterPreviewMerylinCycleStartedAt = 0;
+let characterPreviewMerylinCycle = 0;
+let characterPreviewMerylinWeapons = shuffledMerylinWeapons();
 
 type Selection = { kind: 'none' } | { kind: 'move' } | { kind: 'attack'; cardInstanceId: string } | { kind: 'perk'; cardInstanceId: string };
 const selectionMachine = setup({
@@ -319,7 +323,7 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   const browser = document.querySelector('.character-browser');
   browser?.classList.remove('hidden');
   characterPreviewJohnCycleStartedAt = performance.now();
-  characterPreviewAnimationCycle = null;
+  resetCharacterPreviewMerylinCycle();
   browser?.scrollIntoView({ block: 'start' });
   // The preview renderer is created while this panel is display:none. Rebuild
   // its render targets after layout has a real size; ResizeObserver callbacks
@@ -578,7 +582,9 @@ const merylinImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fal
 let obiWanCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; clip: ObiWanAttackClip } | null = null;
 let obiWanCombatImpactPending = false;
 const obiWanAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
-let orkkCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId } | null = null;
+type OrkkCombatAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; shieldEquippedAtStart: boolean };
+let orkkCombatAttacker: OrkkCombatAttack | null = null;
+let deferredOrkkCombatAttack: (OrkkCombatAttack & { recallAnimationId: string }) | null = null;
 let orkkCombatImpactPending = false;
 const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
 let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
@@ -612,8 +618,10 @@ function resetCombatSummary() {
   obiWanCombatImpactPending = false;
   obiWanAttackImpactWaits.clear();
   orkkCombatAttacker = null;
+  deferredOrkkCombatAttack = null;
   orkkCombatImpactPending = false;
   orkkAttackImpactWaits.clear();
+  completedObjectMovementAnimationIds.clear();
   johnCombatAttacker = null;
   johnCombatImpactPending = false;
   blockedCombatTargetId = null;
@@ -2100,6 +2108,7 @@ function renderFocusModal() {
 
 function toggleCompactHandMode() {
   compactHandMode = !compactHandMode;
+  if (!compactHandMode && pendingQuickAttackTargetId) closeQuickAttackPopup();
   hideCardPreview();
   renderHand();
   renderActionQuestPanel();
@@ -2215,6 +2224,18 @@ function renderPhaseRewardModal() {
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
+function startOrkkCombatAttack(attack: OrkkCombatAttack) {
+  const attacker = dummyGroups.get(attack.attackerId);
+  const target = dummyGroups.get(attack.defenderId)?.position ?? worldPosition(gameState.players[attack.defenderId].position);
+  if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
+  playOrkkCharacterAttack(attack.attackerId, () => {
+    orkkCombatImpactPending = false;
+    postCombatVisualNotBefore = performance.now();
+    syncBoard();
+    refreshCombatImpactUi();
+  });
+}
+
 function renderCombatReveal() {
   const modal = byId('combatRevealModal');
   const reveal = gameState.combatReveal;
@@ -2283,15 +2304,13 @@ function renderCombatReveal() {
     const orkkAttack = orkkCombatAttacker;
     if (orkkAttack) {
       orkkCombatAttacker = null;
-      const attacker = dummyGroups.get(orkkAttack.attackerId);
-      const target = dummyGroups.get(orkkAttack.defenderId)?.position ?? worldPosition(gameState.players[orkkAttack.defenderId].position);
-      if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
-      playOrkkCharacterAttack(orkkAttack.attackerId, () => {
-        orkkCombatImpactPending = false;
-        postCombatVisualNotBefore = performance.now();
-        syncBoard();
-        refreshCombatImpactUi();
-      });
+      const recall = orkkAttack.cardId === 'shield-bash' && !orkkAttack.shieldEquippedAtStart
+        ? [...gameState.objectPushAnimations].reverse().find((event) => event.id.includes('-shield-bash-')
+          && event.equipPlayerId === orkkAttack.attackerId
+          && !completedObjectMovementAnimationIds.has(event.id))
+        : undefined;
+      if (recall) deferredOrkkCombatAttack = { ...orkkAttack, recallAnimationId: recall.id };
+      else startOrkkCombatAttack(orkkAttack);
     }
     const johnAttack = johnCombatAttacker;
     if (johnAttack) {
@@ -2341,7 +2360,7 @@ function renderCombatReveal() {
   obiWanCombatAttacker = pendingSwing && obiWanClip
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, clip: obiWanClip } : null;
   orkkCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'orkk'
-    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId } : null;
+    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, cardId: pendingSwing.cardId, shieldEquippedAtStart: Boolean(pendingSwing.shieldEquippedAtStart) } : null;
   johnCombatAttacker = pendingSwing
     && gameState.players[pendingSwing.attackerId].character === 'john-christ'
     ? {
@@ -2834,6 +2853,7 @@ function quickAttackCommand(targetId: PlayerId, cardInstanceId: string): GameCom
 }
 
 function availableQuickAttackCards(targetId: PlayerId) {
+  if (!compactHandMode) return [];
   if (quickAttackEligibilityCache?.state === gameState && quickAttackEligibilityCache.targetId === targetId) return quickAttackEligibilityCache.cards;
   const attacker = gameState.players[gameState.activePlayerId];
   const target = gameState.players[targetId];
@@ -3397,7 +3417,7 @@ lordaeronTombGroup.name = 'LordaeronHighgroundTomb';
 scene.add(lordaeronTombGroup);
 let lordaeronTombModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
-type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; triggerRouteProgress?: number; triggered?: boolean };
+type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerRouteProgress?: number; triggered?: boolean };
 type ObjectDestructionPiece = {
   mesh: THREE.Mesh;
   origin: THREE.Vector3;
@@ -3410,6 +3430,7 @@ const objectMovementAnimations = new Map<string, { animationId?: string; from: T
 const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
+const completedObjectMovementAnimationIds = new Set<string>();
 const processedSpellProjectiles = new Set<string>();
 const pendingMindBlastCastEvents = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
@@ -3880,13 +3901,13 @@ function floatingNumberOrigin(playerId: PlayerId, laneSpacing = 0.68) {
   return { lane, origin };
 }
 
-function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean, fatal = false) {
+function spawnDamageVisual(playerId: PlayerId, amount: number, collision: boolean, fatal = false, effect = false) {
   const startedAt = performance.now();
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128;
   const context = canvas.getContext('2d')!;
   context.font = "900 76px 'Barlow Condensed', Arial"; context.textAlign = 'center'; context.textBaseline = 'middle';
-  context.lineWidth = 12; context.strokeStyle = 'rgba(35,0,0,.95)'; context.strokeText(`-${amount}`, 128, 66);
-  context.fillStyle = '#ff635f'; context.fillText(`-${amount}`, 128, 66);
+  context.lineWidth = 12; context.strokeStyle = effect ? 'rgba(31,7,48,.96)' : 'rgba(35,0,0,.95)'; context.strokeText(`-${amount}`, 128, 66);
+  context.fillStyle = effect ? '#d88cff' : '#ff635f'; context.fillText(`-${amount}`, 128, 66);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
   const { lane, origin } = floatingNumberOrigin(playerId);
   sprite.position.copy(origin); sprite.scale.set(1.25, 0.63, 1); sprite.renderOrder = 100; scene.add(sprite);
@@ -4298,7 +4319,7 @@ function updateSpellProjectiles(time: number) {
     const progress = Math.min(1, elapsed / animation.duration);
     const queuedDamage = pendingDamageVisuals.get(animation.animationId) ?? [];
     const readyDamage = queuedDamage.filter((damage) => (damage.triggerRouteProgress ?? 1) <= progress);
-    readyDamage.forEach((damage) => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal));
+    readyDamage.forEach((damage) => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect));
     const waitingDamage = queuedDamage.filter((damage) => !readyDamage.includes(damage));
     if (waitingDamage.length > 0) pendingDamageVisuals.set(animation.animationId, waitingDamage);
     else if (queuedDamage.length > 0) pendingDamageVisuals.delete(animation.animationId);
@@ -4351,7 +4372,7 @@ function updateSpellProjectiles(time: number) {
     moonwaveRouteProgress.set(animation.animationId, easedProgress);
     const queuedDamage = pendingDamageVisuals.get(animation.animationId) ?? [];
     const readyDamage = queuedDamage.filter(damage => (damage.triggerRouteProgress ?? 1) <= easedProgress);
-    readyDamage.forEach(damage => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal));
+    readyDamage.forEach(damage => spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect));
     const waitingDamage = queuedDamage.filter(damage => !readyDamage.includes(damage));
     if (waitingDamage.length) pendingDamageVisuals.set(animation.animationId, waitingDamage);
     else pendingDamageVisuals.delete(animation.animationId);
@@ -4651,7 +4672,7 @@ function updateObjectMovement(time: number) {
       if (animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time);
       animation.impactDamage?.forEach((damage) => {
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
       });
       if (animation.collisionTargetKind === 'object' && animation.collisionTargetId) {
         const targetObject = gameState.objects.find((object) => object.id === animation.collisionTargetId);
@@ -4672,7 +4693,7 @@ function updateObjectMovement(time: number) {
       animation.impactDamage.forEach((damage) => {
         if (damage.triggered || damage.triggerRouteProgress === undefined || eased < damage.triggerRouteProgress) return;
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
       });
     }
     if (animation.preserveQuaternion && animation.animationId) startImpactTriggeredCharacterMovement(animation.animationId, time, eased);
@@ -4788,7 +4809,7 @@ function updateObjectMovement(time: number) {
       animation.impactDamage?.forEach((damage) => {
         if (damage.triggered) return;
         damage.triggered = true;
-        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal);
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
       });
       if (isReleasedShield && animation.visibleCenterTo && animation.visibleCenterLocal) {
         group.quaternion.copy(animation.idleQuaternion ?? animation.releaseQuaternion!);
@@ -4805,6 +4826,17 @@ function updateObjectMovement(time: number) {
         if (animation.equipPlayerId) {
           const equipped = dummyGroups.get(animation.equipPlayerId)?.getObjectByName('EquippedShield');
           if (equipped) equipped.visible = true;
+        }
+      }
+      if (animation.animationId) {
+        completedObjectMovementAnimationIds.add(animation.animationId);
+        if (deferredOrkkCombatAttack?.recallAnimationId === animation.animationId) {
+          const attack = deferredOrkkCombatAttack;
+          deferredOrkkCombatAttack = null;
+          startOrkkCombatAttack(attack);
+        }
+        if (gameState.objectPushAnimations.some((event) => event.waitForAnimationId === animation.animationId && !processedObjectPushAnimations.has(event.id))) {
+          syncBoard();
         }
       }
     }
@@ -5773,7 +5805,7 @@ function updateBlessingPresentationQueues(time: number) {
   }
 }
 
-function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?:THREE.Vector3): number {
+function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?: THREE.Vector3, attackerWasInSpiritForm?: boolean): number {
   const group = dummyGroups.get(playerId);
   if (group?.userData.character === 'merylin') {
     playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
@@ -5786,7 +5818,7 @@ function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId
     return Number.POSITIVE_INFINITY;
   }
   if (player?.character === 'john-christ') {
-    playJohnCast(playerId, (target ?? group?.position ?? new THREE.Vector3()).clone().add(new THREE.Vector3(0, 0.8, 0)), impact, player.spiritForm, cardId);
+    playJohnCast(playerId, (target ?? group?.position ?? new THREE.Vector3()).clone().add(new THREE.Vector3(0, 0.8, 0)), impact, attackerWasInSpiritForm ?? player.spiritForm, cardId);
     return Number.POSITIVE_INFINITY;
   }
   playOrkkOneShot(playerId, 'BoxAttack');
@@ -7478,8 +7510,9 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
     const blend = advanceSpiritBlend(group.userData.spiritVisualBlend ?? 0, active, deltaSeconds);
     group.userData.spiritVisualBlend = blend;
     const pulse = applySpiritBlend(normal.model, spirit.model, normal.body, blend);
+    updateJohnSpiritTransition(group, blend);
     const glow = group.getObjectByName('SpiritFormGlow') as THREE.PointLight | undefined;
-    if (glow) glow.intensity = 4.8 * blend + 7 * pulse;
+    if (glow) glow.intensity = 4.8 * blend + 4 * pulse * pulse;
     // Keep the outgoing pose alive during the brief overlap.
     const outgoing = active ? normal : spirit;
     if (blend > 0 && blend < 1) outgoing.mixer.update(deltaSeconds);
@@ -9080,10 +9113,18 @@ function syncBoard() {
     if (gameState.players[id].spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(cell);
     const previousKey = lastVisualCells.get(id);
+    const recordedMovement = gameState.players[id].visualMovement;
+    const deferMovementUntilCombatImpact = previousKey !== undefined
+      && previousKey !== targetKey
+      && recordedMovement?.sourceCardId === 'knee-blast'
+      && combatImpactUiDeferred();
     const instantLightbringerSwap = previousKey !== undefined
       && previousKey !== targetKey
       && gameState.players[id].visualMovement?.kind === 'lightbringer-swap';
-    if (instantLightbringerSwap) {
+    if (deferMovementUntilCombatImpact) {
+      // Knee Blast changes the authoritative Square during combat resolution,
+      // but its visible push must begin on Da Orkk's authored hit frame.
+    } else if (instantLightbringerSwap) {
       group.position.copy(target);
       movementAnimations.delete(id);
     } else if (!previousKey) {
@@ -9104,7 +9145,6 @@ function syncBoard() {
       } else {
         const from = group.position.clone();
         const previousCell = { x: previousKey.charCodeAt(0) - 64, y: Number(previousKey.slice(1)) - 1 };
-        const recordedMovement = gameState.players[id].visualMovement;
         const recordedPathMatches = recordedMovement
           && cellLabel(recordedMovement.from) === previousKey
           && recordedMovement.path.length > 0
@@ -9177,7 +9217,7 @@ function syncBoard() {
     } else if (!movementAnimations.has(id) && Math.abs(group.position.y - target.y) > 0.001) {
       movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: 280, verticalOnly: true });
     }
-    lastVisualCells.set(id, targetKey);
+    if (!deferMovementUntilCombatImpact) lastVisualCells.set(id, targetKey);
     group.userData.defeated = defeated;
     if (!defeated) group.rotation.z = 0;
     else if (!hasRiggedDeathPose && !pendingDeathAnimationIds.has(id) && !proceduralDeathAnimations.has(id)) group.rotation.z = Math.PI / 2;
@@ -9259,6 +9299,10 @@ function syncBoard() {
   });
   gameState.objectPushAnimations.forEach((event) => {
     if (processedObjectPushAnimations.has(event.id)) return;
+    if (event.waitForAnimationId && !completedObjectMovementAnimationIds.has(event.waitForAnimationId)) return;
+    if (event.attackCardId === 'knee-blast' && combatImpactUiDeferred()) return;
+    const shieldBashRecall = event.id.includes('-shield-bash-') && Boolean(event.removeOnComplete && event.equipPlayerId);
+    if (shieldBashRecall && gameState.combatReveal) return;
     if (event.callout) {
       processedObjectPushAnimations.add(event.id);
       spawnCharacterCalloutBubble(event.callout.playerId, event.callout.text);
@@ -9297,12 +9341,13 @@ function syncBoard() {
     if (event.damage) {
       // Combat damage is calculated before the reveal dialog opens. Keep its
       // counter queued so it appears over the victim only after confirmation.
-      if (gameState.combatReveal || combatAnimationImpactPending()) return;
+      const belongsToDeferredShieldBashRecall = event.damage.triggerAnimationId === deferredOrkkCombatAttack?.recallAnimationId;
+      if (gameState.combatReveal || (combatAnimationImpactPending() && !belongsToDeferredShieldBashRecall)) return;
       processedObjectPushAnimations.add(event.id);
-      const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, triggerRouteProgress: event.damage.triggerRouteProgress };
+      const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect, triggerRouteProgress: event.damage.triggerRouteProgress };
       if (event.damage.triggerAnimationId) {
         pendingDamageVisuals.set(event.damage.triggerAnimationId, [...(pendingDamageVisuals.get(event.damage.triggerAnimationId) ?? []), pendingDamage]);
-      } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision, event.damage.fatal);
+      } else spawnDamageVisual(event.damage.playerId, event.damage.amount, event.damage.collision, event.damage.fatal, event.damage.effect);
       return;
     }
     // The rules event is already present while the modal is open so the Box
@@ -9359,7 +9404,7 @@ function syncBoard() {
           ? obiWanAttackFacingRotation(attacker, dx, dz, obiWanClip)
           : characterFacingRotation(attacker, dx, dz);
       }
-      playBoxAttack(event.attackAnimationPlayerId, undefined, event.attackCardId, logicalFrom);
+      playBoxAttack(event.attackAnimationPlayerId, undefined, event.attackCardId, logicalFrom, event.attackerWasInSpiritForm);
       return;
     }
     const isOrkkRecall = (event.id.includes('-arm-da-wiz-') || event.id.includes('-arcane-shield-') || event.id.includes('-shield-bash-') || event.id.includes('-mana-baryer-')) && Boolean(event.removeOnComplete && event.equipPlayerId);
@@ -9420,7 +9465,7 @@ function syncBoard() {
           animation.startedAt = performance.now();
           animation.delay = 0;
         }
-      }, event.attackCardId, logicalFrom);
+      }, event.attackCardId, logicalFrom, event.attackerWasInSpiritForm);
     }
     const duration = event.id.includes('-spectre-relocate-') ? SPECTRE_RELOCATE_SWAP_MS : shieldThrow ? 110 + travelSquares * 72 : isOrkkRecall ? 210 + travelSquares * 115 : event.destroy ? 900 : event.parachute ? 2600 : 440 + (event.path?.length ?? travelSquares) * 190;
     const impactDamage = pendingDamageVisuals.get(event.id);
@@ -9695,7 +9740,7 @@ function updateSpiritFormVisual(group: THREE.Group, active: boolean) {
   }
   // Combat damage updates game state while its reveal still covers the board.
   // Hold the currently displayed form until the same post-combat gate used by
-  // death animations opens, then let the normal 0.4 s blend begin.
+  // death animations opens, then let the form transition begin.
   active = resolveSpiritVisualTarget(Boolean(group.userData.spiritVisualTarget), active, performance.now(), postCombatVisualNotBefore);
   if (spirit?.deathEndsAt !== undefined && playerId && gameState.players[playerId]?.hp > 0) {
     spirit.death?.stop(); spirit.deathEndsAt = undefined;
@@ -10634,25 +10679,8 @@ type CharacterPreviewMaterialSet = {
   castShadow: boolean;
 };
 let characterPreviewStyle: CharacterPreviewStyle = 'solid';
-const CHARACTER_PREVIEW_FORM_INTERVAL_MS = 4_600;
-const CHARACTER_PREVIEW_MIN_ANIMATION_MS = 2_200;
-const CHARACTER_PREVIEW_MAX_ANIMATION_MS = 4_600;
-const CHARACTER_PREVIEW_ANIMATION_PAUSE_MS = 350;
-const CHARACTER_PREVIEW_EXCLUDED_ANIMATIONS = new Set([
-  'Walk', 'Walking', 'Running', 'Run', 'RunFast', 'CasualWalk', 'Casual_Walk', 'CasualWalkOneCell',
-]);
-type CharacterPreviewAnimationSource = {
-  mixer: THREE.AnimationMixer;
-  actions: Record<string, THREE.AnimationAction>;
-  setCurrent: (name: string) => void;
-};
-let characterPreviewAnimationCycle: {
-  model: THREE.Group;
-  signature: string;
-  index: number;
-  nextAt: number;
-  actionName: string;
-} | null = null;
+const CHARACTER_PREVIEW_FORM_INTERVAL_MS = 10_000;
+const MERYLIN_PREVIEW_PHASE_INTERVAL_MS = 5_000;
 const characterPreviewMaterials = new WeakMap<THREE.Mesh, CharacterPreviewMaterialSet>();
 const characterPreviewToonGradient = new THREE.DataTexture(new Uint8Array([
   38, 38, 38, 255,
@@ -10823,10 +10851,35 @@ function setupCharacterPreview() {
     const delta = Math.min((time - previousTime) / 1000, .05); previousTime = time;
     hologramShaderTime.value = time / 1000;
     characterPreviewControls.update();
-    if (characterPreviewModel && characterPreviewModel.userData.character !== 'john-christ') updateCharacterPreviewAnimationCycle(characterPreviewModel, time, delta);
+    const orkkState = characterPreviewModel?.userData.orkkAnimation as OrkkAnimationState | undefined;
+    const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
+    const obiWanState = characterPreviewModel?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+    orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
+    if (characterPreviewModel?.userData.merylinAnimation) {
+      let previewWeapon: MerylinWeapon | undefined;
+      if (characterPreviewModel.userData.character === 'merylin') {
+        const elapsed = Math.max(0, time - characterPreviewMerylinCycleStartedAt);
+        const cycle = Math.floor(elapsed / (MERYLIN_PREVIEW_PHASE_INTERVAL_MS * characterPreviewMerylinWeapons.length * 2));
+        if (cycle !== characterPreviewMerylinCycle) {
+          characterPreviewMerylinCycle = cycle;
+          characterPreviewMerylinWeapons = nextCharacterPreviewMerylinShuffle(characterPreviewMerylinWeapons.at(-1));
+        }
+        const phase = Math.floor(elapsed / MERYLIN_PREVIEW_PHASE_INTERVAL_MS) % (characterPreviewMerylinWeapons.length * 2);
+        if (phase % 2 === 1) previewWeapon = characterPreviewMerylinWeapons[Math.floor(phase / 2)];
+      }
+      updateMerylinAnimation(characterPreviewModel, undefined, delta, false, previewWeapon);
+    }
     if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
+    if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
     if (characterPreviewModel?.userData.character === 'john-christ') {
-      updateCharacterPreviewJohnAnimationCycle(characterPreviewModel, time, delta);
+      const johnNormal = characterPreviewModel.userData.johnNormalAnimation as JohnAnimationState | undefined;
+      const johnSpirit = characterPreviewModel.userData.johnSpiritAnimation as JohnAnimationState | undefined;
+      if (johnNormal && johnSpirit) {
+        const elapsed = Math.max(0, time - characterPreviewJohnCycleStartedAt);
+        const previewSpirit = Math.floor(elapsed / CHARACTER_PREVIEW_FORM_INTERVAL_MS) % 2 === 1;
+        if (Boolean(characterPreviewModel.userData.spiritVisualTarget) !== previewSpirit) updateSpiritFormVisual(characterPreviewModel, previewSpirit);
+      }
+      if (characterPreviewModel.userData.johnAnimation) updateJohnAnimation(characterPreviewModel, undefined, delta);
     }
     characterPreviewComposer?.render();
   });
@@ -10955,11 +11008,8 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
     characterPreviewModels.set(character, model);
   }
   characterPreviewModel = model;
-  characterPreviewAnimationCycle = null;
-  if (character === 'john-christ') {
-    characterPreviewJohnCycleStartedAt = performance.now();
-    delete model.userData.characterPreviewJohnPhase;
-  }
+  if (character === 'john-christ') characterPreviewJohnCycleStartedAt = performance.now();
+  if (character === 'merylin') resetCharacterPreviewMerylinCycle();
   model.position.set(0, 0, 0);
   // The board camera views these roots from the opposite side; invert that
   // game-facing convention so an archive preview starts face-forward.
@@ -10972,150 +11022,19 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   characterPreviewControls?.update();
 }
 
-function characterPreviewAnimationSource(model: THREE.Group): CharacterPreviewAnimationSource | null {
-  const userData = model.userData;
-  const state = userData.orkkAnimation as OrkkAnimationState | undefined
-    ?? userData.wizardAnimation as WizardAnimationState | undefined
-    ?? userData.obiWanAnimation as ObiWanAnimationState | undefined
-    ?? userData.spectreAnimation as SpectreAnimationState | undefined
-    ?? userData.merylinAnimation as MerylinAnimation | undefined;
-  if (!state) return null;
-  return {
-    mixer: state.mixer,
-    actions: state.actions as unknown as Record<string, THREE.AnimationAction>,
-    setCurrent: (name) => { (state as unknown as { current: string }).current = name; },
-  };
+function resetCharacterPreviewMerylinCycle() {
+  characterPreviewMerylinCycleStartedAt = performance.now();
+  characterPreviewMerylinCycle = 0;
+  characterPreviewMerylinWeapons = nextCharacterPreviewMerylinShuffle();
 }
 
-function updateCharacterPreviewJohnAnimationCycle(model: THREE.Group, time: number, delta: number) {
-  const normal = model.userData.johnNormalAnimation as JohnAnimationState | undefined;
-  const spirit = model.userData.johnSpiritAnimation as JohnAnimationState | undefined;
-  if (!normal || !spirit) {
-    if (model.userData.johnAnimation) updateJohnAnimation(model, undefined, delta);
-    return;
+function nextCharacterPreviewMerylinShuffle(previous?: MerylinWeapon) {
+  const weapons = shuffledMerylinWeapons();
+  if (previous && weapons[0] === previous) {
+    const replacement = weapons.findIndex((weapon) => weapon !== previous);
+    [weapons[0], weapons[replacement]] = [weapons[replacement], weapons[0]];
   }
-  const phase = Math.floor(Math.max(0, time - characterPreviewJohnCycleStartedAt) / CHARACTER_PREVIEW_FORM_INTERVAL_MS) % 3;
-  if (model.userData.characterPreviewJohnPhase !== phase) {
-    spirit.death?.stop();
-    spirit.deathEndsAt = undefined;
-    spirit.actions.Idle.stop();
-    model.userData.characterPreviewJohnPhase = phase;
-    const spiritActive = phase > 0;
-    updateSpiritFormVisual(model, spiritActive);
-    const selected = spiritActive ? spirit : normal;
-    selected.mixer.stopAllAction();
-    if (phase === 2 && spirit.death) {
-      spirit.death.reset().setLoop(THREE.LoopOnce, 1).play();
-      spirit.death.clampWhenFinished = true;
-      spirit.deathEndsAt = Number.POSITIVE_INFINITY;
-    } else {
-      selected.actions.Idle.reset().setLoop(THREE.LoopRepeat, Infinity).play();
-      selected.current = 'Idle';
-    }
-  }
-  updateJohnAnimation(model, undefined, delta);
-}
-
-function availableCharacterPreviewAnimations(source: CharacterPreviewAnimationSource) {
-  const seen = new Set<THREE.AnimationAction>();
-  return Object.entries(source.actions).filter(([name, action]) => {
-    if (CHARACTER_PREVIEW_EXCLUDED_ANIMATIONS.has(name) || seen.has(action)) return false;
-    seen.add(action);
-    return true;
-  });
-}
-
-function startCharacterPreviewAnimation(
-  model: THREE.Group,
-  source: CharacterPreviewAnimationSource,
-  animations: Array<[string, THREE.AnimationAction]>,
-  index: number,
-  time: number,
-) {
-  const [name, action] = animations[index];
-  source.mixer.stopAllAction();
-  action.enabled = true;
-  action.paused = false;
-  action.clampWhenFinished = true;
-  action.setLoop(THREE.LoopOnce, 1).reset().setEffectiveWeight(1).fadeIn(0.12).play();
-  source.setCurrent(name);
-  const timeScale = Math.max(Math.abs(action.getEffectiveTimeScale()), Math.abs(action.timeScale), 0.001);
-  const duration = THREE.MathUtils.clamp(
-    action.getClip().duration * 1000 / timeScale + CHARACTER_PREVIEW_ANIMATION_PAUSE_MS,
-    CHARACTER_PREVIEW_MIN_ANIMATION_MS,
-    CHARACTER_PREVIEW_MAX_ANIMATION_MS,
-  );
-  characterPreviewAnimationCycle = {
-    model,
-    signature: animations.map(([animationName]) => animationName).join('|'),
-    index,
-    nextAt: time + duration,
-    actionName: name,
-  };
-  selectCharacterPreviewMerylinWeapon(model, name);
-  syncCharacterPreviewAnimationProps(model, name);
-}
-
-function updateCharacterPreviewAnimationCycle(model: THREE.Group, time: number, delta: number) {
-  const source = characterPreviewAnimationSource(model);
-  if (!source) { characterPreviewAnimationCycle = null; return; }
-  const animations = availableCharacterPreviewAnimations(source);
-  if (animations.length === 0) { characterPreviewAnimationCycle = null; return; }
-  const signature = animations.map(([name]) => name).join('|');
-  const cycle = characterPreviewAnimationCycle;
-  if (!cycle || cycle.model !== model || cycle.signature !== signature) {
-    startCharacterPreviewAnimation(model, source, animations, 0, time);
-  } else if (time >= cycle.nextAt) {
-    startCharacterPreviewAnimation(model, source, animations, (cycle.index + 1) % animations.length, time);
-  }
-  source.mixer.update(delta);
-  updateCharacterPreviewAnimationProps(model, characterPreviewAnimationCycle?.actionName ?? animations[0][0], delta, time);
-}
-
-function syncCharacterPreviewAnimationProps(model: THREE.Group, animationName: string) {
-  if (model.userData.character === 'orkk') {
-    const shield = model.getObjectByName('EquippedShield');
-    if (shield) shield.visible = animationName !== 'IdleNoShield';
-  }
-  if (model.userData.character === 'magician') setWizardPowerHand(model, animationName === 'Power');
-  if (model.userData.character === 'shinobi') {
-    const saberVisible = animationName !== 'Dead';
-    model.userData.obiWanLightsaberVisible = saberVisible;
-    model.userData.obiWanLightsaberTarget = saberVisible ? 1 : 0;
-  }
-}
-
-function selectCharacterPreviewMerylinWeapon(model: THREE.Group, animationName: string) {
-  if (model.userData.character !== 'merylin') return;
-  let weapon: MerylinWeapon | undefined;
-  if (animationName === 'Attack_DoubleSwing') weapon = 'sting';
-  else if (animationName === 'Attack') {
-    const cycle = Number(model.userData.characterPreviewMerylinAttackCycle ?? 0);
-    weapon = cycle % 2 === 0 ? 'excalibur' : 'lightbringer';
-    model.userData.characterPreviewMerylinAttackCycle = cycle + 1;
-  } else if (animationName === 'Attack_Swing') {
-    const cycle = Number(model.userData.characterPreviewMerylinSwingCycle ?? 0);
-    weapon = cycle % 2 === 0 ? 'frostmourne' : 'moonlight';
-    model.userData.characterPreviewMerylinSwingCycle = cycle + 1;
-  } else if (animationName.endsWith('_Wielding')) weapon = 'frostmourne';
-  model.userData.characterPreviewMerylinWeapon = weapon;
-}
-
-function updateCharacterPreviewAnimationProps(model: THREE.Group, animationName: string, delta: number, time: number) {
-  syncCharacterPreviewAnimationProps(model, animationName);
-  if (model.userData.character === 'shinobi') updateObiWanLightsaberAnimation(model, delta);
-  if (model.userData.character !== 'merylin') return;
-  const state = model.userData.merylinAnimation as MerylinAnimation | undefined;
-  const weapons = model.userData.merylinWeapons as MerylinWeapons | undefined;
-  if (!state || !weapons) return;
-  const previewWeapon = model.userData.characterPreviewMerylinWeapon as MerylinWeapon | undefined;
-  if (previewWeapon) state.attackWeapon = previewWeapon;
-  const wielding = previewWeapon !== undefined;
-  weapons.update(delta, wielding, state.isAttacking, state.current, false, previewWeapon);
-  (model.userData.frostmourneEffects as FrostmourneEffects | undefined)?.update(time, Boolean(weapons.frostVisible), state.isAttacking && state.attackWeapon === 'frostmourne', weapons.frostOpacity);
-  (model.userData.stingEffects as StingEffects | undefined)?.update(time, Boolean(weapons.stingVisible), state.isAttacking && state.attackWeapon === 'sting', weapons.stingOpacity);
-  (model.userData.moonlightEffects as MoonlightEffects | undefined)?.update(time, Boolean(weapons.moonlightVisible), state.isAttacking && state.attackWeapon === 'moonlight', weapons.moonlightOpacity);
-  (model.userData.lightbringerEffects as LightbringerEffects | undefined)?.update(time, Boolean(weapons.lightbringerVisible), state.isAttacking && state.attackWeapon === 'lightbringer', weapons.lightbringerOpacity);
+  return weapons;
 }
 
 // Independent roots keep lobby previews from moving the archive or board models.
