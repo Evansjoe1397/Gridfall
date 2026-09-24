@@ -2357,15 +2357,28 @@ function renderCombatReveal() {
     }
     return;
   }
-  const attackPortraitVariant = reveal.attackCardId === 'lightbringer'
+  const portraitPending = gameState.pendingAttack;
+  const portraitAttacker = portraitPending ? gameState.players[portraitPending.attackerId] : undefined;
+  const portraitDefender = portraitPending ? gameState.players[portraitPending.defenderId] : undefined;
+  const attackPortraitVariant = portraitAttacker?.character === 'john-christ' && portraitPending?.attackerWasInSpiritForm
+    ? 'spirit'
+    : portraitAttacker?.character === 'spectre' && portraitPending?.attackerBody === 'replica'
+    ? 'replica'
+    : reveal.attackCardId === 'lightbringer'
     && reveal.attackModifiers?.some((modifier) => modifier.value > 0 && modifier.source.includes('High Ground'))
     ? 'highground'
     : undefined;
-  const portraitAttack = gameState.pendingAttack
-    ? combatPortrait(gameState.players[gameState.pendingAttack.attackerId].character, 'attack', reveal.attackCardId, attackPortraitVariant)
+  const defendPortraitVariant = portraitDefender?.character === 'john-christ'
+    && (portraitPending?.defenderWasInSpiritForm ?? portraitDefender.spiritForm)
+    ? 'spirit'
+    : portraitDefender?.character === 'spectre' && portraitPending?.defenderBody === 'replica'
+    ? 'replica'
     : undefined;
-  const portraitDefend = gameState.pendingAttack && reveal.defendCardId
-    ? combatPortrait(gameState.players[gameState.pendingAttack.defenderId].character, 'defend', reveal.defendCardId)
+  const portraitAttack = portraitAttacker
+    ? combatPortrait(portraitAttacker.character, 'attack', reveal.attackCardId, attackPortraitVariant)
+    : undefined;
+  const portraitDefend = portraitDefender
+    ? combatPortrait(portraitDefender.character, 'defend', reveal.defendCardId ?? undefined, defendPortraitVariant)
     : undefined;
   modal.style.setProperty('--combat-attack-portrait', portraitAttack ? `url("${portraitAttack}")` : 'none');
   modal.style.setProperty('--combat-defend-portrait', portraitDefend ? `url("${portraitDefend}")` : 'none');
