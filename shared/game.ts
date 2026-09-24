@@ -355,7 +355,7 @@ export type BoardObject = { id: string; name: string; hp: number; maxHp: number;
 export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
-export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
+export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
 export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-sacrifice-tomb-square' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
@@ -2719,6 +2719,8 @@ function resolveSoulStrikeAfterDefenseChosen(state: GameState, pending: PendingA
     return;
   }
   const revealed = candidates[Math.floor(Math.random() * candidates.length)];
+  // A new Soul Strike result replaces the previous forced use, even when it reveals a Perk.
+  for (const card of defender.hand) delete card.soulStrikeForcedUse;
   revealed.revealedToPlayerIds = [...new Set([...(revealed.revealedToPlayerIds ?? []), attacker.id])];
   const kind = cardDefinition(revealed).kind;
   if (kind === 'perk') {
@@ -3366,6 +3368,7 @@ function playPerkFromHand(state: GameState, player: PlayerState, command: Extrac
   const instance = player.hand.find((card) => card.instanceId === command.cardInstanceId);
   if (!instance || cardDefinition(instance).kind !== 'perk') return fail(state, 'That Perk card is not in the hand.');
   const perk = cardDefinition(instance);
+  if (command.destination === 'echo' && !perk.levelEffects?.length) return fail(state, `${perk.name} has no levels and cannot be placed in Spell Echo.`);
   if (perk.id === 'monarch-flush-perk') instance.oneTimeCopy = true;
   if (perk.id === 'fireball' || perk.id === 'sweet-potato') {
     if (state.phase !== 'active' || state.activePlayerId !== player.id) return fail(state, `${perk.name} can only be used during the active phase.`);
@@ -6279,10 +6282,16 @@ function resolveFireballTarget(state: GameState, playerId: PlayerId, targetId: s
   const range = 3;
   if (distance(caster.position, body.position) > range) return fail(state, `${source === 'fireball' ? 'Fireball' : 'Firebolt'} has Range ${range}.`);
   if (!hasLineOfSight(state, caster.position, body.position)) return fail(state, `A Wall Object blocks ${source === 'fireball' ? 'Fireball' : 'Firebolt'} line of sight.`);
+  const firstVisualEvent = state.objectPushAnimations.length;
+  const animationId = `${state.turn}-${source}-${++instanceSequence}`;
   const baseDamage = source === 'fireball' ? 2 : 1;
   const damage = baseDamage + meleeHighGroundDamageBonus(state, caster, body.position);
   const dealt = damageCharacterBody(state, body, damage, false, playerId, source === 'fireball' ? 'other' : 'perk');
   if (target.hp > 0) addForcedStatusCard(state, target, 'burning', 'hand', playerId, source === 'fireball' ? 'other' : 'perk', true);
+  state.spellProjectiles.push({ id: animationId, casterId: playerId, targetId: body.id, from: { ...caster.position }, to: { ...body.position }, path: [{ ...caster.position }, { ...body.position }], count: 1, damage: dealt, style: source });
+  for (const event of state.objectPushAnimations.slice(firstVisualEvent)) {
+    if (event.damage) event.damage.triggerAnimationId = animationId;
+  }
   extended.fireball = null; state.phase = 'active';
   state.log.unshift(`${caster.name}'s ${source === 'fireball' ? 'Fireball' : 'Firebolt'} dealt ${dealt} Damage to ${body.name}${damage > baseDamage ? ', including +1 from High Ground' : ''} and applied Burning to ${target.name}${source === 'fireball' ? '; the main Reward Card was Removed from the game' : ''}.`);
   return ok(state);
@@ -8511,6 +8520,8 @@ function isBlessingCard(instance: CardInstance): boolean {
 }
 function prepareCardForDiscard(card: CardInstance): CardInstance {
   if (card.cardId === 'oracle') delete card.oracleValue;
+  card.revealedToOpponent = false;
+  delete card.revealedToPlayerIds;
   delete card.soulStrikeForcedUse;
   return card;
 }
@@ -8541,7 +8552,6 @@ function discardFromHand(player: PlayerState, instanceId: string) {
     adjustUnspentMovementForRangeChange(player, previousMoveRange);
     return;
   }
-  card.revealedToOpponent = false;
   player.discard.push(prepareCardForDiscard(card));
   adjustUnspentMovementForRangeChange(player, previousMoveRange);
 }
@@ -8550,6 +8560,8 @@ function returnDiscardedCardToHand(player: PlayerState, instanceId: string): boo
   if (index < 0) return false;
   const [card] = player.discard.splice(index, 1);
   card.revealedToOpponent = false;
+  delete card.revealedToPlayerIds;
+  delete card.soulStrikeForcedUse;
   player.hand.push(card);
   return true;
 }

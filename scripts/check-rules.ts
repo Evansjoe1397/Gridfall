@@ -7880,6 +7880,37 @@ if (soulStrikeAttackReveal.ok) {
   assert.equal(applyGameCommand(soulStrikeAttackReveal.state, { type: 'attack', playerId: 'P2', cardInstanceId: 'soul-strike-marked-attack', targetId: 'P1', targetKind: 'player' }).ok, true, 'The marked Attack can be used first.');
 }
 
+for (const [oldCardId, oldMark, newCardId, expectedOutcome] of [
+  ['attack-2', 'attack', 'defend-1', 'forced-defend'],
+  ['defend-1', 'defend', 'attack-2', 'forced-attack'],
+  ['attack-2', 'attack', 'replicate', 'discarded-perk'],
+] as const) {
+  const replacementState = createHotseatTestState(true, 'spectre', 'dummy');
+  replacementState.phase = 'active'; replacementState.activePlayerId = 'P1'; replacementState.objects = [];
+  replacementState.players.P1.position = { x: 3, y: 3 }; replacementState.players.P2.position = { x: 4, y: 3 };
+  replacementState.players.P1.hand = [{ instanceId: 'soul-strike-replacement', cardId: 'soul-strike' }];
+  replacementState.players.P2.hand = [
+    { instanceId: 'previously-marked-card', cardId: oldCardId, revealedToPlayerIds: ['P1'], soulStrikeForcedUse: oldMark },
+    { instanceId: 'new-soul-strike-card', cardId: newCardId },
+  ];
+  const replacementAttack = applyGameCommand(replacementState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'soul-strike-replacement', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+  assert.equal(replacementAttack.ok, true);
+  if (!replacementAttack.ok) continue;
+  const previousRandom = Math.random;
+  Math.random = () => 0.999;
+  let replacementResult: ReturnType<typeof applyCommand>;
+  try { replacementResult = applyCommand(replacementAttack.state, { type: 'pass-defense', playerId: 'P2' }); }
+  finally { Math.random = previousRandom; }
+  assert.equal(replacementResult.ok, true);
+  if (!replacementResult.ok) continue;
+  assert.equal(replacementResult.state.combatReveal?.soulStrikeResult?.outcome, expectedOutcome, 'Soul Strike resolves the newly selected Card.');
+  const oldCard = replacementResult.state.players.P2.hand.find((card: any) => card.instanceId === 'previously-marked-card');
+  assert.equal(oldCard?.soulStrikeForcedUse, undefined, 'The new Soul Strike result clears the previous forced-use mark.');
+  assert.deepEqual(oldCard?.revealedToPlayerIds, ['P1'], 'Replacing a mark does not erase a Card still revealed in Hand.');
+  const newCard = replacementResult.state.players.P2.hand.find((card: any) => card.instanceId === 'new-soul-strike-card');
+  assert.equal(newCard?.soulStrikeForcedUse, expectedOutcome === 'forced-defend' ? 'defend' : expectedOutcome === 'forced-attack' ? 'attack' : undefined, 'Only a newly revealed Attack or Block remains marked.');
+}
+
 const soulStrikePerkRevealState = createHotseatTestState(true, 'spectre', 'dummy');
 soulStrikePerkRevealState.phase = 'active'; soulStrikePerkRevealState.activePlayerId = 'P1'; soulStrikePerkRevealState.objects = [];
 soulStrikePerkRevealState.players.P1.position = { x: 3, y: 3 }; soulStrikePerkRevealState.players.P2.position = { x: 4, y: 3 };
@@ -7937,14 +7968,24 @@ if (soulStrikeDeferredAttack.ok) {
 const soulStrikeMarkerDiscardState = createHotseatTestState(true, 'dummy', 'dummy');
 soulStrikeMarkerDiscardState.phase = 'choosing-end-discard'; soulStrikeMarkerDiscardState.activePlayerId = 'P1';
 soulStrikeMarkerDiscardState.players.P1.hand = [
-  { instanceId: 'discard-marked-attack', cardId: 'attack-2', soulStrikeForcedUse: 'attack' },
+  { instanceId: 'discard-marked-attack', cardId: 'attack-2', revealedToOpponent: true, revealedToPlayerIds: ['P2'], soulStrikeForcedUse: 'attack' },
   { instanceId: 'discard-filler-1', cardId: 'attack-2' }, { instanceId: 'discard-filler-2', cardId: 'attack-2' },
   { instanceId: 'discard-filler-3', cardId: 'attack-2' }, { instanceId: 'discard-filler-4', cardId: 'attack-2' },
   { instanceId: 'discard-filler-5', cardId: 'attack-2' },
 ];
 const discardedSoulStrikeMarker = applyGameCommand(soulStrikeMarkerDiscardState, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'discard-marked-attack' });
 assert.equal(discardedSoulStrikeMarker.ok, true, 'A Soul Strike-marked Card may be discarded for the Hand limit.');
-if (discardedSoulStrikeMarker.ok) assert.equal(discardedSoulStrikeMarker.state.players.P1.discard.find((card) => card.instanceId === 'discard-marked-attack')?.soulStrikeForcedUse, undefined, 'The forced-use marker ends when the Card leaves Hand.');
+if (discardedSoulStrikeMarker.ok) {
+  const discardedMarkedCard = discardedSoulStrikeMarker.state.players.P1.discard.find((card) => card.instanceId === 'discard-marked-attack');
+  assert.equal(discardedMarkedCard?.soulStrikeForcedUse, undefined, 'The forced-use marker ends when the Card leaves Hand.');
+  assert.equal(discardedMarkedCard?.revealedToOpponent, false, 'A discarded Card is no longer globally revealed.');
+  assert.equal(discardedMarkedCard?.revealedToPlayerIds, undefined, 'A discarded Card forgets Soul Strike’s private reveal viewers.');
+  discardedSoulStrikeMarker.state.players.P1.deck = [];
+  discardedSoulStrikeMarker.state.players.P1.discard = [discardedMarkedCard!];
+  assert.equal(drawCards(discardedSoulStrikeMarker.state.players.P1, 1), 1, 'The discarded Card can be shuffled and drawn again.');
+  const recycledMarkedCard = discardedSoulStrikeMarker.state.players.P1.hand.find((card) => card.instanceId === 'discard-marked-attack');
+  assert.equal(isCardRevealedToOpponents(discardedSoulStrikeMarker.state.players.P1, recycledMarkedCard!, 'P2'), false, 'The recycled Card returns to Hand unrevealed.');
+}
 
 const shadowOriginState = createHotseatTestState(true, 'spectre', 'dummy') as any;
 shadowOriginState.phase = 'active';

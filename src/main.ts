@@ -6,6 +6,9 @@ import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport 
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
+import { createQuestFlag, flutterQuestFlag, disposeQuestFlag } from './questFlagVisuals.ts';
+import { PortalTeleport, PORTAL_TELEPORT_MS } from './portalTeleport.ts';
+import { FireboltVisual } from './fireboltVisuals.ts';
 import { JohnRepentFire } from './johnRepentFire.ts';
 import { textureTrenchTile } from './trench-tile-textures.ts';
 import { textureLordaeronTile } from './lordaeron-tile-textures.ts';
@@ -16,6 +19,7 @@ import { retryAssetLoad } from './retry-asset-load.ts';
 import { stabilizeOrkkHeldProps } from './orkkHeldProps.ts';
 import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS, JOHN_MIND_BLAST_IMPACT_SECONDS, JOHN_MODEL_SCALE, JOHN_SCEPTER_HEAD_LOCAL, JOHN_SPIRIT_ATTACK_CLIP, JOHN_SPIRIT_ATTACK_DAMAGE_SECONDS, johnAnimationAvailableInForm, johnAttackAnimation, johnAttackReleaseSeconds, johnAttackUsesProjectile, johnCastProjectileDurationMs, johnMovementClip, johnMovementDuration, johnPlaybackRate, johnUsesCastOverhead, type JohnAnimationName, type JohnAttackAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
+import { groundJohnBlessingClip } from './johnChristGrounding.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
 import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, obiWanAttackClip, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
 import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
@@ -112,6 +116,7 @@ import {
   type Cell,
   type GameCommand,
   type GameState,
+  type SpellProjectile,
   type ForcePowerActionEvent,
   type OrkkActionEvent,
   type PerkUseEvent,
@@ -589,8 +594,9 @@ let orkkCombatImpactPending = false;
 const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
 let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
 let johnCombatImpactPending = false;
+let genericCombatImpactAt = 0;
 function combatAnimationImpactPending() {
-  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending;
+  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending || performance.now() < genericCombatImpactAt;
 }
 function combatImpactUiDeferred() {
   return Boolean(gameState.combatReveal) || combatAnimationImpactPending();
@@ -624,6 +630,9 @@ function resetCombatSummary() {
   completedObjectMovementAnimationIds.clear();
   johnCombatAttacker = null;
   johnCombatImpactPending = false;
+  genericCombatImpactAt = 0;
+  combatDamageEventIds.clear();
+  pendingCombatDamageVisuals.length = 0;
   blockedCombatTargetId = null;
   johnCastWaits.clear();
   repentFireAnimations.forEach((fire) => fire.dispose());
@@ -835,7 +844,9 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const enteringBattle = game.classList.contains('hidden');
       const previousArenaId = visualArena().id;
       const previousBoardSize = gameState.boardSize;
+      const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
+      startResolvedFireSpell(previousGameState, gameState);
       const arenaChanged = previousArenaId !== visualArena().id || previousBoardSize !== gameState.boardSize;
       const shouldFitCamera = enteringBattle || arenaChanged;
       if (gameState.phase !== 'choosing-combat-stack') { combatStackSelectionKey = ''; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
@@ -1183,6 +1194,7 @@ function dispatch(command: GameCommand) {
   const result = applyCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
+  startResolvedFireSpell(previousGameState, gameState);
   const perkUseEvent = perkUseEventForTransition(previousGameState, command, gameState);
   selection.send({ type: 'CLEAR' });
   if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
@@ -1748,7 +1760,7 @@ function renderHand() {
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && instance.cardId !== 'graveyard') || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && instance.cardId !== 'graveyard') || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -1857,7 +1869,7 @@ function renderHand() {
     const selected = (currentSelection.kind === 'attack' || currentSelection.kind === 'perk') && currentSelection.cardInstanceId === instance.instanceId;
     const rewardAction = instance.cardId === 'fireball' || instance.cardId === 'sweet-potato';
     const soulStrikeAttackUnavailable = card.kind === 'attack' && soulStrikeForcedAttacks.length > 0 && instance.soulStrikeForcedUse !== 'attack';
-    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? !soulStrikeAttackUnavailable && (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || (Boolean(viewer.merylinSummonActive) && !viewer.traitBlocked)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
+    const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? !soulStrikeAttackUnavailable && (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || (Boolean(viewer.merylinSummonActive) && !viewer.traitBlocked)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked && instance.cardId !== 'vicious-mockery' && instance.cardId !== 'vicious-mockery-1' : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
     const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || ((gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard') && instance.cardId === 'judgement') || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
@@ -1867,7 +1879,7 @@ function renderHand() {
     const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
     const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
-    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
+    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''} ${instance.soulStrikeForcedUse ? 'soul-strike-marked' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-instance]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     if (gameState.phase === 'choosing-preparation-discard') dispatch({ type: 'preparation-discard', playerId: viewerId, cardInstanceId: button.dataset.instance! });
@@ -1882,6 +1894,7 @@ function renderHand() {
       if (instance.cardId === 'blessing-prayer') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
       else if (definition.kind === 'status' && definition.canRemoveAsAction) dispatch({ type: 'remove-status', playerId: viewerId, cardInstanceId: instance.instanceId });
       else if (definition.kind === 'free-action') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
+      else if (definition.kind === 'perk' && !definition.levelEffects?.length) dispatch({ type: 'play-perk', playerId: viewerId, cardInstanceId: instance.instanceId, destination: 'direct' });
       else {
         if (definition.kind === 'attack') selectedSpectreAttackOrigin = 'spectre';
         selection.send(definition.kind === 'perk' ? { type: 'SELECT_PERK', cardInstanceId: instance.instanceId } : { type: 'SELECT_ATTACK', cardInstanceId: instance.instanceId });
@@ -2230,8 +2243,10 @@ function startOrkkCombatAttack(attack: OrkkCombatAttack) {
   if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
   playOrkkCharacterAttack(attack.attackerId, () => {
     orkkCombatImpactPending = false;
+    genericCombatImpactAt = 0;
     postCombatVisualNotBefore = performance.now();
     syncBoard();
+    releaseCombatDamageVisuals();
     refreshCombatImpactUi();
   });
 }
@@ -2264,6 +2279,14 @@ function renderCombatReveal() {
         if (johnAttack) johnCombatImpactPending = true;
         postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
       }
+      // Hold damage until the authored impact callback, or for characters
+      // without one, until their short attack presentation has played.
+      genericCombatImpactAt = activeCombatVisualAttackId ? performance.now() + 420 : 0;
+      if (genericCombatImpactAt) {
+        for (const event of gameState.objectPushAnimations) {
+          if (event.damage && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
+        }
+      }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
       activeCombatVisualAttackId = null;
     }
@@ -2283,8 +2306,10 @@ function renderCombatReveal() {
       if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z);
       playMerylinSwing(swing.attackerId, () => {
         merylinCombatImpactPending = false;
+        genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        releaseCombatDamageVisuals();
         refreshCombatImpactUi();
       }, swing.weapon, target);
     }
@@ -2296,8 +2321,10 @@ function renderCombatReveal() {
       if (attacker) attacker.rotation.y = obiWanAttackFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z, obiWanAttack.clip);
       playObiWanAttack(obiWanAttack.attackerId, obiWanAttack.clip, () => {
         obiWanCombatImpactPending = false;
+        genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        releaseCombatDamageVisuals();
         refreshCombatImpactUi();
       });
     }
@@ -2321,8 +2348,10 @@ function renderCombatReveal() {
       if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
       playJohnCast(johnAttack.attackerId, target, () => {
         johnCombatImpactPending = false;
+        genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
+        releaseCombatDamageVisuals();
         refreshCombatImpactUi();
       }, johnAttack.attackerWasInSpiritForm, johnAttack.cardId, { targetId: johnAttack.defenderId });
     }
@@ -2608,7 +2637,8 @@ function renderSpellEchoBars() {
     const slots = owner.spellEcho.map((instance, index) => {
       const position = index + 1;
       const perk = instance ? cardDefinition(instance) : null;
-      const canPlace = ownerId === viewerId && selected.kind === 'perk' && position === 1;
+      const selectedPerk = selected.kind === 'perk' ? owner.hand.find((card) => card.instanceId === selected.cardInstanceId) : undefined;
+      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && position === 1;
       const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
       const tooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
       return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
@@ -2649,7 +2679,10 @@ function renderOpponentHand() {
     const cards = visibleHand.map((instance) => {
       const card = cardDefinition(instance);
       if (!isCardRevealedToOpponents(opponent, instance, viewerId) && card.kind !== 'status') return `<div class="opponent-card card-back" title="Unrevealed opponent card"></div>`;
-      return `<div class="opponent-card revealed ${cardVisualClass(card)}" data-preview-card="${card.id}" title="Revealed: ${escapeHtml(card.name)} — value ${card.value}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b></div>`;
+      const forcedUse = instance.soulStrikeForcedUse;
+      const forcedLabel = forcedUse === 'attack' ? 'MUST ATTACK' : forcedUse === 'defend' ? 'MUST BLOCK' : '';
+      const title = forcedLabel ? `Soul Strike: ${forcedLabel.toLowerCase()} with ${card.name} next` : `Revealed: ${card.name} — value ${card.value}`;
+      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}" data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${visibleHand.length} CARD${visibleHand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
@@ -3428,9 +3461,18 @@ type ObjectDestructionPiece = {
 };
 const objectMovementAnimations = new Map<string, { animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; delay?: number; collided: boolean; dx: number; dy: number; path?: THREE.Vector3[]; collisionAt?: THREE.Vector3; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; collisionVisibleCenter?: THREE.Vector3; impactDamage?: PendingDamageVisual[]; impactTriggered?: boolean; preserveQuaternion?: THREE.Quaternion; targetQuaternion?: THREE.Quaternion; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; baseScale?: THREE.Vector3; destructionPrepared?: boolean; destructionPieces?: ObjectDestructionPiece[]; equipPlayerId?: PlayerId; parachute?: boolean; releaseSource?: THREE.Object3D; released?: boolean; releaseQuaternion?: THREE.Quaternion; idleQuaternion?: THREE.Quaternion; flightTo?: THREE.Vector3; visibleCenterLocal?: THREE.Vector3; visibleCenterFrom?: THREE.Vector3; visibleCenterTo?: THREE.Vector3; dropDistance?: number; landingShakeDuration?: number; collisionBounceDuration?: number }>();
 const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
+const combatDamageEventIds = new Set<string>();
+const pendingCombatDamageVisuals: PendingDamageVisual[] = [];
+function releaseCombatDamageVisuals() {
+  for (const damage of pendingCombatDamageVisuals.splice(0)) {
+    spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
+  }
+  combatDamageEventIds.clear();
+}
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
 const completedObjectMovementAnimationIds = new Set<string>();
+const fireboltAnimations: { animationId: string; visual: FireboltVisual }[] = [];
 const processedSpellProjectiles = new Set<string>();
 const pendingMindBlastCastEvents = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
@@ -3455,6 +3497,7 @@ const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: nu
 const lastVisualCells = new Map<PlayerId, string>();
 type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
+const portalTeleports = new Map<PlayerId, { movement: CharacterMovementAnimation; visual: PortalTeleport; character: THREE.Group }>();
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
@@ -3473,7 +3516,7 @@ const pendingMovementCancellationTargets = new Map<PlayerId, string>();
 const characterMovementDirection = new THREE.Vector3();
 const wizardLiftedTargets = new Map<PlayerId, { kind: 'player' | 'object'; id: string; baseY: number }>();
 const questFlagModels = new Map<string, THREE.Group>();
-let questFlagVisualKey = '';
+const questFlagPresentations = new Map<string, { carrierId: PlayerId | null; index: number; location: { x: number; y: number }; pickup?: { from: THREE.Vector3; rotation: THREE.Quaternion; scale: number; startedAt: number | null; location: { x: number; y: number } } }>();
 let hotPotatoModel: THREE.Group | null = null;
 let hotPotatoCarrier: PlayerId | null = null;
 let hotPotatoPickup: { waitForTile: boolean; startedAt: number | null; from: THREE.Vector3; fromScale: number } | null = null;
@@ -3583,6 +3626,14 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
+  if (genericCombatImpactAt && time >= genericCombatImpactAt) {
+    genericCombatImpactAt = 0;
+    syncBoard();
+    if (!combatAnimationImpactPending()) {
+      releaseCombatDamageVisuals();
+      refreshCombatImpactUi();
+    }
+  }
   updateArcaneImpacts(deltaSeconds);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
@@ -3619,7 +3670,7 @@ renderer.setAnimationLoop((time) => {
     }
     const movement = movementAnimations.get(id);
     const moving = Boolean(movement);
-    const locomoting = moving && !isCharacterSliding(movement, time);
+    const locomoting = moving && !movement?.teleport && !isCharacterSliding(movement, time);
     updateWizardAnimation(group, locomoting, deltaSeconds);
     updateObiWanAnimation(group, id, locomoting, deltaSeconds);
     if (group.userData.character === 'shinobi') {
@@ -3702,6 +3753,7 @@ renderer.setAnimationLoop((time) => {
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
   animateHotPotato(time);
+  animateQuestFlags(time);
   updatePerkUseLabels(time);
   updateCharacterCalloutBubbles(time);
   updateObjectCalloutBubbles(time);
@@ -4195,6 +4247,28 @@ function spawnJohnFireImpact(event: { style?: string; to: Cell; targetId?: strin
   holyFireAnimations.push({ group, flames, ring, startedAt: performance.now(), duration: cleanseImmolate ? 1450 : 2000, style: cleanseImmolate ? 'cleanse-immolate' : 'holy-fire' });
 }
 
+function startFireSpellVisual(event: SpellProjectile) {
+  const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0));
+  const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
+  const caster = dummyGroups.get(event.casterId);
+  if (caster) caster.rotation.y = characterFacingRotation(caster, to.x - from.x, to.z - from.z);
+  const visual = new FireboltVisual(from, to, performance.now(), event.style === 'fireball' ? 1.4 : 1);
+  scene.add(visual.group);
+  fireboltAnimations.push({ animationId: event.id, visual });
+}
+
+function startResolvedFireSpell(previous: GameState, current: GameState) {
+  const targeting = (previous as GameState & { fireball?: { source?: 'fireball' | 'firebolt' } | null }).fireball;
+  if (previous.phase !== 'choosing-fireball-target' || !targeting) return;
+  const previousIds = new Set((previous.spellProjectiles ?? []).map((event) => event.id));
+  const fireSpell = current.spellProjectiles?.find((event) => (event.style === 'fireball' || event.style === 'firebolt') && !previousIds.has(event.id));
+  if (!fireSpell) return;
+  // Start at the resolved command/state transition. The general board sync can
+  // run later and must not consume or replay this same cast.
+  processedSpellProjectiles.add(fireSpell.id);
+  startFireSpellVisual(fireSpell);
+}
+
 function syncSpellProjectiles() {
   const lightningHops = new Map<PlayerId, number>();
   for (const event of gameState.spellProjectiles ?? []) {
@@ -4222,6 +4296,10 @@ function syncSpellProjectiles() {
       continue;
     }
     processedSpellProjectiles.add(event.id);
+    if (event.style === 'fireball' || event.style === 'firebolt') {
+      startFireSpellVisual(event);
+      continue;
+    }
     if (event.style === 'lightning') {
       const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0));
       const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
@@ -4311,6 +4389,20 @@ function syncSpellProjectiles() {
 }
 
 function updateSpellProjectiles(time: number) {
+  for (let index = fireboltAnimations.length - 1; index >= 0; index--) {
+    const { animationId, visual } = fireboltAnimations[index];
+    const complete = visual.update(time);
+    if (time >= visual.impactAt) {
+      for (const damage of pendingDamageVisuals.get(animationId) ?? []) {
+        spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
+      }
+      pendingDamageVisuals.delete(animationId);
+    }
+    if (complete) {
+      visual.dispose();
+      fireboltAnimations.splice(index, 1);
+    }
+  }
   for (let index = spellProjectileAnimations.length - 1; index >= 0; index--) {
     const animation = spellProjectileAnimations[index];
     const elapsed = time - animation.startedAt - animation.delay;
@@ -4426,6 +4518,12 @@ function updateSpellProjectiles(time: number) {
 }
 
 function updateCharacterMovement(time: number) {
+  portalTeleports.forEach((portal, id) => {
+    if (movementAnimations.get(id) !== portal.movement || dummyGroups.get(id) !== portal.character) {
+      portal.visual.dispose();
+      portalTeleports.delete(id);
+    }
+  });
   movementAnimations.forEach((animation, playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group) return;
@@ -4458,6 +4556,17 @@ function updateCharacterMovement(time: number) {
     }
     const elapsed = time - animation.startedAt;
     const progress = Math.min(1, elapsed / animation.duration);
+    const portal = portalTeleports.get(playerId);
+    if (portal) {
+      portal.visual.update(progress);
+      if (progress >= 1) {
+        group.position.copy(animation.to);
+        portal.visual.dispose();
+        portalTeleports.delete(playerId);
+        movementAnimations.delete(playerId);
+      }
+      return;
+    }
     const travelSquares = animation.travelSquares ?? animation.path?.length ?? 1;
     const constantLocomotionSpeed = group.userData.character === 'shinobi'
       || (group.userData.character === 'john-christ' && !animation.forced)
@@ -5999,7 +6108,7 @@ function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
 }
 
 function finishingBlowVisualsActive(time: number) {
-  if (spellProjectileAnimations.length > 0 || johnCastProjectiles.length > 0 || johnBlessedBeams.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
+  if (fireboltAnimations.length > 0 || spellProjectileAnimations.length > 0 || johnCastProjectiles.length > 0 || johnBlessedBeams.length > 0 || moonwaveAnimations.length > 0 || holyFireAnimations.length > 0) return true;
   if (objectMovementAnimations.size > 0 || movementAnimations.size > 0 || objectImpactAnimations.size > 0 || impactAnimations.size > 0) return true;
   if (damageNumbers.length > 0 || statEffectBubbles.length > 0 || stoicShellHealAnimations.length > 0 || manaConsumeAnimations.length > 0) return true;
   for (const group of dummyGroups.values()) {
@@ -7426,7 +7535,9 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
           : asset.animations.find(c => c.name === (name === 'Attack' ? JOHN_SPIRIT_ATTACK_CLIP : 'Unsteady_Walk'))
         : asset.animations.find((candidate) => candidate.name === JOHN_CLIPS[name]);
       if (!sourceClip) throw new Error(`John Christ GLB missing ${JOHN_CLIPS[name]}`);
-      const clip = !spirit && (name === 'MindBlast' || name === 'BlessedBeam') ? sourceClip.clone() : sourceClip;
+      const clip = !spirit && name === 'Blessing'
+        ? groundJohnBlessingClip(model, asset.animations.find((candidate) => candidate.name === JOHN_CLIPS.Idle)!, sourceClip)
+        : !spirit && (name === 'MindBlast' || name === 'BlessedBeam') ? sourceClip.clone() : sourceClip;
       if (!spirit && name === 'BlessedBeam') {
         // Blender exports frame 1 at 1/fps; start this clip at source frame 1.
         clip.tracks.forEach((track) => track.shift(-1 / JOHN_BLESSED_BEAM_FPS));
@@ -9157,8 +9268,9 @@ function syncBoard() {
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
+        const portalTeleport = Boolean(recordedPathMatches) && (recordedMovement?.sourceCardId === 'portal' || recordedMovement?.sourceCardId === 'portal-perk');
         const danceThrough = character === 'shinobi' && Boolean(recordedPathMatches) && isObiWanDanceThroughMovement(recordedMovement?.sourceCardId);
-        const fullRouteLocomotionDuration = replicatePull
+        const fullRouteLocomotionDuration = portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
@@ -9179,7 +9291,7 @@ function syncBoard() {
         const directSlide = slideSegmentIndex === 1;
         const slideStartsAtMs = slideSegmentIndex === undefined ? undefined : directSlide ? 0 : Math.max(0, locomotionDuration - SLIDE_EARLY_TRIGGER_MS);
         const duration = slideStartsAtMs === undefined ? locomotionDuration : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS : slideStartsAtMs + SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
+        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -9210,6 +9322,10 @@ function syncBoard() {
           }
           if (spectreRelocate && recordedMovement.sourceObjectId) {
             spawnSpectreRelocateTether(id, recordedMovement.sourceObjectId);
+          }
+          if (portalTeleport) {
+            portalTeleports.get(id)?.visual.dispose();
+            portalTeleports.set(id, { movement: movementAnimations.get(id)!, visual: new PortalTeleport(group, from, target.clone(), scene), character: group });
           }
         }
         delete gameState.players[id].visualMovementCause;
@@ -9342,6 +9458,11 @@ function syncBoard() {
       // Combat damage is calculated before the reveal dialog opens. Keep its
       // counter queued so it appears over the victim only after confirmation.
       const belongsToDeferredShieldBashRecall = event.damage.triggerAnimationId === deferredOrkkCombatAttack?.recallAnimationId;
+      if (combatDamageEventIds.has(event.id)) {
+        processedObjectPushAnimations.add(event.id);
+        pendingCombatDamageVisuals.push({ playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect });
+        return;
+      }
       if (gameState.combatReveal || (combatAnimationImpactPending() && !belongsToDeferredShieldBashRecall)) return;
       processedObjectPushAnimations.add(event.id);
       const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect, triggerRouteProgress: event.damage.triggerRouteProgress };
@@ -9482,17 +9603,6 @@ function syncBoard() {
   });
   syncSpellProjectiles();
   syncStoicShellHealAnimations();
-}
-
-function createQuestFlag(color: number) {
-  const root = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.035, .045, 1.65, 10), new THREE.MeshStandardMaterial({ color: 0x8b6a3f, roughness: .55, metalness: .35 }));
-  pole.position.y = .82; pole.castShadow = true; root.add(pole);
-  const cloth = new THREE.Mesh(new THREE.BoxGeometry(.72, .48, .035), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .35, roughness: .68, side: THREE.DoubleSide }));
-  cloth.position.set(.36, 1.36, 0); cloth.castShadow = true; root.add(cloth);
-  const finial = new THREE.Mesh(new THREE.SphereGeometry(.075, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0x8a5b00, emissiveIntensity: .7 }));
-  finial.position.y = 1.68; finial.castShadow = true; root.add(finial);
-  return root;
 }
 
 function createHotPotatoModel() {
@@ -9653,36 +9763,98 @@ function syncCaptureTheFlagVisual() {
   type VisualFlag = { id: string; ownerId: PlayerId; homeAnchor: { x: number; y: number }; status: 'home' | 'carried' | 'dropped' | 'captured'; carrierId: PlayerId | null; droppedAt: Cell | null };
   const capture = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: VisualFlag[] } | null } }).questPhases?.captureTheFlag;
   const flags = capture?.flags ?? [];
-  const key = flags.length > 0 ? flags.map((flag) => `${flag.id}:${flag.status}:${flag.carrierId ?? ''}:${flag.droppedAt ? cellLabel(flag.droppedAt) : ''}`).join('|') : 'none';
-  if (key !== questFlagVisualKey) {
-    questFlagModels.forEach((model) => model.removeFromParent());
-    questFlagModels.clear();
-    for (const flag of flags) {
-      const color = flag.ownerId === 'P1' ? 0x45c8ff : flag.ownerId === 'P2' ? 0xff5d68 : 0xa06cff;
-      questFlagModels.set(flag.id, createQuestFlag(color));
-    }
-    questFlagVisualKey = key;
+  const activeIds = new Set(flags.filter(flag => flag.status !== 'captured').map(flag => flag.id));
+  for (const [id, model] of questFlagModels) {
+    if (activeIds.has(id)) continue;
+    disposeQuestFlag(model);
+    questFlagModels.delete(id);
+    questFlagPresentations.delete(id);
   }
   const carrierCounts = new Map<PlayerId, number>();
   for (const flag of flags) {
-    const model = questFlagModels.get(flag.id);
-    if (!model || flag.status === 'captured') { model?.removeFromParent(); continue; }
-    if (flag.status === 'carried' && flag.carrierId) {
-      const carrier = dummyGroups.get(flag.carrierId);
-      if (!carrier) continue;
-      const index = carrierCounts.get(flag.carrierId) ?? 0;
-      carrierCounts.set(flag.carrierId, index + 1);
-      if (model.parent !== carrier) carrier.add(model);
-      model.position.set(index ? -.42 : .42, .72, .55);
-      model.rotation.set(0, Math.PI, 0);
-      model.scale.setScalar(.72);
-      continue;
+    if (flag.status === 'captured') continue;
+    let model = questFlagModels.get(flag.id);
+    const previous = questFlagPresentations.get(flag.id);
+    if (!model) {
+      model = createQuestFlag(flag.ownerId === 'P1' ? 0x45c8ff : flag.ownerId === 'P2' ? 0xff5d68 : 0xa06cff);
+      questFlagModels.set(flag.id, model);
+      scene.add(model);
     }
+    const carrierId = flag.status === 'carried' ? flag.carrierId : null;
     const location = flag.status === 'dropped' && flag.droppedAt ? flag.droppedAt : flag.homeAnchor;
-    if (model.parent !== scene) scene.add(model);
-    model.position.set((location.x - (visualBoardWidth() + 1) / 2) * 1.92, .08, (location.y - (visualBoardHeight() - 1) / 2) * 1.92);
-    model.rotation.set(0, 0, 0);
-    model.scale.setScalar(1);
+    const index = carrierId ? carrierCounts.get(carrierId) ?? 0 : 0;
+    if (carrierId) carrierCounts.set(carrierId, index + 1);
+    const pickup = carrierId && previous && previous.carrierId !== carrierId
+      ? { from: model.position.clone(), rotation: model.quaternion.clone(), scale: model.scale.x, startedAt: null, location: previous.location }
+      : carrierId ? previous?.pickup : undefined;
+    questFlagPresentations.set(flag.id, { carrierId, index, pickup, location });
+    if (!carrierId) {
+      model.visible = true;
+      const surfaceY = visualArena().id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : .08;
+      model.position.set((location.x - (visualBoardWidth() + 1) / 2) * 1.92, surfaceY, (location.y - (visualBoardHeight() - 1) / 2) * 1.92);
+      model.rotation.set(0, 0, 0);
+      model.scale.setScalar(1);
+    }
+  }
+}
+
+const questFlagTorsoFrames = new WeakMap<THREE.Bone, THREE.Quaternion>();
+
+function animateQuestFlags(time: number) {
+  for (const [id, model] of questFlagModels) {
+    const presentation = questFlagPresentations.get(id)!;
+    const { carrierId, index, pickup } = presentation;
+    const moving = Boolean(carrierId && movementAnimations.has(carrierId));
+    flutterQuestFlag(model, time / 1000 + index, moving);
+    if (!carrierId) continue;
+    const carrier = dummyGroups.get(carrierId);
+    model.visible = Boolean(carrier?.visible);
+    if (!carrier) continue;
+    if (pickup && pickup.startedAt === null) {
+      const x = carrier.position.x / 1.92 + (visualBoardWidth() + 1) / 2;
+      const y = carrier.position.z / 1.92 + (visualBoardHeight() - 1) / 2;
+      const reached = x >= Math.floor(pickup.location.x) - .5 && x <= Math.ceil(pickup.location.x) + .5
+        && y >= Math.floor(pickup.location.y) - .5 && y <= Math.ceil(pickup.location.y) + .5;
+      const queued = [...impactTriggeredCharacterMovements.values()].some(entries => entries.some(entry => entry.playerId === carrierId));
+      if (!reached && (moving || queued)) continue;
+      pickup.startedAt = time;
+    }
+    // Imported characters have different forward axes; mount opposite their forward direction.
+    const rear = carrier.userData.facingSide === 'negative-z' ? 1 : -1;
+    const body = carrier.children[0] ?? carrier;
+    carrier.updateWorldMatrix(true, true);
+    const target = body.localToWorld(new THREE.Vector3(index ? -.22 : .22, .95, rear * .34));
+    const frame = body.getWorldQuaternion(new THREE.Quaternion());
+    // Follow the animated torso position without inheriting the imported rig's scale.
+    let spine: THREE.Bone | undefined;
+    body.traverse(part => {
+      if (!spine && part instanceof THREE.Bone && /(?:chest|spine[_]?0?[123]|spine)$/i.test(part.name)) spine = part;
+    });
+    if (spine) {
+      const boneRotation = spine.getWorldQuaternion(new THREE.Quaternion());
+      let correction = questFlagTorsoFrames.get(spine);
+      if (!correction) {
+        correction = boneRotation.clone().invert().multiply(frame);
+        questFlagTorsoFrames.set(spine, correction);
+      }
+      frame.copy(boneRotation).multiply(correction);
+      target.copy(spine.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(index ? -.22 : .22, -.3, rear * .34).applyQuaternion(frame));
+    }
+    const rotation = frame.multiply(new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(rear * -.09 + (moving ? Math.sin(time * .012) * .035 : 0), rear === 1 ? Math.PI : 0, (index ? .12 : -.12) + (moving ? Math.sin(time * .009) * .045 : 0)),
+    ));
+    const progress = pickup ? THREE.MathUtils.clamp((time - pickup.startedAt!) / 620, 0, 1) : 1;
+    const eased = THREE.MathUtils.smoothstep(progress, 0, 1);
+    model.position.copy(target);
+    model.quaternion.copy(rotation);
+    model.scale.setScalar(.72);
+    if (pickup) {
+      model.position.lerpVectors(pickup.from, target, eased);
+      model.position.y += Math.sin(progress * Math.PI) * .8;
+      model.quaternion.slerpQuaternions(pickup.rotation, rotation, eased);
+      model.scale.setScalar(THREE.MathUtils.lerp(pickup.scale, .72, eased));
+      if (progress === 1) presentation.pickup = undefined;
+    }
   }
 }
 
@@ -9946,6 +10118,8 @@ function highlightCells() {
       : gameState.phase === 'choosing-portal-target' ? gameState.players[(gameState as any).portal.casterId as PlayerId]
       : null;
     const preparationValid = gameState.phase === 'choosing-preparation-teleport' && Boolean(teleportCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && hasLineOfSight(gameState, teleportCaster!.position, cell);
+    const portalValid = gameState.phase === 'choosing-portal-target' && Boolean(teleportCaster) && !playerOnCell && !occupiedByObject
+      && hasLineOfSight(gameState, teleportCaster!.position, cell);
     const shizzle = gameState.shizzle;
     const shizzleDx = cell.x - actor.position.x; const shizzleDy = cell.y - actor.position.y;
     const shizzleDistance = Math.max(Math.abs(shizzleDx), Math.abs(shizzleDy));
@@ -10023,10 +10197,10 @@ function highlightCells() {
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
+    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || portalValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
-    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : portalValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : portalValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
       slideRamp.traverse((child) => {

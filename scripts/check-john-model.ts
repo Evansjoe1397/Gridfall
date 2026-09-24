@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { JOHN_BLESSING_END_FRAME, JOHN_BLESSING_RELEASE_SECONDS, JOHN_CAST_END_FRAME, JOHN_CAST_END_SECONDS, JOHN_CAST_RELEASE_SECONDS, JOHN_CLEANSE_END_FRAME, JOHN_CLEANSE_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_FRAME, JOHN_MIND_BLAST_END_SECONDS, JOHN_MIND_BLAST_FPS, JOHN_MIND_BLAST_IMPACT_FRAME, JOHN_MIND_BLAST_IMPACT_SECONDS, JOHN_MODEL_SCALE, JOHN_SCEPTER_HEAD_LOCAL, johnAttackAnimation, johnAttackReleaseSeconds, johnAttackUsesProjectile, johnCastProjectileDurationMs, johnMovementClip, johnMovementDuration, johnPlaybackRate, johnUsesCastOverhead } from '../src/johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from '../src/johnChristVisuals.ts';
+import { groundJohnBlessingClip } from '../src/johnChristGrounding.ts';
 
 const bytes = fs.readFileSync(new URL('../public/models/john-christ.glb', import.meta.url));
 assert.equal(bytes.readUInt32LE(0), 0x46546c67);
@@ -73,6 +74,25 @@ assert(Math.abs(cleanse.duration - JOHN_CLEANSE_END_FRAME / 24) < 0.01, 'Cleanse
 const blessing = asset.animations.find((clip) => clip.name === 'Blessing')!;
 assert(Math.abs(blessing.duration - JOHN_BLESSING_END_FRAME / 24) < 0.01, 'Blessing ends at the requested cut frame.');
 assert(blessing.tracks.every((track) => track.times.at(-1)! <= blessing.duration + 1e-6), 'Blessing contains keys after its cut frame.');
+const blessingModel = clone(asset.scene);
+const blessingMixer = new THREE.AnimationMixer(blessingModel);
+const lowerToe = () => {
+  blessingModel.updateMatrixWorld(true);
+  return Math.min(...['LeftToeBase', 'RightToeBase'].map((name) => blessingModel.getObjectByName(name)!.getWorldPosition(new THREE.Vector3()).y));
+};
+blessingMixer.clipAction(idle).play();
+blessingMixer.setTime(0);
+const idleToeHeight = lowerToe();
+blessingMixer.stopAllAction();
+const groundedBlessing = groundJohnBlessingClip(blessingModel, idle, blessing);
+assert.notEqual(groundedBlessing, blessing, 'Grounding must leave the shared source clip untouched.');
+const groundedAction = blessingMixer.clipAction(groundedBlessing).setLoop(THREE.LoopOnce, 1);
+groundedAction.clampWhenFinished = true;
+groundedAction.play();
+for (let frame = 0; frame <= JOHN_BLESSING_END_FRAME * 2; frame++) {
+  blessingMixer.setTime(frame / 48);
+  assert(Math.abs(lowerToe() - idleToeHeight) < 0.003, `Blessing foot height drifts at half-frame ${frame}.`);
+}
 assert(Math.abs(idle.duration - 4) < 0.05);
 for (const track of idle.tracks) {
   const size = track.getValueSize();

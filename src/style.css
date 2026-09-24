@@ -489,6 +489,11 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .opponent-card.revealed.perk { border-top-color: var(--yellow); }
 .opponent-card.revealed.status { border-top-color: #f28c28; }
 .opponent-card.revealed.blessing-status { border-color: #8d6a16; border-top-color: #ffe186; background: linear-gradient(145deg, #4a3510, #181004); box-shadow: 0 0 10px rgba(255,205,61,.3); }
+.opponent-card.soul-strike-marked { width: 58px; border-color: #ffe06a; background: linear-gradient(145deg, #45370f, #141006); box-shadow: 0 0 12px rgba(255,213,70,.62), inset 0 0 10px rgba(255,213,70,.14); }
+.opponent-card.soul-strike-marked b { margin-bottom: 11px; }
+.opponent-card.soul-strike-marked em { position: absolute; right: 2px; bottom: 2px; left: 2px; padding: 2px 1px; border: 1px solid rgba(255,224,106,.7); background: rgba(40,29,0,.92); color: #ffe98f; font: 700 5px/1 'Barlow Condensed', sans-serif; font-style: normal; letter-spacing: .08em; text-align: center; }
+.card.soul-strike-marked { border-color: #ffe06a; box-shadow: 0 0 18px rgba(255,213,70,.42), inset 0 0 24px rgba(255,213,70,.08); }
+.card.soul-strike-marked::before { background: #ffe06a; box-shadow: 0 0 14px rgba(255,224,106,.72); }
 /* Keep status panels clear of a full five-card opponent hand on either side. */
 .character-status-panel.status-p1 { left: 104px; top: 12px; max-width: calc(50% - 116px); }
 .character-status-panel.status-p2 { right: 104px; top: 82px; max-width: calc(50% - 116px); }
