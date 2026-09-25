@@ -1,3 +1,5 @@
+import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
+import { clearFlurries, FLURRY_DURATION_MS, spawnFlurry, updateFlurries } from './flurryVisuals.ts';
 import './style.css';
 import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
@@ -21,7 +23,7 @@ import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS,
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { groundJohnBlessingClip } from './johnChristGrounding.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
-import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, obiWanAttackClip, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
+import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, OBI_WAN_LEG_KICK_DURATION_SECONDS, obiWanAttackClip, shouldDelayObiWanSaberDraw, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
 import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
 import { FrostmourneEffects } from './frostmourneEffects.ts';
 import { StingEffects } from './stingEffects.ts';
@@ -573,6 +575,7 @@ let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
 let combatRevealWasVisible = false;
 let blockedCombatTargetId: PlayerId | null = null;
+let flurryCombatPosition: THREE.Vector3 | null = null;
 let activeCombatSummary = false;
 let combatSummaryHidden = false;
 let lastCombatSummaryHtml = '';
@@ -595,8 +598,14 @@ const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; 
 let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
 let johnCombatImpactPending = false;
 let genericCombatImpactAt = 0;
+let pendingFlurryAttack: { startsAt: number; start: () => void } | null = null;
+type BlinkCombatPresentation = { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean };
+let blinkCombatPresentation: BlinkCombatPresentation | null = null;
+let deferredBlinkCombatAttack: (() => void) | null = null;
+let deferredBlinkDefenderId: PlayerId | null = null;
+let missedCombatCallout: { defenderId: PlayerId; from: Cell } | null = null;
 function combatAnimationImpactPending() {
-  return merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending || performance.now() < genericCombatImpactAt;
+  return Boolean(pendingFlurryAttack) || merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending || performance.now() < genericCombatImpactAt;
 }
 function combatImpactUiDeferred() {
   return Boolean(gameState.combatReveal) || combatAnimationImpactPending();
@@ -631,9 +640,16 @@ function resetCombatSummary() {
   johnCombatAttacker = null;
   johnCombatImpactPending = false;
   genericCombatImpactAt = 0;
+  pendingFlurryAttack = null;
+  blinkCombatPresentation = null;
+  deferredBlinkCombatAttack = null;
+  deferredBlinkDefenderId = null;
+  missedCombatCallout = null;
   combatDamageEventIds.clear();
   pendingCombatDamageVisuals.length = 0;
   blockedCombatTargetId = null;
+  flurryCombatPosition = null;
+  clearFlurries();
   johnCastWaits.clear();
   repentFireAnimations.forEach((fire) => fire.dispose());
   repentFireAnimations.length = 0;
@@ -1320,7 +1336,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-mind-tricks-discard') prompt.textContent = `Mind Tricks: reveal up to ${gameState.mindTricks!.maxDiscards} card${gameState.mindTricks!.maxDiscards === 1 ? '' : 's'} · Escape cancels before the first reveal`;
   if (gameState.phase === 'choosing-mind-tricks-enemy-discard') prompt.textContent = `Mind Tricks: discard ${gameState.mindTricks!.enemyDiscardsRemaining} card${gameState.mindTricks!.enemyDiscardsRemaining === 1 ? '' : 's'}`;
   if (gameState.phase === 'choosing-preparation-teleport') prompt.textContent = 'Preparation: select a visible Object to swap places with · Escape to cancel';
-  if (gameState.phase === 'choosing-blink-teleport') prompt.textContent = 'Blink: select a visible empty Square to teleport';
+  if (gameState.phase === 'choosing-blink-teleport') prompt.textContent = 'Blink: choose a visible empty Square before combat';
   if (gameState.phase === 'choosing-blink-discard') prompt.textContent = 'Blink: choose one eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-base-placement') prompt.textContent = `${gameState.players[gameState.activePlayerId].name}: choose a Square on a bright red unclaimed base`;
   if (gameState.phase === 'choosing-preparation-discard') prompt.textContent = 'Preparation: select any eligible Card from your Hand to discard';
@@ -2237,11 +2253,12 @@ function renderPhaseRewardModal() {
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
-function startOrkkCombatAttack(attack: OrkkCombatAttack) {
+function startOrkkCombatAttack(attack: OrkkCombatAttack, targetOverride?: THREE.Vector3) {
   const attacker = dummyGroups.get(attack.attackerId);
-  const target = dummyGroups.get(attack.defenderId)?.position ?? worldPosition(gameState.players[attack.defenderId].position);
+  const target = targetOverride ?? dummyGroups.get(attack.defenderId)?.position ?? worldPosition(gameState.players[attack.defenderId].position);
   if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
   playOrkkCharacterAttack(attack.attackerId, () => {
+    showMissedCombatCallout();
     orkkCombatImpactPending = false;
     genericCombatImpactAt = 0;
     postCombatVisualNotBefore = performance.now();
@@ -2260,12 +2277,19 @@ function renderCombatReveal() {
     modal.style.removeProperty('--combat-attack-portrait');
     modal.style.removeProperty('--combat-defend-portrait');
     modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
+    let flurryAttackNotBefore = 0;
     if (combatRevealWasVisible) {
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
-      if (blockedCombatTargetId) {
-        spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
-        blockedCombatTargetId = null;
+      if (flurryCombatPosition) {
+        spawnFlurry(scene, flurryCombatPosition);
+        flurryAttackNotBefore = performance.now() + FLURRY_DURATION_MS;
       }
+      flurryCombatPosition = null;
+      if (blockedCombatTargetId && !blinkCombatPresentation?.missed) {
+        spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
+      }
+      blockedCombatTargetId = null;
+      if (blinkCombatPresentation?.missed) missedCombatCallout = { defenderId: blinkCombatPresentation.defenderId, from: blinkCombatPresentation.from };
       const swing = merylinCombatAttacker;
       const obiWanAttack = obiWanCombatAttacker;
       const orkkAttack = orkkCombatAttacker;
@@ -2281,10 +2305,11 @@ function renderCombatReveal() {
       }
       // Hold damage until the authored impact callback, or for characters
       // without one, until their short attack presentation has played.
-      genericCombatImpactAt = activeCombatVisualAttackId ? performance.now() + 420 : 0;
+      genericCombatImpactAt = activeCombatVisualAttackId && (!blinkCombatPresentation || blinkCombatPresentation.missed) ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
+      if (blinkCombatPresentation && !blinkCombatPresentation.missed) postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
       if (genericCombatImpactAt) {
         for (const event of gameState.objectPushAnimations) {
-          if (event.damage && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
+          if (event.damage && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
         }
       }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
@@ -2298,13 +2323,20 @@ function renderCombatReveal() {
       lastCombatSummaryOpen = false;
       renderCombatReveal();
     });
+    if (deferredBlinkCombatAttack || pendingFlurryAttack) return;
+    const blink = blinkCombatPresentation;
+    const targetFor = (defenderId: PlayerId) => blink ? worldPosition(blink.missed ? blink.from : blink.to) : dummyGroups.get(defenderId)?.position ?? worldPosition(gameState.players[defenderId].position);
+    const startAttackPresentation = () => {
+    if (blink && !blink.missed && completedCombatVisualAttackId) genericCombatImpactAt = performance.now() + 420;
+    if (blink && !blink.missed && !merylinCombatAttacker && !obiWanCombatAttacker && !orkkCombatAttacker && !johnCombatAttacker) postCombatVisualNotBefore = genericCombatImpactAt;
     const swing = merylinCombatAttacker;
     if (swing && gameState.phase !== 'choosing-frostmourne') {
       merylinCombatAttacker = null;
       const attacker = dummyGroups.get(swing.attackerId);
-      const target = dummyGroups.get(swing.defenderId)?.position ?? worldPosition(gameState.players[swing.defenderId].position);
+      const target = targetFor(swing.defenderId);
       if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z);
       playMerylinSwing(swing.attackerId, () => {
+        showMissedCombatCallout();
         merylinCombatImpactPending = false;
         genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
@@ -2317,9 +2349,10 @@ function renderCombatReveal() {
     if (obiWanAttack) {
       obiWanCombatAttacker = null;
       const attacker = dummyGroups.get(obiWanAttack.attackerId);
-      const target = dummyGroups.get(obiWanAttack.defenderId)?.position ?? worldPosition(gameState.players[obiWanAttack.defenderId].position);
+      const target = targetFor(obiWanAttack.defenderId);
       if (attacker) attacker.rotation.y = obiWanAttackFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z, obiWanAttack.clip);
       playObiWanAttack(obiWanAttack.attackerId, obiWanAttack.clip, () => {
+        showMissedCombatCallout();
         obiWanCombatImpactPending = false;
         genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
@@ -2337,24 +2370,36 @@ function renderCombatReveal() {
           && !completedObjectMovementAnimationIds.has(event.id))
         : undefined;
       if (recall) deferredOrkkCombatAttack = { ...orkkAttack, recallAnimationId: recall.id };
-      else startOrkkCombatAttack(orkkAttack);
+      else startOrkkCombatAttack(orkkAttack, targetFor(orkkAttack.defenderId));
     }
     const johnAttack = johnCombatAttacker;
     if (johnAttack) {
       johnCombatAttacker = null;
       const attacker = dummyGroups.get(johnAttack.attackerId);
-      const target = dummyGroups.get(johnAttack.defenderId)?.position.clone().add(new THREE.Vector3(0, 1.25, 0))
-        ?? worldPosition(gameState.players[johnAttack.defenderId].position).add(new THREE.Vector3(0, 1.25, 0));
+      const target = targetFor(johnAttack.defenderId).clone().add(new THREE.Vector3(0, 1.25, 0));
       if (attacker) attacker.rotation.y = characterFacingRotation(attacker, target.x - attacker.position.x, target.z - attacker.position.z);
       playJohnCast(johnAttack.attackerId, target, () => {
+        showMissedCombatCallout();
         johnCombatImpactPending = false;
         genericCombatImpactAt = 0;
         postCombatVisualNotBefore = performance.now();
         syncBoard();
         releaseCombatDamageVisuals();
         refreshCombatImpactUi();
-      }, johnAttack.attackerWasInSpiritForm, johnAttack.cardId, { targetId: johnAttack.defenderId });
+      }, johnAttack.attackerWasInSpiritForm, johnAttack.cardId, { targetId: blink?.missed ? undefined : johnAttack.defenderId });
     }
+    };
+    const startAfterFlurry = () => {
+      if (performance.now() < flurryAttackNotBefore) {
+        pendingFlurryAttack = { startsAt: flurryAttackNotBefore, start: startAttackPresentation };
+      } else startAttackPresentation();
+    };
+    if (blink && !blink.missed) {
+      deferredBlinkCombatAttack = startAfterFlurry;
+      deferredBlinkDefenderId = blink.defenderId;
+    }
+    else startAfterFlurry();
+    blinkCombatPresentation = null;
     return;
   }
   const portraitPending = gameState.pendingAttack;
@@ -2389,6 +2434,10 @@ function renderCombatReveal() {
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
+  flurryCombatPosition = pendingSwing && reveal.defendCardId === 'flurry-defensive-strikes'
+    ? worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position)
+    : null;
+  blinkCombatPresentation = (reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport ?? null;
   const resolvedAttackDamage = (reveal.combatDamage ?? 0) + (reveal.afterCombatAttackDamage ?? 0);
   blockedCombatTargetId = pendingSwing && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
   // The attack presentation always plays when the character has one. Damage
@@ -2579,7 +2628,7 @@ function renderCombatReveal() {
   const combatDamage = reveal.combatDamage ?? Math.max(0, reveal.attackTotal - reveal.defendTotal);
   const forfeitReason = (reveal as typeof reveal & { forfeitReason?: string }).forfeitReason;
   const resultSummary = forfeitReason
-    ? `<div class="combat-result-summary"><strong>${escapeHtml(forfeitReason)}</strong><span>Both Cards are discarded. Only Yamato's Summon resolves.</span></div>`
+    ? `<div class="combat-result-summary"><strong>${escapeHtml(forfeitReason)}</strong><span>Both Cards are discarded.${reveal.defendCardId === 'yamato' ? " Only Yamato's Summon resolves." : ''}</span></div>`
     : combatWinner
       ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
       : '';
@@ -3423,7 +3472,7 @@ const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
-type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number };
+type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number; worldPosition?: THREE.Vector3 };
 const characterCalloutBubbles: CharacterCalloutBubble[] = [];
 type ObjectCalloutBubble = { element: HTMLDivElement; objectId: string; startedAt: number; delay: number; anchorOffsetY: number; worldPosition: THREE.Vector3 };
 const objectCalloutBubbles: ObjectCalloutBubble[] = [];
@@ -3511,6 +3560,7 @@ const lastVisualCells = new Map<PlayerId, string>();
 type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
 const portalTeleports = new Map<PlayerId, { movement: CharacterMovementAnimation; visual: PortalTeleport; character: THREE.Group }>();
+const portalStyleTeleportCards = new Set<CardTypeId>(['portal', 'portal-perk', 'blink', 'resurrection', 'immortality', 'necronomicon', 'preparation']);
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
 const spectreRelocateTethers: { line: THREE.Line; playerId: PlayerId; replicaId: string; seed: number }[] = [];
 type TriggeredCharacterMovement = { playerId: PlayerId; from: THREE.Vector3; to: THREE.Vector3; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; triggerRouteProgress?: number };
@@ -3639,8 +3689,14 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
+  if (pendingFlurryAttack && time >= pendingFlurryAttack.startsAt) {
+    const startAttack = pendingFlurryAttack.start;
+    pendingFlurryAttack = null;
+    startAttack();
+  }
   if (genericCombatImpactAt && time >= genericCombatImpactAt) {
     genericCombatImpactAt = 0;
+    if (!merylinCombatImpactPending && !obiWanCombatImpactPending && !orkkCombatImpactPending && !johnCombatImpactPending) showMissedCombatCallout();
     syncBoard();
     if (!combatAnimationImpactPending()) {
       releaseCombatDamageVisuals();
@@ -3762,6 +3818,8 @@ renderer.setAnimationLoop((time) => {
   updateBlessingPresentationQueues(time);
   updateJohnCastProjectiles(time);
   updateDamageVisuals(time);
+  updateArcaneBarriers(time);
+  updateFlurries(time);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
@@ -4033,7 +4091,7 @@ function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' |
 }
 
 const characterCalloutScreenPosition = new THREE.Vector3();
-function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | '+1 Range') {
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | '+1 Range' | 'Missed', worldPosition?: THREE.Vector3) {
   const element = document.createElement('div');
   element.className = `character-callout-bubble ${text.toLowerCase()}`;
   element.style.setProperty('--player-color', playerUiColor(playerId));
@@ -4045,7 +4103,14 @@ function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' 
     ? Math.max(0, movement.startedAt + movement.slideStartsAtMs - now)
     : 0;
   const queuedForPlayer = characterCalloutBubbles.filter((bubble) => bubble.playerId === playerId).length;
-  characterCalloutBubbles.push({ element, playerId, startedAt: now, delay: slideDelay + queuedForPlayer * 120 });
+  characterCalloutBubbles.push({ element, playerId, startedAt: now, delay: slideDelay + queuedForPlayer * 120, worldPosition });
+}
+
+function showMissedCombatCallout() {
+  const missed = missedCombatCallout;
+  if (!missed) return;
+  missedCombatCallout = null;
+  spawnCharacterCalloutBubble(missed.defenderId, 'Missed', worldPosition(missed.from).add(new THREE.Vector3(0, 2, 0)));
 }
 
 function updateCharacterCalloutBubbles(time: number) {
@@ -4059,18 +4124,18 @@ function updateCharacterCalloutBubbles(time: number) {
     }
     const group = dummyGroups.get(bubble.playerId);
     const healthBar = characterHealthBars.get(bubble.playerId);
-    if (!group?.visible || !healthBar || elapsed < 0) {
+    if ((!bubble.worldPosition && (!group?.visible || !healthBar)) || elapsed < 0) {
       bubble.element.classList.add('hidden');
       continue;
     }
     const progress = THREE.MathUtils.clamp(elapsed / CHARACTER_CALLOUT_DURATION_MS, 0, 1);
     const opacity = progress < 0.08 ? progress / 0.08 : 1 - THREE.MathUtils.smoothstep(progress, 0.28, 1);
-    characterCalloutScreenPosition.copy(healthBar.position).project(camera);
+    characterCalloutScreenPosition.copy(bubble.worldPosition ?? healthBar!.position).project(camera);
     const onScreen = characterCalloutScreenPosition.z >= -1 && characterCalloutScreenPosition.z <= 1;
     bubble.element.classList.toggle('hidden', !onScreen);
     const projectedY = (-characterCalloutScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
     const statusRow = overheadStatusRows.get(bubble.playerId);
-    const statusTop = statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
+    const statusTop = !bubble.worldPosition && statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
       ? statusRow.getBoundingClientRect().top - overheadStatusLayer.getBoundingClientRect().top - 3
       : projectedY;
     bubble.element.style.left = `${(characterCalloutScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth + Math.sin(progress * Math.PI * 2) * 3}px`;
@@ -4577,6 +4642,12 @@ function updateCharacterMovement(time: number) {
         portal.visual.dispose();
         portalTeleports.delete(playerId);
         movementAnimations.delete(playerId);
+        if (deferredBlinkCombatAttack && deferredBlinkDefenderId === playerId) {
+          const startAttack = deferredBlinkCombatAttack;
+          deferredBlinkCombatAttack = null;
+          deferredBlinkDefenderId = null;
+          startAttack();
+        }
       }
       return;
     }
@@ -5612,7 +5683,10 @@ function playObiWanAttack(playerId: PlayerId, clip: ObiWanAttackClip, impact: ()
   const group = dummyGroups.get(playerId);
   const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
   if (state) startObiWanAttack(state, clip);
-  else if (group) group.userData.pendingObiWanAttack = clip;
+  else if (group) {
+    group.userData.pendingObiWanAttack = clip;
+    group.userData.obiWanAttackEndsAt = performance.now() + OBI_WAN_LEG_KICK_DURATION_SECONDS * 1000;
+  }
   obiWanAttackImpactWaits.set(playerId, {
     callbacks: [impact],
     fallbackAt: performance.now() + OBI_WAN_ATTACK_HIT_SECONDS[clip] * 1000,
@@ -8075,7 +8149,14 @@ function obiWanDanceThroughPresentationBlocked(playerId: PlayerId, group = dummy
 }
 
 function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: number) {
-  const target = Number(group.userData.obiWanLightsaberTarget ?? 0);
+  const animation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  const fallbackClip = group.userData.pendingObiWanAttack as ObiWanAttackClip | undefined;
+  // Light the Saber becomes active at combat impact, but the unarmed kick
+  // must finish before the blade starts extending.
+  const delayDraw = animation
+    ? shouldDelayObiWanSaberDraw(animation.attack?.clip, Boolean(animation.attack?.finished))
+    : shouldDelayObiWanSaberDraw(fallbackClip, performance.now() >= Number(group.userData.obiWanAttackEndsAt ?? 0));
+  const target = delayDraw ? 0 : Number(group.userData.obiWanLightsaberTarget ?? 0);
   const previous = Number(group.userData.obiWanLightsaberProgress ?? target);
   const step = deltaSeconds / 0.5;
   const progress = THREE.MathUtils.clamp(previous + Math.sign(target - previous) * Math.min(Math.abs(target - previous), step), 0, 1);
@@ -9281,7 +9362,7 @@ function syncBoard() {
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
-        const portalTeleport = Boolean(recordedPathMatches) && (recordedMovement?.sourceCardId === 'portal' || recordedMovement?.sourceCardId === 'portal-perk');
+        const portalTeleport = Boolean(recordedPathMatches && recordedMovement?.sourceCardId && portalStyleTeleportCards.has(recordedMovement.sourceCardId));
         const danceThrough = character === 'shinobi' && Boolean(recordedPathMatches) && isObiWanDanceThroughMovement(recordedMovement?.sourceCardId);
         const fullRouteLocomotionDuration = portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
@@ -9432,6 +9513,14 @@ function syncBoard() {
     if (event.attackCardId === 'knee-blast' && combatImpactUiDeferred()) return;
     const shieldBashRecall = event.id.includes('-shield-bash-') && Boolean(event.removeOnComplete && event.equipPlayerId);
     if (shieldBashRecall && gameState.combatReveal) return;
+    if (event.arcaneBarrier) {
+      // Forced movement starts as the combat summary closes, before the attack's
+      // authored hit frame. Play the ward with that movement (including Repent).
+      if (gameState.combatReveal) return;
+      processedObjectPushAnimations.add(event.id);
+      spawnArcaneBarrier(scene, worldPosition(event.arcaneBarrier.defenderPosition), worldPosition(event.from), worldPosition(event.to), event.collided);
+      return;
+    }
     if (event.callout) {
       processedObjectPushAnimations.add(event.id);
       spawnCharacterCalloutBubble(event.callout.playerId, event.callout.text);
@@ -9476,7 +9565,7 @@ function syncBoard() {
         pendingCombatDamageVisuals.push({ playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect });
         return;
       }
-      if (gameState.combatReveal || (combatAnimationImpactPending() && !belongsToDeferredShieldBashRecall)) return;
+      if (gameState.combatReveal || (combatAnimationImpactPending() && !belongsToDeferredShieldBashRecall && event.damage.presentationTiming !== 'flurry')) return;
       processedObjectPushAnimations.add(event.id);
       const pendingDamage = { playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect, triggerRouteProgress: event.damage.triggerRouteProgress };
       if (event.damage.triggerAnimationId) {
@@ -10131,7 +10220,7 @@ function highlightCells() {
       : gameState.phase === 'choosing-portal-target' ? gameState.players[(gameState as any).portal.casterId as PlayerId]
       : null;
     const preparationValid = gameState.phase === 'choosing-preparation-teleport' && Boolean(teleportCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && hasLineOfSight(gameState, teleportCaster!.position, cell);
-    const portalValid = gameState.phase === 'choosing-portal-target' && Boolean(teleportCaster) && !playerOnCell && !occupiedByObject
+    const teleportDestinationValid = (gameState.phase === 'choosing-portal-target' || gameState.phase === 'choosing-blink-teleport') && Boolean(teleportCaster) && !playerOnCell && !occupiedByObject
       && hasLineOfSight(gameState, teleportCaster!.position, cell);
     const shizzle = gameState.shizzle;
     const shizzleDx = cell.x - actor.position.x; const shizzleDy = cell.y - actor.position.y;
@@ -10210,10 +10299,10 @@ function highlightCells() {
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || portalValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
+    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : portalValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
-    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : portalValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
       slideRamp.traverse((child) => {

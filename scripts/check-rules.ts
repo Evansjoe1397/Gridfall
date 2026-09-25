@@ -115,6 +115,7 @@ if (arcaneBarrierAttack.ok) {
       if (secondAck.ok) {
         assert.deepEqual(secondAck.state.players.P1.position, { x: 1, y: 2 }, 'Arcane Barrier pushes the adjacent attacker directly away from Logan after both acknowledgements.');
         assert.equal(secondAck.state.players.P1.visualMovementCause, 'enemy-ability', 'Arcane Barrier marks its forced movement so imported characters do not play walking animations.');
+        assert.deepEqual(secondAck.state.objectPushAnimations.find((event) => event.arcaneBarrier)?.arcaneBarrier?.defenderPosition, { x: 3, y: 2 }, 'Arcane Barrier carries its ward effect through combat acknowledgement.');
       }
     }
   }
@@ -139,6 +140,7 @@ if (blockedBarrierAttack.ok) {
     if (secondAck.ok) {
       assert.deepEqual(secondAck.state.players.P1.position, { x: 1, y: 2 }, 'A board edge blocks Arcane Barrier movement.');
       assert.equal(secondAck.state.players.P1.hp, blockedBarrierAttackerHp - 1, 'Arcane Barrier deals 1 Damage when the attacker cannot be pushed.');
+      assert.equal(secondAck.state.objectPushAnimations.find((event) => event.arcaneBarrier)?.collided, true, 'A blocked Arcane Barrier still emits its impact effect.');
     }
   }
 }
@@ -3116,7 +3118,7 @@ if (blinkAttack.ok) {
   const blinkDefense = applyCommand(blinkAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'blink-defense' });
   assert.equal(blinkDefense.ok, true);
   if (blinkDefense.ok) {
-    assert.equal(blinkDefense.state.players.P1.hp, 18, 'Blink blocks combat damage.');
+    assert.equal(blinkDefense.state.players.P1.hp, 16, 'Blink without Mana uses its printed DEF instead of preventing combat damage.');
     assert.deepEqual(blinkDefense.state.players.P1.deck.map((card) => card.cardId), ['headache'], 'Blink skips a Status Card on top while searching the Deck.');
     assert.equal(blinkDefense.state.players.P1.discard.some((card) => card.cardId === 'arcane-bolt'), true, 'Blink discards the first non-Status Card found below the top Status Card.');
   }

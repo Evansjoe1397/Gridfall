@@ -31,3 +31,7 @@ export function obiWanAttackClip(character: string, lightsaberBuff: boolean | un
 export function shouldPlayObiWanLegKick(character: string, lightsaberBuff: boolean | undefined) {
   return obiWanAttackClip(character, lightsaberBuff) === OBI_WAN_LEG_KICK_CLIP;
 }
+
+export function shouldDelayObiWanSaberDraw(clip: ObiWanAttackClip | undefined, attackFinished: boolean) {
+  return clip === OBI_WAN_LEG_KICK_CLIP && !attackFinished;
+}

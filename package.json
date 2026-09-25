@@ -9,6 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "typecheck": "tsc --noEmit",
     "check:rules": "tsx scripts/check-rules.ts",
+    "check:blink": "tsx scripts/check-blink.ts",
     "check:replicas": "tsx scripts/check-replica-targeting.ts",
     "check:objects": "tsx scripts/check-object-combat.ts",
     "check:blessed-might": "tsx scripts/check-blessed-might.ts",

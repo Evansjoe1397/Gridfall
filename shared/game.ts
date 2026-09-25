@@ -212,7 +212,7 @@ export const CARDS: readonly Card[] = [
   { id: 'mana-shield', name: 'Mana Shield', kind: 'defend', value: 0, effectText: 'Generate 1 Mana Point before combat. Gain +1 Defend Value per stored Mana Point. After combat, remove 1 Mana Point per Damage blocked.' },
   { id: 'arcane-barrier', name: 'Arcane Barrier', kind: 'defend', value: 2, effectText: "Push the adjacent Attacker 1 Square away. Deal 1 Damage if they can't be pushed." },
   { id: 'counterspell', name: 'Counterspell', kind: 'defend', value: 3, effectText: "If Logan has any stored Mana Points, deal 1 Damage to the attacking Player. Place a Headache Card on top of the enemy's Deck." },
-  { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Block all damage in this combat. Remove all Mana Points. If at least 1 Mana Point was removed, Logan Teleports to a currently visible empty Square. Otherwise, discard a Card from your Hand or Deck.' },
+  { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Remove all Mana Points. If at least 1 Mana Point was removed, choose a currently visible empty Square before combat. Teleport there after combat. If the Attack cannot reach the new Square, combat is forfeited. Otherwise, discard a Card from your Hand or Deck.' },
   { id: 'light-the-saber', name: 'Light the Saber', kind: 'attack', value: 2, effectText: 'After combat: Add 1 -MOV stack and activate Lightsaber status.' },
   { id: 'dance-through', name: 'Dance Through', kind: 'attack', value: 2, effectText: 'After combat, move Shinobi 1 Square three times. Can move through enemies, Objects, and Wall Objects; apply 1 -MOV stack to each enemy passed through. Must finish on an unoccupied Square.' },
   { id: 'force-disarm', name: 'Force Disarm', kind: 'attack', value: 1, effectText: 'Force the enemy to discard 1 Attack Card. If they have no Attack Cards, reveal their Hand and add an Exhaust Card to it.' },
@@ -352,7 +352,7 @@ export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'disca
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; defenderWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; arcaneBarrier?: { defenderPosition: Cell }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
@@ -999,7 +999,7 @@ function resolveImmortalityPhylacteryChoice(state: GameState, playerId: PlayerId
   destroyObject(state, phylactery.id, playerId, 'Immortality');
   player.wrecknaInsideTombId = null;
   player.position = destination;
-  player.visualMovement = { from: origin, path: [{ ...destination }] };
+  player.visualMovement = { from: origin, path: [{ ...destination }], sourceCardId: 'immortality' };
   markCharacterMoved(player, 'own-card');
   recordQuestMovement(state, playerId, 1, true, destination);
   state.pendingAttack = null;
@@ -4426,7 +4426,13 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
     }
 
     if (!defenseEffectsCancelled && (defenseCardId === 'thorns' || (defenseCardId === 'flurry-defensive-strikes' && distance(defenderCombatPosition, attackerCombatPosition) === 1))) {
+      const damageEventStart = state.objectPushAnimations.length;
       const dealt = dealCombatCardEffectDamage(state, attacker, 1, defender.id, 'defense');
+      if (defenseCardId === 'flurry-defensive-strikes') {
+        for (const event of state.objectPushAnimations.slice(damageEventStart)) {
+          if (event.damage?.playerId === attacker.id) event.damage.presentationTiming = 'flurry';
+        }
+      }
       state.log.unshift(`${cardDefinition({ instanceId: '', cardId: defenseCardId }).name} dealt ${dealt} Damage before combat.`);
       if (attacker.hp <= 0) {
         if (command.type === 'defend') {
@@ -4661,6 +4667,23 @@ function yamatoAttackStillInRange(state: GameState, pending: PendingAttack, defe
   return attackDistance <= 2 && (dx === 0 || dy === 0 || dx === dy);
 }
 
+type BlinkPendingAttack = PendingAttack & {
+  blinkDefenseCommand?: Extract<GameCommand, { type: 'defend' }>;
+  blinkMoveResolved?: boolean;
+  blinkManaSpent?: number;
+  blinkOrigin?: Cell;
+  blinkDestination?: Cell;
+};
+type BlinkCombatReveal = CombatReveal & { blinkTeleport?: { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean }; forfeitReason?: string };
+
+function blinkAttackStillPossible(state: GameState, pending: PendingAttack, defenderPosition: Cell): boolean {
+  const attacker = state.players[pending.attackerId];
+  const origin = pending.attackerPosition ?? attacker.position;
+  return attackCardTargetInRange(state, { ...attacker, position: origin }, pending.cardId, defenderPosition)
+    && hasLineOfSight(state, origin, defenderPosition)
+    && canAttackTargetSquare(state, origin, defenderPosition);
+}
+
 function resolveYamatoMove(state: GameState, playerId: PlayerId, to: Cell | null): CommandResult {
   const extended = state as YamatoChoiceState;
   const choice = extended.yamato;
@@ -4814,6 +4837,18 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
         (state as GameState & { yamato?: { defenderId: PlayerId; defenseCommand: Extract<GameCommand, { type: 'defend' }> } }).yamato = { defenderId: defender.id, defenseCommand: command };
         (state as any).phase = 'choosing-yamato-move';
         state.log.unshift(`Yamato was revealed. ${defender.name} may move 1 Square before combat or stay in place.`);
+        return ok(state);
+      }
+    }
+    if (selectedDefense.cardId === 'blink' && !(pending as BlinkPendingAttack).blinkMoveResolved && !blessedMightCancelsDefenseCard(pending, selectedDefense.cardId)) {
+      const blink = pending as BlinkPendingAttack;
+      blink.blinkMoveResolved = true;
+      if (defender.manaPoints > 0 && !defender.hand.some((card) => card.cardId === 'panic')) {
+        blink.blinkManaSpent = defender.manaPoints;
+        defender.manaPoints = 0;
+        blink.blinkDefenseCommand = command;
+        state.phase = 'choosing-blink-teleport';
+        state.log.unshift(`Blink was revealed. ${defender.name} must choose a visible empty Square before combat.`);
         return ok(state);
       }
     }
@@ -5069,11 +5104,10 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   pending.immortalityNegatesDamage = immortalityPhylacteries.length > 0;
   const defenderPinnedBeforeDefenseEffects = pinnedCount(defender);
   const calmnessNegatesDamage = defenseCardId === 'calmness' && !defenseBeforeCombatEffectsCancelled && pinnedCount(attackerBeforeCombatEffects) > 0;
-  const blinkNegatesDamage = defenseCardId === 'blink' && !defenseBeforeCombatEffectsCancelled;
   const devourReplicas = defenseCardId === 'devour' && !defenseBeforeCombatEffectsCancelled ? spectreReplicas(state, defender.id) : [];
   const devourNegatesDamage = devourReplicas.length > 0;
   const attackEffectsCancelled = defenseCardId === 'block' || defenseCardId === 'da-blokk' || defenseCardId === 'spellblock' || defenseCardId === 'blessed-block' || defenseCardId === 'tomb-block' || defenseCardId === 'decisive-block';
-  const defenseNegatesDamage = calmnessNegatesDamage || blinkNegatesDamage || devourNegatesDamage || Boolean(pending.mythrilHelmetApplied) || Boolean(pending.resurrectionNegatesDamage) || Boolean(pending.immortalityNegatesDamage) || Boolean(pending.blessingFaithApplied);
+  const defenseNegatesDamage = calmnessNegatesDamage || devourNegatesDamage || Boolean(pending.mythrilHelmetApplied) || Boolean(pending.resurrectionNegatesDamage) || Boolean(pending.immortalityNegatesDamage) || Boolean(pending.blessingFaithApplied);
   const attackCardDebuffsPrevented = calmnessNegatesDamage || devourNegatesDamage;
   const calculatedDamage = Math.max(0, pending.attackValue - defenseValue);
   let damage = defenseNegatesDamage ? 0 : calculatedDamage;
@@ -5118,7 +5152,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       const origin = { ...defender.position };
       recordQuestMovement(state, defender.id, 1, true, resurrectionDestination);
       defender.position = { ...resurrectionDestination };
-      defender.visualMovement = { from: origin, path: [{ ...resurrectionDestination }] };
+      defender.visualMovement = { from: origin, path: [{ ...resurrectionDestination }], sourceCardId: 'resurrection' };
       markCharacterMoved(defender, 'own-card');
       state.log.unshift(`Resurrection negated all Damage, teleported ${defender.name} to ${cellLabel(resurrectionDestination)}, and drew ${drawn} Card.`);
     } else state.log.unshift(`Resurrection could not teleport ${defender.name} because ${defenderPanicked ? 'Panic prevents movement' : 'both Base Squares were occupied'}, so Damage was not negated; ${defender.name} still drew ${drawn} Card.`);
@@ -5534,6 +5568,11 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       const blocked = destination.x < 1 || destination.x > boardWidth(state) || destination.y < 0 || destination.y >= boardHeight(state)
         || Object.values(state.players).some((entry) => (Boolean(attackerReplica) || entry.id !== attacker.id) && entry.position.x === destination.x && entry.position.y === destination.y)
         || state.objects.some((entry) => entry.id !== attackerReplica?.id && entry.position.x === destination.x && entry.position.y === destination.y);
+      state.objectPushAnimations.push({
+        id: `${state.turn}-arcane-barrier-pulse-${++instanceSequence}`, objectId: '',
+        from: { ...attackerPosition }, to: blocked ? { ...attackerPosition } : { ...destination },
+        dx, dy, collided: blocked, arcaneBarrier: { defenderPosition: { ...defenderPosition } },
+      });
       if (blocked) {
         dealCombatCardEffectDamage(state, attacker, 1, defender.id, 'defense');
         state.log.unshift(`Arcane Barrier could not push ${attacker.name} and dealt 1 Damage instead.`);
@@ -5580,14 +5619,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       }
     }
   }
-  let blinkCanTeleport = false;
   let blinkNeedsDiscard = false;
   if (defenseCardId === 'blink' && !defenseEffectsCancelled) {
-    const removedMana = defender.manaPoints;
+    const removedMana = (pending as BlinkPendingAttack).blinkManaSpent ?? defender.manaPoints;
     defender.manaPoints = 0;
-    if (removedMana > 0 && !defenderPanicked) {
-      blinkCanTeleport = true;
-      state.log.unshift(`Blink removed ${removedMana} Mana and will teleport ${defender.name} after combat.`);
+    if (removedMana > 0 && (pending as BlinkPendingAttack).blinkDestination) {
+      state.log.unshift(`Blink removed ${removedMana} Mana and will teleport ${defender.name} after the combat window closes.`);
     } else if (removedMana > 0) {
       state.log.unshift(`Blink removed ${removedMana} Mana, but Panic prevented ${defender.name}'s teleport movement.`);
     } else {
@@ -5659,11 +5696,6 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       postCombatChoicePending = true;
       state.log.unshift('Devour: choose one replica to destroy after combat.');
     }
-  }
-  if (blinkCanTeleport && state.phase !== 'finished') {
-    state.phase = 'choosing-blink-teleport';
-    postCombatChoicePending = true;
-    state.log.unshift(`Blink: ${defender.name} must choose an empty Square to teleport to.`);
   }
   if (blinkNeedsDiscard && state.phase !== 'finished') {
     state.phase = 'choosing-blink-discard';
@@ -5816,6 +5848,14 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     .slice(afterCombatDamageEventStart)
     .filter((event) => event.eventType === 'damage' && event.sourceId === pending.attackerId && event.targetId === pending.defenderId)
     .reduce((total, event) => total + event.amount, 0);
+  const blink = pending as BlinkPendingAttack;
+  if (blink.blinkOrigin && blink.blinkDestination) {
+    stateBeforeAfterCombatEffects.players[defender.id].position = { ...blink.blinkOrigin };
+    delete stateBeforeAfterCombatEffects.players[defender.id].visualMovement;
+    (stateBeforeAfterCombatEffects.combatReveal as BlinkCombatReveal).blinkTeleport = {
+      defenderId: defender.id, from: blink.blinkOrigin, to: blink.blinkDestination, missed: false,
+    };
+  }
   return ok(stateBeforeAfterCombatEffects);
 }
 
@@ -6177,7 +6217,7 @@ function completeNecronomiconAfterPhylactery(state: GameState, playerId: PlayerI
       const origin = { ...caster.position };
       caster.position = { ...tomb.position };
       caster.wrecknaInsideTombId = tomb.id;
-      caster.visualMovement = { from: origin, path: [{ ...tomb.position }] };
+      caster.visualMovement = { from: origin, path: [{ ...tomb.position }], sourceCardId: 'necronomicon' };
       markCharacterMoved(caster, 'own-card');
       recordQuestMovement(state, playerId, distance(origin, tomb.position), true, tomb.position);
       state.log.unshift(`Necronomicon level 2 teleported ${caster.name} into the infused Tomb at ${cellLabel(tomb.position)}.`);
@@ -6461,18 +6501,53 @@ function resolvePreparationTeleport(state: GameState, playerId: PlayerId, object
 }
 
 function resolveBlinkTeleport(state: GameState, playerId: PlayerId, to: Cell): CommandResult {
-  if (state.phase !== 'choosing-blink-teleport' || state.pendingAttack?.defenderId !== playerId) return fail(state, 'Blink is not waiting for this teleport destination.');
+  const pending = state.pendingAttack as BlinkPendingAttack | null;
+  if (state.phase !== 'choosing-blink-teleport' || pending?.defenderId !== playerId || !pending.blinkDefenseCommand) return fail(state, 'Blink is not waiting for this teleport destination.');
   if (to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)) return fail(state, 'That Square is outside the board.');
   if (Object.values(state.players).some((entry) => entry.hp > 0 && entry.position.x === to.x && entry.position.y === to.y) || state.objects.some((entry) => entry.position.x === to.x && entry.position.y === to.y)) return fail(state, 'Blink requires an empty Square.');
   const player = state.players[playerId];
   if (!hasLineOfSight(state, player.position, to)) return fail(state, 'Blink can only land on a Square currently visible from its caster.');
+  const from = { ...player.position };
   recordQuestMovement(state, player.id, 1, true, to);
   player.position = { ...to };
+  player.visualMovement = { from, path: [{ ...to }], sourceCardId: 'blink' };
+  pending.defenderPosition = { ...to };
+  pending.blinkOrigin = from;
+  pending.blinkDestination = { ...to };
   markCharacterMoved(player, 'own-card');
-  state.pendingAttack = null;
+  const defenseCommand = pending.blinkDefenseCommand;
+  delete pending.blinkDefenseCommand;
+  state.phase = 'defending';
+  if (blinkAttackStillPossible(state, pending, to)) return resolveDefense(state, defenseCommand);
+
+  const defenseInstance = player.hand.find((card) => card.instanceId === defenseCommand.cardInstanceId && card.cardId === 'blink');
+  if (!defenseInstance) return fail(state, 'Blink is no longer in the defender\'s Hand.');
+  discardFromHand(player, defenseInstance.instanceId);
   state.phase = 'active';
-  state.log.unshift(`Blink teleported ${player.name} to ${cellLabel(to)}.`);
-  return ok(state);
+  state.log.unshift(`Combat forfeited: Blink moved ${player.name} out of the Attack's reach. Both revealed Cards were discarded.`);
+  const visibleState = structuredClone(state);
+  visibleState.players[playerId].position = from;
+  delete visibleState.players[playerId].visualMovement;
+  state.pendingAttack = null;
+  scorePendingDiscards(state);
+  const attackCard = cardDefinition({ instanceId: '', cardId: pending.cardId });
+  (visibleState as GameState & { combatReveal: BlinkCombatReveal }).combatReveal = {
+    attackCardId: pending.cardId,
+    defendCardId: 'blink',
+    attackBase: attackCard.value,
+    attackTotal: pending.attackValue,
+    defendBase: 0,
+    defendTotal: 0,
+    attackModifiers: pending.attackModifiers ?? [],
+    defendModifiers: [],
+    combatDamage: 0,
+    forfeitReason: 'Combat forfeited: Attack cannot reach Blink destination',
+    blinkTeleport: { defenderId: playerId, from, to: { ...to }, missed: true },
+    expiresAt: Date.now() + 10_000,
+    acknowledged: [],
+    deferredAfterCombatState: JSON.stringify(state),
+  };
+  return ok(visibleState);
 }
 
 function resolveBlinkDiscard(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {

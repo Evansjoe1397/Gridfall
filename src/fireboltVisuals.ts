@@ -38,6 +38,7 @@ export class FireboltVisual {
     }));
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.copy(to).add(new THREE.Vector3(0, -1.18, 0));
+    this.ring.visible = false;
     this.group.add(this.ring, this.light);
     this.update(startedAt);
   }
@@ -87,6 +88,7 @@ export class FireboltVisual {
       spark.scale.setScalar((.12 + (i % 3) * .055) * (1 - burst) * this.power);
       spark.material.opacity = Math.pow(1 - burst, 1.5);
     });
+    this.ring.visible = arrived;
     this.ring.scale.setScalar((.35 + burst * 2.2) * this.power);
     this.ring.material.opacity = arrived ? Math.max(0, .65 * (1 - burst * 1.7)) : 0;
     this.light.position.copy(this.core.position);
