@@ -1,4 +1,4 @@
-export type ArenaId = 'nagrand' | 'lordaeron' | 'trench';
+export type ArenaId = 'nagrand' | 'lordaeron' | 'trench' | 'pipe';
 export type ArenaPlayerSlot = 'P1' | 'P2' | 'P3';
 
 export type ArenaDefinition = {
@@ -19,6 +19,8 @@ export type ArenaDefinition = {
   adjacentHighgroundOnlyTargets?: readonly string[];
   slideSquares?: readonly string[];
   trenchSquares?: readonly string[];
+  waterZones?: Readonly<Record<1 | 2, readonly string[]>>;
+  buttonSquares?: readonly string[];
   drawSquares: readonly string[];
   bases: Readonly<Record<ArenaPlayerSlot, readonly string[]>>;
   startingSquares: Readonly<Partial<Record<ArenaPlayerSlot, string>>>;
@@ -95,6 +97,33 @@ export const THE_TRENCH_ARENA: ArenaDefinition = {
   drawSquares: ['A4', 'A5', 'H4', 'H5'],
   bases: { P1: ['D1', 'E1'], P2: ['D8', 'E8'], P3: [] },
   startingSquares: { P1: 'D1', P2: 'E8' },
+};
+
+const PIPE_ZONE_ONE = ['A', 'B', 'C'].flatMap((column) => inclusiveRange(column, 6, 8));
+const PIPE_ZONE_TWO = ['F', 'G', 'H'].flatMap((column) => inclusiveRange(column, 1, 3));
+const PIPE_HIGHGROUND = ['A4', 'B4', 'C4', 'D4', 'D3', 'D2', 'D1', 'E8', 'E7', 'E6', 'E5', 'F5', 'G5', 'H5'];
+const pipeAdjacent = new Set<string>();
+for (const label of PIPE_HIGHGROUND) {
+  const x = label.charCodeAt(0) - 65;
+  const y = Number(label.slice(1));
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    if (!dx && !dy) continue;
+    const nx = x + dx; const ny = y + dy;
+    if (nx >= 0 && nx < 8 && ny >= 1 && ny <= 8) pipeAdjacent.add(`${String.fromCharCode(65 + nx)}${ny}`);
+  }
+}
+export const THE_PIPE_ARENA: ArenaDefinition = {
+  id: 'pipe', name: 'The Pipe', playerCount: 2, width: 8, height: 8,
+  pillars: ['A5', 'H4'], boxes: [],
+  highground: PIPE_HIGHGROUND,
+  highgroundProtected: [...pipeAdjacent].filter((label) => !PIPE_HIGHGROUND.includes(label) && !['A5', 'H4'].includes(label)),
+  slideSquares: ['C1', 'E1', 'E2', 'E3', 'D6', 'D7', 'D8', 'F8'],
+  trenchSquares: [...PIPE_ZONE_ONE, ...PIPE_ZONE_TWO],
+  waterZones: { 1: PIPE_ZONE_ONE, 2: PIPE_ZONE_TWO },
+  buttonSquares: ['C3', 'F6'],
+  drawSquares: ['A8', 'B8', 'G1', 'H1'],
+  bases: { P1: ['A1', 'A2'], P2: ['H8', 'H7'], P3: [] },
+  startingSquares: { P1: 'A2', P2: 'H7' },
 };
 
 export function randomTrenchBoxSpawns(random: () => number = Math.random): string[] {

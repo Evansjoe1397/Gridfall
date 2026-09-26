@@ -56,6 +56,26 @@ const replicaBlocked = defend(replicaAttack);
 assert.notEqual(replicaBlocked.phase, 'choosing-lightbringer-swap');
 assert.deepEqual(replicaBlocked.objects.find((object) => object.id === 'replica')?.position, { x: 2, y: 2 });
 
+const brainFreezeWithMovement = setup('attack-2', 'brain-freeze');
+brainFreezeWithMovement.players.P1.movementRemaining = 2;
+const frozenWithMovement = defend(attack(brainFreezeWithMovement));
+assert.equal(frozenWithMovement.players.P1.movementRemaining, 1, 'Brain Freeze steals one unspent MOV from the attacker.');
+assert.equal(frozenWithMovement.players.P1.hexMovementPenalty, 1);
+assert.equal(frozenWithMovement.players.P2.brainFreezeMovementBonus, 1);
+assert.equal(frozenWithMovement.players.P1.brainFreezeCombatBlocked, true);
+const afterFrozenAttackTurn = step(final(frozenWithMovement), { type: 'end-turn', playerId: 'P1' });
+assert.equal(afterFrozenAttackTurn.players.P2.brainFreezeMovementBonus, 1, 'The stolen MOV remains available for Wreckna\'s turn.');
+const afterWrecknaTurn = step(afterFrozenAttackTurn, { type: 'end-turn', playerId: 'P2' });
+assert.equal(afterWrecknaTurn.players.P2.brainFreezeMovementBonus, 0, 'Brain Freeze movement expires after Wreckna\'s turn.');
+const brainFreezeWithoutMovement = setup('attack-2', 'brain-freeze');
+brainFreezeWithoutMovement.players.P1.movementRemaining = 0;
+const frozenWithoutMovement = defend(attack(brainFreezeWithoutMovement));
+assert.equal(frozenWithoutMovement.players.P1.hexMovementPenalty ?? 0, 0, 'Brain Freeze cannot steal MOV when the attacker has none left.');
+assert.equal(frozenWithoutMovement.players.P2.brainFreezeMovementBonus ?? 0, 0);
+assert.equal(frozenWithoutMovement.players.P1.brainFreezeCombatBlocked, true, 'Brain Freeze still blocks Combat Cards and Effects with no MOV to steal.');
+const immortalityDefense = defend(attack(setup('attack-3', 'immortality')));
+assert.equal(immortalityDefense.combatReveal?.defendBase, 2, 'Immortality has base Defend Value 2.');
+
 for (const stack of [false, true]) {
   let undefended = attack(setup('lightbringer', 'defend-1', stack));
   undefended = step(undefended, { type: 'pass-defense', playerId: 'P2' });

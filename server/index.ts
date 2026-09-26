@@ -1,27 +1,30 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
-import { applyCommand, CharacterIdSchema, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
-import { arenaForPlayerCount, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
+import { applyCommand, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { arenaForPlayerCount, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
-type GameFormat = 'duel' | 'ffa';
-type JoinOptions = { password?: string; format?: GameFormat; arena?: ArenaId };
+type GameFormat = 'duel' | 'ffa' | 'bo3';
+type JoinOptions = { password?: string; format?: GameFormat; arena?: ArenaId; seriesMode?: BestOfThreeMode };
 
 class DuelRoom extends Room {
   maxClients = 3;
   private game: GameState | null = null;
   private password = '';
   private format: GameFormat = 'duel';
+  private seriesMode: BestOfThreeMode = 'duel';
   private arena: ArenaId = 'nagrand';
   private seats = new Map<string, PlayerId>();
   private characterSelections: Partial<Record<PlayerId, CharacterId>> = {};
   private characters: Partial<Record<PlayerId, CharacterId>> = {};
+  private tournamentCharacters: Partial<Record<PlayerId, readonly [CharacterId, CharacterId]>> = {};
   private combatStackSelections = new Map<PlayerId, string[]>();
 
   onCreate(options: JoinOptions) {
     this.password = String(options.password ?? '');
-    this.format = options.format === 'ffa' ? 'ffa' : 'duel';
-    this.arena = this.format === 'duel' && options.arena === 'trench' ? 'trench' : this.format === 'ffa' ? 'lordaeron' : 'nagrand';
+    this.format = options.format === 'ffa' ? 'ffa' : options.format === 'bo3' ? 'bo3' : 'duel';
+    this.seriesMode = options.seriesMode === 'tournament' ? 'tournament' : 'duel';
+    this.arena = this.format === 'ffa' ? 'lordaeron' : options.arena === 'trench' || options.arena === 'pipe' ? options.arena : 'nagrand';
     this.maxClients = this.format === 'ffa' ? 3 : 2;
     this.setPrivate(true);
     this.onMessage('command', (client, raw) => this.handleCommand(client, raw));
@@ -58,6 +61,7 @@ class DuelRoom extends Room {
     if (!this.game && seat) {
       delete this.characterSelections[seat];
       delete this.characters[seat];
+      delete this.tournamentCharacters[seat];
     }
     this.broadcast('notice', 'A player left the room.');
     this.broadcastLobby();
@@ -141,34 +145,44 @@ class DuelRoom extends Room {
 
   private confirmCharacter(client: Client, raw: unknown) {
     const seat = this.seats.get(client.sessionId);
+    const tournament = this.format === 'bo3' && this.seriesMode === 'tournament';
+    const pair = tournament && Array.isArray(raw) && raw.length === 2
+      ? [CharacterIdSchema.safeParse(raw[0]), CharacterIdSchema.safeParse(raw[1])] as const : null;
     const parsed = CharacterIdSchema.safeParse(raw);
-    if (!seat || !parsed.success || this.game || this.characters[seat]) return client.send('error', 'Character selection was rejected.');
+    if (!seat || this.game || this.characters[seat] || (tournament ? !pair?.[0].success || !pair?.[1].success || pair[0].data === pair[1].data : !parsed.success)) return client.send('error', 'Character selection was rejected.');
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     if (this.seats.size < requiredPlayerCount) return client.send('error', `Wait for ${requiredPlayerCount - this.seats.size} more Player${requiredPlayerCount - this.seats.size === 1 ? '' : 's'} to join.`);
-    this.characterSelections[seat] = parsed.data;
-    this.characters[seat] = parsed.data;
+    const firstCharacter = tournament ? pair![0].data! : parsed.data!;
+    this.characterSelections[seat] = firstCharacter;
+    this.characters[seat] = firstCharacter;
+    if (tournament) this.tournamentCharacters[seat] = [pair![0].data!, pair![1].data!];
     this.broadcastLobby();
     const requiredSeats = [...this.seats.values()];
     if (requiredSeats.length === requiredPlayerCount && requiredSeats.every((id) => Boolean(this.characters[id]))) {
       this.game = this.format === 'ffa'
         ? createLordaeronMultiplayerState(this.characters as Record<PlayerId, CharacterId>)
-        : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>, this.arena === 'trench' ? 'trench' : 'nagrand');
+        : this.format === 'bo3'
+        ? createBestOfThreeState(this.seriesMode, {
+          P1: this.tournamentCharacters.P1 ?? [this.characters.P1!, this.characters.P1!],
+          P2: this.tournamentCharacters.P2 ?? [this.characters.P2!, this.characters.P2!],
+        })
+        : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>, this.arena === 'trench' || this.arena === 'pipe' ? this.arena : 'nagrand');
       this.broadcastState();
     }
   }
 
   private broadcastLobby() {
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
-    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
-    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
+    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : this.arena === 'pipe' ? THE_PIPE_ARENA : NAGRAND_ARENA;
+    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
   }
 
   private sendSnapshot(client: Client) {
     const seat = this.seats.get(client.sessionId);
     if (seat) client.send('seat', seat);
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
-    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : NAGRAND_ARENA;
-    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, arena: arena.name, mode: this.format === 'ffa' ? 'Free For All' : '1 versus 1', started: Boolean(this.game) });
+    const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : this.arena === 'pipe' ? THE_PIPE_ARENA : NAGRAND_ARENA;
+    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
     if (this.game) client.send('state', this.game);
   }
 }

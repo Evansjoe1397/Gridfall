@@ -63,7 +63,7 @@ import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
-import { LORDAERON_ARENA, NAGRAND_ARENA, THE_TRENCH_ARENA, type ArenaDefinition, type ArenaId } from '../shared/arenas.ts';
+import { LORDAERON_ARENA, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaDefinition, type ArenaId } from '../shared/arenas.ts';
 import { CARD_RULES_RU, UI_RU_EXACT } from './i18n.ts';
 import {
   CARDS,
@@ -76,6 +76,7 @@ import {
   attackCardTargetInRange,
   applicableCombatCardInstanceIds,
   applyCommand,
+  baseSquareAt,
   armDaWizPath,
   arcaneMisslePath,
   mindBlastCanTarget,
@@ -87,6 +88,8 @@ import {
   BOARD_SIZE,
   createHotseatTestState,
   createTrenchTestState,
+  createPipeTestState,
+  createBestOfThreeState,
   createInitialState,
   distance,
   diagonalMovementBlockedByObject,
@@ -98,8 +101,10 @@ import {
   isNegativeStatusCard,
   isShadowCloakedPerkTarget,
   isForbiddenSlideAscent,
+  isShallowWater,
   isSpectreShadowTrailCell,
   isCardRevealedToOpponents,
+  kamelotChanges,
   movementPath,
   movementCost,
   orkkActionEventForCommand,
@@ -120,6 +125,9 @@ import {
   type Cell,
   type GameCommand,
   type GameState,
+  type BestOfThreeMode,
+  type MatchStats,
+  type SeriesMatchResult,
   type SpellProjectile,
   type ForcePowerActionEvent,
   type OrkkActionEvent,
@@ -218,6 +226,7 @@ app.innerHTML = `
         <div class="turn-actions"><button id="endTurn">END TURN <kbd>SPACE</kbd></button><button class="quiet" id="leaveGame">Leave match</button></div>
       </div>
       <aside class="battle-log"><span>COMBAT FEED</span><div id="log"></div></aside>
+      <div class="required-discard-notice hidden" id="requiredDiscardNotice" role="status" aria-live="polite"></div>
     </section>
     <div class="turn-announcement hidden" id="turnAnnouncement"><small>TURN BEGINS</small><strong></strong><span class="turn-heal-message"></span><span class="turn-quest-message"></span></div>
     <div class="choice-modal hidden" id="flurryModal"></div>
@@ -237,9 +246,10 @@ let gameState = createInitialState();
 let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
-type GameFormat = 'duel' | 'ffa';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; arena: string; mode: string; started: boolean };
+type GameFormat = 'duel' | 'ffa' | 'bo3';
+type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; seriesCharacters?: Partial<Record<PlayerId, readonly [OnlineCharacter, OnlineCharacter]>>; seriesMode?: BestOfThreeMode | null; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
+let tournamentFirstChoice: OnlineCharacter | null = null;
 let roomIdAutoSelected = false;
 const ROOM_ID_QUERY_PARAM = 'roomId';
 const RECONNECTION_TOKEN_PREFIX = 'gridfall.reconnection.';
@@ -300,6 +310,27 @@ nagrandTextureButton.className = 'nagrand-texture-toggle hidden';
 nagrandTextureButton.title = 'Switch Nagrand floor and tile textures (Ctrl+L)';
 nagrandTextureButton.addEventListener('click', toggleNagrandTextures);
 boardEl.parentElement?.append(nagrandTextureButton);
+const pipeButtonControls = document.createElement('div');
+pipeButtonControls.className = 'pipe-button-controls';
+boardEl.parentElement?.append(pipeButtonControls);
+
+function renderPipeButtonControls() {
+  pipeButtonControls.replaceChildren();
+  if (visualArena().id !== 'pipe') return;
+  const actor = gameState.players[gameState.activePlayerId];
+  if (mode === 'online' && localSeat !== actor.id) return;
+  for (const object of gameState.objects) {
+    if (object.kind !== 'pipe-button' || distance(actor.position, object.position) !== 1) continue;
+    const control = document.createElement('button');
+    control.type = 'button';
+    control.className = 'pipe-button-control';
+    control.textContent = `Use Action - Flood · ${cellLabel(object.position)}`;
+    control.disabled = gameState.phase !== 'active' || actor.actionsRemaining <= 0;
+    if (control.disabled) control.title = gameState.phase !== 'active' ? 'Finish the current choice before pressing the Flood Button.' : 'Use Action - Flood requires 1 Action.';
+    control.addEventListener('click', () => dispatch({ type: 'press-pipe-button', playerId: actor.id, buttonId: object.id }));
+    pipeButtonControls.append(control);
+  }
+}
 
 function toggleNagrandTextures() {
   if (visualArena().id !== 'nagrand') return;
@@ -311,6 +342,7 @@ function toggleNagrandTextures() {
 }
 const toast = byId('toast');
 const centerNotice = byId('centerNotice');
+const requiredDiscardNotice = byId('requiredDiscardNotice');
 let lastPrivateNoticeId = '';
 let centerNoticeTimer = 0;
 const damageLogTab = document.createElement('button');
@@ -564,7 +596,7 @@ function isWaitingForResolvedCardTarget() {
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
-  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-sacrifice-tomb-square' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'choosing-shadow-barter-tomb-square' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-sacrifice-tomb-square' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
   return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
 }
 
@@ -689,10 +721,11 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   const panel = byId('onlineWaiting');
   panel.classList.remove('hidden');
   document.querySelector('.mode-grid')?.classList.add('hidden');
-  panel.innerHTML = `<p class="eyebrow">${flow === 'hotseat' ? 'HOTSEAT TEST' : 'PRIVATE MULTIPLAYER ROOM'}</p><h2>Choose Game Format</h2><div class="character-choices"><button data-format="duel"><strong>1 versus 1</strong><small>Nagrand Arena · 2 Players</small></button><button data-format="ffa"><strong>Free For All</strong><small>Lordaeron Arena · 3 Players</small></button></div>`;
+  panel.innerHTML = `<p class="eyebrow">${flow === 'hotseat' ? 'HOTSEAT TEST' : 'PRIVATE MULTIPLAYER ROOM'}</p><h2>Choose Game Format</h2><div class="character-choices"><button data-format="duel"><strong>1 versus 1</strong><small>One match · 2 Players</small></button><button data-format="bo3"><strong>Best-of-Three</strong><small>1 versus 1 or The Tournament · up to 3 matches</small></button><button data-format="ffa"><strong>Free For All</strong><small>Lordaeron Arena · 3 Players</small></button></div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((button) => button.addEventListener('click', () => {
     const format = button.dataset.format as GameFormat;
-    if (flow === 'online' && format === 'duel') showOnlineArenaSelect();
+    if (format === 'bo3') showBestOfThreeModeSelect(flow);
+    else if (flow === 'online' && format === 'duel') showOnlineArenaSelect();
     else if (flow === 'online') void connectOnline('create', format);
     else if (format === 'duel') showHotseatArenaSelect();
     else showHotseatCharacterSelect(format, 'nagrand');
@@ -703,7 +736,7 @@ type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectr
 type SelectableCharacter = OnlineCharacter;
 type HotseatCharacter = SelectableCharacter;
 type HotseatOpponent = HotseatCharacter | 'dummy';
-type HotseatArena = 'nagrand' | 'trench';
+type HotseatArena = 'nagrand' | 'trench' | 'pipe';
 const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
@@ -732,48 +765,82 @@ function dummySelectButton(): string {
 
 function showHotseatArenaSelect() {
   const panel = byId('onlineWaiting');
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-hotseat-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-hotseat-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button></div><button class="lobby-back-button" id="backToFormat" type="button">Back to Game Format</button>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-hotseat-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-hotseat-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button><button data-hotseat-arena="pipe"><strong>The Pipe</strong><small>8 × 8 · Floodable Trench zones</small></button></div><button class="lobby-back-button" id="backToFormat" type="button">Back to Game Format</button>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-arena]').forEach((button) => button.addEventListener('click', () => showHotseatCharacterSelect('duel', button.dataset.hotseatArena as HotseatArena)));
   panel.querySelector<HTMLButtonElement>('#backToFormat')!.addEventListener('click', () => showFormatSelect('hotseat'));
 }
 
 function showOnlineArenaSelect() {
   const panel = byId('onlineWaiting');
-  panel.innerHTML = `<p class="eyebrow">PRIVATE MULTIPLAYER ROOM · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-online-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-online-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button></div><button class="lobby-back-button" id="backToOnlineFormat" type="button">Back to Game Format</button>`;
+  panel.innerHTML = `<p class="eyebrow">PRIVATE MULTIPLAYER ROOM · 1 VERSUS 1</p><h2>Choose Arena</h2><div class="character-choices"><button data-online-arena="nagrand"><strong>Nagrand Arena</strong><small>8 × 8 · Central High Ground</small></button><button data-online-arena="trench"><strong>The Trench</strong><small>8 × 8 · High Ground lanes and Slide Squares</small></button><button data-online-arena="pipe"><strong>The Pipe</strong><small>8 × 8 · Floodable Trench zones</small></button></div><button class="lobby-back-button" id="backToOnlineFormat" type="button">Back to Game Format</button>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-online-arena]').forEach((button) => button.addEventListener('click', () => void connectOnline('create', 'duel', button.dataset.onlineArena as HotseatArena)));
   panel.querySelector<HTMLButtonElement>('#backToOnlineFormat')!.addEventListener('click', () => showFormatSelect('online'));
 }
 
-function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand') {
+function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand', seriesMode?: BestOfThreeMode) {
   const panel = byId('onlineWaiting');
-  const arenaName = format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
+  const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
   panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as HotseatCharacter;
-    if (format === 'duel') showHotseatOpponentSelect(character, arena);
+    if (format === 'duel') showHotseatOpponentSelect(character, arena, seriesMode);
     else startHotseat(character, format, 'dummy', arena);
   }));
 }
 
-function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: HotseatArena) {
+function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: HotseatArena, seriesMode?: BestOfThreeMode) {
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
-  const arenaName = arena === 'trench' ? 'THE TRENCH' : 'NAGRAND ARENA';
+  const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
   panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
-  panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
-  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => startHotseat(playerCharacter, 'duel', button.dataset.hotseatCharacter as HotseatCharacter, arena)));
-  panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel', arena));
+  const dummyButton = panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!;
+  if (seriesMode) {
+    dummyButton.remove();
+    panel.querySelectorAll('p')[1]!.textContent = `Step 2 of 2 · Choose the Character controlled by Player 2 against ${playerName}.`;
+  }
+  if (!seriesMode) dummyButton.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
+    const opponent = button.dataset.hotseatCharacter as HotseatCharacter;
+    if (seriesMode) startHotseatSeries(seriesMode, { P1: [playerCharacter, playerCharacter], P2: [opponent, opponent] });
+    else startHotseat(playerCharacter, 'duel', opponent, arena);
+  }));
+  panel.querySelector<HTMLButtonElement>('#backToPlayerCharacter')!.addEventListener('click', () => showHotseatCharacterSelect('duel', arena, seriesMode));
+}
+
+function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
+  const panel = byId('onlineWaiting');
+  const steps = ['Player 1 · Match 1', 'Player 1 · Match 2', 'Player 2 · Match 1', 'Player 2 · Match 2'];
+  const usedThisPlayer = selected.length === 1 ? selected[0] : selected.length === 3 ? selected[2] : null;
+  panel.innerHTML = `<p class="eyebrow">BEST-OF-THREE · THE TOURNAMENT</p><h2>Choose ${steps[selected.length]}</h2><p>Each Player chooses two different Characters. The winner of each match keeps that Character for a deciding third match.</p><div class="character-choices">${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character', character === usedThisPlayer)).join('')}</div><button class="lobby-back-button" id="backTournament" type="button">Back</button>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
+    const next = [...selected, button.dataset.hotseatCharacter as HotseatCharacter];
+    if (next.length < 4) showHotseatTournamentSelect(next);
+    else startHotseatSeries('tournament', { P1: [next[0], next[1]], P2: [next[2], next[3]] });
+  }));
+  panel.querySelector<HTMLButtonElement>('#backTournament')!.addEventListener('click', () => selected.length ? showHotseatTournamentSelect(selected.slice(0, -1)) : showBestOfThreeModeSelect('hotseat'));
+}
+
+function startHotseatSeries(seriesMode: BestOfThreeMode, characters: Record<'P1' | 'P2', readonly [HotseatCharacter, HotseatCharacter]>) {
+  const state = createBestOfThreeState(seriesMode, characters, true);
+  startHotseatState(state, `BEST-OF-THREE · ${seriesMode === 'tournament' ? 'THE TOURNAMENT' : '1 VERSUS 1'} · ${state.series!.arenaOrder[0].toUpperCase()}`);
 }
 
 function startHotseat(character: HotseatCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
+  const state = format === 'duel' && arena === 'pipe'
+    ? createPipeTestState(false, character, opponentCharacter)
+    : format === 'duel' && arena === 'trench'
+    ? createTrenchTestState(false, character, opponentCharacter)
+    : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : arena === 'pipe' ? 'THE PIPE · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
+  startHotseatState(state, arenaTitle);
+}
+
+function startHotseatState(state: GameState, arenaTitle: string) {
   resetCombatSummary();
   mode = 'hotseat';
   localSeat = null;
-  gameState = format === 'duel' && arena === 'trench'
-    ? createTrenchTestState(false, character, opponentCharacter)
-    : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  gameState = state;
   (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
-  const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
   const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
   const startedArenaId = visualArena().id;
@@ -817,14 +884,15 @@ async function leaveMatch() {
   location.reload();
 }
 
-async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand', preferSavedSession = false) {
+async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand', preferSavedSession = false, seriesMode: BestOfThreeMode = 'duel') {
   try {
     roomIdAutoSelected = false;
+    tournamentFirstChoice = null;
     const endpoint = location.port === '5173' ? `ws://${location.hostname}:2567` : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
     const client = new Client(endpoint);
     const password = (document.querySelector<HTMLInputElement>('#password')!).value;
     if (action === 'create') {
-      room = await client.create('duel', { password, format, arena });
+      room = await client.create('duel', { password, format, arena, seriesMode });
       (document.querySelector<HTMLInputElement>('#roomId')!).value = room.roomId;
     } else {
       const roomId = (document.querySelector<HTMLInputElement>('#roomId')!).value.trim();
@@ -874,11 +942,13 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const previousBoardSize = gameState.boardSize;
       const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
-      startResolvedFireSpell(previousGameState, gameState);
+      const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
+      if (seriesMatchChanged) resetSeriesMatchVisuals();
+      else startResolvedFireSpell(previousGameState, gameState);
       const arenaChanged = previousArenaId !== visualArena().id || previousBoardSize !== gameState.boardSize;
       const shouldFitCamera = enteringBattle || arenaChanged;
       if (gameState.phase !== 'choosing-combat-stack') { combatStackSelectionKey = ''; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
-      const onlineArena = (gameState as GameState & { arenaId?: ArenaId }).arenaId === 'trench' ? THE_TRENCH_ARENA : gameState.boardSize === LORDAERON_ARENA.height ? LORDAERON_ARENA : NAGRAND_ARENA;
+      const onlineArena = visualArena();
       const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
       if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
@@ -1001,22 +1071,19 @@ function renderOnlineLobby() {
   const requiredPlayerCount = state?.requiredPlayerCount ?? 2;
   const joined = (state?.playerCount ?? 1) >= requiredPlayerCount;
   const mayChoose = !state?.characters[localSeat];
+  const tournament = state?.seriesMode === 'tournament';
   const missingPlayers = Math.max(0, requiredPlayerCount - (state?.playerCount ?? 1));
+  const selectedTournamentPair = state?.seriesCharacters?.[localSeat];
   const orderMessage = !joined ? `Share the Room ID and wait for ${missingPlayers} more Player${missingPlayers === 1 ? '' : 's'}.`
-    : state?.characters[localSeat] ? 'Character confirmed. Waiting for the other Players.'
+    : state?.characters[localSeat] ? selectedTournamentPair ? `Match 1: ${CHARACTER_SELECT_INFO[selectedTournamentPair[0]].name}; Match 2: ${CHARACTER_SELECT_INFO[selectedTournamentPair[1]].name}. Waiting for the other Player.` : 'Character confirmed. Waiting for the other Players.'
       : 'Choose your Character. Everyone may select at the same time.';
   const roomLink = multiplayerRoomUrl(roomId);
-  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>Character Select</h2>
+  panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>${tournament ? `The Tournament · ${tournamentFirstChoice ? 'Match 2 Character' : 'Match 1 Character'}` : 'Character Select'}</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
-    <p>${orderMessage}</p><div class="character-choices">
-      ${characterSelectButton('orkk', 'data-character', !mayChoose, characterSelectionFrames('orkk', state))}
-      ${characterSelectButton('shinobi', 'data-character', !mayChoose, characterSelectionFrames('shinobi', state))}
-      ${characterSelectButton('magician', 'data-character', !mayChoose, characterSelectionFrames('magician', state))}
-      ${characterSelectButton('john-christ', 'data-character', !mayChoose, characterSelectionFrames('john-christ', state))}
-      ${characterSelectButton('spectre', 'data-character', !mayChoose, characterSelectionFrames('spectre', state))}
-      ${characterSelectButton('wreckna', 'data-character', !mayChoose, characterSelectionFrames('wreckna', state))}
-      ${characterSelectButton('merylin', 'data-character', !mayChoose, characterSelectionFrames('merylin', state))}
-    </div>`;
+    <p>${orderMessage}${tournament && mayChoose ? tournamentFirstChoice ? ` Match 1: ${CHARACTER_SELECT_INFO[tournamentFirstChoice].name}. Choose a different Match 2 Character.` : ' Choose your Match 1 Character, then your Match 2 Character.' : ''}</p><div class="character-choices">
+      ${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
+    </div>${tournament && tournamentFirstChoice && mayChoose ? '<button class="lobby-back-button" id="backTournamentFirst" type="button">Change Match 1 Character</button>' : ''}`;
+  panel.querySelector<HTMLButtonElement>('#backTournamentFirst')?.addEventListener('click', () => { tournamentFirstChoice = null; renderOnlineLobby(); });
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
   roomIdField.addEventListener('focus', () => roomIdField.select());
@@ -1046,6 +1113,13 @@ function renderOnlineLobby() {
     button.addEventListener('pointerenter', highlight);
     button.addEventListener('focus', highlight);
     button.addEventListener('click', () => {
+      if (tournament) {
+        if (!joined) return;
+        const character = button.dataset.character as OnlineCharacter;
+        if (!tournamentFirstChoice) { tournamentFirstChoice = character; renderOnlineLobby(); }
+        else room?.send('select-character', [tournamentFirstChoice, character]);
+        return;
+      }
       highlight();
       if (joined) room?.send('select-character', button.dataset.character);
     });
@@ -1121,6 +1195,7 @@ function actingPlayer(): PlayerId {
   if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
   if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
   if (gameState.phase === 'choosing-blink-teleport') return gameState.pendingAttack!.defenderId;
@@ -1222,7 +1297,9 @@ function dispatch(command: GameCommand) {
   const result = applyCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
-  startResolvedFireSpell(previousGameState, gameState);
+  const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
+  if (seriesMatchChanged) resetSeriesMatchVisuals();
+  else startResolvedFireSpell(previousGameState, gameState);
   const perkUseEvent = perkUseEventForTransition(previousGameState, command, gameState);
   selection.send({ type: 'CLEAR' });
   if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
@@ -1244,11 +1321,80 @@ function renderAll() {
   syncBoard();
   updateCharacterHealthBars(true);
   renderUI();
+  renderPipeButtonControls();
+}
+
+function renderRequiredDiscardNotice() {
+  const state = gameState as GameState & {
+    decay?: { targetId: PlayerId; remaining: number };
+    wrecknaWisdom?: { playerId: PlayerId };
+    shadowBarter?: { defenderId: PlayerId };
+  };
+  let playerId: PlayerId | undefined;
+  let count = 1;
+  let cardType = 'card';
+
+  switch (state.phase as string) {
+    case 'choosing-end-discard':
+      playerId = state.activePlayerId;
+      count = Math.max(0, state.players[playerId].hand.length - 5);
+      break;
+    case 'choosing-force-disarm-discard':
+      playerId = state.forceDisarm?.targetId;
+      if (state.forceDisarm && !('mindBlastLevel' in state.forceDisarm)) {
+        cardType = `${state.forceDisarm.cardKind === 'defend' ? 'Defend' : 'Attack'} card`;
+      }
+      break;
+    case 'choosing-flurry-enemy-discard':
+      playerId = state.flurry?.attackerId;
+      count = state.flurry?.remainingEnemyDiscards ?? 0;
+      break;
+    case 'choosing-grimoire-discard':
+      playerId = state.pendingAttack?.defenderId;
+      count = state.pendingAttack?.grimoireDiscardsRemaining ?? 0;
+      break;
+    case 'choosing-mind-tricks-enemy-discard':
+      playerId = state.mindTricks?.enemyId;
+      count = state.mindTricks?.enemyDiscardsRemaining ?? 0;
+      break;
+    case 'choosing-decay-discard':
+      playerId = state.decay?.targetId;
+      count = state.decay?.remaining ?? 0;
+      break;
+    case 'choosing-dash-discard':
+      playerId = state.activePlayerId;
+      cardType = 'non-Blessing card';
+      break;
+    case 'choosing-blink-discard':
+      playerId = state.pendingAttack?.defenderId;
+      cardType = 'other card';
+      break;
+    case 'choosing-preparation-discard':
+      playerId = state.preparation?.casterId;
+      break;
+    case 'choosing-shadow-barter-discard':
+      playerId = state.shadowBarter?.defenderId;
+      break;
+    case 'wreckna-wisdom-discard':
+      playerId = state.wrecknaWisdom?.playerId;
+      break;
+    case 'choosing-guard-discard':
+    case 'choosing-hot-potato-discard':
+    case 'choosing-snowball-discard':
+      playerId = state.activePlayerId;
+      break;
+  }
+
+  const viewerId = mode === 'online' ? localSeat : actingPlayer();
+  const visible = Boolean(playerId && count > 0 && viewerId === playerId && canLocalAct(playerId));
+  requiredDiscardNotice.classList.toggle('hidden', !visible);
+  requiredDiscardNotice.textContent = visible ? `Discard ${count} ${cardType}${count === 1 ? '' : 's'} from your Hand` : '';
 }
 
 function renderUI() {
   if (game.classList.contains('hidden')) return;
   renderPrivateNotice();
+  renderRequiredDiscardNotice();
   const actor = gameState.players[gameState.activePlayerId];
   byId('turnNumber').textContent = `ROUND ${String(gameState.turn).padStart(2, '0')}`;
   const consumeButton = byId('activateConsumeButton') as HTMLButtonElement;
@@ -1355,6 +1501,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
+  if (gameState.phase === 'choosing-shadow-barter-tomb-square') prompt.textContent = `Shadow Barter: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
   if (gameState.phase === 'choosing-arcane-missle-target') prompt.textContent = 'Arcane Missile: select a valid enemy · Escape to cancel';
   if (gameState.phase === 'choosing-fireball-target') {
     const fireSpell = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' };
@@ -1371,6 +1518,12 @@ function renderUI() {
   if (gameState.phase === 'shizzle-move') prompt.textContent = `Shizzle Consume: ${gameState.shizzle!.stepsRemaining} one-Square moves remain${gameState.shizzle!.started ? '' : ' · Escape to cancel before moving'}`;
   if (selectedTestObjectId) prompt.textContent = 'WOODEN BOX SELECTED · click an empty highlighted Square · Escape to cancel';
   if ((gameState.phase as string) === 'choosing-yamato-move') prompt.textContent = 'Yamato: select an empty adjacent Square, or choose Stay in Place';
+  if (visualArena().id === 'pipe' && gameState.phase === 'active' && (select.kind === 'none' || select.kind === 'move') && canLocalAct(actor.id)) {
+    const adjacentButton = gameState.objects.find((object) => object.kind === 'pipe-button' && distance(actor.position, object.position) === 1);
+    if (adjacentButton) prompt.textContent = actor.actionsRemaining > 0
+      ? `Use Action - Flood (1 Action) · Button Square ${cellLabel(adjacentButton.position)}`
+      : 'Use Action - Flood requires 1 Action';
+  }
   prompt.classList.toggle('visible', Boolean(prompt.textContent));
   byId('directPerkButton').classList.toggle('hidden', select.kind !== 'perk');
   const choosingMindTricks = gameState.phase === 'choosing-mind-tricks-discard';
@@ -1413,6 +1566,22 @@ function renderUI() {
   applyInterfaceLanguage();
 }
 
+function matchStatsTable(players: Partial<Record<PlayerId, { name: string; matchStats?: MatchStats }>>) {
+  const rows = (Object.keys(players) as PlayerId[]).map((playerId) => {
+    const player = players[playerId]!;
+    const stats = player.matchStats ?? { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 };
+    const totalDamage = stats.attackDamage + stats.perkDamage + stats.defensiveRetaliationDamage;
+    return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${stats.defensiveRetaliationDamage}</td><td>${totalDamage}</td><td>${stats.objectsDestroyed}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
+  }).join('');
+  return `<div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function seriesMatchResults(result: SeriesMatchResult) {
+  const arenaName = result.arenaId === 'nagrand' ? 'Nagrand Arena' : result.arenaId === 'trench' ? 'The Trench' : 'The Pipe';
+  const winner = result.players[result.winnerId];
+  return `<section class="series-match-result"><h3>Match ${result.match} · ${arenaName}</h3><p>Player ${result.winnerId.slice(1)} · ${escapeHtml(winner.name)} wins · Round ${result.round}</p>${matchStatsTable(result.players)}</section>`;
+}
+
 function renderMatchResults() {
   const modal = byId('matchResultsModal');
   if (gameState.phase !== 'finished') {
@@ -1428,16 +1597,24 @@ function renderMatchResults() {
     return;
   }
   const winner = gameState.winner ? gameState.players[gameState.winner] : null;
-  const rows = (Object.keys(gameState.players) as PlayerId[]).map((playerId) => {
-    const player = gameState.players[playerId];
-    const stats = player.matchStats ?? { squaresMoved: 0, attackDamage: 0, perkDamage: 0, defensiveRetaliationDamage: 0, totalDamage: 0, hitPointsHealed: 0, combatDamageBlocked: 0, objectsDestroyed: 0 };
-    const totalDamage = stats.attackDamage + stats.perkDamage + (stats.defensiveRetaliationDamage ?? 0);
-    return `<tr style="--player-color:${playerUiColor(playerId)}"><th><i></i>${escapeHtml(player.name)}</th><td>${stats.squaresMoved}</td><td>${stats.attackDamage}</td><td>${stats.perkDamage}</td><td>${stats.defensiveRetaliationDamage ?? 0}</td><td>${totalDamage}</td><td>${stats.objectsDestroyed ?? 0}</td><td>${stats.hitPointsHealed}</td><td>${stats.combatDamageBlocked}</td></tr>`;
-  }).join('');
-  modal.innerHTML = `<section class="match-results-window"><p>MATCH COMPLETE</p><h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins` : 'Match results'}</h2><div class="match-results-scroll"><table><thead><tr><th>Character</th><th>Squares<br>Moved</th><th>Attack<br>Damage</th><th>Perk<br>Damage</th><th>Retaliation<br>Damage</th><th>Total<br>Damage</th><th>Objects<br>Destroyed</th><th>HP<br>Healed</th><th>Combat Damage<br>Blocked</th></tr></thead><tbody>${rows}</tbody></table></div><div class="match-results-actions"><button type="button" id="downloadCombatSummary">Download CSV summary</button><button type="button" id="closeMatchResults">Review battlefield</button></div></section>`;
+  const series = gameState.series;
+  const seriesDraw = Boolean(series && series.results.length < series.match);
+  const seriesContinuing = Boolean(series && (seriesDraw || series.match === 1 || series.match === 2 && series.wins.P1 === 1 && series.wins.P2 === 1));
+  const readyLabel = seriesDraw ? `Replay Match ${series!.match}` : `Ready for Match ${series!.match + 1}`;
+  const readyControls = seriesContinuing && series
+    ? mode === 'hotseat'
+      ? (['P1', 'P2'] as const).map((id) => `<button type="button" data-series-ready="${id}" ${series.ready.includes(id) ? 'disabled' : ''}>${series.ready.includes(id) ? `Player ${id.slice(1)} ready` : `${readyLabel} · Player ${id.slice(1)}`}</button>`).join('')
+      : `<button type="button" data-series-ready="${localSeat ?? ''}" ${!localSeat || series.ready.includes(localSeat) ? 'disabled' : ''}>${localSeat && series.ready.includes(localSeat) ? 'Waiting for other Player' : readyLabel}</button>`
+    : '';
+  const seriesHeading = series ? `<p>BEST-OF-THREE · MATCH ${series.match} · SERIES ${series.wins.P1}-${series.wins.P2}</p>` : '<p>MATCH COMPLETE</p>';
+  const resultTables = series && !seriesContinuing
+    ? `<div class="series-results-list">${series.results.map(seriesMatchResults).join('')}</div>`
+    : matchStatsTable(gameState.players);
+  modal.innerHTML = `<section class="match-results-window">${seriesHeading}<h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins${series && !seriesContinuing ? ' the series' : ''}` : 'Match results'}</h2>${resultTables}<div class="match-results-actions">${readyControls}<button type="button" id="downloadCombatSummary">Download CSV summary</button>${seriesContinuing ? '' : '<button type="button" id="closeMatchResults">Review battlefield</button>'}</div></section>`;
   modal.classList.remove('hidden');
   byId('downloadCombatSummary').addEventListener('click', downloadCombatSummary);
-  byId('closeMatchResults').addEventListener('click', () => modal.classList.add('hidden'));
+  modal.querySelectorAll<HTMLButtonElement>('[data-series-ready]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'ready-series-match', playerId: button.dataset.seriesReady as PlayerId })));
+  modal.querySelector<HTMLButtonElement>('#closeMatchResults')?.addEventListener('click', () => modal.classList.add('hidden'));
 }
 
 async function downloadCombatSummary() {
@@ -1728,19 +1905,18 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const shadowMoveBonusIcon = shadowMoveBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('dagger')}<b>+${shadowMoveBonus}</b><span class="status-tooltip"><strong>Shadow Dagger · Trail Movement</strong>Spectre gains ${shadowMoveBonus} MOV until the end of this turn.</span></div>` : '';
     const shadowDefensePenaltyIcon = shadowDefensePenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('dagger')}<b>-${shadowDefensePenalty}</b><span class="status-tooltip"><strong>Shadow Dagger · Weakened</strong>Your chosen Defend Card has -${shadowDefensePenalty} DEF until the end of Spectre's turn. Taking the hit is unaffected.</span></div>` : '';
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('ice')}<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
+    const brainFreezeMovementBonusIcon = (player.brainFreezeMovementBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('ice')}<b>+${player.brainFreezeMovementBonus}</b><span class="status-tooltip"><strong>Brain Freeze · Stolen MOV</strong>Wreckna has +${player.brainFreezeMovementBonus} MOV stolen with Brain Freeze. The bonus lasts through Wreckna's next turn.</span></div>` : '';
     const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0" aria-label="Dakkoth: +${player.dakkothRangeBonus} Attack Range until the start of Wreckna's next turn">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · +${player.dakkothRangeBonus} Attack Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the start of Wreckna's next turn. Level 3 grants an additional +1 Attack Range for the same duration.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · ${player.traitBlocked ? 'Suppressed by Curse' : 'Attack Ready'}</strong>Swordcraft has summoned a sword from another realm.${player.traitBlocked ? ' Curse blocks Swordcraft, so Summon cannot enable Attack Cards until the end of this turn.' : ' Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.'}</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
     const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shield')}<b>↩</b><span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
-    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin may cross characters, Objects, Wall Objects, High Ground, Slides, Trenches, and other restricted Squares, but must end movement on an empty Square.' : ''}</span></div>` : '';
+    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin can move directly from any Square to any unoccupied Square for 1 MOV, including Shallow Water, and ignores negative movement effects.' : ''}</span></div>` : '';
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
-    const barbarianMovementIcon = player.character === 'merylin' && player.barbarianIgnoreNegativeMovement ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<span class="status-tooltip"><strong>Barbarian Stance · Unstoppable</strong>Negative effects cannot reduce or annul Merylin's MOV until the end of this turn.</span></div>` : '';
-    const kamelotBonusIcon = player.character === 'merylin' && player.kamelotDoubleSquareBonuses ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('square')}<b>×2</b><span class="status-tooltip"><strong>Kamelot Stance · Square Bonuses ×2</strong>Numeric bonuses from special Squares are doubled. This includes draw, owned Base DEF, and High Ground ATT bonuses, but not automatic Slide movement. The effect is consumed after Merylin uses an Attack.</span></div>` : '';
-    const kamelotSuppressionIcon = player.kamelotSuppressedZone ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('square')}<span class="status-tooltip"><strong>Kamelot Stance · ${escapeHtml(player.kamelotSuppressedZone.zoneType)} Zone Disabled</strong>This character receives no bonus from the affected connected special-Square zone until the beginning of their turn. A draw-Square bonus is suppressed before this effect expires.</span></div>` : '';
-    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Perk</strong>Merylin may use one additional Perk during this turn. The allowance expires at turn end.</span></div>` : '';
-    const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+1</b><span class="status-tooltip"><strong>Spellsinger Stance · Extra Attack</strong>After normal Actions are exhausted, Merylin may use one additional Attack during this turn. The allowance expires at turn end.</span></div>` : '';
+    const barbarianHeadacheIcon = player.character === 'merylin' && player.barbarianNextAttackHeadache ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('headache')}<span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>Merylin's next Attack adds Headache to the target's Hand after combat. Attacking an Object consumes this effect without applying Headache.</span></div>` : '';
+    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Kamelot or Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
+    const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Kamelot or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. Merylin may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after her normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
     const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Bone Chill, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
-    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, or Curse reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's next turn.</span></div>` : '';
+    const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, Curse, or Brain Freeze reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">${gameIcon('pass-through')}<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
     const lightsaberIcon = player.character === 'shinobi' && player.lightsaberBuff ? `<div class="status-icon lightsaber-active" tabindex="0">${gameIcon('lightsaber')}<span class="status-tooltip"><strong>Lightsaber empowered</strong>+1 ATT / DEF / MOV. Duration stacks: ${player.lightsaberStacks}.</span></div>` : '';
     const highgroundIcon = player.highgroundAdvantageBuff ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('highground')}<span class="status-tooltip"><strong>Highground Advantage</strong>The next Attack Card returns to this player's Hand.</span></div>` : '';
@@ -1755,7 +1931,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianMovementIcon}${kamelotBonusIcon}${kamelotSuppressionIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -3641,6 +3817,7 @@ let suppressTouchBoardSelection = false;
 let suppressNextBoardClick = false;
 const visualArena = (): ArenaDefinition => {
   const arenaId = (gameState as GameState & { arenaId?: ArenaId }).arenaId;
+  if (arenaId === 'pipe') return THE_PIPE_ARENA;
   if (arenaId === 'trench') return THE_TRENCH_ARENA;
   if (arenaId === 'lordaeron' || gameState.boardSize === LORDAERON_ARENA.height) return LORDAERON_ARENA;
   return NAGRAND_ARENA;
@@ -3648,7 +3825,7 @@ const visualArena = (): ArenaDefinition => {
 const visualBoardWidth = () => visualArena().width;
 const visualBoardHeight = () => gameState.boardSize;
 const placementState = () => (gameState as GameState & { lordaeronPlacement?: { availableBaseIds: ('P1' | 'P2' | 'P3')[]; claims: Partial<Record<PlayerId, 'P1' | 'P2' | 'P3'>> } }).lordaeronPlacement;
-const boardGeometryKey = () => `${visualArena().id}-${visualBoardWidth()}x${visualBoardHeight()}-${JSON.stringify(placementState()?.claims ?? {})}`;
+const boardGeometryKey = () => `${visualArena().id}-${visualBoardWidth()}x${visualBoardHeight()}-${JSON.stringify(placementState()?.claims ?? {})}-${JSON.stringify(gameState.pipeFloodUntil ?? {})}-${JSON.stringify(kamelotChanges(gameState))}`;
 rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
 dummyGroups.set('P1', createDaOrkk(0x169bd3));
 dummyGroups.set('P2', createObiWanShinobi(0xff5d68));
@@ -5169,7 +5346,7 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
 function trenchTileDepth(cell: Cell) {
   const arena = visualArena();
   // A subtle recess: much smaller than the 0.38 low/high-ground step.
-  return arena.id === 'trench' && arena.trenchSquares?.includes(cellLabel(cell)) ? 0.10 : 0;
+  return (arena.id === 'trench' || arena.id === 'pipe') && arena.trenchSquares?.includes(cellLabel(cell)) ? 0.18 : 0;
 }
 
 function createSlideRamp(cell: Cell, color: number): THREE.Group {
@@ -5257,23 +5434,29 @@ function createCell(cell: Cell) {
   const arena = visualArena();
   const lordaeron = arena.id === 'lordaeron';
   const highGround = (gameState.elevations[label] ?? 0) > 0;
-  const ownerOne = arena.bases.P1.includes(label);
-  const ownerTwo = arena.bases.P2.includes(label);
-  const ownerThree = arena.bases.P3.includes(label);
+  const base = baseSquareAt(gameState, label);
+  const kamelotPainted = kamelotChanges(gameState).some((change) => change.label === label);
+  const ownerOne = base?.ownerId === 'P1';
+  const ownerTwo = base?.ownerId === 'P2';
+  const ownerThree = base?.ownerId === 'P3';
   const baseId = (['P1', 'P2', 'P3'] as const).find((id) => LORDAERON_ARENA.bases[id].includes(label));
   const placement = placementState();
   const claimant = placement && baseId ? (Object.entries(placement.claims).find(([, claimedBase]) => claimedBase === baseId)?.[0] as PlayerId | undefined) : undefined;
   const unclaimedPlacementBase = gameState.phase === 'choosing-base-placement' && Boolean(baseId) && placement?.availableBaseIds.includes(baseId!);
-  const drawSquare = arena.drawSquares.includes(label);
+  const drawSquare = !kamelotPainted && arena.drawSquares.includes(label);
   const protectedSquare = arena.highgroundProtected.includes(label);
   const slideSquare = arena.slideSquares?.includes(label) ?? false;
   const trenchSquare = arena.trenchSquares?.includes(label) ?? false;
-  const claimedColor = claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
-  const color = unclaimedPlacementBase ? 0xc21f35 : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : drawSquare ? 0x665a25 : highGround ? 0x285046 : trenchSquare ? 0xb1845c : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
-  const emissive = unclaimedPlacementBase ? 0xff1638 : claimant === 'P1' ? 0x07374f : claimant === 'P2' ? 0x3d0f18 : claimant === 'P3' ? 0x291a45 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
-  const material = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : 0.35, roughness: 0.72, metalness: 0.15 });
+  const waterSquare = arena.id === 'pipe' && isShallowWater(gameState, cell);
+  const buttonSquare = arena.buttonSquares?.includes(label) ?? false;
+  const claimedColor = kamelotPainted ? null : claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
+  const upgradedBase = kamelotPainted && (base?.value ?? 0) >= 2;
+  const perfectedBase = kamelotPainted && base?.value === 3;
+  const color = unclaimedPlacementBase && !kamelotPainted ? 0xc21f35 : perfectedBase ? ownerOne ? 0x8be7ff : ownerTwo ? 0xffa8b2 : 0xd9baff : upgradedBase ? ownerOne ? 0x1cc1ff : ownerTwo ? 0xff687a : 0xb98aff : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : waterSquare ? drawSquare ? 0xa58a29 : 0x1c7190 : drawSquare ? 0x917a22 : highGround ? 0x285046 : buttonSquare ? 0x6c3939 : trenchSquare ? 0x755c45 : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
+  const emissive = unclaimedPlacementBase && !kamelotPainted ? 0xff1638 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
+  const material = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : perfectedBase ? 0.95 : upgradedBase ? 0.78 : kamelotPainted ? 0.58 : 0.35, roughness: 0.72, metalness: 0.15 });
   const lordaeronTombCell = lordaeron && highGround;
-  if (lordaeronTombCell) {
+  if (lordaeronTombCell && !kamelotPainted) {
     material.transparent = true;
     material.opacity = 0;
     material.depthWrite = false;
@@ -5405,6 +5588,22 @@ function createWoodenBox() {
 
 function createArenaPillar() {
   const arenaId = visualArena().id;
+  if (arenaId === 'pipe') {
+    const root = new THREE.Group();
+    root.name = 'Pipe Column';
+    root.userData.pillarVariant = 'pipe';
+    const metal = new THREE.MeshStandardMaterial({ color: 0x485e65, metalness: 0.8, roughness: 0.31 });
+    const rim = new THREE.MeshStandardMaterial({ color: 0x25333b, metalness: 0.75, roughness: 0.37 });
+    const main = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 3.8, 24), metal);
+    main.position.y = 1.9; main.castShadow = true; root.add(main);
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.22, 24), rim);
+    collar.position.y = 2.5; collar.castShadow = true; root.add(collar);
+    const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.35, 16), metal);
+    spout.rotation.x = Math.PI / 2; spout.position.set(0, 2.42, 0.7); spout.castShadow = true; root.add(spout);
+    const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.12, 16), rim);
+    lip.rotation.x = Math.PI / 2; lip.position.set(0, 2.42, 1.36); root.add(lip);
+    return root;
+  }
   // Keep the newer extracted Trench columns available as temporary assets,
   // while The Trench reuses the established Lordaeron pillar model.
   const variant = arenaId === 'nagrand' ? 'nagrand' : 'lordaeron';
@@ -5432,6 +5631,28 @@ function createArenaPillar() {
   void assetPromise.then((asset) => installArenaProp(root, fallback, asset, `${variant}PillarImportedModel${trenchModel ?? ''}`, targetSize)).catch((error) => {
     console.error(`Failed to load the ${variant} arena pillar; keeping procedural fallback.`, error);
   });
+  return root;
+}
+
+function showBestOfThreeModeSelect(flow: 'hotseat' | 'online') {
+  const panel = byId('onlineWaiting');
+  panel.innerHTML = `<p class="eyebrow">BEST-OF-THREE</p><h2>Choose Series Mode</h2><div class="character-choices"><button data-series-mode="duel"><strong>1 versus 1</strong><small>Keep the same characters for Matches 1 and 2</small></button><button data-series-mode="tournament"><strong>The Tournament</strong><small>Choose a different character for each of the first two matches</small></button></div><button class="lobby-back-button" id="backToFormat" type="button">Back to Game Format</button>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-series-mode]').forEach((button) => button.addEventListener('click', () => {
+    const seriesMode = button.dataset.seriesMode as BestOfThreeMode;
+    if (flow === 'online') void connectOnline('create', 'bo3', 'nagrand', false, seriesMode);
+    else if (seriesMode === 'tournament') showHotseatTournamentSelect();
+    else showHotseatCharacterSelect('duel', 'nagrand', seriesMode);
+  }));
+  panel.querySelector<HTMLButtonElement>('#backToFormat')!.addEventListener('click', () => showFormatSelect(flow));
+}
+
+function createPipeButton() {
+  const root = new THREE.Group();
+  root.name = 'Flood Button';
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 16), new THREE.MeshStandardMaterial({ color: 0x38474d, metalness: 0.55 }));
+  base.position.y = 0.18; base.castShadow = true; root.add(base);
+  const button = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.42, 0.18, 16), new THREE.MeshStandardMaterial({ color: 0xc43d3f, emissive: 0x431114, emissiveIntensity: 0.55 }));
+  button.position.y = 0.45; button.castShadow = true; root.add(button);
   return root;
 }
 
@@ -6245,6 +6466,25 @@ function resetMatchEndPresentation() {
   pendingDeathAnimationIds.clear();
   proceduralDeathAnimations.clear();
   matchEndPresentation = null;
+}
+
+function resetSeriesMatchVisuals() {
+  resetMatchEndPresentation();
+  resetCombatSummary();
+  const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
+  if (mastheadArena && mode === 'hotseat' && gameState.series) mastheadArena.textContent = `BEST-OF-THREE · ${gameState.series.mode === 'tournament' ? 'THE TOURNAMENT' : '1 VERSUS 1'} · ${gameState.series.arenaOrder[gameState.series.match - 1].toUpperCase()}`;
+  boardVisualKey = '';
+  lastVisualCells.clear();
+  lastObjectVisualCells.clear();
+  movementAnimations.clear();
+  objectMovementAnimations.clear();
+  objectImpactAnimations.clear();
+  processedObjectPushAnimations.clear();
+  completedObjectMovementAnimationIds.clear();
+  dummyGroups.forEach((group) => scene.remove(group));
+  dummyGroups.clear();
+  objectGroups.forEach((group) => scene.remove(group));
+  objectGroups.clear();
 }
 
 function playAvailableDeathAnimation(playerId: PlayerId, startedAt: number) {
@@ -9476,7 +9716,10 @@ function syncBoard() {
           : fullRouteLocomotionDuration * slideSegmentIndex / travelSquares;
         const directSlide = slideSegmentIndex === 1;
         const slideStartsAtMs = slideSegmentIndex === undefined ? undefined : directSlide ? 0 : Math.max(0, locomotionDuration - SLIDE_EARLY_TRIGGER_MS);
-        const duration = slideStartsAtMs === undefined ? locomotionDuration : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS : slideStartsAtMs + SLIDE_GLIDE_DURATION_MS;
+        const slideSteps = slideSegmentIndex === undefined ? 0 : travelSquares - slideSegmentIndex;
+        const duration = slideStartsAtMs === undefined ? locomotionDuration
+          : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS + Math.max(0, slideSteps - 1) * SLIDE_GLIDE_DURATION_MS
+            : slideStartsAtMs + slideSteps * SLIDE_GLIDE_DURATION_MS;
         const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
@@ -9553,7 +9796,7 @@ function syncBoard() {
   });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
-    const expectedPillarVariant = visualArena().id === 'nagrand' ? 'nagrand' : 'lordaeron';
+    const expectedPillarVariant = visualArena().id === 'nagrand' ? 'nagrand' : visualArena().id === 'pipe' ? 'pipe' : 'lordaeron';
     if (group && object.kind === 'wall-pillar' && group.userData.pillarVariant !== expectedPillarVariant) {
       // Arena definitions may reuse obstacle IDs. Never retain a Trench model
       // when switching to another arena, including while its asset is loading.
@@ -9563,7 +9806,8 @@ function syncBoard() {
       lastObjectVisualCells.delete(object.id);
       group = undefined;
     }
-    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
+    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'pipe-button' ? createPipeButton() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
+    if (object.kind === 'wall-pillar' && visualArena().id === 'pipe') group.rotation.y = object.position.x === 1 ? 0 : Math.PI;
     group.userData.objectId = object.id;
     if (object.kind === 'tomb') syncWrecknaTombLichIcon(group, object.id);
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
@@ -10290,7 +10534,7 @@ function highlightCells() {
     const currentWrecknaTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
     const freeTombTransfer = actor.character === 'wreckna' && Boolean(currentWrecknaTomb) && objectOnCell?.kind === 'tomb' && objectOnCell.id !== currentWrecknaTomb!.id && distance(currentWrecknaTomb!.position, cell) === 1;
     const wrecknaTombEntry = actor.character === 'wreckna' && objectOnCell?.kind === 'tomb' && distance(actor.position, cell) === 1 && (actor.movementRemaining >= 2 || freeTombTransfer);
-    const regularValid = gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && (freeTombTransfer || (regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining)));
+    const regularValid = objectOnCell?.kind !== 'pipe-button' && gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && (freeTombTransfer || (regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining)));
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;
@@ -10346,6 +10590,10 @@ function highlightCells() {
     const sacrificeCaster = sacrificeTomb ? gameState.players[sacrificeTomb.casterId] : null;
     const sacrificeTombSquareValid = gameState.phase === 'choosing-sacrifice-tomb-square' && Boolean(sacrificeCaster) && !occupiedByPlayer && !occupiedByObject
       && wrecknaPerkTargetInRange(gameState, sacrificeCaster!, cell);
+    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
+    const shadowBarterCaster = shadowBarter ? gameState.players[shadowBarter.attackerId] : null;
+    const shadowBarterTombSquareValid = gameState.phase === 'choosing-shadow-barter-tomb-square' && Boolean(shadowBarterCaster) && !occupiedByPlayer && !occupiedByObject
+      && wrecknaPerkTargetInRange(gameState, shadowBarterCaster!, cell);
     const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || objectOnCell!.kind !== 'wall-pillar');
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = selectedAttackCanReach(activePlayer, selectedCard, cell);
@@ -10399,10 +10647,10 @@ function highlightCells() {
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || targetSquareValid;
+    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
-    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
       slideRamp.traverse((child) => {
@@ -10643,6 +10891,10 @@ function onBoardClick(event: MouseEvent) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     const sacrificeTomb = (gameState as GameState & { sacrificeTomb?: { casterId: PlayerId } | null }).sacrificeTomb;
     if (cellHit && sacrificeTomb) dispatch({ type: 'sacrifice-tomb-square', playerId: sacrificeTomb.casterId, to: cellHit.object.userData.cell });
+  } else if (gameState.phase === 'choosing-shadow-barter-tomb-square') {
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const shadowBarter = (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } | null }).shadowBarter;
+    if (cellHit && shadowBarter) dispatch({ type: 'shadow-barter-tomb-square', playerId: shadowBarter.attackerId, to: cellHit.object.userData.cell });
   } else if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
@@ -10826,7 +11078,7 @@ function onBoardClick(event: MouseEvent) {
       const normallyAttackable = object?.kind !== 'wall-pillar';
       if (object && (normallyAttackable || moonlightCanTargetWall) && selectedAttackCanReach(attacker, selectedAttackCard, object.position)) {
         const targetsWall = moonlightCanTargetWall && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield');
-        const message = targetsWall
+        const message = object.kind === 'pipe-button' ? 'The button remains intact and floods or drains a Trench zone. Attack Card effects still resolve.' : targetsWall
           ? 'Moonlight leaves this Wall Object standing and creates the moonwave behind it.'
           : 'This destructible Object will be destroyed by the Attack Card.';
         const attack = () => {

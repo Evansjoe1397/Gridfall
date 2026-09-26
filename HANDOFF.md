@@ -1,108 +1,123 @@
 # Gridfall Development Handoff
 
-Updated 2026-09-20. Read this document completely before continuing.
+Updated 2026-09-27. Read this document completely before continuing.
+
+## Current development update
+
+- Mandatory Hand discards now show a persistent, centered notice with the remaining card count and required card type where applicable. In online play it appears only for the seat making the discard; hotseat follows the player currently choosing. The notice covers hand limit, card costs, and opponent-forced discards, and clears when the discard phase ends. Typecheck, production build, and `git diff --check` passed. The running server served the new build locally and the existing public multiplayer URL returned HTTP 200; no browser check was run.
+- Immortality now has base Defend Value 2. Brain Freeze now steals 1 MOV only when the attacker has MOV remaining, and still blocks their Combat Cards and Combat Effects through the end of the turn. Its stolen MOV remains available through Wreckna's next turn. Card descriptions across the English `CARDS` catalog received a grammar pass without changing their intended rules. `check:combat-order` (including focused no-MOV and duration cases), typecheck, build, and `git diff --check` passed. The older `check:blessed-might` script still fails on unrelated stale Graveyard and Blink expectations; its source was left unchanged. The production server was restarted, and both local and public multiplayer URLs returned HTTP 200 with the existing tunnel running.
+- Tactician's unempowered effect now adds Exhaust on top of the attacker's Deck instead of Headache; the card text, known top card, and regression expectations were updated. Shadow Barter now reads "Draw 1 Card, then the enemy Discards 1 Card. Create a Tomb within Range." After the draw and discard, Wreckna chooses an eligible empty Square within attacking range and line of sight for a Tomb. The Tomb choice also follows an Object Attack or an enemy with no discardable Card. `check:exhaust`, `check:shadow-barter`, `check:objects`, `check:combat-order`, typecheck, and production build passed. The production server was restarted; local and public multiplayer URLs returned HTTP 200 with the existing tunnel still running.
+- Burning now deals its usual 1 Damage per Card at turn end, then each Burning Card is Removed if the character ends on a flooded Shallow Water Square. No Dash or extra Action is required. Burning remains in Hand on dry Squares. The card description and `check:pipe` cover this rule; typecheck and production build passed. The production server was restarted; local and public multiplayer URLs both returned HTTP 200 with the existing tunnel running.
+- Windwalker Stance Level 3 now reads: "Can move from any Square to any Square. Ignore negative movement effects." While active, Merylin can move directly to any unoccupied Square for 1 MOV. Pinned, Panic, Hex, Boomerang, Spirit Siphon, Blessed Swiftness MOV annulment, and Shallow Water movement surcharges do not impede her; normal penalties resume when the stance expires. The board movement tooltip reflects this. `check:windwalker`, `check:pipe`, `check:barbarian`, typecheck, and production build passed. The production server was refreshed and both the local and existing public multiplayer URLs returned HTTP 200.
+- Barbarian Stance Level 3 now restores MOV to Merylin's current effective range and makes her next Attack add Headache to the target's Hand after combat. The old negative-MOV immunity was removed. The next-Attack effect persists across turns and is consumed by an Object Attack without placing Headache. The focused `check:barbarian` covers Hand placement, Block, movement penalties, Object consumption, and persistence.
+- Kamelot Stance Level 1 text now reads: "Turn a Square you occupy into your Base Square or add +1 to its value. Maximum 3 changes." Existing gameplay already increments the occupied Base value by +1 through +3 and retains the three-change queue.
+- Rebuilt and restarted the production server after these changes, keeping the existing Cloudflare tunnel. `http://127.0.0.1:2567/` and `https://clearing-estates-began-room.trycloudflare.com/` both returned HTTP 200. `check:barbarian`, `check:kamelot`, `check:combat-order`, typecheck, and build passed.
+- Kamelot Stance Level 3 now grants one extra Perk use and one Attack-only Action. The extra Action uses the existing Merylin/Spellsinger Attack allowance, can play only an Attack Card after normal Actions are exhausted, and expires at turn end. `check:kamelot`, typecheck, and production build passed.
+- Public multiplayer launched from the current production build on `http://127.0.0.1:2567/` through `https://clearing-estates-began-room.trycloudflare.com/`. Local and public URLs returned HTTP 200, and the server and `cloudflared` processes were alive on 2026-09-26. This Quick Tunnel URL is temporary; recheck before reusing it.
+- Merylin's starting perks are now Kamelot, Windwalker, and Carian Stance. Barbarian and Spellsinger Stance are the Phase 2 Perk choices. Kamelot can upgrade a +2 Base Square to +3 DEF when Merylin ends a turn there; +3 is the cap. The +3 Square has a brighter board color. `check:kamelot`, `check:best-of-three`, typecheck, and production build passed.
+- Pulled `origin/main` through `fd10e0a` (`Add anims for Mana Shield, Arcane Bolt and Mana Blast, also fixes in other animation bugs`). Preserved local work and merged the new animation fields with the Pipe/Best-of-Three fields in `shared/game.ts`. The fresh recovery stash `codex-pre-pull-2026-09-26-fd10e0a` remains available after the restore conflict; do not reapply it over the restored work.
+- After this pull, typecheck, production build, `check:arcane-barrier-order`, `check:combat-order`, `check:blink`, `check:kamelot`, `check:pipe`, `check:best-of-three`, and the direct Logan visual check passed. No browser check was run.
+- Pulled `origin/main` through `4f60ff0` (`Blink card reword. Also add some block cards animations`). Preserved all local edits and resolved merge conflicts in `package.json` and `shared/game.ts` by retaining both the pulled changes and the pending local work. The recovery stash `codex-pre-pull-2026-09-26` remains untouched after the restore conflict; do not apply it again over the restored changes.
+- After the pull, `npm run check:blink`, `check:kamelot`, `check:pipe`, `check:best-of-three`, typecheck, and production build passed. No browser check was run.
+- Kamelot Stance now repaints Merylin's occupied Square as her Base (+1 DEF after she ends a turn there), or upgrades an existing friendly Base to +2 DEF. Yellow and enemy Base properties are replaced. Each Merylin keeps three board changes; a fourth reverts her oldest. Level 2 still grants Summon; Level 3 grants another Perk use that turn. The board displays painted and upgraded Base colors, including Lordaeron High Ground.
+- `npm run check:kamelot` covers Base defense timing, Yellow and enemy Base replacement, the oldest-change queue, and Level 3's additional Perk. Typecheck, production build, `check:pipe`, `check:best-of-three`, and `git diff --check` passed. No browser verification was performed.
+- Previously pulled upstream through `d1e7a15` while preserving the pending Tomb Block work below.
+- The uncommitted working tree also includes The Pipe arena, shallow water/flood buttons, and Best-of-Three mode (1 versus 1 and The Tournament) in `shared/arenas.ts`, `shared/game.ts`, `server/index.ts`, `src/main.ts`, and `src/style.css`.
+- Best-of-Three records each match, waits for both players after a result, resets Match 2, and carries winning characters' cards and Spell Echo positions into a deciding Match 3. Match 3 starts at the later completed Phase and grants the other winner missed Phase rewards before play. Drawn matches replay the same series match.
+- Best-of-Three now shuffles Nagrand, Trench, and Pipe once per series, assigns one unique arena to each match, and keeps the assigned arena for any replay. Its setup screens no longer offer a fixed arena choice.
+- The final Best-of-Three results screen displays every completed match together, including arena, winner, round, and both players' match statistics. Match results are stored in series state before the next match resets player state.
+- The Pipe has Slide Squares at C1, E1-E3, D6-D8, and F8. Entering a Slide Square from adjacent High Ground triggers the existing free Slide step; if it enters flooded Shallow Water, it continues in the same direction across water, stopping on dry ground, at the edge, or after a character collision. Pipe checks cover both water zones and collision cases.
+- Focused checks: `npm run check:pipe`, `npm run check:best-of-three`, and `npm run check:tomb-block` passed. Typecheck, production build, and `git diff --check` passed. No browser verification was performed.
+- The older status, baseline, and launch notes below describe the September 24 handoff and are historical. Check live Git and process state before relying on them.
 
 ## Workspace and instructions
 
 - Workspace: `C:\Users\evans\BoardGame\BoardGame2`
 - Repository: `https://github.com/Evansjoe1397/Gridfall.git`
 - Branch: `main`
-- Local HEAD: `4da1925` (`Cycle character archive animations`)
-- At this handoff, `main` is not reported ahead of or behind `origin/main` by `git status -sb`. No fetch was performed while preparing the handoff.
+- Local HEAD: `fd10e0a` (`Add anims for Mana Shield, Arcane Bolt and Mana Blast, also fixes in other animation bugs`)
+- `git status -sb` reports `main...origin/main` with no ahead/behind count after the September 26 pull; local work remains uncommitted.
 - Read `AGENTS.md` before doing any work. It prohibits browser checks and browser automation unless the user explicitly overrides that rule.
 - Preserve all existing work. Do not commit or push unless the user explicitly requests it.
-- Use `apply_patch` for source edits and hidden windows for long-running background processes.
-- The user requested this handoff so development can continue in a different chat. No additional feature request is pending.
+- Use `apply_patch` for source edits. Run long-lived development processes in hidden/background windows.
+- Russian localization updates remain paused at the user's request. Implement new content in English only unless that direction changes.
 
 ## Uncommitted work to preserve
 
-The post-game combat-summary download is being migrated from Excel (`.xlsx`) to CSV (`.csv`). The working tree intentionally contains:
+The working tree contains the latest requested Phylactery-protection rule:
 
-- `package.json` - removed the `exceljs` dependency.
-- `package-lock.json` - dependency tree updated by `npm uninstall exceljs` (91 packages removed).
-- `src/main.ts` - imports the CSV helper, downloads a UTF-8 CSV blob, uses a `.csv` filename, and displays CSV-specific button/status text.
-- `src/combat-summary-csv.ts` - new CSV serializer and filename helper.
-- `src/combat-summary-xlsx.ts` - deleted because the Excel exporter is no longer used.
-- `scripts/check-combat-summary-export.ts` - changed from XLSX workbook checks to CSV content, escaping, safety, and filename checks.
-- `HANDOFF.md` - this handoff update.
-
-The CSV keeps the existing exported data: winner, turns, player, character, result, final/max HP, movement, attack/perk/retaliation/total damage, objects destroyed, HP healed, and combat damage blocked. It uses a UTF-8 BOM, CRLF rows, quoted cells, escaped quotes, and protection against spreadsheet formula injection for string values beginning with spreadsheet control characters.
-
-Do not restore the deleted XLSX module or reinstall `exceljs` unless the user changes direction.
-
-## Validation of the CSV migration
-
-Completed successfully before this handoff:
-
-- `npm run check:combat-summary-export`: PASS (`Combat summary CSV export checks passed.`)
-- `npm run typecheck`: PASS
-- `npm run build`: PASS
-- `git diff --check`: PASS, with only normal Git LF/CRLF working-copy warnings
-
-The production build still emits the known non-fatal JavaScript chunk-size warning. No browser or visual verification was performed, in accordance with `AGENTS.md`.
-
-## Current Git state
+- `shared/game.ts` - Tomb Block now builds a preferred random-target pool that excludes Squares occupied by Phylactery-infused Objects whenever at least one other eligible adjacent Square exists. Empty Squares and Squares occupied by non-infused Objects remain valid. An infused Object is retained as a last-resort target only when no safer eligible Square exists.
+- `scripts/check-tomb-block.ts` - new focused regression coverage for both priority cases: preserving an infused Object when an alternative exists, and using it as a last resort when it is the only legal Square.
+- `package.json` - adds `npm run check:tomb-block`.
+- `HANDOFF.md` - this updated handoff.
 
 Expected status after this handoff:
 
 ```text
 ## main...origin/main
  M HANDOFF.md
- M package-lock.json
  M package.json
- M scripts/check-combat-summary-export.ts
- D src/combat-summary-xlsx.ts
- M src/main.ts
-?? src/combat-summary-csv.ts
+ M shared/game.ts
+?? scripts/check-tomb-block.ts
 ```
 
-There are several historical safety stashes (`stash@{0}` through `stash@{4}`). They were created around earlier pulls and their work has generally already been restored or committed. Do not apply or drop any stash without first inspecting it and confirming it is actually needed.
+Do not discard or overwrite these changes. They have not been committed or pushed.
 
-## Recent committed baseline
+## Validation of the pending work
 
-Recent commits, newest first:
+Completed successfully after the Tomb Block priority change:
 
-- `4da1925` Cycle character archive animations
-- `07d1d67` Merge branch `main`
-- `8fb4ded` Fixed the hot potato placement and style
-- `841de4d` Add Da Orkk attack animation
-- `2add5b4` Obi Wan attack animations plus combat/effect text improvements
-- `047ebfc` Merge branch `main`
-- `3d8ee25` UI improvements and Merylin animation fixes
-- `7035f42` Added models and animations for Merylin Pendragon
+- `npm run check:tomb-block`: PASS (`Tomb Block priority checks passed.`)
+- `npm run typecheck`: PASS
+- `npm run build`: PASS
+- `git diff --check`: PASS, with only normal Git LF/CRLF working-copy warnings
 
-The character archive animation cycle introduced in `4da1925` excludes movement animations, per the user's follow-up request.
+The production build still emits the known non-fatal JavaScript chunk-size warning. No browser or visual verification was performed, in accordance with `AGENTS.md`.
 
-Many gameplay and UI changes from prior development sessions are already committed, including combat effect ordering, object combat handling, character/card/perk updates, archive status tabs, post-match statistics export, and public multiplayer work. Treat the current code and regression scripts as authoritative rather than relying on old handoff descriptions.
+## Latest pushed baseline
 
-## Runtime and launch guidance
+Commit `d756201` (`Rework Wreckna card effects`) is pushed to `origin/main`. It includes the accumulated Wreckna changes:
 
-No listener was detected on ports `5173` or `2567` while preparing this handoff. Full process command-line inspection was denied by the current shell permissions, so recheck ports and processes before launching.
+- Wreckna maximum HP changed to 15.
+- Tomb Block cancels the Attack effect and creates a random adjacent Tomb; its former healing was removed.
+- Sacrifice now makes the enemy lose 1 HP and lets Wreckna create a Tomb within attacking range.
+- Dakkoth Attack Range bonuses last through the enemy turn and expire at the start of Wreckna's next turn.
+- Graveyard has Value 4 while adjacent to or inside a Tomb and may be used from inside a Tomb.
+- Curse Level 2 adds Exhaust to the target's Discard.
+- Necronomicon Level 2 teleports Wreckna into the newly infused Tomb; Level 3 restores 1 HP and draws 1 Card. Its former next-Attack bonus and enemy-discard mechanics/UI were removed.
+- Focused checks were added or updated for Sacrifice, Dakkoth, Graveyard, Curse, and Necronomicon.
+
+The preceding pushed commit is `1ff0f36` (`Add combat portraits and refine character selection`), containing the combat character-image system, character/card-specific image mappings, character-selection portrait/layout work, English card changes, and related UI refinements from the prior session.
+
+## Runtime state and launch guidance
+
+No listener output was returned for ports `5173` or `2567` while preparing this handoff, so assume development mode is stopped and recheck before launching. Full process inspection may require elevated shell permissions.
 
 Development mode:
 
 1. Check ports `5173` and `2567` to avoid duplicate servers.
-2. Run `npm run dev` from the repository root.
+2. Run `npm run dev` from the repository root in a hidden/background process.
 3. Vite client: `http://localhost:5173/`
 4. Multiplayer server: `http://localhost:2567/`
+5. Verify both endpoints with non-browser HTTP requests.
 
-Public multiplayer must follow the workflow in `AGENTS.md`: build, run the production server on port `2567`, expose that same origin with one Cloudflare Quick Tunnel, and verify local and public HTTP reachability without a browser. Quick-tunnel URLs are temporary.
+Public multiplayer must follow the workflow in `AGENTS.md`: build, run the production server on port `2567`, expose that same origin with one Cloudflare Quick Tunnel, and verify local and public HTTP reachability without a browser.
 
-## Code map and validation guidance
+## Code map and verification guidance
 
 - `shared/game.ts`: authoritative cards, state, commands, targeting, combat, traits, quests, and combat statistics.
-- `shared/arenas.ts`: boards and arena definitions.
+- `shared/arenas.ts`: board and arena definitions.
 - `server/index.ts`: Colyseus rooms, seats, lobby state, and broadcasts.
-- `src/main.ts`: primary UI, online client, Three.js board/characters, archive, lobby previews, and post-match UI.
+- `src/main.ts`: primary UI, online client, Three.js board/characters, combat portraits, character selection, archive, lobby previews, and post-match UI.
 - `src/style.css`: layout and visual styling.
-- `src/combat-summary-csv.ts`: uncommitted post-match CSV serializer.
-- `scripts/check-combat-summary-export.ts`: focused CSV regression check.
-- Other `scripts/check-*.ts` files: focused gameplay regressions.
+- `scripts/check-*.ts`: focused gameplay regressions. Prefer a focused check plus typecheck/build for changed mechanics.
 
-Large rules and UI files contain layered historical logic. Search related selectors, state, and command handlers before making changes. Keep Hotseat and multiplayer behavior aligned unless explicitly directed otherwise.
+Large rules and UI files contain layered historical logic. Search related selectors, state, command handlers, and existing tests before editing. Keep Hotseat and multiplayer behavior aligned unless explicitly directed otherwise.
 
-The last documented full `npm run check:rules` run stopped at the pre-existing assertion `Each tied Tank Junior leader receives Helmet.` in `scripts/check-rules.ts`. Do not claim the complete rules suite passes unless it is rerun successfully, and do not broaden unrelated work into fixing that assertion without a request.
+The last documented full `npm run check:rules` run stopped at a pre-existing Arcane Bolt assertion around `scripts/check-rules.ts:543`. Do not claim the complete rules suite passes unless it is rerun successfully, and do not broaden unrelated work into fixing that assertion without a request.
+
+There are historical safety stashes from earlier pulls. Do not apply or drop any stash without inspecting it and confirming it is needed.
 
 ## Prompt for the new conversation
 
-Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` and `AGENTS.md` completely first. Inspect Git status and preserve the uncommitted CSV combat-summary migration described in the handoff. Do not apply or drop the historical safety stashes unless they are inspected and demonstrably needed. Do not commit or push unless I explicitly request it. Use non-browser verification as required by `AGENTS.md`. Wait for my next development request.
+Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` and `AGENTS.md` completely first. Inspect Git status and preserve the uncommitted Tomb Block Phylactery-protection work described in the handoff. Do not apply or drop historical stashes unless they are inspected and demonstrably needed. Do not commit or push unless I explicitly request it. Keep Russian localization paused and create English content only. Use non-browser verification as required by `AGENTS.md`. Wait for my next development request.
