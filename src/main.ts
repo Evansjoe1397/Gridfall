@@ -1,4 +1,6 @@
 import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
+import { isLoganSpell, LoganAttackVisual, type LoganSpell } from './loganAttackVisuals.ts';
+import { ManaShieldVisual } from './manaShieldVisuals.ts';
 import { clearFlurries, FLURRY_DURATION_MS, spawnFlurry, updateFlurries } from './flurryVisuals.ts';
 import './style.css';
 import { characterStatusCards } from './character-status-cards.ts';
@@ -574,7 +576,10 @@ function isWaitingForSelectedCardTarget() {
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
 let combatRevealWasVisible = false;
+let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
+let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
 let blockedCombatTargetId: PlayerId | null = null;
+let forfeitedCombatTargetId: PlayerId | null = null;
 let flurryCombatPosition: THREE.Vector3 | null = null;
 let activeCombatSummary = false;
 let combatSummaryHidden = false;
@@ -597,15 +602,16 @@ let orkkCombatImpactPending = false;
 const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
 let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
 let johnCombatImpactPending = false;
+let loganCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: LoganSpell; consume: boolean; target: THREE.Vector3 } | null = null;
+let loganCombatImpactPending = false;
+const loganAttackVisuals: LoganAttackVisual[] = [];
 let genericCombatImpactAt = 0;
 let pendingFlurryAttack: { startsAt: number; start: () => void } | null = null;
 type BlinkCombatPresentation = { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean };
 let blinkCombatPresentation: BlinkCombatPresentation | null = null;
-let deferredBlinkCombatAttack: (() => void) | null = null;
-let deferredBlinkDefenderId: PlayerId | null = null;
 let missedCombatCallout: { defenderId: PlayerId; from: Cell } | null = null;
 function combatAnimationImpactPending() {
-  return Boolean(pendingFlurryAttack) || merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending || performance.now() < genericCombatImpactAt;
+  return Boolean(pendingFlurryAttack) || merylinCombatImpactPending || obiWanCombatImpactPending || orkkCombatImpactPending || johnCombatImpactPending || loganCombatImpactPending || performance.now() < genericCombatImpactAt;
 }
 function combatImpactUiDeferred() {
   return Boolean(gameState.combatReveal) || combatAnimationImpactPending();
@@ -618,6 +624,12 @@ function pendingSpiritVisualAttack(playerId: PlayerId) {
   return pending?.attackerId === playerId && pending.attackerWasInSpiritForm ? pending : undefined;
 }
 function resetCombatSummary() {
+  loganCombatAttacker = null;
+  loganCombatImpactPending = false;
+  for (const visual of loganAttackVisuals.splice(0)) visual.dispose();
+  pendingManaShield = null;
+  manaShieldVisual?.effect.dispose();
+  manaShieldVisual = null;
   activeCombatSummary = false;
   combatSummaryHidden = false;
   lastCombatSummaryHtml = '';
@@ -642,17 +654,17 @@ function resetCombatSummary() {
   genericCombatImpactAt = 0;
   pendingFlurryAttack = null;
   blinkCombatPresentation = null;
-  deferredBlinkCombatAttack = null;
-  deferredBlinkDefenderId = null;
   missedCombatCallout = null;
   combatDamageEventIds.clear();
   pendingCombatDamageVisuals.length = 0;
   blockedCombatTargetId = null;
+  forfeitedCombatTargetId = null;
   flurryCombatPosition = null;
   clearFlurries();
   johnCastWaits.clear();
-  repentFireAnimations.forEach((fire) => fire.dispose());
+  repentFireAnimations.forEach(({ fire }) => fire.dispose());
   repentFireAnimations.length = 0;
+  completedAttackEffectAnimations.clear();
   for (const beam of johnBlessedBeams) beam.effect.dispose();
   johnBlessedBeams.length = 0;
   pendingMindBlastCastEvents.clear();
@@ -1337,7 +1349,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-mind-tricks-enemy-discard') prompt.textContent = `Mind Tricks: discard ${gameState.mindTricks!.enemyDiscardsRemaining} card${gameState.mindTricks!.enemyDiscardsRemaining === 1 ? '' : 's'}`;
   if (gameState.phase === 'choosing-preparation-teleport') prompt.textContent = 'Preparation: select a visible Object to swap places with · Escape to cancel';
   if (gameState.phase === 'choosing-blink-teleport') prompt.textContent = 'Blink: choose a visible empty Square before combat';
-  if (gameState.phase === 'choosing-blink-discard') prompt.textContent = 'Blink: choose one eligible Card from your Hand to discard';
+  if (gameState.phase === 'choosing-blink-discard') prompt.textContent = 'Blink: discard another Card from Hand as an extra cost';
   if (gameState.phase === 'choosing-base-placement') prompt.textContent = `${gameState.players[gameState.activePlayerId].name}: choose a Square on a bright red unclaimed base`;
   if (gameState.phase === 'choosing-preparation-discard') prompt.textContent = 'Preparation: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
@@ -1888,7 +1900,7 @@ function renderHand() {
     const playableAction = instance.cardId === 'blessing-prayer' ? viewer.movementRemaining > 0 : rewardAction ? viewer.actionsRemaining > 0 : card.kind === 'attack' ? !soulStrikeAttackUnavailable && (viewer.actionsRemaining > 0 || (viewer.spellsingerExtraAttacks ?? 0) > 0) && !panicked && !entombedWreckna && (viewer.character !== 'merylin' || (Boolean(viewer.merylinSummonActive) && !viewer.traitBlocked)) : card.kind === 'perk' ? viewer.actionsRemaining > 0 && (!viewer.perkUsed || (viewer.spellsingerExtraPerkUses ?? 0) > 0) && !panicked && instance.cardId !== 'vicious-mockery' && instance.cardId !== 'vicious-mockery-1' : card.kind === 'free-action' ? true : card.kind === 'status' ? viewer.actionsRemaining > 0 && card.canRemoveAsAction === true : false;
     const mindTricksReveal = gameState.phase === 'choosing-mind-tricks-discard';
     const unavailableMindTricksReveal = mindTricksReveal && (Boolean(instance.revealedToOpponent) || Boolean(gameState.mindTricks?.revealedInstanceIds.includes(instance.instanceId)));
-    const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || ((gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard') && instance.cardId === 'judgement') || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && instance.cardId === 'pinned') || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
+    const cannotOverstackDiscard = !mindTricksReveal && choosingDiscard && (card.cannotBeDiscarded || ((gameState.phase === 'choosing-guard-discard' || gameState.phase === 'choosing-dash-discard') && instance.cardId === 'judgement') || (gameState.phase === 'choosing-dash-discard' && card.name.startsWith('Blessing:')) || (gameState.phase === 'choosing-blink-discard' && (instance.cardId === 'pinned' || instance.instanceId === (gameState.pendingAttack as typeof gameState.pendingAttack & { blinkDefenseCommand?: { cardInstanceId: string } })?.blinkDefenseCommand?.cardInstanceId)) || (gameState.phase === 'choosing-end-discard' && card.kind === 'status' && card.canDiscardForHandLimit !== true));
     const spiritBlocked = !choosingDiscard && viewer.character === 'john-christ' && viewer.spiritForm && /bless/i.test(card.name);
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const removeOnUseOrDiscard = instance.cardId === 'feint' || instance.cardId === 'weak-feint' || instance.cardId === 'judgement';
@@ -2017,7 +2029,7 @@ function renderFlurryModal() {
   const canChoose = gameState.phase === 'flurry-offer' && flurry && viewerId === flurry.defenderId && canLocalAct(viewerId);
   modal.classList.toggle('hidden', !canChoose);
   if (!canChoose || !flurry) { modal.innerHTML = ''; return; }
-  modal.innerHTML = `<div class="choice-dialog"><span>DEFENCE FOLLOW-UP</span><h2>Flurry</h2><p>Lose 1 HP to force ${escapeHtml(gameState.players[flurry.attackerId].name)} to discard 2 Cards.</p><div class="choice-cards"><button id="flurryPayHp"><strong>Lose 1 HP</strong><small>Force the Attacker to discard 2 Cards</small></button></div><button class="choice-decline" id="flurryDecline">Do not activate</button></div>`;
+  modal.innerHTML = `<div class="choice-dialog"><span>BEFORE COMBAT</span><h2>Flurry</h2><p>Lose 1 HP to force ${escapeHtml(gameState.players[flurry.attackerId].name)} to discard 1 Card before combat.</p><div class="choice-cards"><button id="flurryPayHp"><strong>Lose 1 HP</strong><small>Force the Attacker to discard 1 Card</small></button></div><button class="choice-decline" id="flurryDecline">Do not activate</button></div>`;
   document.querySelector('#flurryPayHp')?.addEventListener('click', () => dispatch({ type: 'flurry-pay', playerId: viewerId, cardInstanceId: '' }));
   document.querySelector('#flurryDecline')!.addEventListener('click', () => dispatch({ type: 'flurry-decline', playerId: viewerId }));
 }
@@ -2279,6 +2291,14 @@ function renderCombatReveal() {
     modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
     let flurryAttackNotBefore = 0;
     if (combatRevealWasVisible) {
+      if (pendingManaShield) {
+        manaShieldVisual?.effect.dispose();
+        const { defenderId, replicaId, position } = pendingManaShield;
+        const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
+        const height = target ? Math.max(2.2, visibleCharacterTop(target) - target.position.y + 0.2) : 2.8;
+        manaShieldVisual = { effect: new ManaShieldVisual(scene, target?.position ?? position, performance.now(), height), defenderId, replicaId };
+        pendingManaShield = null;
+      }
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
       if (flurryCombatPosition) {
         spawnFlurry(scene, flurryCombatPosition);
@@ -2289,27 +2309,29 @@ function renderCombatReveal() {
         spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
       }
       blockedCombatTargetId = null;
+      if (forfeitedCombatTargetId) spawnCharacterCalloutBubble(forfeitedCombatTargetId, 'Combat forfeited');
+      forfeitedCombatTargetId = null;
       if (blinkCombatPresentation?.missed) missedCombatCallout = { defenderId: blinkCombatPresentation.defenderId, from: blinkCombatPresentation.from };
       const swing = merylinCombatAttacker;
       const obiWanAttack = obiWanCombatAttacker;
       const orkkAttack = orkkCombatAttacker;
       const johnAttack = johnCombatAttacker;
-      if (swing || obiWanAttack || orkkAttack || johnAttack) {
+      if (swing || obiWanAttack || orkkAttack || johnAttack || loganCombatAttacker) {
         // Character attack animations begin after the reveal closes. Keep
         // damage/destruction presentation queued until the authored hit frame.
         if (swing) merylinCombatImpactPending = true;
         if (obiWanAttack) obiWanCombatImpactPending = true;
         if (orkkAttack) orkkCombatImpactPending = true;
         if (johnAttack) johnCombatImpactPending = true;
+        if (loganCombatAttacker) loganCombatImpactPending = true;
         postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
       }
       // Hold damage until the authored impact callback, or for characters
       // without one, until their short attack presentation has played.
-      genericCombatImpactAt = activeCombatVisualAttackId && (!blinkCombatPresentation || blinkCombatPresentation.missed) ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
-      if (blinkCombatPresentation && !blinkCombatPresentation.missed) postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
+      genericCombatImpactAt = activeCombatVisualAttackId ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
       if (genericCombatImpactAt) {
         for (const event of gameState.objectPushAnimations) {
-          if (event.damage && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
+          if (event.damage && !event.afterBarrierAnimationId && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
         }
       }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
@@ -2323,12 +2345,24 @@ function renderCombatReveal() {
       lastCombatSummaryOpen = false;
       renderCombatReveal();
     });
-    if (deferredBlinkCombatAttack || pendingFlurryAttack) return;
+    if (pendingFlurryAttack) return;
     const blink = blinkCombatPresentation;
-    const targetFor = (defenderId: PlayerId) => blink ? worldPosition(blink.missed ? blink.from : blink.to) : dummyGroups.get(defenderId)?.position ?? worldPosition(gameState.players[defenderId].position);
+    const targetFor = (defenderId: PlayerId) => blink ? worldPosition(blink.from) : dummyGroups.get(defenderId)?.position ?? worldPosition(gameState.players[defenderId].position);
     const startAttackPresentation = () => {
-    if (blink && !blink.missed && completedCombatVisualAttackId) genericCombatImpactAt = performance.now() + 420;
-    if (blink && !blink.missed && !merylinCombatAttacker && !obiWanCombatAttacker && !orkkCombatAttacker && !johnCombatAttacker) postCombatVisualNotBefore = genericCombatImpactAt;
+    const loganAttack = loganCombatAttacker;
+    if (loganAttack) {
+      loganCombatAttacker = null;
+      playLoganSpell(loganAttack.attackerId, loganAttack.cardId,
+        blink ? worldPosition(blink.from) : loganAttack.target, loganAttack.consume, () => {
+          showMissedCombatCallout();
+          loganCombatImpactPending = false;
+          genericCombatImpactAt = 0;
+          postCombatVisualNotBefore = performance.now();
+          syncBoard();
+          releaseCombatDamageVisuals();
+          refreshCombatImpactUi();
+        });
+    }
     const swing = merylinCombatAttacker;
     if (swing && gameState.phase !== 'choosing-frostmourne') {
       merylinCombatAttacker = null;
@@ -2394,11 +2428,7 @@ function renderCombatReveal() {
         pendingFlurryAttack = { startsAt: flurryAttackNotBefore, start: startAttackPresentation };
       } else startAttackPresentation();
     };
-    if (blink && !blink.missed) {
-      deferredBlinkCombatAttack = startAfterFlurry;
-      deferredBlinkDefenderId = blink.defenderId;
-    }
-    else startAfterFlurry();
+    startAfterFlurry();
     blinkCombatPresentation = null;
     return;
   }
@@ -2434,12 +2464,18 @@ function renderCombatReveal() {
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
+  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield'
+    ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
+      position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
+    : null;
   flurryCombatPosition = pendingSwing && reveal.defendCardId === 'flurry-defensive-strikes'
     ? worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position)
     : null;
   blinkCombatPresentation = (reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport ?? null;
   const resolvedAttackDamage = (reveal.combatDamage ?? 0) + (reveal.afterCombatAttackDamage ?? 0);
-  blockedCombatTargetId = pendingSwing && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
+  const combatForfeited = Boolean((reveal as typeof reveal & { forfeitReason?: string }).forfeitReason);
+  forfeitedCombatTargetId = pendingSwing && combatForfeited ? pendingSwing.defenderId : null;
+  blockedCombatTargetId = pendingSwing && !combatForfeited && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
   // The attack presentation always plays when the character has one. Damage
   // only controls whether the defender receives the blocked callout.
   merylinCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'merylin'
@@ -2460,6 +2496,11 @@ function renderCombatReveal() {
       cardId: pendingSwing.cardId,
       attackerWasInSpiritForm: Boolean(pendingSwing.attackerWasInSpiritForm),
     }
+    : null;
+  loganCombatAttacker = pendingSwing && isLoganSpell(pendingSwing.cardId)
+    ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId,
+      cardId: pendingSwing.cardId, consume: Boolean(pendingSwing.attackerUsedManaConsume),
+      target: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
     : null;
   combatRevealWasVisible = true;
   const attackDefinition = cardDefinition({ instanceId: '', cardId: reveal.attackCardId });
@@ -2627,8 +2668,11 @@ function renderCombatReveal() {
   const combatWinner = reveal.combatWinnerId ? gameState.players[reveal.combatWinnerId] : null;
   const combatDamage = reveal.combatDamage ?? Math.max(0, reveal.attackTotal - reveal.defendTotal);
   const forfeitReason = (reveal as typeof reveal & { forfeitReason?: string }).forfeitReason;
+  const blinkMissed = Boolean((reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport?.missed);
   const resultSummary = forfeitReason
     ? `<div class="combat-result-summary"><strong>${escapeHtml(forfeitReason)}</strong><span>Both Cards are discarded.${reveal.defendCardId === 'yamato' ? " Only Yamato's Summon resolves." : ''}</span></div>`
+    : blinkMissed
+      ? '<div class="combat-result-summary"><strong>ATTACK MISSED</strong><span>Damage and negative effects on Logan were prevented. Other after-combat effects still resolve.</span></div>'
     : combatWinner
       ? `<div class="combat-result-summary"><strong>${escapeHtml(combatWinner.name)} WON THE COMBAT</strong><span>${combatDamage} COMBAT DAMAGE WILL BE DEALT</span></div>`
       : '';
@@ -3526,6 +3570,8 @@ const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const combatDamageEventIds = new Set<string>();
 const pendingCombatDamageVisuals: PendingDamageVisual[] = [];
 function releaseCombatDamageVisuals() {
+  // This callback also runs for fully blocked hits, where there are no damage visuals.
+  manaShieldVisual?.effect.impact(performance.now());
   for (const damage of pendingCombatDamageVisuals.splice(0)) {
     spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
   }
@@ -3536,6 +3582,7 @@ const processedObjectPushAnimations = new Set<string>();
 const completedObjectMovementAnimationIds = new Set<string>();
 const fireboltAnimations: { animationId: string; visual: FireboltVisual }[] = [];
 const processedSpellProjectiles = new Set<string>();
+const completedAttackEffectAnimations = new Set<string>();
 const pendingMindBlastCastEvents = new Set<string>();
 const spellProjectileAnimations: { animationId: string; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number; duration: number; delay: number; casterId: PlayerId; boomerang?: boolean; shadowDagger?: boolean; arcane?: boolean; lightning?: boolean }[] = [];
 type JohnCastWait = { callbacks: Array<() => void>; target: THREE.Vector3; targetId?: PlayerId; fallbackReleaseAt: number; projectile: boolean; beam: false | 'light' | 'might'; beamEndAt?: number; released: boolean; spirit: boolean };
@@ -3547,8 +3594,8 @@ const processedBlessingAnimations = new Set<string>();
 const blessingPresentationQueues = new Map<PlayerId, BlessingPresentation[]>();
 const moonwaveAnimations: { animationId: string; casterId: PlayerId; mesh: THREE.Mesh; points: THREE.Vector3[]; startedAt: number | null; fallbackAt: number; duration: number }[] = [];
 const moonwaveRouteProgress = new Map<string, number>();
-const repentFireAnimations: JohnRepentFire[] = [];
-const holyFireAnimations: { group: THREE.Group; flames: THREE.Mesh[]; ring?: THREE.Mesh; startedAt: number; duration: number; style: 'holy-fire' | 'cleanse-immolate' }[] = [];
+const repentFireAnimations: { animationId: string; fire: JohnRepentFire }[] = [];
+const holyFireAnimations: { animationId: string; group: THREE.Group; flames: THREE.Mesh[]; ring?: THREE.Mesh; startedAt: number; duration: number; style: 'holy-fire' | 'cleanse-immolate' }[] = [];
 const processedStoicShellHeals = new Set<string>();
 const stoicShellHealAnimations: { group: THREE.Group; beam: THREE.Mesh; ring: THREE.Mesh; crown: THREE.Mesh; light: THREE.PointLight; startedAt: number }[] = [];
 const processedManaConsumeEvents = new Set<string>();
@@ -3689,6 +3736,9 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
+  for (let i = loganAttackVisuals.length - 1; i >= 0; i--) {
+    if (!loganAttackVisuals[i].update(time)) loganAttackVisuals.splice(i, 1);
+  }
   if (pendingFlurryAttack && time >= pendingFlurryAttack.startsAt) {
     const startAttack = pendingFlurryAttack.start;
     pendingFlurryAttack = null;
@@ -3696,7 +3746,7 @@ renderer.setAnimationLoop((time) => {
   }
   if (genericCombatImpactAt && time >= genericCombatImpactAt) {
     genericCombatImpactAt = 0;
-    if (!merylinCombatImpactPending && !obiWanCombatImpactPending && !orkkCombatImpactPending && !johnCombatImpactPending) showMissedCombatCallout();
+    if (!merylinCombatImpactPending && !obiWanCombatImpactPending && !orkkCombatImpactPending && !johnCombatImpactPending && !loganCombatImpactPending) showMissedCombatCallout();
     syncBoard();
     if (!combatAnimationImpactPending()) {
       releaseCombatDamageVisuals();
@@ -3817,6 +3867,11 @@ renderer.setAnimationLoop((time) => {
   updateOrkkAttackImpacts(time);
   updateBlessingPresentationQueues(time);
   updateJohnCastProjectiles(time);
+  if (manaShieldVisual) {
+    const { effect, defenderId, replicaId } = manaShieldVisual;
+    const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
+    if (!effect.update(time, target?.position)) manaShieldVisual = null;
+  }
   updateDamageVisuals(time);
   updateArcaneBarriers(time);
   updateFlurries(time);
@@ -4091,7 +4146,7 @@ function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' |
 }
 
 const characterCalloutScreenPosition = new THREE.Vector3();
-function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | '+1 Range' | 'Missed', worldPosition?: THREE.Vector3) {
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | 'Combat forfeited' | '+1 Range' | 'Missed', worldPosition?: THREE.Vector3) {
   const element = document.createElement('div');
   element.className = `character-callout-bubble ${text.toLowerCase()}`;
   element.style.setProperty('--player-color', playerUiColor(playerId));
@@ -4278,7 +4333,7 @@ function spawnMindBlastImpact(event: { id: string; casterId: PlayerId; to: Cell 
   spellProjectileAnimations.push({ animationId: event.id, mesh, points: [position, position], startedAt: performance.now(), duration: 820, delay: 0, casterId: event.casterId });
 }
 
-function spawnJohnFireImpact(event: { style?: string; to: Cell; targetId?: string }) {
+function spawnJohnFireImpact(event: { id: string; style?: string; to: Cell; targetId?: string }) {
   const cleanseImmolate = event.style === 'cleanse-immolate';
   const group = new THREE.Group();
   group.name = cleanseImmolate ? 'CleanseImmolate' : 'RepentHolyFire';
@@ -4322,7 +4377,7 @@ function spawnJohnFireImpact(event: { style?: string; to: Cell; targetId?: strin
   group.add(ring);
   const light = new THREE.PointLight(cleanseImmolate ? 0xff5a18 : 0xffc33d, cleanseImmolate ? 4.2 : 5, cleanseImmolate ? 4 : 5);
   light.position.y = 1; group.add(light);
-  holyFireAnimations.push({ group, flames, ring, startedAt: performance.now(), duration: cleanseImmolate ? 1450 : 2000, style: cleanseImmolate ? 'cleanse-immolate' : 'holy-fire' });
+  holyFireAnimations.push({ animationId: event.id, group, flames, ring, startedAt: performance.now(), duration: cleanseImmolate ? 1450 : 2000, style: cleanseImmolate ? 'cleanse-immolate' : 'holy-fire' });
 }
 
 function startFireSpellVisual(event: SpellProjectile) {
@@ -4421,7 +4476,7 @@ function syncSpellProjectiles() {
         }
         const fire = new JohnRepentFire(performance.now(), worldPosition(event.to), tiles);
         scene.add(fire.group);
-        repentFireAnimations.push(fire);
+        repentFireAnimations.push({ animationId: event.id, fire });
       } else spawnJohnFireImpact(event);
       continue;
     }
@@ -4467,6 +4522,7 @@ function syncSpellProjectiles() {
 }
 
 function updateSpellProjectiles(time: number) {
+  let completedAttackEffectThisFrame = false;
   for (let index = fireboltAnimations.length - 1; index >= 0; index--) {
     const { animationId, visual } = fireboltAnimations[index];
     const complete = visual.update(time);
@@ -4478,6 +4534,8 @@ function updateSpellProjectiles(time: number) {
     }
     if (complete) {
       visual.dispose();
+      completedAttackEffectAnimations.add(animationId);
+      completedAttackEffectThisFrame = true;
       fireboltAnimations.splice(index, 1);
     }
   }
@@ -4524,6 +4582,8 @@ function updateSpellProjectiles(time: number) {
         materials.forEach((childMaterial) => childMaterial.dispose());
       });
       spellProjectileAnimations.splice(index, 1);
+      completedAttackEffectAnimations.add(animation.animationId);
+      completedAttackEffectThisFrame = true;
     }
   }
   for (let index = moonwaveAnimations.length - 1; index >= 0; index--) {
@@ -4558,12 +4618,17 @@ function updateSpellProjectiles(time: number) {
     if (progress >= 1) {
       disposeMoonlightWave(animation.mesh);
       moonwaveAnimations.splice(index, 1);
+      completedAttackEffectAnimations.add(animation.animationId);
+      completedAttackEffectThisFrame = true;
     }
   }
   for (let index = repentFireAnimations.length - 1; index >= 0; index--) {
-    if (repentFireAnimations[index].update(time)) {
-      repentFireAnimations[index].dispose();
+    const { animationId, fire } = repentFireAnimations[index];
+    if (fire.update(time)) {
+      fire.dispose();
       repentFireAnimations.splice(index, 1);
+      completedAttackEffectAnimations.add(animationId);
+      completedAttackEffectThisFrame = true;
     }
   }
   for (let index = holyFireAnimations.length - 1; index >= 0; index--) {
@@ -4591,8 +4656,11 @@ function updateSpellProjectiles(time: number) {
         materials.forEach((material) => material.dispose());
       });
       holyFireAnimations.splice(index, 1);
+      completedAttackEffectAnimations.add(animation.animationId);
+      completedAttackEffectThisFrame = true;
     }
   }
+  if (completedAttackEffectThisFrame && gameState.objectPushAnimations.some((event) => event.arcaneBarrier)) syncBoard();
 }
 
 function updateCharacterMovement(time: number) {
@@ -4642,12 +4710,6 @@ function updateCharacterMovement(time: number) {
         portal.visual.dispose();
         portalTeleports.delete(playerId);
         movementAnimations.delete(playerId);
-        if (deferredBlinkCombatAttack && deferredBlinkDefenderId === playerId) {
-          const startAttack = deferredBlinkCombatAttack;
-          deferredBlinkCombatAttack = null;
-          deferredBlinkDefenderId = null;
-          startAttack();
-        }
       }
       return;
     }
@@ -5954,12 +6016,14 @@ function startJohnBlessingAnimation(state: JohnAnimationState, presentation: Ble
 function releaseBlessingPresentation(presentation: BlessingPresentation) {
   if (presentation.released) return;
   presentation.released = true;
+  completedAttackEffectAnimations.add(presentation.id);
   spawnEffectMessage(presentation.playerId, cardDefinition({ instanceId: presentation.cardInstanceId, cardId: presentation.cardId }).name, 'blessing');
   if (presentation.cardId === 'blessing-swiftness') spawnStatEffectVisual(presentation.playerId, 1, 'MOV');
   const group = dummyGroups.get(presentation.playerId);
   const player = gameState.players[presentation.playerId];
   if (group && player) updateStoicShellAura(group, displayedStoicShell(presentation.playerId, player.stoicShell));
   renderUI();
+  if (gameState.objectPushAnimations.some((event) => event.arcaneBarrier?.waitForAttackEffectIds?.includes(presentation.id))) syncBoard();
 }
 
 function updateBlessingPresentationQueues(time: number) {
@@ -6001,7 +6065,21 @@ function updateBlessingPresentationQueues(time: number) {
   }
 }
 
+function playLoganSpell(playerId: PlayerId, cardId: LoganSpell, target: THREE.Vector3, consume: boolean, impact: () => void) {
+  const group = dummyGroups.get(playerId);
+  const from = (group?.position ?? worldPosition(gameState.players[playerId].position)).clone().add(new THREE.Vector3(0, 1.35, 0));
+  const to = target.clone().add(new THREE.Vector3(0, 1.05, 0));
+  if (group) group.rotation.y = characterFacingRotation(group, to.x - from.x, to.z - from.z);
+  // Keep the charge clear of the body and hat, including at melee range.
+  from.addScaledVector(to.clone().sub(from).normalize(), 0.45);
+  loganAttackVisuals.push(new LoganAttackVisual(scene, from, to, cardId, consume, performance.now(), impact));
+}
+
 function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?: THREE.Vector3, attackerWasInSpiritForm?: boolean): number {
+  if (isLoganSpell(cardId) && target) {
+    playLoganSpell(playerId, cardId, target, gameState.players[playerId].manaMode === 'consume', impact);
+    return Number.POSITIVE_INFINITY;
+  }
   const group = dummyGroups.get(playerId);
   if (group?.userData.character === 'merylin') {
     playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
@@ -9276,8 +9354,17 @@ function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPi
   return pieces;
 }
 
+function arcaneBarrierWaiting(event: GameState['objectPushAnimations'][number]): boolean {
+  return Boolean(event.arcaneBarrier && (
+    gameState.combatReveal
+    || combatAnimationImpactPending()
+    || event.arcaneBarrier.waitForAttackEffectIds?.some((id) => !completedAttackEffectAnimations.has(id))
+  ));
+}
+
 function syncBoard() {
   syncBlessingPresentationEvents();
+  const waitingBarrier = gameState.objectPushAnimations.find((event) => event.arcaneBarrier && arcaneBarrierWaiting(event));
   const arenaId = visualArena().id;
   if (lightingArenaId !== arenaId) {
     lightingArenaId = arenaId;
@@ -9323,12 +9410,17 @@ function syncBoard() {
       && previousKey !== targetKey
       && recordedMovement?.sourceCardId === 'knee-blast'
       && combatImpactUiDeferred();
+    const deferMovementUntilBarrier = previousKey !== undefined
+      && previousKey !== targetKey
+      && waitingBarrier?.arcaneBarrier?.targetPlayerId === id
+      && !waitingBarrier.collided;
     const instantLightbringerSwap = previousKey !== undefined
       && previousKey !== targetKey
       && gameState.players[id].visualMovement?.kind === 'lightbringer-swap';
-    if (deferMovementUntilCombatImpact) {
+    if (deferMovementUntilCombatImpact || deferMovementUntilBarrier) {
       // Knee Blast changes the authoritative Square during combat resolution,
       // but its visible push must begin on Da Orkk's authored hit frame.
+      // Arcane Barrier likewise waits for the attack's after-combat visuals.
     } else if (instantLightbringerSwap) {
       group.position.copy(target);
       movementAnimations.delete(id);
@@ -9427,7 +9519,7 @@ function syncBoard() {
     } else if (!movementAnimations.has(id) && Math.abs(group.position.y - target.y) > 0.001) {
       movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: 280, verticalOnly: true });
     }
-    if (!deferMovementUntilCombatImpact) lastVisualCells.set(id, targetKey);
+    if (!deferMovementUntilCombatImpact && !deferMovementUntilBarrier) lastVisualCells.set(id, targetKey);
     group.userData.defeated = defeated;
     if (!defeated) group.rotation.z = 0;
     else if (!hasRiggedDeathPose && !pendingDeathAnimationIds.has(id) && !proceduralDeathAnimations.has(id)) group.rotation.z = Math.PI / 2;
@@ -9491,9 +9583,16 @@ function syncBoard() {
     if (object.kind === 'spectre-replica' && object.spectreOnBoxId) target.y += 1.4;
     const targetKey = cellLabel(object.position);
     const previousKey = lastObjectVisualCells.get(object.id);
+    const deferObjectUntilBarrier = previousKey !== undefined
+      && previousKey !== targetKey
+      && waitingBarrier?.arcaneBarrier?.targetObjectId === object.id
+      && !waitingBarrier.collided;
     if (!previousKey) {
       if (object.kind === 'orkk-shield') settleOrkkShieldAtRest(group, object.ownerId, target);
       else group.position.copy(target);
+    }
+    else if (deferObjectUntilBarrier) {
+      // Keep an attacking replica in the AoE until the attack visual finishes.
     }
     else if (previousKey !== targetKey) {
       const from = group.position.clone(); from.y = target.y;
@@ -9504,7 +9603,7 @@ function syncBoard() {
       if (object.kind === 'orkk-shield') settleOrkkShieldAtRest(group, object.ownerId, target);
       else group.position.y = target.y;
     }
-    lastObjectVisualCells.set(object.id, targetKey);
+    if (!deferObjectUntilBarrier) lastObjectVisualCells.set(object.id, targetKey);
     group.traverse((child) => { child.userData.objectId = object.id; });
   });
   gameState.objectPushAnimations.forEach((event) => {
@@ -9514,13 +9613,13 @@ function syncBoard() {
     const shieldBashRecall = event.id.includes('-shield-bash-') && Boolean(event.removeOnComplete && event.equipPlayerId);
     if (shieldBashRecall && gameState.combatReveal) return;
     if (event.arcaneBarrier) {
-      // Forced movement starts as the combat summary closes, before the attack's
-      // authored hit frame. Play the ward with that movement (including Repent).
-      if (gameState.combatReveal) return;
+      // Attack effects resolve first. Release the ward alongside the push.
+      if (arcaneBarrierWaiting(event)) return;
       processedObjectPushAnimations.add(event.id);
       spawnArcaneBarrier(scene, worldPosition(event.arcaneBarrier.defenderPosition), worldPosition(event.from), worldPosition(event.to), event.collided);
       return;
     }
+    if (waitingBarrier?.arcaneBarrier?.targetObjectId === event.objectId && event.id.includes('-arcane-barrier-')) return;
     if (event.callout) {
       processedObjectPushAnimations.add(event.id);
       spawnCharacterCalloutBubble(event.callout.playerId, event.callout.text);
@@ -9557,6 +9656,7 @@ function syncBoard() {
       return;
     }
     if (event.damage) {
+      if (event.afterBarrierAnimationId && !processedObjectPushAnimations.has(event.afterBarrierAnimationId)) return;
       // Combat damage is calculated before the reveal dialog opens. Keep its
       // counter queued so it appears over the victim only after confirmation.
       const belongsToDeferredShieldBashRecall = event.damage.triggerAnimationId === deferredOrkkCombatAttack?.recallAnimationId;
@@ -11040,10 +11140,11 @@ function renderCharacterBrowserCards() {
   byId('perkBrowserTrack').innerHTML = cards.map((card, index) => {
     const levels = 'levelEffects' in card && card.levelEffects ? card.levelEffects : [];
     const effectText = 'effectText' in card && card.effectText ? card.effectText : '';
+    const consumeText = 'consumeText' in card && card.consumeText ? card.consumeText : '';
     const levelCopy = levels.length ? levels.map((description, level) => `<p><b>LV ${level + 1}</b><span>${escapeHtml(description)}</span></p>`).join('') : '<p class="character-perk-empty">This Perk has a single direct effect.</p>';
     const typeCopy = card.kind === 'attack' ? 'ACTION · ATTACK CARD' : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : card.kind === 'status' ? (card.id.startsWith('blessing-') ? 'STATUS · BLESSING CARD' : 'STATUS CARD') : 'ACTION: PERK · ONCE PER TURN';
     const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : card.kind === 'status' ? 'CARD VALUE' : 'PERK VALUE';
-    const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${escapeHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description">${escapeHtml(effectText || 'No additional effect.')}</p>`;
+    const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${escapeHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description${consumeText ? ' has-consume' : ''}">${escapeHtml(effectText || 'No additional effect.')}</p>${consumeText ? `<p class="character-perk-extra character-consume-description">${escapeHtml(consumeText)}</p>` : ''}`;
     return `<article class="character-perk-card ${card.kind}" data-browser-perk="${index}"><span>${typeCopy}</span><h4>${escapeHtml(card.name)}</h4><small>${card.value} ${valueCopy}</small>${rules}</article>`;
   }).join('');
   byId('perkBrowserTrack').scrollLeft = 0;

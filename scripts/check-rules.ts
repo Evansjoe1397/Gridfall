@@ -3116,12 +3116,13 @@ const blinkAttack = applyCommand(blinkDeckSearch, { type: 'attack', playerId: 'P
 assert.equal(blinkAttack.ok, true);
 if (blinkAttack.ok) {
   const blinkDefense = applyCommand(blinkAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'blink-defense' });
-  assert.equal(blinkDefense.ok, true);
+  assert.equal(blinkDefense.ok, true, 'Blink resolves as a normal 0 Defend Card when no extra cost is available.');
   if (blinkDefense.ok) {
-    assert.equal(blinkDefense.state.players.P1.hp, 16, 'Blink without Mana uses its printed DEF instead of preventing combat damage.');
-    assert.deepEqual(blinkDefense.state.players.P1.deck.map((card) => card.cardId), ['headache'], 'Blink skips a Status Card on top while searching the Deck.');
-    assert.equal(blinkDefense.state.players.P1.discard.some((card) => card.cardId === 'arcane-bolt'), true, 'Blink discards the first non-Status Card found below the top Status Card.');
+    assert.equal(blinkDefense.state.combatReveal?.defendBase, 0);
+    assert.equal(blinkDefense.state.combatReveal?.combatDamage, 2);
+    assert.equal((blinkDefense.state.combatReveal as typeof blinkDefense.state.combatReveal & { blinkTeleport?: unknown }).blinkTeleport, undefined);
   }
+  assert.deepEqual(blinkAttack.state.players.P1.deck.map((card) => card.cardId), ['arcane-bolt', 'headache'], 'Blink never draws its extra cost from the Deck.');
 }
 
 const blinkHandChoice = createHotseatTestState(true);
@@ -3146,8 +3147,12 @@ if (blinkChoiceAttack.ok) {
     const chosenBlinkDiscard = applyCommand(blinkChoiceDefense.state, { type: 'blink-discard', playerId: 'P1', cardInstanceId: 'blink-choice-two' });
     assert.equal(chosenBlinkDiscard.ok, true);
     if (chosenBlinkDiscard.ok) {
+      assert.equal(chosenBlinkDiscard.state.phase, 'choosing-blink-teleport', 'The Hand discard is paid before combat.');
       assert.equal(chosenBlinkDiscard.state.players.P1.hand.some((card) => card.instanceId === 'blink-choice-one'), true);
       assert.equal(chosenBlinkDiscard.state.players.P1.discard.some((card) => card.instanceId === 'blink-choice-two'), true);
+      const chosenBlinkTeleport = applyCommand(chosenBlinkDiscard.state, { type: 'blink-teleport', playerId: 'P1', to: { x: 1, y: 1 } });
+      assert.equal(chosenBlinkTeleport.ok, true);
+      if (chosenBlinkTeleport.ok) assert.equal(chosenBlinkTeleport.state.combatReveal?.combatDamage, 0);
     }
   }
 }
@@ -4386,20 +4391,67 @@ if (flurryAttack.ok) {
   const flurryCombat = applyCommand(flurryAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: flurryDefence.instanceId });
   assert.equal(flurryCombat.ok, true);
   if (flurryCombat.ok) {
-    assert.equal(flurryCombat.state.players.P2.hp, 23);
-    assert.equal(flurryCombat.state.players.P1.hp, 18);
+    assert.equal(flurryCombat.state.players.P2.hp, 24);
+    assert.equal(flurryCombat.state.players.P1.hp, 20);
     assert.equal(flurryCombat.state.phase, 'flurry-offer');
+    assert.equal(flurryCombat.state.combatReveal, null, 'Flurry choice precedes the combat window.');
+    const declinedFlurry = applyCommand(structuredClone(flurryCombat.state), { type: 'flurry-decline', playerId: 'P1' });
+    assert.equal(declinedFlurry.ok, true);
+    if (declinedFlurry.ok) {
+      assert.equal(declinedFlurry.state.players.P2.hp, 23);
+      assert.equal(declinedFlurry.state.players.P1.hp, 18);
+      assert.ok(declinedFlurry.state.combatReveal, 'Declining Flurry resumes combat and opens its summary.');
+    }
     const paidFlurry = applyCommand(flurryCombat.state, { type: 'flurry-pay', playerId: 'P1', cardInstanceId: '' });
     assert.equal(paidFlurry.ok, true);
     if (paidFlurry.ok) {
-      assert.equal(paidFlurry.state.phase, 'choosing-flurry-enemy-discard');
       assert.equal(paidFlurry.state.players.P1.hp, 17);
-      const firstEnemyDiscard = applyCommand(paidFlurry.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-1' });
-      assert.equal(firstEnemyDiscard.ok, true);
-      if (firstEnemyDiscard.ok) {
-        assert.equal(firstEnemyDiscard.state.players.P2.hand.length, 2);
-        assert.equal(firstEnemyDiscard.state.phase, 'active', 'Flurry now forces exactly one enemy Card discard.');
+      assert.ok(paidFlurry.state.combatReveal, 'Paying Flurry opens the combat window before the forced discard.');
+      assert.equal(paidFlurry.state.players.P2.hand.length, 3, 'The Attacker keeps their Hand while the combat window is open.');
+      const firstAck = applyCommand(paidFlurry.state, { type: 'ack-combat', playerId: 'P1' });
+      assert.equal(firstAck.ok, true);
+      if (firstAck.ok) {
+        assert.ok(firstAck.state.combatReveal, 'The window remains open until both combatants acknowledge it.');
+        const secondAck = applyCommand(firstAck.state, { type: 'ack-combat', playerId: 'P2' });
+        assert.equal(secondAck.ok, true);
+        if (secondAck.ok) {
+          assert.equal(secondAck.state.combatReveal, null);
+          assert.equal(secondAck.state.phase, 'choosing-flurry-enemy-discard', 'The forced discard begins after the combat window closes.');
+          const firstEnemyDiscard = applyCommand(secondAck.state, { type: 'flurry-enemy-discard', playerId: 'P2', cardInstanceId: 'enemy-choice-1' });
+          assert.equal(firstEnemyDiscard.ok, true);
+          if (firstEnemyDiscard.ok) {
+            assert.equal(firstEnemyDiscard.state.players.P2.hand.length, 2);
+            assert.equal(firstEnemyDiscard.state.players.P2.hp, 23);
+            assert.equal(firstEnemyDiscard.state.players.P1.hp, 17);
+            assert.equal(firstEnemyDiscard.state.phase, 'active');
+            assert.equal(firstEnemyDiscard.state.flurry, null);
+            assert.equal(firstEnemyDiscard.state.pendingAttack, null);
+          }
+        }
       }
+    }
+  }
+}
+
+for (const cancelledBy of ['feint', 'blessed-might'] as const) {
+  const cancelledFlurryState = createInitialState();
+  cancelledFlurryState.activePlayerId = 'P2';
+  cancelledFlurryState.players.P1.position = { x: 2, y: 1 };
+  cancelledFlurryState.players.P2.position = { x: 3, y: 1 };
+  cancelledFlurryState.players.P2.hand = [
+    { instanceId: `cancel-flurry-${cancelledBy}`, cardId: cancelledBy },
+    { instanceId: `remaining-flurry-${cancelledBy}`, cardId: 'attack-2' },
+  ];
+  const cancelledFlurryCard = ensureCardInHand(cancelledFlurryState, 'P1', 'flurry-defensive-strikes');
+  const attack = applyCommand(cancelledFlurryState, { type: 'attack', playerId: 'P2', cardInstanceId: `cancel-flurry-${cancelledBy}`, targetId: 'P1' });
+  assert.equal(attack.ok, true);
+  if (attack.ok) {
+    const defense = applyCommand(attack.state, { type: 'defend', playerId: 'P1', cardInstanceId: cancelledFlurryCard.instanceId });
+    assert.equal(defense.ok, true);
+    if (defense.ok) {
+      assert.notEqual(defense.state.phase, 'flurry-offer', `${cancelledBy} suppresses Flurry's optional choice.`);
+      assert.equal(defense.state.flurry, null);
+      assert.equal(defense.state.players.P2.hp, 23, 'Flurry still deals its earlier pre-combat damage.');
     }
   }
 }

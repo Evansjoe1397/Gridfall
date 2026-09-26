@@ -24,6 +24,7 @@ function setup(attack: CardTypeId, defense: CardTypeId, stack = true, count: 2 |
   state.players.P1.merylinSummonActive = true;
   state.players.P1.hand = [{ instanceId: 'attack', cardId: attack }];
   state.players.P2.hand = [{ instanceId: 'defense', cardId: defense }];
+  if (defense === 'blink') state.players.P2.manaPoints = 1;
   return state;
 }
 function attack(state: GameState) { return step(state, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' }); }
@@ -117,6 +118,7 @@ for (const count of [2, 3] as const) for (const attackCard of CARDS.filter((card
   try {
     let state = defend(attack(setup(attackCard.id, defenseCard.id, true, count)));
     if ((state.phase as string) === 'choosing-yamato-move') state = step(state, { type: 'yamato-move', playerId: 'P2', to: null });
+    if ((state.phase as string) === 'choosing-blink-teleport') state = step(state, { type: 'blink-teleport', playerId: 'P2', to: { x: 3, y: 3 } });
     if ((state.phase as string) === 'choosing-lightbringer-swap') state = step(state, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true });
     assert.ok(state.combatReveal || state.phase === 'finished', `Combat did not reach reveal: ${state.phase}`);
     assert.ok(Number.isFinite(state.combatReveal?.attackTotal ?? 0));

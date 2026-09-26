@@ -212,7 +212,7 @@ export const CARDS: readonly Card[] = [
   { id: 'mana-shield', name: 'Mana Shield', kind: 'defend', value: 0, effectText: 'Generate 1 Mana Point before combat. Gain +1 Defend Value per stored Mana Point. After combat, remove 1 Mana Point per Damage blocked.' },
   { id: 'arcane-barrier', name: 'Arcane Barrier', kind: 'defend', value: 2, effectText: "Push the adjacent Attacker 1 Square away. Deal 1 Damage if they can't be pushed." },
   { id: 'counterspell', name: 'Counterspell', kind: 'defend', value: 3, effectText: "If Logan has any stored Mana Points, deal 1 Damage to the attacking Player. Place a Headache Card on top of the enemy's Deck." },
-  { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Remove all Mana Points. If at least 1 Mana Point was removed, choose a currently visible empty Square before combat. Teleport there after combat. If the Attack cannot reach the new Square, combat is forfeited. Otherwise, discard a Card from your Hand or Deck.' },
+  { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Before combat, remove all Mana Points. If you have none, discard another Card from your Hand instead. If neither cost can be paid, Blink has no effect. Otherwise, choose a currently visible empty Square, then teleport there after the combat window closes. The Attack misses: prevent all Damage and negative effects on Logan. Other after-combat effects still resolve.' },
   { id: 'light-the-saber', name: 'Light the Saber', kind: 'attack', value: 2, effectText: 'After combat: Add 1 -MOV stack and activate Lightsaber status.' },
   { id: 'dance-through', name: 'Dance Through', kind: 'attack', value: 2, effectText: 'After combat, move Shinobi 1 Square three times. Can move through enemies, Objects, and Wall Objects; apply 1 -MOV stack to each enemy passed through. Must finish on an unoccupied Square.' },
   { id: 'force-disarm', name: 'Force Disarm', kind: 'attack', value: 1, effectText: 'Force the enemy to discard 1 Attack Card. If they have no Attack Cards, reveal their Hand and add an Exhaust Card to it.' },
@@ -352,7 +352,7 @@ export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'disca
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; defenderWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; arcaneBarrier?: { defenderPosition: Cell }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
@@ -360,7 +360,7 @@ export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-pe
 export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number; dakkothRangeBonus?: number; spellsingerExtraPerkUses?: number };
-export type GameState = { boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
+export type GameState = { boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
 export type CommandResult = { ok: true; state: GameState } | { ok: false; state: GameState; error: string };
 export type OrkkActionEvent =
   | { playerId: PlayerId; action: 'perk-used'; cardId: 'encourage' | 'consume-rage' }
@@ -2437,8 +2437,12 @@ function damageRedirectObject(state: GameState, object: BoardObject, attackerId:
   destroyObject(state, object.id, attackerId, `Redirected ${stage}`);
   state.log.unshift(`Redirect sent 1 ${stage} into ${object.name} at ${cellLabel(object.position)}${object.kind === 'wall-pillar' ? '; the indestructible Column remained' : ' and destroyed it'}.`);
 }
-function devourProtectsFromNegativeEffects(state: GameState, target: PlayerState): boolean {
-  return state.pendingAttack?.devourProtectionPlayerId === target.id;
+function combatDefenderProtectedFromNegativeEffects(state: GameState, target: PlayerState): boolean {
+  const pending = state.pendingAttack as BlinkPendingAttack | null;
+  return pending?.devourProtectionPlayerId === target.id || (pending?.blinkMissed === true && pending.defenderId === target.id);
+}
+function combatProtectionName(state: GameState): 'Blink' | 'Devour' {
+  return (state.pendingAttack as BlinkPendingAttack | null)?.blinkMissed ? 'Blink' : 'Devour';
 }
 function redirectCombatStatusEffect(state: GameState, target: PlayerState, statusName: string, sourceId: PlayerId): boolean {
   const pending = state.pendingAttack;
@@ -2458,8 +2462,8 @@ export function addForcedStatusCard(state: GameState, target: PlayerState, cardI
     state.log.unshift(`${target.name}'s Shadow Cloak prevented ${cardDefinition({ instanceId: '', cardId }).name} from affecting them.`);
     return false;
   }
-  if (!bypassDevourProtection && devourProtectsFromNegativeEffects(state, target)) {
-    state.log.unshift(`Devour prevented ${cardDefinition({ instanceId: '', cardId }).name} from affecting ${target.name}.`);
+  if (!bypassDevourProtection && combatDefenderProtectedFromNegativeEffects(state, target)) {
+    state.log.unshift(`${combatProtectionName(state)} prevented ${cardDefinition({ instanceId: '', cardId }).name} from affecting ${target.name}.`);
     return false;
   }
   if (redirectCombatStatusEffect(state, target, cardDefinition({ instanceId: '', cardId }).name, sourceId)) return false;
@@ -2496,9 +2500,9 @@ function absorbBlessingShieldDamage(state: GameState, target: PlayerState, amoun
 function dealCombatCardEffectDamage(state: GameState, target: PlayerState, amount: number, sourceId: PlayerId, sourceKind: 'attack' | 'defense', collision = false): number {
   const pending = state.pendingAttack;
   let adjusted = amount;
-  if (adjusted > 0 && pending?.devourProtectionPlayerId === target.id) {
+  if (adjusted > 0 && combatDefenderProtectedFromNegativeEffects(state, target)) {
     recordCombatDamageBlocked(state, target, adjusted);
-    state.log.unshift(`Devour prevented ${adjusted} Damage from the enemy ${sourceKind === 'attack' ? 'Attack' : 'Defend'} Card effect.`);
+    state.log.unshift(`${combatProtectionName(state)} prevented ${adjusted} Damage from the enemy ${sourceKind === 'attack' ? 'Attack' : 'Defend'} Card effect.`);
     adjusted = 0;
   }
   if (adjusted > 0 && pending?.mythrilHelmetApplied && (target.id === pending.attackerId || target.id === pending.defenderId)) {
@@ -2696,9 +2700,9 @@ function resolveSoulStrikeAfterDefenseChosen(state: GameState, pending: PendingA
   pending.soulStrikeResolved = true;
   const attacker = state.players[pending.attackerId];
   const defender = state.players[pending.defenderId];
-  if (devourProtectsFromNegativeEffects(state, defender)) {
+  if (combatDefenderProtectedFromNegativeEffects(state, defender)) {
     pending.soulStrikeResult = { outcome: 'prevented' };
-    state.log.unshift(`Devour prevented Soul Strike's additional effect.`);
+    state.log.unshift(`${combatProtectionName(state)} prevented Soul Strike's additional effect.`);
     return;
   }
   const selectedDefenseId = command.type === 'defend' ? command.cardInstanceId : null;
@@ -4344,9 +4348,9 @@ export function resolveMultiplayerCombatStack(state: GameState, selections: Part
       else if (card.cardId === 'mythril-helmet') pending.mythrilHelmetApplied = true;
     }
   }
-  if (pending.blessingLightApplied && devourProtectsFromNegativeEffects(state, state.players[pending.defenderId])) {
+  if (pending.blessingLightApplied && combatDefenderProtectedFromNegativeEffects(state, state.players[pending.defenderId])) {
     pending.blessingLightApplied = false;
-    state.log.unshift(`Devour prevented Blessing: Light from reducing Spectre's Block Value.`);
+    state.log.unshift(`${combatProtectionName(state)} prevented Blessing: Light from reducing the defender's Block Value.`);
   }
   pending.blessingMightApplied ??= false;
   pending.blessingLightApplied ??= false;
@@ -4486,7 +4490,7 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
     const lockedDefenseId = command.type === 'defend' ? command.cardInstanceId : null;
     const available = defender.hand.filter((card) => card.instanceId !== lockedDefenseId && cardDefinition(card).kind === 'defend' && !cardDefinition(card).cannotBeDiscarded);
     pending.attackPreCombatResolved = true;
-    if (!devourProtectsFromNegativeEffects(state, defender) && available.length > 0) {
+    if (!combatDefenderProtectedFromNegativeEffects(state, defender) && available.length > 0) {
       state.forceDisarm = { targetId: defender.id, cardKind: 'defend', source: 'drain-strength' } as unknown as typeof state.forceDisarm;
       state.phase = 'choosing-force-disarm-discard';
       state.log.unshift('Drain Strength: discard another Defend Card from Hand; the played Defend Card is already committed.');
@@ -4495,7 +4499,7 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
     if (available.length === 0) {
       pending.attackValue -= 2;
       (pending.attackModifiers ??= []).push({ value: -2, source: 'Drain Strength pre-combat: no remaining Defend Card' });
-      if (!devourProtectsFromNegativeEffects(state, defender)) {
+      if (!combatDefenderProtectedFromNegativeEffects(state, defender)) {
         const previousRange = movementRangeForAdjustment(defender);
         defender.hexMovementPenalty = (defender.hexMovementPenalty ?? 0) + 2;
         defender.hexMovementStolenBy ??= {};
@@ -4552,8 +4556,8 @@ function applyHexBeforeCombat(state: GameState, command: Extract<GameCommand, { 
   const attacker = state.players[pending.attackerId];
   const target = state.players[pending.defenderId];
   if (attacker.character !== 'wreckna') return;
-  if (devourProtectsFromNegativeEffects(state, target)) {
-    state.log.unshift(`Devour prevented Hex's movement steal.`);
+  if (combatDefenderProtectedFromNegativeEffects(state, target)) {
+    state.log.unshift(`${combatProtectionName(state)} prevented Hex's movement steal.`);
     return;
   }
   stealWrecknaMovement(state, attacker, target, 1, 'Hex');
@@ -4670,18 +4674,14 @@ function yamatoAttackStillInRange(state: GameState, pending: PendingAttack, defe
 type BlinkPendingAttack = PendingAttack & {
   blinkDefenseCommand?: Extract<GameCommand, { type: 'defend' }>;
   blinkMoveResolved?: boolean;
+  blinkMissed?: boolean;
   blinkManaSpent?: number;
   blinkOrigin?: Cell;
   blinkDestination?: Cell;
 };
-type BlinkCombatReveal = CombatReveal & { blinkTeleport?: { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean }; forfeitReason?: string };
-
-function blinkAttackStillPossible(state: GameState, pending: PendingAttack, defenderPosition: Cell): boolean {
-  const attacker = state.players[pending.attackerId];
-  const origin = pending.attackerPosition ?? attacker.position;
-  return attackCardTargetInRange(state, { ...attacker, position: origin }, pending.cardId, defenderPosition)
-    && hasLineOfSight(state, origin, defenderPosition)
-    && canAttackTargetSquare(state, origin, defenderPosition);
+type BlinkCombatReveal = CombatReveal & { blinkTeleport?: { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean } };
+function blinkHandCostEligible(card: CardInstance, playedBlinkInstanceId: string): boolean {
+  return card.instanceId !== playedBlinkInstanceId && card.cardId !== 'pinned' && !cardDefinition(card).cannotBeDiscarded;
 }
 
 function resolveYamatoMove(state: GameState, playerId: PlayerId, to: Cell | null): CommandResult {
@@ -4760,9 +4760,9 @@ function resolveLightbringerSwapDecision(state: GameState, playerId: PlayerId, s
   if ((state.phase as string) !== 'choosing-lightbringer-swap' || !pending?.lightbringerDefenseCommand || pending.attackerId !== playerId) return fail(state, 'Lightbringer is not awaiting this Player\'s decision.');
   const attacker = state.players[pending.attackerId];
   const defender = state.players[pending.defenderId];
-  const swapPreventedByDevour = swap && devourProtectsFromNegativeEffects(state, defender);
-  if (swapPreventedByDevour) state.log.unshift(`Devour prevented Lightbringer from moving ${defender.name}.`);
-  if (swap && !swapPreventedByDevour) {
+  const swapPreventedByDefense = swap && combatDefenderProtectedFromNegativeEffects(state, defender);
+  if (swapPreventedByDefense) state.log.unshift(`${combatProtectionName(state)} prevented Lightbringer from moving ${defender.name}.`);
+  if (swap && !swapPreventedByDefense) {
     const attackerReplica = attackingSpectreReplica(state, pending);
     const defenderReplica = attackedSpectreReplica(state, pending);
     if (pending.attackerBody === 'replica' && !attackerReplica) return fail(state, 'The attacking replica no longer exists.');
@@ -4789,7 +4789,7 @@ function resolveLightbringerSwapDecision(state: GameState, playerId: PlayerId, s
       ...(newHighGround ? [{ value: newHighGround, source: 'Lightbringer · High Ground ×2' }] : []),
     ];
     state.log.unshift(`Lightbringer swapped ${attackerReplica ? `${attacker.name}'s attacking replica` : attacker.name} and ${defenderReplica ? `${defender.name}'s attacked replica` : defender.name} after the Defend Card was chosen.`);
-  } else if (!swapPreventedByDevour) state.log.unshift(`${attacker.name} declined Lightbringer's position swap.`);
+  } else if (!swapPreventedByDefense) state.log.unshift(`${attacker.name} declined Lightbringer's position swap.`);
   pending.lightbringerSwapResolved = true;
   const defenseCommand = pending.lightbringerDefenseCommand;
   delete pending.lightbringerDefenseCommand;
@@ -4820,6 +4820,23 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (forcedBlocks.length > 0 && !forcedBlocks.some((card) => card.instanceId === selectedDefense.instanceId)) return fail(state, 'Soul Strike requires a marked Block Card to be used first, or you may take the hit.');
     if (selectedDefense.cardId === 'devour' && !blessedMightCancelsDefenseCard(pending, selectedDefense.cardId) && spectreReplicas(state, defender.id).length > 0) pending.devourProtectionPlayerId = defender.id;
   }
+  if (command.type === 'defend') {
+    const selectedDefense = defender.hand.find((card) => card.instanceId === command.cardInstanceId)!;
+    const flurryPending = pending as PendingAttack & { flurryChoiceResolved?: boolean };
+    if (selectedDefense.cardId === 'flurry-defensive-strikes' && !flurryPending.flurryChoiceResolved) {
+      flurryPending.flurryChoiceResolved = true;
+      if (!blessedMightCancelsDefenseCard(pending, selectedDefense.cardId, 'after-combat')) {
+        const attacker = state.players[pending.attackerId];
+        if (attacker.hand.some((card) => !cardDefinition(card).cannotBeDiscarded)) {
+          state.flurry = { defenderId: defender.id, attackerId: attacker.id, resumePhase: 'defending', resumeDefenseCommand: command, remainingEnemyDiscards: 0 };
+          state.phase = 'flurry-offer';
+          state.log.unshift(`${defender.name} may lose 1 HP to force ${attacker.name} to discard 1 Card before combat.`);
+          return ok(state);
+        }
+        state.log.unshift(`Flurry's optional effect was unavailable because ${attacker.name} had no eligible Card to discard.`);
+      }
+    }
+  }
   const attackerCombatPosition = pending.attackerPosition ?? state.players[pending.attackerId].position;
   const defenderCombatPosition = pending.defenderPosition ?? defender.position;
   const defenderSpiritFormAtCombatStart = defender.spiritForm;
@@ -4842,13 +4859,21 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     }
     if (selectedDefense.cardId === 'blink' && !(pending as BlinkPendingAttack).blinkMoveResolved && !blessedMightCancelsDefenseCard(pending, selectedDefense.cardId)) {
       const blink = pending as BlinkPendingAttack;
-      blink.blinkMoveResolved = true;
-      if (defender.manaPoints > 0 && !defender.hand.some((card) => card.cardId === 'panic')) {
-        blink.blinkManaSpent = defender.manaPoints;
-        defender.manaPoints = 0;
+      if (defender.manaPoints === 0 && !defender.hand.some((card) => blinkHandCostEligible(card, selectedDefense.instanceId))) {
+        blink.blinkMoveResolved = true;
+        state.log.unshift(`Blink has no extra cost available, so ${defender.name} uses it as a 0 Value Defend Card without teleporting.`);
+      } else {
+        blink.blinkMoveResolved = true;
         blink.blinkDefenseCommand = command;
-        state.phase = 'choosing-blink-teleport';
-        state.log.unshift(`Blink was revealed. ${defender.name} must choose a visible empty Square before combat.`);
+        if (defender.manaPoints > 0) {
+          blink.blinkManaSpent = defender.manaPoints;
+          defender.manaPoints = 0;
+          state.phase = 'choosing-blink-teleport';
+          state.log.unshift(`Blink was revealed. ${defender.name} must choose a visible empty Square before combat.`);
+        } else {
+          state.phase = 'choosing-blink-discard';
+          state.log.unshift(`Blink was revealed without Mana. ${defender.name} must discard another Card from Hand before choosing a teleport destination.`);
+        }
         return ok(state);
       }
     }
@@ -4974,7 +4999,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   if (command.type === 'defend' && pending.blessingLightApplied === undefined) {
     const attacker = state.players[pending.attackerId];
     const blessing = attacker.hand.some((card) => card.cardId === 'blessing-light');
-    if (blessing && !attacker.brainFreezeCombatBlocked && !devourProtectsFromNegativeEffects(state, defender)) {
+    if (blessing && !attacker.brainFreezeCombatBlocked && !combatDefenderProtectedFromNegativeEffects(state, defender)) {
       const instance = defender.hand.find((card) => card.instanceId === command.cardInstanceId)!;
       const definition = cardDefinition(instance);
       const previewDefenseTotal = (definition.id === 'mana-baryer' && defender.shieldEquipped ? 5 : cardBaseValue(instance) + (definition.id === 'mana-shield' ? defender.manaPoints : 0) + (defender.character === 'shinobi' && defender.lightsaberBuff && !defender.traitBlocked ? 1 : 0) + (defender.character === 'orkk' && defender.shieldEquipped ? 1 : 0)) + graveyardDefenseBonus(pending, definition.id) + ownedDefenseBonus(defender, state, defenderCombatPosition) + spiritGuardianDefenseBonus(state, defender) - spiritGuardianEnemyPenalty(state, defender) + tacticianDefenseBonus(state, defender, definition.id, defenderCombatPosition, blessedMightCancelsDefenseCard(pending, definition.id)) + (definition.id === 'double-jump' ? pinnedCount(attacker) : 0) + mythrilHelmetDefenseBonus(defender) - Number(defender.hand.some((card) => card.cardId === 'exhaust')) - (defender.spectreShadowDefensePenalty ?? 0);
@@ -5107,8 +5132,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   const devourReplicas = defenseCardId === 'devour' && !defenseBeforeCombatEffectsCancelled ? spectreReplicas(state, defender.id) : [];
   const devourNegatesDamage = devourReplicas.length > 0;
   const attackEffectsCancelled = defenseCardId === 'block' || defenseCardId === 'da-blokk' || defenseCardId === 'spellblock' || defenseCardId === 'blessed-block' || defenseCardId === 'tomb-block' || defenseCardId === 'decisive-block';
-  const defenseNegatesDamage = calmnessNegatesDamage || devourNegatesDamage || Boolean(pending.mythrilHelmetApplied) || Boolean(pending.resurrectionNegatesDamage) || Boolean(pending.immortalityNegatesDamage) || Boolean(pending.blessingFaithApplied);
-  const attackCardDebuffsPrevented = calmnessNegatesDamage || devourNegatesDamage;
+  const blinkMissed = Boolean((pending as BlinkPendingAttack).blinkMissed);
+  const defenseNegatesDamage = calmnessNegatesDamage || devourNegatesDamage || blinkMissed || Boolean(pending.mythrilHelmetApplied) || Boolean(pending.resurrectionNegatesDamage) || Boolean(pending.immortalityNegatesDamage) || Boolean(pending.blessingFaithApplied);
+  const attackCardDebuffsPrevented = calmnessNegatesDamage || devourNegatesDamage || blinkMissed;
   const calculatedDamage = Math.max(0, pending.attackValue - defenseValue);
   let damage = defenseNegatesDamage ? 0 : calculatedDamage;
   damage = absorbBlessingShieldDamage(state, defender, damage, pending.attackerId, true);
@@ -5127,7 +5153,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   const defenderDamageEventStart = ((state as GameState & { damageLog?: DamageLogEntry[] }).damageLog ?? []).length;
   const combatDamageDealt = dealDamage(state, defender, damage, false, pending.attackerId, 'attack');
   pending.feedSpiritCombatDamage = combatDamageDealt;
-  if (pending.attackValue > defenseValue) {
+  if (pending.attackValue > defenseValue && !blinkMissed) {
     const potato = questPhases(state).currentQuest?.id === 'hot-potato' ? questPhases(state).hotPotato : null;
     if (potato?.carrierId === defender.id) {
       removeHotPotatoCard(defender);
@@ -5170,6 +5196,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     addForcedStatusCard(state, defender, 'headache', 'hand', defender.id, 'defense', true, true);
     state.log.unshift(`Devour prevented all Damage and negative effects from this combat and added Headache to the shared Hand${devourReplicas.length === 1 ? ', automatically destroying the only replica' : ''}.`);
   }
+  if (blinkMissed) state.log.unshift(`Blink made the Attack miss ${defender.name}: all Damage and negative effects on the defender were prevented, while other combat effects continued.`);
   if (defenseEffectsCancelled) state.log.unshift(`${cardDefinition({ instanceId: '', cardId: pending.cardId }).name} cancelled ${cardDefinition({ instanceId: '', cardId: defenseCardId! }).name}'s remaining Defend Card effects${pending.cardId === 'blessed-might' ? '; its pre-combat effects already resolved' : '; its printed Defend Value still applied'}.`);
   if (defenseCardId === 'tomb-block' && !defenseEffectsCancelled) applyTombBlockAfterCombat(state, defender);
   if (defenseCardId === 'spellblock') {
@@ -5239,6 +5266,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       }
     } else state.log.unshift('The defending card prevented Hello There from applying Headache during this combat.');
   }
+  const afterCombatAttackBlessingStart = state.blessingAnimations.length;
   if (!attackEffectsCancelled && pending.cardId === 'blessed-light') {
     if (!blessingShieldBlocksCombatStatus(state, defender, 'exhaust')) {
       if (addForcedStatusCard(state, defender, 'exhaust', 'deck', pending.attackerId, 'attack', false) && defender.deck.length > 1) defender.deck = shuffle(defender.deck);
@@ -5252,6 +5280,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     addBlessingCardToJohn(state, john, 'blessing-might', 'attack', !pending.attackerWasInSpiritForm);
     state.log.unshift(`Blessed Might created Blessing: Might for ${john.name} after combat.`);
   }
+  const afterCombatAttackEffectStart = state.spellProjectiles.length;
   if (!attackEffectsCancelled && !attackCardDebuffsPrevented && pending.cardId === 'cleanse' && defender.hp > 0) {
     if (!blessingShieldBlocksCombatStatus(state, defender, 'burning')) {
       const applied = addForcedStatusCard(state, defender, 'burning', 'hand', pending.attackerId, 'attack', true);
@@ -5350,7 +5379,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(`Repent! dealt ${selfDamage} Damage to ${john.name} and 2 Damage to ${damagedEnemies.filter(({ dealt }) => dealt > 0).map(({ enemy }) => enemy.name).join(', ') || 'no adjacent enemies'} after combat.`);
   }
   if (attackCardDebuffsPrevented && ['light-the-saber', 'cut-them-legs'].includes(pending.cardId)) {
-    state.log.unshift(`${devourNegatesDamage ? 'Devour' : 'Calmness'} prevented the attacking card from applying debuffs during this combat.`);
+    state.log.unshift(`${blinkMissed ? 'Blink' : devourNegatesDamage ? 'Devour' : 'Calmness'} prevented the attacking card from applying debuffs during this combat.`);
   }
   if (pending.returnToHandAfterCombat && (pending.cardId !== 'snowball-effect' || !attackEffectsCancelled)) {
     const attackerForReturn = state.players[pending.attackerId];
@@ -5568,13 +5597,16 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       const blocked = destination.x < 1 || destination.x > boardWidth(state) || destination.y < 0 || destination.y >= boardHeight(state)
         || Object.values(state.players).some((entry) => (Boolean(attackerReplica) || entry.id !== attacker.id) && entry.position.x === destination.x && entry.position.y === destination.y)
         || state.objects.some((entry) => entry.id !== attackerReplica?.id && entry.position.x === destination.x && entry.position.y === destination.y);
+      const barrierAnimationId = `${state.turn}-arcane-barrier-pulse-${++instanceSequence}`;
       state.objectPushAnimations.push({
-        id: `${state.turn}-arcane-barrier-pulse-${++instanceSequence}`, objectId: '',
+        id: barrierAnimationId, objectId: '',
         from: { ...attackerPosition }, to: blocked ? { ...attackerPosition } : { ...destination },
-        dx, dy, collided: blocked, arcaneBarrier: { defenderPosition: { ...defenderPosition } },
+        dx, dy, collided: blocked, arcaneBarrier: { defenderPosition: { ...defenderPosition }, targetPlayerId: attackerReplica ? undefined : attacker.id, targetObjectId: attackerReplica?.id, waitForAttackEffectIds: [...state.spellProjectiles.slice(afterCombatAttackEffectStart).map((effect) => effect.id), ...state.blessingAnimations.slice(afterCombatAttackBlessingStart).filter((effect) => effect.playerId === attacker.id && effect.source === 'attack').map((effect) => effect.id)] },
       });
       if (blocked) {
+        const damageEventStart = state.objectPushAnimations.length;
         dealCombatCardEffectDamage(state, attacker, 1, defender.id, 'defense');
+        for (const event of state.objectPushAnimations.slice(damageEventStart)) if (event.damage) event.afterBarrierAnimationId = barrierAnimationId;
         state.log.unshift(`Arcane Barrier could not push ${attacker.name} and dealt 1 Damage instead.`);
       } else if (attackerReplica) {
         const origin = { ...attackerReplica.position };
@@ -5619,31 +5651,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       }
     }
   }
-  let blinkNeedsDiscard = false;
-  if (defenseCardId === 'blink' && !defenseEffectsCancelled) {
-    const removedMana = (pending as BlinkPendingAttack).blinkManaSpent ?? defender.manaPoints;
-    defender.manaPoints = 0;
-    if (removedMana > 0 && (pending as BlinkPendingAttack).blinkDestination) {
-      state.log.unshift(`Blink removed ${removedMana} Mana and will teleport ${defender.name} after the combat window closes.`);
-    } else if (removedMana > 0) {
-      state.log.unshift(`Blink removed ${removedMana} Mana, but Panic prevented ${defender.name}'s teleport movement.`);
-    } else {
-      const handDiscard = defender.hand.find((card) => card.cardId !== 'pinned' && !cardDefinition(card).cannotBeDiscarded);
-      if (handDiscard) {
-        blinkNeedsDiscard = true;
-        state.log.unshift(`Blink found no Mana; ${defender.name} must choose a Card from Hand to discard.`);
-      } else {
-        let deckIndex = -1;
-        for (let index = defender.deck.length - 1; index >= 0; index--) {
-          if (cardDefinition(defender.deck[index]).kind !== 'status') { deckIndex = index; break; }
-        }
-        if (deckIndex >= 0) {
-          const [discarded] = defender.deck.splice(deckIndex, 1);
-          defender.discard.push(prepareCardForDiscard(discarded));
-          state.log.unshift(`Blink found no Mana or eligible Hand Card; ${cardDefinition(discarded).name} was moved from the top of ${defender.name}'s Deck to Discard.`);
-        } else state.log.unshift(`Blink found no Mana and no eligible Card in ${defender.name}'s Hand or Deck to discard.`);
-      }
-    }
+  if (defenseCardId === 'blink' && !defenseEffectsCancelled && (pending as BlinkPendingAttack).blinkDestination) {
+    const blink = pending as BlinkPendingAttack;
+    state.log.unshift(`${defender.name} paid Blink's extra cost by ${blink.blinkManaSpent ? `removing ${blink.blinkManaSpent} Mana` : 'discarding a Card from Hand'} and will teleport after the combat window closes.`);
   }
   if (pending.generatesMana) gainManaFromResolvedSpell(state, state.players[pending.attackerId]);
   const attacker = state.players[pending.attackerId];
@@ -5697,10 +5707,6 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       state.log.unshift('Devour: choose one replica to destroy after combat.');
     }
   }
-  if (blinkNeedsDiscard && state.phase !== 'finished') {
-    state.phase = 'choosing-blink-discard';
-    postCombatChoicePending = true;
-  }
   if (!attackEffectsCancelled && pending.cardId === 'mana-blast' && state.phase !== 'finished') {
     const discardable = defender.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
     if (discardable.length > 0) {
@@ -5745,7 +5751,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     const drawn = drawCards(attacker, 1);
     const discardable = defender.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
     if (attackCardDebuffsPrevented) {
-      state.log.unshift(`Shadow Barter: ${attacker.name} drew ${drawn} Card; Devour prevented ${defender.name}'s forced discard.`);
+      state.log.unshift(`Shadow Barter: ${attacker.name} drew ${drawn} Card; ${blinkMissed ? 'Blink' : devourNegatesDamage ? 'Devour' : 'Calmness'} prevented ${defender.name}'s forced discard.`);
     } else if (discardable.length > 0) {
       (state as ShadowBarterState).shadowBarter = { attackerId: attacker.id, defenderId: defender.id };
       state.phase = 'choosing-shadow-barter-discard';
@@ -5767,14 +5773,6 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift('Double Jump: Obi Wan Shinobi must move 1 square twice.');
   } else if (defenseCardId === 'double-jump' && !defenseEffectsCancelled && state.phase !== 'finished' && defenderPanicked) {
     state.log.unshift(`Double Jump movement was skipped because Panic prevents ${defender.name} from moving.`);
-  }
-  if (defenseCardId === 'flurry-defensive-strikes' && !defenseEffectsCancelled && state.phase !== 'finished') {
-    const attackerCanDiscard = attacker.hand.some((card) => !cardDefinition(card).cannotBeDiscarded);
-    if (attackerCanDiscard) {
-      state.flurry = { defenderId: defender.id, attackerId: pending.attackerId, resumePhase: state.phase, remainingEnemyDiscards: 0 };
-      state.phase = 'flurry-offer';
-      state.log.unshift(`${defender.name} may lose 1 HP to force ${attacker.name} to discard 1 Card.`);
-    } else state.log.unshift(`Flurry's optional effect was unavailable because ${attacker.name} had no eligible Card to discard.`);
   }
   if (defenseCardId === 'feed-the-spirit' && !defenseEffectsCancelled && state.phase !== 'finished') {
     if (!defenderSpiritFormAtCombatStart && defender.spiritForm) {
@@ -5834,6 +5832,13 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   if (carianReturnDefenseInstanceId && returnDiscardedCardToHand(defender, carianReturnDefenseInstanceId)) state.log.unshift(`Carian Stance returned ${cardDefinition({ instanceId: '', cardId: defenseCardId! }).name} to ${defender.name}'s Hand after combat.`);
   if (!postCombatChoicePending) state.pendingAttack = null;
+  if ((pending as PendingAttack & { flurryDiscardAfterCombat?: boolean }).flurryDiscardAfterCombat && state.phase !== 'finished') {
+    if (attacker.hand.some((card) => !cardDefinition(card).cannotBeDiscarded)) {
+      state.flurry = { defenderId: defender.id, attackerId: attacker.id, resumePhase: state.phase, remainingEnemyDiscards: 1 };
+      state.phase = 'choosing-flurry-enemy-discard';
+      state.log.unshift(`${attacker.name} must discard 1 Card after the combat window closes.`);
+    } else state.log.unshift(`${attacker.name} had no Card eligible for Flurry's forced discard after combat.`);
+  }
   state.combatReveal = null;
   // Finalize discard-based quest progress in the deferred result now. The
   // acknowledgement command receives a deserialized state and therefore cannot
@@ -5841,7 +5846,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   scorePendingDiscards(state);
   const deferredAfterCombatState = JSON.stringify(state);
   const attackCard = cardDefinition({ instanceId: '', cardId: pending.cardId });
-  stateBeforeAfterCombatEffects.combatReveal = { attackCardId: pending.cardId, defendCardId: defenseCardId, attackBase: attackCard.value, attackTotal: pending.attackValue, defendBase: defenseBaseValue, defendTotal: defenseValue, attackModifiers: pending.attackModifiers ?? [], defendModifiers, combatWinnerId: pending.attackValue > defenseValue ? pending.attackerId : pending.defenderId, combatDamage: combatDamageDealt + manaBarrageCombatDamage, combatStackApplied: pending.combatStackApplied, soulStrikeResult: pending.soulStrikeResult, expiresAt: Date.now() + 10_000, acknowledged: [], deferredAfterCombatState };
+  stateBeforeAfterCombatEffects.combatReveal = { attackCardId: pending.cardId, defendCardId: defenseCardId, attackBase: attackCard.value, attackTotal: pending.attackValue, defendBase: defenseBaseValue, defendTotal: defenseValue, attackModifiers: pending.attackModifiers ?? [], defendModifiers, combatWinnerId: blinkMissed ? pending.defenderId : pending.attackValue > defenseValue ? pending.attackerId : pending.defenderId, combatDamage: combatDamageDealt + manaBarrageCombatDamage, combatStackApplied: pending.combatStackApplied, soulStrikeResult: pending.soulStrikeResult, expiresAt: Date.now() + 10_000, acknowledged: [], deferredAfterCombatState };
   // Use actual damage events so prevention, healing, and defensive retaliation
   // cannot make a harmless attack look like it will land a hit.
   stateBeforeAfterCombatEffects.combatReveal.afterCombatAttackDamage = ((state as GameState & { damageLog?: DamageLogEntry[] }).damageLog ?? [])
@@ -5853,7 +5858,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     stateBeforeAfterCombatEffects.players[defender.id].position = { ...blink.blinkOrigin };
     delete stateBeforeAfterCombatEffects.players[defender.id].visualMovement;
     (stateBeforeAfterCombatEffects.combatReveal as BlinkCombatReveal).blinkTeleport = {
-      defenderId: defender.id, from: blink.blinkOrigin, to: blink.blinkDestination, missed: false,
+      defenderId: defender.id, from: blink.blinkOrigin, to: blink.blinkDestination, missed: Boolean(blink.blinkMissed),
     };
   }
   return ok(stateBeforeAfterCombatEffects);
@@ -5877,15 +5882,20 @@ function acknowledgeCombat(state: GameState, playerId: PlayerId, combatExpiresAt
   return ok(state);
 }
 
-function resolveFlurryDecline(state: GameState, playerId: PlayerId): CommandResult {
-  if (state.phase !== 'flurry-offer' || state.flurry?.defenderId !== playerId) return fail(state, 'No Flurry choice is pending for this player.');
-  state.phase = state.flurry.resumePhase;
-  state.log.unshift(`${state.players[playerId].name} declined the Flurry discard.`);
+function resumeFlurryCombat(state: GameState, flurry: NonNullable<GameState['flurry']>): CommandResult {
+  state.phase = flurry.resumePhase;
   state.flurry = null;
-  return ok(state);
+  return flurry.resumeDefenseCommand ? resolveDefense(state, flurry.resumeDefenseCommand) : ok(state);
 }
 
-function resolveFlurryPay(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {
+function resolveFlurryDecline(state: GameState, playerId: PlayerId): CommandResult {
+  if (state.phase !== 'flurry-offer' || state.flurry?.defenderId !== playerId) return fail(state, 'No Flurry choice is pending for this player.');
+  const flurry = state.flurry;
+  state.log.unshift(`${state.players[playerId].name} declined the Flurry discard.`);
+  return resumeFlurryCombat(state, flurry);
+}
+
+function resolveFlurryPay(state: GameState, playerId: PlayerId, _cardInstanceId: string): CommandResult {
   const flurry = state.flurry;
   if (state.phase !== 'flurry-offer' || !flurry || flurry.defenderId !== playerId) return fail(state, 'No Flurry choice is pending for this player.');
   const defender = state.players[playerId];
@@ -5894,48 +5904,16 @@ function resolveFlurryPay(state: GameState, playerId: PlayerId, cardInstanceId: 
     defender.hp = Math.max(0, defender.hp - 1);
     state.log.unshift(`${defender.name} lost 1 HP to activate Flurry's forced discard.`);
     if (defender.hp === 0) {
-      state.phase = 'active'; state.flurry = null;
+      if (flurry.resumeDefenseCommand?.type === 'defend') discardFromHand(defender, flurry.resumeDefenseCommand.cardInstanceId);
+      registerCharacterDefeat(state, defender, attacker.id);
+      state.pendingAttack = null;
+      state.flurry = null;
+      state.phase = state.winner ? 'finished' : 'active';
       return ok(state);
     }
-    const discardable = attacker.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
-    if (discardable.length === 0) {
-      state.phase = flurry.resumePhase; state.flurry = null;
-      state.log.unshift(`${attacker.name} had no card eligible for Flurry's forced discard.`);
-      return ok(state);
-    }
-    flurry.remainingEnemyDiscards = 1;
-    state.phase = 'choosing-flurry-enemy-discard';
-    state.log.unshift(`${attacker.name} must choose ${flurry.remainingEnemyDiscards} Card${flurry.remainingEnemyDiscards === 1 ? '' : 's'} to discard.`);
-    return ok(state);
+    if (state.pendingAttack) (state.pendingAttack as PendingAttack & { flurryDiscardAfterCombat?: boolean }).flurryDiscardAfterCombat = true;
+    return resumeFlurryCombat(state, flurry);
   }
-  /* Legacy card-payment flow retained below only for save compatibility; new Flurry resolves above.
-  const payment = defender.hand.find((card) => card.instanceId === cardInstanceId);
-  if (!payment) return fail(state, 'That payment card is not in Shinobi’s Hand.');
-  const paymentDefinition = cardDefinition(payment);
-  if (paymentDefinition.cannotBeDiscarded) return fail(state, `${paymentDefinition.name} cannot be discarded.`);
-  const paymentName = paymentDefinition.name;
-  discardFromHand(defender, cardInstanceId);
-  const attacker = state.players[flurry.attackerId];
-  state.log.unshift(`${defender.name} discarded ${paymentName} to activate Flurry’s forced discard.`);
-  if (attacker.hand.length <= 2) {
-    const discardable = attacker.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded);
-    const count = discardable.length;
-    for (const card of discardable) discardFromHand(attacker, card.instanceId);
-    state.phase = flurry.resumePhase;
-    state.log.unshift(`${attacker.name} discarded their whole Hand (${count} card${count === 1 ? '' : 's'}).`);
-    state.flurry = null;
-  } else {
-    flurry.remainingEnemyDiscards = Math.min(1, attacker.hand.filter((card) => !cardDefinition(card).cannotBeDiscarded).length);
-    if (flurry.remainingEnemyDiscards === 0) {
-      state.phase = flurry.resumePhase; state.flurry = null;
-      state.log.unshift(`${attacker.name} had no cards eligible for Flurry's forced discard.`);
-      return ok(state);
-    }
-    state.phase = 'choosing-flurry-enemy-discard';
-    state.log.unshift(`${attacker.name} must choose 2 cards to discard.`);
-  }
-  return ok(state);
-  */
 }
 
 function resolveFlurryEnemyDiscard(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {
@@ -5951,8 +5929,7 @@ function resolveFlurryEnemyDiscard(state: GameState, playerId: PlayerId, cardIns
   flurry.remainingEnemyDiscards -= 1;
   state.log.unshift(`${attacker.name} discarded ${name} (${flurry.remainingEnemyDiscards} remaining).`);
   if (flurry.remainingEnemyDiscards === 0 || !attacker.hand.some((entry) => !cardDefinition(entry).cannotBeDiscarded)) {
-    state.phase = flurry.resumePhase;
-    state.flurry = null;
+    return resumeFlurryCombat(state, flurry);
   }
   return ok(state);
 }
@@ -6517,50 +6494,22 @@ function resolveBlinkTeleport(state: GameState, playerId: PlayerId, to: Cell): C
   markCharacterMoved(player, 'own-card');
   const defenseCommand = pending.blinkDefenseCommand;
   delete pending.blinkDefenseCommand;
+  pending.blinkMissed = true;
   state.phase = 'defending';
-  if (blinkAttackStillPossible(state, pending, to)) return resolveDefense(state, defenseCommand);
-
-  const defenseInstance = player.hand.find((card) => card.instanceId === defenseCommand.cardInstanceId && card.cardId === 'blink');
-  if (!defenseInstance) return fail(state, 'Blink is no longer in the defender\'s Hand.');
-  discardFromHand(player, defenseInstance.instanceId);
-  state.phase = 'active';
-  state.log.unshift(`Combat forfeited: Blink moved ${player.name} out of the Attack's reach. Both revealed Cards were discarded.`);
-  const visibleState = structuredClone(state);
-  visibleState.players[playerId].position = from;
-  delete visibleState.players[playerId].visualMovement;
-  state.pendingAttack = null;
-  scorePendingDiscards(state);
-  const attackCard = cardDefinition({ instanceId: '', cardId: pending.cardId });
-  (visibleState as GameState & { combatReveal: BlinkCombatReveal }).combatReveal = {
-    attackCardId: pending.cardId,
-    defendCardId: 'blink',
-    attackBase: attackCard.value,
-    attackTotal: pending.attackValue,
-    defendBase: 0,
-    defendTotal: 0,
-    attackModifiers: pending.attackModifiers ?? [],
-    defendModifiers: [],
-    combatDamage: 0,
-    forfeitReason: 'Combat forfeited: Attack cannot reach Blink destination',
-    blinkTeleport: { defenderId: playerId, from, to: { ...to }, missed: true },
-    expiresAt: Date.now() + 10_000,
-    acknowledged: [],
-    deferredAfterCombatState: JSON.stringify(state),
-  };
-  return ok(visibleState);
+  return resolveDefense(state, defenseCommand);
 }
 
 function resolveBlinkDiscard(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {
-  if (state.phase !== 'choosing-blink-discard' || state.pendingAttack?.defenderId !== playerId) return fail(state, 'Blink is not waiting for this discard.');
+  const pending = state.pendingAttack as BlinkPendingAttack | null;
+  if (state.phase !== 'choosing-blink-discard' || pending?.defenderId !== playerId || !pending.blinkDefenseCommand) return fail(state, 'Blink is not waiting for this discard.');
   const player = state.players[playerId];
   const card = player.hand.find((entry) => entry.instanceId === cardInstanceId);
   if (!card) return fail(state, 'That Card is not in the Hand.');
-  if (card.cardId === 'pinned' || cardDefinition(card).cannotBeDiscarded) return fail(state, `${cardDefinition(card).name} cannot be discarded by Blink.`);
+  if (!blinkHandCostEligible(card, pending.blinkDefenseCommand.cardInstanceId)) return fail(state, 'Blink requires another discardable Card from Hand.');
   const name = cardDefinition(card).name;
   discardFromHand(player, cardInstanceId);
-  state.pendingAttack = null;
-  state.phase = 'active';
-  state.log.unshift(`Blink found no Mana; ${player.name} chose to discard ${name}.`);
+  state.phase = 'choosing-blink-teleport';
+  state.log.unshift(`Blink found no Mana; ${player.name} discarded ${name} as an extra cost and must choose a visible empty Square.`);
   return ok(state);
 }
 

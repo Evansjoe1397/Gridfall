@@ -102,6 +102,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .character-perk-levels b { height: 24px; display: grid; place-items: center; border: 1px solid #71632f; background: rgba(99,79,18,.28); color: #ffe587; font: 700 10px Inter, sans-serif; }
 .character-perk-extra { margin: 15px 0 0; padding-top: 13px; border-top: 1px solid rgba(139,119,50,.45); color: #aeb99a; font-size: 10px; line-height: 1.45; }
 .character-card-description { min-height: 150px; color: #c3d5cf; font-size: 12px; line-height: 1.65; }
+.character-card-description.has-consume { min-height: 0; }
+.character-consume-description { color: #e4c8ab; font-size: 12px; line-height: 1.65; }
 .character-perk-empty { color: #8aa59e; }
 .character-browser-back { display: block; margin: 20px 0 0; }
 .online-waiting { width: min(760px, 100%); margin: 0 auto; padding: 28px; border: 1px solid #37685c; background: rgba(7,20,17,.95); text-align: center; }
