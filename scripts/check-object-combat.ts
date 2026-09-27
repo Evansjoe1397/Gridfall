@@ -126,8 +126,10 @@ assert.equal(repented.spellProjectiles.some((event) => event.style === 'repent-f
 
 const barter = attack(setup('shadow-barter', 'wreckna'));
 assert.equal(barter.players.P1.hand.some((card) => card.instanceId === 'draw'), true);
-assert.equal(barter.phase, 'active');
-assert.equal(barter.objects.some((object) => object.kind === 'tomb' && object.ownerId === 'P1'), false);
+assert.equal(barter.phase, 'choosing-shadow-barter-tomb-square');
+const barterTomb = command(barter, { type: 'shadow-barter-tomb-square', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(barterTomb.phase, 'active');
+assert.equal(barterTomb.objects.some((object) => object.kind === 'tomb' && object.ownerId === 'P1' && object.position.x === 3 && object.position.y === 2), true);
 
 const isolated = attack(setup('solitude', 'spectre'));
 assert.equal(isolated.log.some((line) => line.includes('resolved Value 5')), true);

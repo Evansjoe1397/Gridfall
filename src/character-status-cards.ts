@@ -9,7 +9,7 @@ export const CHARACTER_STATUS_CARD_IDS: Record<CharacterId, readonly CardTypeId[
   'john-christ': ['headache', 'exhaust', 'burning', 'panic'], // Enforce / Mind Blast, Blessed Light, Cleanse / Thorns, Fear the Justice.
   spectre: ['headache', 'panic'], // Consume Replica / Devour, Replicate.
   wreckna: ['headache', 'exhaust'], // Sap / Curse, Enfeeble / Finger of Death.
-  merylin: ['headache', 'exhaust'], // Excalibur / Tactician, Frostmourne.
+  merylin: ['headache', 'exhaust'], // Excalibur; Tactician / Frostmourne.
 };
 
 export function characterStatusCards(character: CharacterId) {

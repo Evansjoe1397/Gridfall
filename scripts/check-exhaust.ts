@@ -46,4 +46,26 @@ const passiveOnly = reachCombatStack();
 assert.equal(passiveOnly.combatReveal?.attackTotal, 2, 'Held Exhaust keeps its passive -1 Attack penalty.');
 assert.equal(passiveOnly.combatReveal?.defendTotal, 2, 'Held Exhaust keeps its passive -1 Defend penalty.');
 
-console.log('Exhaust passive -1 and attached -2 checks passed.');
+const tacticianState = createInitialState();
+tacticianState.objects = [];
+tacticianState.elevations = {};
+tacticianState.players.P1.position = { x: 3, y: 4 };
+tacticianState.players.P2.position = { x: 4, y: 4 };
+tacticianState.players.P2.character = 'merylin';
+tacticianState.players.P1.hand = [{ instanceId: 'tactician-attack', cardId: 'attack-3' }];
+tacticianState.players.P1.deck = [{ instanceId: 'older-deck-card', cardId: 'attack-2' }];
+tacticianState.players.P2.hand = [{ instanceId: 'tactician-defense', cardId: 'tactician' }];
+const tacticianAttack = applyCommand(tacticianState, { type: 'attack', playerId: 'P1', cardInstanceId: 'tactician-attack', targetId: 'P2' });
+assert.equal(tacticianAttack.ok, true);
+if (tacticianAttack.ok) {
+  const tacticianDefense = applyCommand(tacticianAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tactician-defense' });
+  assert.equal(tacticianDefense.ok, true);
+  if (tacticianDefense.ok) {
+    const resolved = JSON.parse(tacticianDefense.state.combatReveal!.deferredAfterCombatState!) as typeof tacticianDefense.state;
+    assert.equal(resolved.players.P1.deck.at(-1)?.cardId, 'exhaust', 'Tactician places Exhaust above the existing Deck.');
+    assert.equal(resolved.players.P1.knownTopCardId, 'exhaust');
+    assert.equal(resolved.players.P1.deck.some((card) => card.cardId === 'headache'), false);
+  }
+}
+
+console.log('Exhaust and Tactician checks passed.');

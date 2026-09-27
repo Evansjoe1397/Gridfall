@@ -1334,11 +1334,11 @@ assert.equal(multiplayerWrecknaFfa.phase, 'choosing-focus', 'An all-Wreckna mult
 const multiplayerMerylin = createMultiplayerState({ P1: 'merylin', P2: 'magician' });
 assert.equal(multiplayerMerylin.players.P1.character, 'merylin', 'Merylin Pendragon is available in multiplayer duels.');
 assert.equal(multiplayerMerylin.phase, 'choosing-focus', 'Merylin completes the standard opening Focus flow in multiplayer.');
-assert.deepEqual(STARTING_DECKS.merylin.defaults, ['excalibur', 'sting', 'moonlight', 'tactician', 'decisive-block', 'redirect', 'windwalker-stance', 'barbarian-stance', 'carian-stance']);
+assert.deepEqual(STARTING_DECKS.merylin.defaults, ['excalibur', 'sting', 'moonlight', 'tactician', 'decisive-block', 'redirect', 'kamelot-stance', 'windwalker-stance', 'carian-stance']);
 assert.equal(STARTING_DECKS.merylin.reserve, 'carian-stance', 'Carian Stance is Merylin\'s reserved Card.');
 assert.deepEqual(STARTING_DECKS.merylin.attackFocus, ['lightbringer', 'frostmourne']);
 assert.deepEqual(STARTING_DECKS.merylin.defendFocus, ['yamato', 'oracle']);
-assert.deepEqual(STARTING_DECKS.merylin.perkPhase, ['kamelot-stance', 'spellsinger-stance']);
+assert.deepEqual(STARTING_DECKS.merylin.perkPhase, ['barbarian-stance', 'spellsinger-stance']);
 const merylinFocus = applyGameCommand(multiplayerMerylin, { type: 'choose-focus', playerId: 'P1', focus: 'attack' });
 const merylinOpening = merylinFocus.ok ? applyGameCommand(merylinFocus.state, { type: 'choose-focus-card', playerId: 'P1', cardId: 'lightbringer' }) : merylinFocus;
 assert.equal(merylinOpening.ok, true, 'Merylin can complete an online opening Focus selection with her exclusive Cards.');
@@ -1629,7 +1629,7 @@ if (tacticianHighgroundAttack.ok) {
   assert.equal(tacticianHighgroundDefense.ok, true);
   if (tacticianHighgroundDefense.ok) {
     assert.equal(tacticianHighgroundDefense.state.combatReveal?.defendTotal, 3, 'Tactician has Value 3 when Merylin is orthogonally adjacent to a High Ground Square.');
-    assert.equal(tacticianHighgroundDefense.state.players.P1.deck.some((card) => card.cardId === 'headache'), false, 'Empowered Tactician does not add Headache.');
+    assert.equal(tacticianHighgroundDefense.state.players.P1.deck.some((card) => card.cardId === 'exhaust'), false, 'Empowered Tactician does not add Exhaust.');
   }
 }
 
@@ -1658,20 +1658,20 @@ if (tacticianStandingHighAttack.ok) {
   if (tacticianStandingHighDefense.ok) assert.equal(tacticianStandingHighDefense.state.combatReveal?.defendTotal, 1, 'Tactician remains at its base Value 1 when Merylin herself is standing on High Ground.');
 }
 
-const tacticianHeadacheState = createHotseatTestState(false, 'shinobi', 2);
-tacticianHeadacheState.phase = 'active'; tacticianHeadacheState.activePlayerId = 'P1'; tacticianHeadacheState.objects = []; tacticianHeadacheState.elevations = { E6: 1 };
-tacticianHeadacheState.players.P1.position = { x: 3, y: 4 }; tacticianHeadacheState.players.P2.position = { x: 4, y: 4 }; tacticianHeadacheState.players.P2.character = 'merylin';
-tacticianHeadacheState.players.P1.hand = [{ instanceId: 'tactician-headache-attack', cardId: 'attack-3' }]; tacticianHeadacheState.players.P1.deck = [];
-tacticianHeadacheState.players.P2.hand = [{ instanceId: 'tactician-headache-defense', cardId: 'tactician' }];
-const tacticianHeadacheAttack = applyGameCommand(tacticianHeadacheState, { type: 'attack', playerId: 'P1', cardInstanceId: 'tactician-headache-attack', targetId: 'P2', targetKind: 'player' });
-assert.equal(tacticianHeadacheAttack.ok, true);
-if (tacticianHeadacheAttack.ok) {
-  const tacticianHeadacheDefense = applyCommand(tacticianHeadacheAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tactician-headache-defense' });
-  assert.equal(tacticianHeadacheDefense.ok, true);
-  if (tacticianHeadacheDefense.ok) {
-    assert.equal(tacticianHeadacheDefense.state.combatReveal?.defendTotal, 1, 'A diagonally adjacent High Ground Square does not empower Tactician above its base Value 1.');
-    assert.equal(tacticianHeadacheDefense.state.players.P1.deck.at(-1)?.cardId, 'headache', 'Unempowered Tactician adds Headache on top of the attacker\'s Deck.');
-    assert.equal(tacticianHeadacheDefense.state.players.P1.knownTopCardId, 'headache');
+const tacticianExhaustState = createHotseatTestState(false, 'shinobi', 2);
+tacticianExhaustState.phase = 'active'; tacticianExhaustState.activePlayerId = 'P1'; tacticianExhaustState.objects = []; tacticianExhaustState.elevations = { E6: 1 };
+tacticianExhaustState.players.P1.position = { x: 3, y: 4 }; tacticianExhaustState.players.P2.position = { x: 4, y: 4 }; tacticianExhaustState.players.P2.character = 'merylin';
+tacticianExhaustState.players.P1.hand = [{ instanceId: 'tactician-exhaust-attack', cardId: 'attack-3' }]; tacticianExhaustState.players.P1.deck = [];
+tacticianExhaustState.players.P2.hand = [{ instanceId: 'tactician-exhaust-defense', cardId: 'tactician' }];
+const tacticianExhaustAttack = applyGameCommand(tacticianExhaustState, { type: 'attack', playerId: 'P1', cardInstanceId: 'tactician-exhaust-attack', targetId: 'P2', targetKind: 'player' });
+assert.equal(tacticianExhaustAttack.ok, true);
+if (tacticianExhaustAttack.ok) {
+  const tacticianExhaustDefense = applyCommand(tacticianExhaustAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'tactician-exhaust-defense' });
+  assert.equal(tacticianExhaustDefense.ok, true);
+  if (tacticianExhaustDefense.ok) {
+    assert.equal(tacticianExhaustDefense.state.combatReveal?.defendTotal, 1, 'A diagonally adjacent High Ground Square does not empower Tactician above its base Value 1.');
+    assert.equal(tacticianExhaustDefense.state.players.P1.deck.at(-1)?.cardId, 'exhaust', 'Unempowered Tactician adds Exhaust on top of the attacker\'s Deck.');
+    assert.equal(tacticianExhaustDefense.state.players.P1.knownTopCardId, 'exhaust');
   }
 }
 
@@ -1824,13 +1824,13 @@ const windwalkerLevelThree = applyGameCommand(windwalkerLevelThreeState, { type:
 assert.equal(windwalkerLevelThree.ok, true);
 if (windwalkerLevelThree.ok) {
   assert.equal(windwalkerLevelThree.state.players.P1.windwalkerMoveBonus, 3, 'Windwalker Stance level 2 adds +2 MOV for +3 MOV total at level 3.');
-  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerUnrestrictedMovement, true, 'Windwalker Stance level 3 enables unrestricted traversal.');
+  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerUnrestrictedMovement, true, 'Windwalker Stance level 3 enables direct movement to any unoccupied Square.');
   assert.equal(applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 0 } }).ok, false, 'Windwalker cannot end movement on an occupied Square.');
   const crossedEverything = applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 5, y: 0 } });
   assert.equal(crossedEverything.ok, true);
   if (crossedEverything.ok) {
-    assert.deepEqual(crossedEverything.state.players.P1.position, { x: 5, y: 0 }, 'Windwalker crosses Walls, characters, Objects, and restricted terrain to an empty destination.');
-    assert.equal(crossedEverything.state.players.P1.movementRemaining, 3, 'Windwalker traversal still costs 1 MOV per crossed Square.');
+    assert.deepEqual(crossedEverything.state.players.P1.position, { x: 5, y: 0 }, 'Windwalker moves directly across the board to an empty destination.');
+    assert.equal(crossedEverything.state.players.P1.movementRemaining, 6, 'Windwalker direct movement costs 1 MOV regardless of distance.');
   }
 }
 
@@ -1923,7 +1923,12 @@ if (barbarianTwo.ok) {
 const barbarianThreeSpent = createHotseatTestState(true, 'merylin', 2);
 barbarianThreeSpent.phase = 'active'; barbarianThreeSpent.activePlayerId = 'P1'; barbarianThreeSpent.players.P1.freeMoveUsed = true; barbarianThreeSpent.players.P1.movementRemaining = 0;
 barbarianThreeSpent.players.P1.spellEcho = [null, null, { instanceId: 'barbarian-three-spent', cardId: 'barbarian-stance' }];
-assert.equal(applyGameCommand(barbarianThreeSpent, { type: 'use-echo-perk', playerId: 'P1', position: 3 }).ok, false, 'Barbarian Stance Level 3 cannot be used after all MOV is spent.');
+const barbarianThreeRestored = applyGameCommand(barbarianThreeSpent, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(barbarianThreeRestored.ok, true, 'Barbarian Stance Level 3 restores MOV even after all MOV was spent.');
+if (barbarianThreeRestored.ok) {
+  assert.equal(barbarianThreeRestored.state.players.P1.movementRemaining, effectiveMoveRange(barbarianThreeRestored.state.players.P1));
+  assert.equal(barbarianThreeRestored.state.players.P1.barbarianNextAttackHeadache, true);
+}
 
 const barbarianThreeState = createHotseatTestState(true, 'merylin', 2);
 barbarianThreeState.phase = 'active'; barbarianThreeState.activePlayerId = 'P1'; barbarianThreeState.players.P1.freeMoveUsed = true; barbarianThreeState.players.P1.movementRemaining = 1;
@@ -1932,62 +1937,12 @@ barbarianThreeState.players.P1.spellEcho = [null, null, { instanceId: 'barbarian
 const barbarianThree = applyGameCommand(barbarianThreeState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(barbarianThree.ok, true);
 if (barbarianThree.ok) {
-  assert.equal(barbarianThree.state.players.P1.barbarianIgnoreNegativeMovement, true);
-  assert.equal(effectiveMoveRange(barbarianThree.state.players.P1), 2, 'Level 3 ignores Pinned and stolen-MOV penalties until turn end.');
-  assert.equal(barbarianThree.state.players.P1.movementRemaining, 2, 'Level 3 restores all MOV after ignoring negative MOV effects.');
+  assert.equal(barbarianThree.state.players.P1.barbarianNextAttackHeadache, true);
+  assert.equal(effectiveMoveRange(barbarianThree.state.players.P1), 0, 'Level 3 no longer ignores Pinned and stolen-MOV penalties.');
+  assert.equal(barbarianThree.state.players.P1.movementRemaining, 0, 'Level 3 restores MOV up to the current effective range.');
 }
 
-const kamelotAttackState = createHotseatTestState(true, 'merylin', 2);
-kamelotAttackState.phase = 'active'; kamelotAttackState.activePlayerId = 'P1'; kamelotAttackState.objects = [];
-kamelotAttackState.players.P1.position = { x: 4, y: 3 }; kamelotAttackState.players.P2.position = { x: 3, y: 3 };
-kamelotAttackState.players.P1.merylinSummonActive = true;
-kamelotAttackState.players.P1.hand = [{ instanceId: 'kamelot-one', cardId: 'kamelot-stance' }, { instanceId: 'kamelot-attack', cardId: 'attack-2' }];
-const kamelotOne = applyGameCommand(kamelotAttackState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'kamelot-one', destination: 'direct' });
-assert.equal(kamelotOne.ok, true);
-if (kamelotOne.ok) {
-  assert.equal(kamelotOne.state.players.P1.kamelotDoubleSquareBonuses, true, 'Kamelot Stance persists until an Attack is used.');
-  const kamelotAttack = applyGameCommand(kamelotOne.state, { type: 'attack', playerId: 'P1', cardInstanceId: 'kamelot-attack', targetId: 'P2', targetKind: 'player' });
-  assert.equal(kamelotAttack.ok, true);
-  if (kamelotAttack.ok) {
-    assert.equal(kamelotAttack.state.pendingAttack?.attackValue, 4, 'Kamelot doubles the +1 High Ground Square bonus to +2 for the consuming Attack.');
-    assert.equal(kamelotAttack.state.players.P1.kamelotDoubleSquareBonuses, false, 'The doubled Square bonus is consumed after the Attack starts.');
-  }
-}
-
-const kamelotBaseState = createHotseatTestState(true, 'merylin', 2);
-kamelotBaseState.phase = 'active'; kamelotBaseState.activePlayerId = 'P2'; kamelotBaseState.objects = [];
-kamelotBaseState.players.P1.position = { x: 1, y: 3 }; kamelotBaseState.players.P2.position = { x: 2, y: 3 };
-kamelotBaseState.players.P1.kamelotDoubleSquareBonuses = true;
-kamelotBaseState.players.P1.hand = [{ instanceId: 'kamelot-base-defense', cardId: 'defend-1' }];
-kamelotBaseState.players.P2.hand = [{ instanceId: 'kamelot-base-attack', cardId: 'attack-2' }];
-const kamelotBaseAttack = applyGameCommand(kamelotBaseState, { type: 'attack', playerId: 'P2', cardInstanceId: 'kamelot-base-attack', targetId: 'P1', targetKind: 'player' });
-const kamelotBaseDefense = kamelotBaseAttack.ok ? applyGameCommand(kamelotBaseAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: 'kamelot-base-defense' }) : kamelotBaseAttack;
-assert.equal(kamelotBaseDefense.ok, true);
-if (kamelotBaseDefense.ok) assert.equal(kamelotBaseDefense.state.combatReveal?.defendTotal, 3, 'Kamelot doubles the owned Base Square DEF bonus from +1 to +2.');
-
-const kamelotDrawState = createHotseatTestState(true, 'merylin', 2);
-kamelotDrawState.phase = 'active'; kamelotDrawState.activePlayerId = 'P2'; kamelotDrawState.players.P1.position = { x: 4, y: 0 };
-kamelotDrawState.players.P1.kamelotDoubleSquareBonuses = true; kamelotDrawState.players.P1.deck = [{ instanceId: 'kamelot-draw-one', cardId: 'attack-2' }, { instanceId: 'kamelot-draw-two', cardId: 'attack-3' }]; kamelotDrawState.players.P1.hand = [];
-const kamelotDrawTurn = applyGameCommand(kamelotDrawState, { type: 'end-turn', playerId: 'P2' });
-assert.equal(kamelotDrawTurn.ok, true);
-if (kamelotDrawTurn.ok) assert.equal(kamelotDrawTurn.state.players.P1.hand.length, 2, 'Kamelot doubles a draw Square from +1 Card to +2 Cards at turn start.');
-
-const kamelotZoneState = createHotseatTestState(true, 'merylin', 2);
-kamelotZoneState.phase = 'active'; kamelotZoneState.activePlayerId = 'P1'; kamelotZoneState.objects = [];
-kamelotZoneState.players.P1.position = { x: 3, y: 0 }; kamelotZoneState.players.P2.position = { x: 4, y: 0 };
-kamelotZoneState.players.P1.spellEcho = [null, null, { instanceId: 'kamelot-three', cardId: 'kamelot-stance' }];
-kamelotZoneState.players.P2.deck = [{ instanceId: 'suppressed-draw', cardId: 'attack-2' }]; kamelotZoneState.players.P2.hand = [];
-const kamelotThree = applyGameCommand(kamelotZoneState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
-assert.equal(kamelotThree.ok, true);
-if (kamelotThree.ok) {
-  assert.equal(kamelotThree.state.players.P2.kamelotSuppressedZone?.zoneType, 'draw', 'Level 3 marks an enemy occupying an adjacent connected draw-Square zone.');
-  const suppressedTurn = applyGameCommand(kamelotThree.state, { type: 'end-turn', playerId: 'P1' });
-  assert.equal(suppressedTurn.ok, true);
-  if (suppressedTurn.ok) {
-    assert.equal(suppressedTurn.state.players.P2.hand.length, 0, 'The affected enemy receives no draw-Square bonus at turn start.');
-    assert.equal(suppressedTurn.state.players.P2.kamelotSuppressedZone, null, 'Kamelot zone suppression expires after suppressing the start-turn bonus.');
-  }
-}
+// Kamelot's board repainting, defense timing, queue, and extra Perk use are covered by check:kamelot.
 
 const spellsingerOneState = createHotseatTestState(true, 'merylin', 2);
 spellsingerOneState.phase = 'active'; spellsingerOneState.activePlayerId = 'P1';
@@ -2378,6 +2333,7 @@ const immortalityAttack = applyGameCommand(immortalityState, { type: 'attack', p
 const immortalityDefense = immortalityAttack.ok ? applyCommand(immortalityAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'immortality-defense' }) : immortalityAttack;
 assert.equal(immortalityDefense.ok, true, immortalityDefense.ok ? undefined : immortalityDefense.error);
 if (immortalityDefense.ok) {
+  assert.equal(immortalityDefense.state.combatReveal?.defendBase, 2, 'Immortality has base Defend Value 2.');
   assert.equal(immortalityDefense.state.players.P2.hp, 10, 'Immortality prevents all combat Damage while Wreckna has an active Phylactery.');
   assert.equal(immortalityDefense.state.phase, 'choosing-immortality-phylactery', 'Immortality requires a Phylactery sacrifice after combat.');
   const immortalityChoice = applyGameCommand(immortalityDefense.state, { type: 'immortality-phylactery-choice', playerId: 'P2', objectId: 'immortality-might' });
@@ -2401,7 +2357,7 @@ const powerlessImmortalityAttack = applyGameCommand(powerlessImmortalityState, {
 const powerlessImmortalityDefense = powerlessImmortalityAttack.ok ? applyCommand(powerlessImmortalityAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'powerless-immortality-defense' }) : powerlessImmortalityAttack;
 assert.equal(powerlessImmortalityDefense.ok, true);
 if (powerlessImmortalityDefense.ok) {
-  assert.equal(powerlessImmortalityDefense.state.players.P2.hp, 7, 'Immortality prevents no Damage without an active Phylactery.');
+  assert.equal(powerlessImmortalityDefense.state.players.P2.hp, 9, 'Without an active Phylactery, Immortality blocks 2 of the 3 combat Damage but prevents no further Damage.');
   assert.equal(powerlessImmortalityDefense.state.phase, 'active', 'Immortality requests no sacrifice without an active Phylactery.');
 }
 
@@ -2641,6 +2597,8 @@ const brainFreezeAttack = applyGameCommand(brainFreezeState, { type: 'attack', p
 const brainFreezeDefense = brainFreezeAttack.ok ? applyGameCommand(brainFreezeAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'brain-defense' }) : brainFreezeAttack;
 assert.equal(brainFreezeDefense.ok, true);
 if (brainFreezeDefense.ok) {
+  assert.equal(brainFreezeDefense.state.players.P1.movementRemaining, 0, 'Brain Freeze steals 1 remaining MOV from the attacker.');
+  assert.equal(brainFreezeDefense.state.players.P2.brainFreezeMovementBonus, 1, 'Brain Freeze grants the stolen MOV to Wreckna.');
   assert.equal(brainFreezeDefense.state.players.P1.brainFreezeCombatBlocked, true, 'Brain Freeze blocks the attacker\'s Combat Cards and Combat Effects.');
   assert.equal(brainFreezeDefense.state.players.P1.hand.some((card) => card.instanceId === 'brain-banner'), true, 'Brain Freeze leaves the blocked Combat Card in Hand.');
   assert.equal(applicableCombatCardInstanceIds(brainFreezeDefense.state, 'P1').length, 0, 'The affected attacker has no applicable Combat Cards.');
@@ -2743,8 +2701,13 @@ if (shadowBarterCombat.ok) {
   assert.equal(shadowBarterDiscard.ok, true);
   if (shadowBarterDiscard.ok) {
     assert.equal(shadowBarterDiscard.state.players.P2.discard.some((card) => card.instanceId === 'shadow-barter-enemy-card'), true, 'The enemy discards 1 chosen Card after Shadow Barter.');
-    assert.equal(shadowBarterDiscard.state.objects.some((object) => object.kind === 'tomb'), false, 'Shadow Barter does not create a Tomb.');
-    assert.equal(shadowBarterDiscard.state.phase, 'active');
+    assert.equal(shadowBarterDiscard.state.phase, 'choosing-shadow-barter-tomb-square');
+    const shadowBarterTomb = applyGameCommand(shadowBarterDiscard.state, { type: 'shadow-barter-tomb-square', playerId: 'P1', to: { x: 3, y: 2 } });
+    assert.equal(shadowBarterTomb.ok, true);
+    if (shadowBarterTomb.ok) {
+      assert.equal(shadowBarterTomb.state.objects.some((object) => object.kind === 'tomb' && object.ownerId === 'P1' && object.position.x === 3 && object.position.y === 2), true, 'Shadow Barter creates a Tomb within Range.');
+      assert.equal(shadowBarterTomb.state.phase, 'active');
+    }
   }
 }
 
@@ -7196,7 +7159,7 @@ assert.match(cardDefinition({ instanceId: 'spectre-replicate-pull-tooltip', card
 assert.doesNotMatch(cardDefinition({ instanceId: 'spectre-replicate-level-two-tooltip', cardId: 'replicate' }).levelEffects![1], /Panic/, 'Replicate Level 2 no longer applies Panic.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-panic-tooltip', cardId: 'replicate' }).levelEffects![2], /add a Panic Card/i, 'Replicate Level 3 tooltip states that Panic follows the pull.');
 assert.match(cardDefinition({ instanceId: 'spectre-replicate-damage-tooltip', cardId: 'replicate' }).levelEffects![2], /deal 1 Damage/i, 'Replicate Level 3 tooltip states its adjacent-enemy damage.');
-assert.match(cardDefinition({ instanceId: 'spectre-relocate-tether-tooltip', cardId: 'relocate' }).levelEffects![0], /deal 1 Damage initially.*newly intersect an enemy tile/i, 'Relocate Level 1 tooltip states its tether damage.');
+assert.match(cardDefinition({ instanceId: 'spectre-relocate-tether-tooltip', cardId: 'relocate' }).levelEffects![0], /deal 1 Damage initially.*newly intersect an enemy Square/i, 'Relocate Level 1 tooltip states its tether damage.');
 assert.match(cardDefinition({ instanceId: 'spectre-relocate-movement-tooltip', cardId: 'relocate' }).levelEffects![1], /gain \+1 MOV/, 'Relocate Level 2 tooltip states its movement gain.');
 assert.match(cardDefinition({ instanceId: 'spectre-haunt-tooltip', cardId: 'haunt' }).levelEffects![0], /behind each enemy/i, 'Haunt Level 1 tooltip describes replica creation.');
 assert.match(cardDefinition({ instanceId: 'spectre-haunt-block-tooltip', cardId: 'haunt' }).levelEffects![1], /random Block Card.*must use that Card to Block/i, 'Haunt Level 2 tooltip describes its forced Block reveal.');
