@@ -3,9 +3,10 @@ import { applyCommand, cardDefinition, createHotseatTestState, effectiveAttackRa
 
 assert.equal(
   cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[2],
-  'Gain 1 Action, +1 Att. Range until the start of your next turn and 1 MOV',
+  'Gain 1 Action, 1 MOV, and +1 Attack Range until the start of your next turn',
   'Dakkoth Level 3 describes its additional Attack Range bonus.',
 );
+assert.equal(cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[1], 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the sacrifice');
 
 const state = createHotseatTestState(true, 'wreckna', 2);
 state.objects = [{ id: 'dakkoth-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 5, y: 2 } }];
@@ -22,6 +23,10 @@ const tombCreated = applyCommand(activated.state, { type: 'dakkoth-tomb-square',
 assert.equal(tombCreated.ok, true, 'Dakkoth creates a Tomb.');
 const tombId = tombCreated.state.objects.find((object) => object.kind === 'tomb')?.id;
 assert.ok(tombId, 'Dakkoth created a Tomb that can be sacrificed.');
+assert.equal(tombCreated.state.phase, 'choosing-dakkoth-tomb-sacrifice', 'Dakkoth Level 2 must select a Tomb before an infusion target.');
+const prematureObject = applyCommand(tombCreated.state, { type: 'dakkoth-phylactery-target', playerId: 'P1', objectId: 'dakkoth-box' });
+assert.equal(prematureObject.ok, false, 'A normal Object cannot be selected before the Tomb sacrifice.');
+assert.equal(tombCreated.state.objects.some((object) => object.id === tombId), true, 'Rejected selection leaves the Tomb available to sacrifice.');
 
 const tombSacrificed = applyCommand(tombCreated.state, { type: 'dakkoth-tomb-sacrifice', playerId: 'P1', objectId: tombId });
 assert.equal(tombSacrificed.ok, true, 'Dakkoth sacrifices its Tomb.');
@@ -42,5 +47,23 @@ const enemyEnded = applyCommand(ended.state, { type: 'end-turn', playerId: 'P2' 
 assert.equal(enemyEnded.ok, true, 'The enemy can end their turn.');
 assert.equal(enemyEnded.state.activePlayerId, 'P1', 'Wreckna begins the next turn.');
 assert.equal(enemyEnded.state.players.P1.dakkothRangeBonus, 0, 'All temporary Dakkoth Attack Range expires at the start of Wreckna\'s next turn.');
+
+const ritual = createHotseatTestState(true, 'wreckna', 2);
+ritual.objects = [
+  { id: 'ritual-source', name: 'Ritual Reliquary', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 4, y: 4 }, phylacteryType: 'ritual', phylacteryOwnerId: 'P1' },
+  { id: 'ritual-target', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 3, y: 3 } },
+];
+ritual.players.P1.position = { x: 2, y: 2 };
+ritual.players.P2.position = { x: 8, y: 7 };
+ritual.players.P1.hand = [];
+ritual.players.P1.spellEcho = [null, { instanceId: 'dakkoth-two', cardId: 'dakkoth' }, null];
+const ritualActivated = applyCommand(ritual, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(ritualActivated.ok, true);
+const ritualTomb = applyCommand(ritualActivated.state, { type: 'dakkoth-tomb-square', playerId: 'P1', to: { x: 3, y: 2 } });
+assert.equal(ritualTomb.ok, true);
+assert.equal(ritualTomb.state.phase, 'choosing-dakkoth-phylactery-target', 'Ritual alone waives the Tomb sacrifice.');
+const ritualInfusion = applyCommand(ritualTomb.state, { type: 'dakkoth-phylactery-target', playerId: 'P1', objectId: 'ritual-target' });
+assert.equal(ritualInfusion.ok, true);
+assert.equal(ritualInfusion.state.objects.some((object) => object.kind === 'tomb'), true, 'The waived Tomb sacrifice preserves the created Tomb.');
 
 console.log('Dakkoth checks passed.');

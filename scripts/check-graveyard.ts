@@ -33,7 +33,7 @@ function combat(state: GameState, targetKind: 'player' | 'object' = 'player'): G
   return step(attacked, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard' });
 }
 
-assert.equal(CARDS.find((card) => card.id === 'graveyard')?.effectText, 'Value of this card is 4, if adjacent or inside the Tomb. Can use from inside Tomb.');
+assert.equal(CARDS.find((card) => card.id === 'graveyard')?.effectText, 'Value is 4 while adjacent to or inside a Tomb. You can use this Card from inside a Tomb.');
 
 const normal = combat(setup());
 assert.equal(normal.combatReveal?.defendTotal, 3, 'Graveyard remains Value 3 away from Tombs.');
@@ -42,8 +42,11 @@ const adjacent = combat(setup({ x: 4, y: 2 }));
 assert.equal(adjacent.combatReveal?.defendTotal, 4, 'Graveyard has Value 4 while adjacent to a Tomb.');
 
 const insideState = setup({ x: 3, y: 2 }, true);
-const insideAttack = step(insideState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'tomb', targetKind: 'object' });
-assert.equal(insideAttack.phase, 'defending', 'Attacking an occupied Tomb allows the entombed Wreckna to respond when Graveyard is held.');
+const directTombAttack = step(insideState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'tomb', targetKind: 'object' });
+assert.equal(directTombAttack.objects.some((object) => object.id === 'tomb'), false, 'A direct Attack destroys the occupied Tomb even if Wreckna holds Graveyard.');
+assert.equal(directTombAttack.players.P2.wrecknaInsideTombId, null, 'Wreckna is exposed when the attacked Tomb is destroyed.');
+const insideAttack = step(setup({ x: 3, y: 2 }, true), { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2', targetKind: 'player' });
+assert.equal(insideAttack.phase, 'defending', 'Targeting entombed Wreckna allows Graveyard as his defense.');
 const invalidDefense = applyCommand(insideAttack, { type: 'defend', playerId: 'P2', cardInstanceId: 'other-defense' });
 assert.equal(invalidDefense.ok, false, 'Only Graveyard can Defend from inside a Tomb.');
 const inside = step(insideAttack, { type: 'defend', playerId: 'P2', cardInstanceId: 'graveyard' });

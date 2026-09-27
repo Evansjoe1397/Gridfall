@@ -50,6 +50,10 @@ const ordinaryObject: BoardObject = {
   maxHp: 3,
   position: { x: 4, y: 2 },
 };
+const occupiedTomb: BoardObject = {
+  id: 'existing-tomb', name: "Wreckna's Tomb", kind: 'tomb', ownerId: 'P2', hp: 3, maxHp: 3,
+  position: { x: 2, y: 1 },
+};
 
 const originalRandom = Math.random;
 try {
@@ -62,6 +66,13 @@ try {
   const fallback = resolveTombBlock(setup([infusedObject, column({ x: 4, y: 2 }, 99)]));
   assert.equal(fallback.objects.some((object) => object.id === infusedObject.id), false, 'An infused Object remains the last-resort target when no other eligible Square exists.');
   assert.ok(fallback.objects.some((object) => object.kind === 'tomb' && object.position.x === infusedObject.position.x && object.position.y === infusedObject.position.y), 'The last-resort Tomb uses the only eligible Square.');
+
+  const sparedTomb = resolveTombBlock(setup([occupiedTomb, ordinaryObject]));
+  assert.ok(sparedTomb.objects.some((object) => object.id === occupiedTomb.id), 'Tomb Block prefers replacing another Object over an existing Tomb.');
+  assert.equal(sparedTomb.objects.some((object) => object.id === ordinaryObject.id), false);
+
+  const sparedInfusedTomb = resolveTombBlock(setup([{ ...occupiedTomb, phylacteryType: 'might', phylacteryOwnerId: 'P2' }, ordinaryObject]));
+  assert.ok(sparedInfusedTomb.objects.some((object) => object.id === occupiedTomb.id), 'An infused Tomb is also deprioritized.');
 } finally {
   Math.random = originalRandom;
 }

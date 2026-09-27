@@ -68,6 +68,13 @@ for (const card of CARDS.filter((entry) => entry.kind === 'attack')) {
   assert.equal(state.pendingAttack, null, card.name);
   assert.equal(state.players.P2.hp, state.players.P2.maxHp, `${card.name} must not damage a remote character`);
 }
+for (const card of CARDS.filter((entry) => entry.kind === 'attack')) {
+  const initial = setup(card.id);
+  initial.objects[0].kind = 'tomb';
+  let state = attack(initial);
+  if (card.id === 'lightbringer') state = command(state, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: false });
+  assert.equal(state.objects.some((object) => object.id === 'target'), false, `${card.name} must destroy a directly attacked Tomb.`);
+}
 
 for (const kind of ['wooden-box', 'tomb', 'orkk-shield', 'spirit-guardian'] as const) {
   const initial = setup('light-the-saber');

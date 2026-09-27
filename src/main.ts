@@ -406,6 +406,7 @@ document.querySelector('#directPerkButton')!.addEventListener('click', () => {
 });
 document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
   if ((gameState.phase as string) === 'choosing-yamato-move') dispatch({ type: 'yamato-move', playerId: actingPlayer(), to: null });
+  else if (gameState.phase === 'choosing-lichdom-target') dispatch({ type: 'lichdom-decline-phylactery', playerId: actingPlayer() });
   else dispatch({ type: 'end-dance', playerId: actingPlayer() });
 });
 document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
@@ -747,7 +748,7 @@ type HotseatArena = 'nagrand' | 'trench' | 'pipe';
 const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
-  magician: { name: 'Long Hat Logan', hp: 18, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
+  magician: { name: 'Long Hat Logan', hp: 17, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 15, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
@@ -1482,11 +1483,11 @@ function renderUI() {
   }
   if (gameState.phase === 'choosing-sacrifice-tomb-square') prompt.textContent = `Sacrifice: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
   if (gameState.phase === 'choosing-immortality-phylactery') prompt.textContent = 'Immortality: choose an active Phylactery to sacrifice and teleport onto';
-  if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = `Lichdom: select an Object within Range ${effectiveAttackRange(gameState, actor)} except a Column · Escape to cancel`;
+  if (gameState.phase === 'choosing-lichdom-target') prompt.textContent = `Lichdom: select an Object within Range ${effectiveAttackRange(gameState, actor)} except a Column, or skip the HP sacrifice`;
   if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') prompt.textContent = `Dakkoth: select one of your Tombs within Range ${effectiveAttackRange(gameState, actor)} to sacrifice`;
-  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `Dakkoth: select another Object within Range ${effectiveAttackRange(gameState, actor)} except a Column`;
+  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `${activeWrecknaPhylactery(gameState, actor.id, 'ritual') ? 'Dakkoth: Phylactery of Ritual waived the Tomb sacrifice. ' : 'Dakkoth: Tomb sacrificed. '}Select another Object within Range ${effectiveAttackRange(gameState, actor)} except a Column`;
   if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = `Necronomicon: select a Tomb within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-decay-target') prompt.textContent = `Curse: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
@@ -1537,11 +1538,12 @@ function renderUI() {
   byId('mindTricksFinishButton').textContent = choosingMindTricks && (gameState.mindTricks?.discarded ?? 0) > 0 ? 'Finish Mind Tricks selection' : 'Use Mind Tricks without revealing';
   const cancelDanceButton = byId('finishDanceButton') as HTMLButtonElement;
   const choosingYamatoMove = (gameState.phase as string) === 'choosing-yamato-move';
-  cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through' && !choosingYamatoMove);
-  cancelDanceButton.textContent = choosingYamatoMove ? 'Stay in Place' : 'Cancel Dance Through';
+  const canDeclineLichdom = gameState.phase === 'choosing-lichdom-target';
+  cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through' && !choosingYamatoMove && !canDeclineLichdom);
+  cancelDanceButton.textContent = canDeclineLichdom ? 'Skip Phylactery · Keep HP' : choosingYamatoMove ? 'Stay in Place' : 'Cancel Dance Through';
   const danceOccupied = Boolean(gameState.danceThrough?.enemyUnderfoot || (gameState.danceThrough as typeof gameState.danceThrough & { objectUnderfoot?: string | null } | null)?.objectUnderfoot);
-  cancelDanceButton.disabled = (!choosingYamatoMove && danceOccupied) || !canLocalAct(actingPlayer());
-  cancelDanceButton.title = choosingYamatoMove ? 'Resolve Yamato without moving.' : danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
+  cancelDanceButton.disabled = (!choosingYamatoMove && !canDeclineLichdom && danceOccupied) || !canLocalAct(actingPlayer());
+  cancelDanceButton.title = canDeclineLichdom ? 'Keep your HP, draw Lichdom\'s Card, and continue with its Level 3 effect if available.' : choosingYamatoMove ? 'Resolve Yamato without moving.' : danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
   const movementUndo = gameState.movementUndo;
   const canCancelMovement = Boolean(movementUndo && movementUndo.playerId === actor.id && movementUndo.actionsRemaining === actor.actionsRemaining && movementUndo.perkUsed === actor.perkUsed && ['active', 'dashing'].includes(gameState.phase) && canLocalAct(actor.id));
@@ -1827,7 +1829,8 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
   const abilityIcon = playerAbilityIcon(player);
   const statusIcons = playerStatusIcons(player);
-  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
+  const totalDamage = player.matchStats?.totalDamage ?? 0;
+  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="fighter-vitals"><div class="fighter-damage" aria-label="${escapeHtml(player.name)} total damage dealt: ${totalDamage}"><span>TOTAL DAMAGE</span><b>${totalDamage}</b></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div></div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
 }
 
 function playerUiColor(playerId: PlayerId) {
@@ -2338,8 +2341,8 @@ function toggleCompactHandMode() {
   notify(`Compact Hand ${compactHandMode ? 'enabled' : 'disabled'}.`);
 }
 
-function actionQuestControlsMarkup() {
-  return `<div class="action-quest-controls"><button class="compact-hand-toggle ${compactHandMode ? 'active' : ''}" id="compactHandToggle" type="button" aria-label="Toggle Compact Hand" aria-pressed="${compactHandMode}" title="Compact Hand (K)">▦</button><button class="action-quest-collapse" id="actionQuestCollapse" type="button" aria-label="${actionQuestCollapsed ? 'Show' : 'Hide'} Action Quest" title="${actionQuestCollapsed ? 'Show' : 'Hide'} Action Quest">${actionQuestCollapsed ? 'QUEST +' : '−'}</button></div>`;
+function actionQuestControlsMarkup(questName?: string) {
+  return `<div class="action-quest-controls"><button class="compact-hand-toggle ${compactHandMode ? 'active' : ''}" id="compactHandToggle" type="button" aria-label="Toggle Compact Hand" aria-pressed="${compactHandMode}" title="Compact Hand (K)">▦</button><button class="action-quest-collapse" id="actionQuestCollapse" type="button" aria-label="${actionQuestCollapsed ? 'Show' : 'Hide'} Action Quest" title="${actionQuestCollapsed ? 'Show' : 'Hide'} Action Quest">${actionQuestCollapsed ? 'QUEST +' : '−'}</button>${actionQuestCollapsed && questName ? `<span class="action-quest-current-name" title="${escapeHtml(questName)}">${escapeHtml(questName)}</span>` : ''}</div>`;
 }
 
 function bindActionQuestControls(panel: HTMLElement) {
@@ -2357,7 +2360,8 @@ function renderActionQuestPanel() {
   const current = questState?.currentQuest;
   const panel = byId('actionQuestPanel');
   panel.classList.toggle('collapsed', actionQuestCollapsed);
-  const controls = actionQuestControlsMarkup();
+  const definition = current ? ACTION_QUEST_POOL.find((quest) => quest.id === current.id) : undefined;
+  const controls = actionQuestControlsMarkup(current ? definition?.name ?? current.id : undefined);
   if (actionQuestCollapsed) {
     panel.innerHTML = controls;
     bindActionQuestControls(panel);
@@ -2370,7 +2374,6 @@ function renderActionQuestPanel() {
     return;
   }
   const remaining = Math.max(0, current.endsAfterRound - gameState.turn + 1);
-  const definition = ACTION_QUEST_POOL.find((quest) => quest.id === current.id);
   const condition = actionQuestConditionWithEndRound(current.id, definition?.condition ?? '', current.endsAfterRound);
   const rewardCardId = current.id === 'damage-contest' ? 'fireball' : current.id === 'rabbit-run' ? 'portal' : current.id === 'provocateur' ? 'vicious-mockery' : current.id === 'capture-the-flag' ? 'banner' : current.id === 'tank-junior' ? 'mythril-helmet' : current.id === 'the-elephant' ? 'boomerang' : current.id === 'the-gambler' ? 'monarch-flush' : current.id === 'the-spy' ? 'feint' : current.id === 'hot-potato' ? 'sweet-potato' : null;
   const rewardCard = rewardCardId ? cardDefinition({ instanceId: '', cardId: rewardCardId as any }) : null;
@@ -9705,6 +9708,7 @@ function syncBoard() {
     group.userData.playerId = id;
     ensureCharacterHitArea(group);
     const entombed = character === 'wreckna' && Boolean(gameState.players[id].wrecknaInsideTombId && gameState.objects.some((object) => object.id === gameState.players[id].wrecknaInsideTombId && object.kind === 'tomb'));
+    const wasVisible = group.visible;
     // Keep every FFA character visible while bases are claimed. The state
     // already gives each unplaced player a provisional base position; hiding
     // unclaimed models made the final Focus choice look as if the match had
@@ -9741,6 +9745,9 @@ function syncBoard() {
       // Knee Blast changes the authoritative Square during combat resolution,
       // but its visible push must begin on Da Orkk's authored hit frame.
       // Arcane Barrier likewise waits for the attack's after-combat visuals.
+    } else if (character === 'wreckna' && !entombed && !wasVisible) {
+      group.position.copy(target);
+      movementAnimations.delete(id);
     } else if (fastLightbringerSwap) {
       movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: LIGHTBRINGER_SWAP_MS, teleport: true });
     } else if (!previousKey) {
@@ -10626,7 +10633,7 @@ function highlightCells() {
     const currentWrecknaTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
     const freeTombTransfer = actor.character === 'wreckna' && Boolean(currentWrecknaTomb) && objectOnCell?.kind === 'tomb' && objectOnCell.id !== currentWrecknaTomb!.id && distance(currentWrecknaTomb!.position, cell) === 1;
     const wrecknaTombEntry = actor.character === 'wreckna' && objectOnCell?.kind === 'tomb' && distance(actor.position, cell) === 1 && (actor.movementRemaining >= 2 || freeTombTransfer);
-    const regularValid = objectOnCell?.kind !== 'pipe-button' && gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && (freeTombTransfer || (regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining)));
+    const regularValid = (objectOnCell?.kind !== 'pipe-button' || (actor.spiritForm && !actor.traitBlocked)) && gameState.phase !== 'dance-through' && gameState.phase !== 'double-jump' && (!occupiedByObject || spiritPassSquare || wrecknaTombEntry || shadowBoxDestination || shadowTransitDestination) && (!occupiedByPlayer || swiftformPassSquare || spiritPassSquare || shadowTransitDestination) && (freeTombTransfer || (regularPath.length >= 1 && (wrecknaTombEntry ? actor.movementRemaining >= 2 : regularDistance <= actor.movementRemaining)));
     const force = gameState.forceThrow;
     const forceTarget = force?.targetKind === 'player' ? gameState.players[force.targetId as PlayerId] : gameState.objects.find((object) => object.id === force?.targetId);
     const forceDx = forceTarget ? cell.x - forceTarget.position.x : 0; const forceDy = forceTarget ? cell.y - forceTarget.position.y : 0;

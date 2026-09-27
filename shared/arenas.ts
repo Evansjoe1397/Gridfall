@@ -9,6 +9,7 @@ export type ArenaDefinition = {
   height: number;
   pillars: readonly string[];
   boxes: readonly string[];
+  boxSpawnGroups?: readonly (readonly string[])[];
   boxSpawnLocations?: Readonly<{
     highground: readonly string[];
     highgroundProtected: readonly string[];
@@ -114,7 +115,13 @@ for (const label of PIPE_HIGHGROUND) {
 }
 export const THE_PIPE_ARENA: ArenaDefinition = {
   id: 'pipe', name: 'The Pipe', playerCount: 2, width: 8, height: 8,
-  pillars: ['A5', 'H4'], boxes: [],
+  pillars: ['A5', 'H4'], boxes: ['B5', 'G4'],
+  boxSpawnGroups: [
+    ['A4', 'B4', 'C4', 'D4', 'D1', 'D2', 'D3'],
+    ['E5', 'E6', 'E7', 'E8', 'F5', 'G5', 'H5'],
+    ['A6', 'B6', 'C6', 'A7', 'B7', 'C7', 'C8'],
+    ['F1', 'F2', 'G2', 'H2', 'F3', 'G3', 'H3'],
+  ],
   highground: PIPE_HIGHGROUND,
   highgroundProtected: [...pipeAdjacent].filter((label) => !PIPE_HIGHGROUND.includes(label) && !['A5', 'H4'].includes(label)),
   slideSquares: ['C1', 'E1', 'E2', 'E3', 'D6', 'D7', 'D8', 'F8'],
@@ -125,6 +132,10 @@ export const THE_PIPE_ARENA: ArenaDefinition = {
   bases: { P1: ['A1', 'A2'], P2: ['H8', 'H7'], P3: [] },
   startingSquares: { P1: 'A2', P2: 'H7' },
 };
+
+export function randomPipeBoxSpawns(random: () => number = Math.random): string[] {
+  return THE_PIPE_ARENA.boxSpawnGroups!.map((group) => group[Math.min(group.length - 1, Math.floor(random() * group.length))]);
+}
 
 export function randomTrenchBoxSpawns(random: () => number = Math.random): string[] {
   const pick = <T>(values: readonly T[]): T => values[Math.min(values.length - 1, Math.floor(random() * values.length))];

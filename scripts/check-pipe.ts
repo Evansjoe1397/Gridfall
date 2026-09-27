@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
-import { THE_PIPE_ARENA } from '../shared/arenas.ts';
-import { applyCommand, canAttackTargetSquare, createPipeTestState, hasLineOfSight, isShallowWater, movementCost, movementPath, type Cell, type GameState } from '../shared/game.ts';
+import { THE_PIPE_ARENA, randomPipeBoxSpawns } from '../shared/arenas.ts';
+import { applyCommand, canAttackTargetSquare, createMultiplayerState, createPipeTestState, hasLineOfSight, isShallowWater, movementCost, movementPath, type Cell, type GameState } from '../shared/game.ts';
 
 const cell = (label: string): Cell => ({ x: label.charCodeAt(0) - 64, y: Number(label.slice(1)) - 1 });
 const step = (state: GameState, command: Parameters<typeof applyCommand>[1]): GameState => {
   const result = applyCommand(state, command);
   assert.equal(result.ok, true, result.ok ? '' : result.error);
   return result.state;
+};
+const boxLabels = (state: GameState): string[] => state.objects.filter((object) => object.kind === 'wooden-box').map((object) => `${String.fromCharCode(64 + object.position.x)}${object.position.y + 1}`);
+const withoutBoxes = (state: GameState): GameState => { state.objects = state.objects.filter((object) => object.kind !== 'wooden-box'); return state; };
+const checkPipeBoxes = (state: GameState): void => {
+  const boxes = boxLabels(state);
+  assert.equal(boxes.length, 6, 'A Pipe match starts with exactly six Boxes.');
+  assert.equal(new Set(boxes).size, 6, 'Boxes cannot share a Square.');
+  assert.deepEqual(boxes.slice(0, 2), ['B5', 'G4'], 'The two fixed Boxes always spawn.');
+  THE_PIPE_ARENA.boxSpawnGroups!.forEach((group) => assert.equal(boxes.filter((label) => group.includes(label)).length, 1, 'Each random group contributes one Box.'));
+  for (const label of boxes) assert.ok(![...THE_PIPE_ARENA.pillars, ...THE_PIPE_ARENA.buttonSquares!, ...THE_PIPE_ARENA.bases.P1, ...THE_PIPE_ARENA.bases.P2].includes(label), 'A Box cannot overlap a Column, Button, or Base.');
 };
 
 assert.deepEqual(THE_PIPE_ARENA.pillars, ['A5', 'H4']);
@@ -15,15 +25,35 @@ assert.deepEqual(THE_PIPE_ARENA.slideSquares, ['C1', 'E1', 'E2', 'E3', 'D6', 'D7
 assert.equal(THE_PIPE_ARENA.trenchSquares?.length, 18);
 assert.ok(THE_PIPE_ARENA.highgroundProtected.includes('B5'));
 assert.ok(!THE_PIPE_ARENA.highgroundProtected.includes('A5'));
+assert.deepEqual(randomPipeBoxSpawns(() => 0), ['A4', 'E5', 'A6', 'F1']);
+assert.deepEqual(randomPipeBoxSpawns(() => 0.999), ['D3', 'H5', 'C8', 'H3']);
 
 let state = createPipeTestState(true, 'shinobi', 'dummy');
+checkPipeBoxes(state);
+checkPipeBoxes(createMultiplayerState({ P1: 'shinobi', P2: 'orkk', P3: 'magician' }, 'pipe'));
+for (let index = 0; index < 20; index++) checkPipeBoxes(createPipeTestState(true, 'shinobi', 'dummy'));
 assert.deepEqual(state.players.P1.position, cell('A2'));
 assert.deepEqual(state.players.P2.position, cell('H7'));
 assert.equal(isShallowWater(state, cell('B8')), false);
 assert.equal(canAttackTargetSquare(state, cell('D4'), cell('B5')), true);
 assert.equal(hasLineOfSight(state, cell('C4'), cell('C2')), true, 'The Button does not block line of sight.');
+withoutBoxes(state);
 
-const attackState = createPipeTestState(true, 'shinobi', 'dummy');
+const spiritButton = withoutBoxes(createPipeTestState(true, 'john-christ', 'dummy'));
+spiritButton.players.P1.position = cell('B3');
+spiritButton.players.P1.freeMoveUsed = true;
+spiritButton.players.P1.movementRemaining = 2;
+assert.equal(applyCommand(spiritButton, { type: 'move', playerId: 'P1', to: cell('C3') }).ok, false, 'A character outside Spirit Form cannot enter the Button Square.');
+spiritButton.players.P1.spiritForm = true;
+let throughButton = step(spiritButton, { type: 'move', playerId: 'P1', to: cell('C3') });
+assert.equal(throughButton.players.P1.spiritObjectUnderfoot, 'pipe-button-1');
+assert.equal(applyCommand(throughButton, { type: 'end-turn', playerId: 'P1' }).ok, false, 'John must walk through the Button rather than stop there.');
+throughButton = step(throughButton, { type: 'move', playerId: 'P1', to: cell('D3') });
+assert.deepEqual(throughButton.players.P1.position, cell('D3'));
+assert.equal(throughButton.players.P1.spiritObjectUnderfoot, null);
+assert.ok(throughButton.objects.some((object) => object.id === 'pipe-button-1'), 'Spirit traversal leaves the Button intact.');
+
+const attackState = withoutBoxes(createPipeTestState(true, 'shinobi', 'dummy'));
 attackState.players.P1.position = cell('B3');
 attackState.players.P2.position = cell('B7');
 attackState.players.P1.hand = [{ instanceId: 'pipe-attack', cardId: 'attack-2' }];
@@ -73,7 +103,7 @@ for (let index = 0; index < 4; index++) state = step(state, { type: 'end-turn', 
 assert.equal(isShallowWater(state, cell('B8')), false, 'Flooding expires after four player turns including activation.');
 
 function waterSlide(from: string, slide: string, floodedZone: 1 | 2, enemyAt = 'H7'): GameState {
-  const slideState = createPipeTestState(false, 'shinobi', 'orkk');
+  const slideState = withoutBoxes(createPipeTestState(false, 'shinobi', 'orkk'));
   slideState.phase = 'active';
   slideState.activePlayerId = 'P1';
   slideState.players.P1.position = cell(from);
@@ -99,7 +129,7 @@ const blockedCollisionSlide = waterSlide('D3', 'E3', 2, 'H3');
 assert.deepEqual(blockedCollisionSlide.players.P1.position, cell('G3'), 'The slider stops before a character that cannot be pushed past the board edge.');
 assert.deepEqual(blockedCollisionSlide.players.P2.position, cell('H3'));
 assert.equal(blockedCollisionSlide.players.P2.hp, blockedCollisionSlide.players.P2.maxHp - 1);
-const unfloodedSlide = createPipeTestState(false, 'shinobi', 'orkk');
+const unfloodedSlide = withoutBoxes(createPipeTestState(false, 'shinobi', 'orkk'));
 unfloodedSlide.phase = 'active';
 unfloodedSlide.activePlayerId = 'P1';
 unfloodedSlide.players.P1.position = cell('D3');

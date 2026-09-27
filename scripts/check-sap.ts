@@ -30,7 +30,7 @@ function begin(state: GameState, level: 1 | 2 | 3): GameState {
 
 const sap = CARDS.find((card) => card.id === 'sap');
 assert.deepEqual(sap?.levelEffects, [
-  'Target in Range chooses a Defend card to Reveal',
+  'A target in Range chooses a Defend Card to reveal',
   '+2 Range',
   'Force the target to discard the highest occupied Perk from Spell Echo, checking level 3, then 2, then 1',
 ]);
