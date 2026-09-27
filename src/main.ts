@@ -1,5 +1,9 @@
+import { CounterspellVisual } from './counterspellVisual.ts';
 import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
-import { isLoganSpell, LoganAttackVisual, type LoganSpell } from './loganAttackVisuals.ts';
+import { isLoganSpell, LoganAttackVisual, startLoganBoltSequence, type LoganSpell } from './loganAttackVisuals.ts';
+import { SnowballEffectVisual } from './snowballEffectVisual.ts';
+import { GrimoireCleanseVisual } from './grimoireCleanseVisual.ts';
+import { PreparationVisual } from './preparationVisual.ts';
 import { ManaShieldVisual } from './manaShieldVisuals.ts';
 import { clearFlurries, FLURRY_DURATION_MS, spawnFlurry, updateFlurries } from './flurryVisuals.ts';
 import './style.css';
@@ -59,7 +63,6 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Client, type Room } from '@colyseus/sdk';
 import { assign, createActor, setup } from 'xstate';
@@ -179,23 +182,16 @@ app.innerHTML = `
       </div>
       <section class="character-browser hidden" aria-labelledby="characterBrowserTitle">
         <header class="character-browser-heading">
-          <div><p class="eyebrow">GAME GUIDE</p><h2 id="characterBrowserTitle">Character Archive</h2></div>
-          <p>Select a fighter, drag their model to rotate it, and browse every character Perk.</p>
+          <h2 id="characterBrowserTitle">Character Archive</h2>
         </header>
         <nav class="character-browser-tabs" id="characterBrowserTabs" aria-label="Available characters"></nav>
         <div class="character-browser-layout">
           <div class="character-preview-stage" id="characterPreviewStage">
             <div class="character-preview-canvas" id="characterPreviewCanvas" aria-label="Rotatable character model"></div>
-            <div class="character-preview-styles" id="characterPreviewStyles" role="group" aria-label="Character preview style">
-              <button type="button" data-character-preview-style="solid" aria-pressed="true"><span class="solid"></span>Solid</button>
-              <button type="button" data-character-preview-style="cartoon" aria-pressed="false"><span class="cartoon"></span>Cartoon</button>
-              <button type="button" data-character-preview-style="hologram" aria-pressed="false"><span class="hologram"></span>Hologram</button>
-            </div>
-            <span class="character-preview-hint">DRAG TO ROTATE · SCROLL TO ZOOM</span>
           </div>
           <article class="character-browser-profile" id="characterBrowserProfile"></article>
           <section class="perk-browser" aria-labelledby="perkBrowserTitle">
-            <header><div><p class="eyebrow">CHARACTER LOADOUT</p><h3 id="perkBrowserTitle">Character Cards</h3></div><div class="perk-browser-controls"><button id="previousPerk" type="button" aria-label="Previous Card">←</button><span id="perkPosition"></span><button id="nextPerk" type="button" aria-label="Next Card">→</button></div></header>
+            <header><h3 id="perkBrowserTitle">Character Cards</h3><div class="perk-browser-controls"><button id="previousPerk" type="button" aria-label="Previous Card">←</button><span id="perkPosition"></span><button id="nextPerk" type="button" aria-label="Next Card">→</button></div></header>
             <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button><button type="button" data-browser-card-kind="status">Status cards</button><button type="button" class="hidden" data-browser-card-kind="blessings">Blessings</button></nav>
             <div class="perk-browser-track" id="perkBrowserTrack" tabindex="0"></div>
           </section>
@@ -576,6 +572,9 @@ function isWaitingForSelectedCardTarget() {
 let expirationRequestFor = 0;
 let combatAckRequestFor = 0;
 let combatRevealWasVisible = false;
+let pendingCounterspell: { from: THREE.Vector3; to: THREE.Vector3; empowered: boolean } | null = null;
+const counterspellVisuals: CounterspellVisual[] = [];
+let heldCounterspell: CounterspellVisual | null = null;
 let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
 let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
 let blockedCombatTargetId: PlayerId | null = null;
@@ -602,9 +601,11 @@ let orkkCombatImpactPending = false;
 const orkkAttackImpactWaits = new Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>();
 let johnCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; attackerWasInSpiritForm: boolean } | null = null;
 let johnCombatImpactPending = false;
-let loganCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: LoganSpell; consume: boolean; target: THREE.Vector3 } | null = null;
+let loganCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; cardId: LoganSpell; consume: boolean; secondBolt: boolean; target: THREE.Vector3 } | null = null;
 let loganCombatImpactPending = false;
-const loganAttackVisuals: LoganAttackVisual[] = [];
+const loganAttackVisuals: (LoganAttackVisual | GrimoireCleanseVisual | SnowballEffectVisual | PreparationVisual)[] = [];
+const loganPowerWaits = new Map<PlayerId, { launch: () => void; fallbackAt: number }>();
+const loganCastingPlayers = new Set<PlayerId>();
 let genericCombatImpactAt = 0;
 let pendingFlurryAttack: { startsAt: number; start: () => void } | null = null;
 type BlinkCombatPresentation = { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean };
@@ -624,9 +625,15 @@ function pendingSpiritVisualAttack(playerId: PlayerId) {
   return pending?.attackerId === playerId && pending.attackerWasInSpiritForm ? pending : undefined;
 }
 function resetCombatSummary() {
+  for (const playerId of loganCastingPlayers) applyWizardPowerVisualIntent({ kind: 'cancel', playerId });
+  loganCastingPlayers.clear();
+  loganPowerWaits.clear();
   loganCombatAttacker = null;
   loganCombatImpactPending = false;
   for (const visual of loganAttackVisuals.splice(0)) visual.dispose();
+  pendingCounterspell = null;
+  heldCounterspell = null;
+  for (const visual of counterspellVisuals.splice(0)) visual.dispose();
   pendingManaShield = null;
   manaShieldVisual?.effect.dispose();
   manaShieldVisual = null;
@@ -714,10 +721,6 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
 };
 const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
-const CHARACTER_BROWSER_TITLES: Record<SelectableCharacter, string> = {
-  shinobi: 'Lightsaber Wizard', orkk: 'Wizard of Strength', magician: 'The Magician',
-  'john-christ': 'Unduying Wizard', spectre: 'The Living Shadow', wreckna: 'The Lich', merylin: 'Knightress Wizard',
-};
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const portrait = characterProfile(character);
@@ -1282,6 +1285,8 @@ function renderUI() {
   if (hudPlayerIds[2]) renderFighter(hudPlayerIds[2], 'p3Stats', 'right');
   renderOpponentHand();
   renderSpellEchoBars();
+  const selectingDiscard = gameState.phase.endsWith('-discard') && gameState.phase !== 'choosing-mind-tricks-discard';
+  byId('hand').classList.toggle('discard-selection', selectingDiscard);
   renderHand();
   renderFlurryModal();
   renderArmDaWizModal();
@@ -1371,6 +1376,7 @@ function renderUI() {
   if (gameState.phase === 'shizzle-move') prompt.textContent = `Shizzle Consume: ${gameState.shizzle!.stepsRemaining} one-Square moves remain${gameState.shizzle!.started ? '' : ' · Escape to cancel before moving'}`;
   if (selectedTestObjectId) prompt.textContent = 'WOODEN BOX SELECTED · click an empty highlighted Square · Escape to cancel';
   if ((gameState.phase as string) === 'choosing-yamato-move') prompt.textContent = 'Yamato: select an empty adjacent Square, or choose Stay in Place';
+  prompt.classList.toggle('discard-selection', selectingDiscard);
   prompt.classList.toggle('visible', Boolean(prompt.textContent));
   byId('directPerkButton').classList.toggle('hidden', select.kind !== 'perk');
   const choosingMindTricks = gameState.phase === 'choosing-mind-tricks-discard';
@@ -2291,6 +2297,12 @@ function renderCombatReveal() {
     modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
     let flurryAttackNotBefore = 0;
     if (combatRevealWasVisible) {
+      if (pendingCounterspell) {
+        const { from, to, empowered } = pendingCounterspell;
+        heldCounterspell = new CounterspellVisual(scene, from, to, empowered, performance.now());
+        counterspellVisuals.push(heldCounterspell);
+        pendingCounterspell = null;
+      }
       if (pendingManaShield) {
         manaShieldVisual?.effect.dispose();
         const { defenderId, replicaId, position } = pendingManaShield;
@@ -2353,15 +2365,23 @@ function renderCombatReveal() {
     if (loganAttack) {
       loganCombatAttacker = null;
       playLoganSpell(loganAttack.attackerId, loganAttack.cardId,
-        blink ? worldPosition(blink.from) : loganAttack.target, loganAttack.consume, () => {
+        blink ? worldPosition(blink.from) : loganAttack.target, loganAttack.consume, (index, last) => {
           showMissedCombatCallout();
+          if (loganAttack.cardId === 'mana-barrage') {
+            // Keep the second hit and all defensive follow-ups queued at hit one.
+            syncBoard();
+            const timing = index === 0 ? 'mana-barrage-combat' : 'mana-barrage-bonus';
+            const shown = releaseCombatDamageVisuals(timing, !last);
+            if (!shown && !blink?.missed) spawnDamageVisual(loganAttack.defenderId, 0, false, false, index === 1);
+          }
+          if (!last) return;
           loganCombatImpactPending = false;
           genericCombatImpactAt = 0;
           postCombatVisualNotBefore = performance.now();
           syncBoard();
           releaseCombatDamageVisuals();
           refreshCombatImpactUi();
-        });
+        }, loganAttack.secondBolt);
     }
     const swing = merylinCombatAttacker;
     if (swing && gameState.phase !== 'choosing-frostmourne') {
@@ -2439,6 +2459,8 @@ function renderCombatReveal() {
     ? 'spirit'
     : portraitAttacker?.character === 'spectre' && portraitPending?.attackerBody === 'replica'
     ? 'replica'
+    : portraitAttacker?.character === 'orkk' && portraitAttacker.shieldEquipped
+    ? 'shield'
     : reveal.attackCardId === 'lightbringer'
     && reveal.attackModifiers?.some((modifier) => modifier.value > 0 && modifier.source.includes('High Ground'))
     ? 'highground'
@@ -2448,6 +2470,8 @@ function renderCombatReveal() {
     ? 'spirit'
     : portraitDefender?.character === 'spectre' && portraitPending?.defenderBody === 'replica'
     ? 'replica'
+    : portraitDefender?.character === 'orkk' && portraitDefender.shieldEquipped
+    ? 'shield'
     : undefined;
   const portraitAttack = portraitAttacker
     ? combatPortrait(portraitAttacker.character, 'attack', reveal.attackCardId, attackPortraitVariant)
@@ -2464,6 +2488,11 @@ function renderCombatReveal() {
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const pendingSwing = gameState.pendingAttack;
+  pendingCounterspell = pendingSwing && reveal.counterspell
+    ? { from: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position).add(new THREE.Vector3(0, 1.4, 0)),
+      to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
+      empowered: reveal.counterspell.empowered }
+    : null;
   pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield'
     ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
       position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
@@ -2500,6 +2529,7 @@ function renderCombatReveal() {
   loganCombatAttacker = pendingSwing && isLoganSpell(pendingSwing.cardId)
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId,
       cardId: pendingSwing.cardId, consume: Boolean(pendingSwing.attackerUsedManaConsume),
+      secondBolt: pendingSwing.cardId === 'mana-barrage' && Boolean(pendingSwing.attackerUsedManaConsume || pendingSwing.manaBarrageManaApplied),
       target: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
     : null;
   combatRevealWasVisible = true;
@@ -3556,7 +3586,7 @@ lordaeronTombGroup.name = 'LordaeronHighgroundTomb';
 scene.add(lordaeronTombGroup);
 let lordaeronTombModel: THREE.Group | null = null;
 const lastObjectVisualCells = new Map<string, string>();
-type PendingDamageVisual = { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerRouteProgress?: number; triggered?: boolean };
+type PendingDamageVisual = { presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; triggerRouteProgress?: number; triggered?: boolean };
 type ObjectDestructionPiece = {
   mesh: THREE.Mesh;
   origin: THREE.Vector3;
@@ -3569,13 +3599,21 @@ const objectMovementAnimations = new Map<string, { animationId?: string; from: T
 const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const combatDamageEventIds = new Set<string>();
 const pendingCombatDamageVisuals: PendingDamageVisual[] = [];
-function releaseCombatDamageVisuals() {
+function releaseCombatDamageVisuals(timing?: 'mana-barrage-combat' | 'mana-barrage-bonus', deferFatal = false) {
   // This callback also runs for fully blocked hits, where there are no damage visuals.
-  manaShieldVisual?.effect.impact(performance.now());
-  for (const damage of pendingCombatDamageVisuals.splice(0)) {
-    spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
+  if (timing !== 'mana-barrage-bonus') manaShieldVisual?.effect.impact(performance.now());
+  // Defensive after-combat effects wait for the final hit of multi-hit attacks.
+  if (!timing && heldCounterspell) {
+    heldCounterspell.impact(performance.now());
+    heldCounterspell = null;
   }
-  combatDamageEventIds.clear();
+  const ready = pendingCombatDamageVisuals.filter(damage => !timing || damage.presentationTiming === timing);
+  for (const damage of ready) {
+    pendingCombatDamageVisuals.splice(pendingCombatDamageVisuals.indexOf(damage), 1);
+    spawnDamageVisual(damage.playerId, damage.amount, damage.collision, !deferFatal && damage.fatal, damage.effect);
+  }
+  if (!timing) combatDamageEventIds.clear();
+  return ready.length;
 }
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
@@ -3736,6 +3774,17 @@ renderer.setAnimationLoop((time) => {
   updateObjectMovement(time);
   updateObjectImpactAnimations(time);
   updateSpellProjectiles(time);
+  for (const [playerId, wait] of loganPowerWaits) {
+    const group = dummyGroups.get(playerId);
+    const state = group?.userData.wizardAnimation as WizardAnimationState | undefined;
+    const raised = state?.current === 'Power' && state.actions.Power.time >= state.actions.Power.getClip().duration * 0.9;
+    // A valid clip must reach its raised pose even if playback is unusually slow.
+    if (!raised && state?.current === 'Power' && state.deathEndsAt === undefined) continue;
+    if (!raised && time < wait.fallbackAt && (state || group?.userData.characterModelLoadSettled === false)) continue;
+    loganPowerWaits.delete(playerId);
+    applyWizardPowerVisualIntent({ kind: 'resolve', playerId });
+    wait.launch();
+  }
   for (let i = loganAttackVisuals.length - 1; i >= 0; i--) {
     if (!loganAttackVisuals[i].update(time)) loganAttackVisuals.splice(i, 1);
   }
@@ -3873,6 +3922,13 @@ renderer.setAnimationLoop((time) => {
     if (!effect.update(time, target?.position)) manaShieldVisual = null;
   }
   updateDamageVisuals(time);
+  for (let i = counterspellVisuals.length - 1; i >= 0; i--) {
+    const visual = counterspellVisuals[i];
+    if (!visual.update(time)) {
+      if (heldCounterspell === visual) heldCounterspell = null;
+      counterspellVisuals.splice(i, 1);
+    }
+  }
   updateArcaneBarriers(time);
   updateFlurries(time);
   updatePendingDeathAnimations(time);
@@ -4802,6 +4858,9 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (!group.userData.facingSide) return;
     if (gameState.players[playerId]?.hp <= 0) return;
     if (movementAnimations.has(playerId)) return;
+    const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
+    if (group.userData.character === 'magician' &&
+      (loganCastingPlayers.has(playerId) || wizard?.power || group.userData.pendingWizardPowerVisualIntent)) return;
     const merylinAnimation = group.userData.merylinAnimation as MerylinAnimation | undefined;
     if (merylinAnimation?.isAttacking || merylinImpactWaits.has(playerId)) {
       const yaw=group.userData.merylinAttackYaw as number | undefined;
@@ -5682,7 +5741,6 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
       if (shieldGroup.userData.ownerId === playerId && !objectMovementAnimations.has(objectId)) settleOrkkShieldAtRest(shieldGroup);
     });
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
-    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
     const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'CharacterAttack' | 'BoxAttack' | undefined;
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
   } catch (error) {
@@ -6065,22 +6123,43 @@ function updateBlessingPresentationQueues(time: number) {
   }
 }
 
-function playLoganSpell(playerId: PlayerId, cardId: LoganSpell, target: THREE.Vector3, consume: boolean, impact: () => void) {
+function playLoganSpell(playerId: PlayerId, cardId: LoganSpell, target: THREE.Vector3, consume: boolean,
+  impact: (index: number, last: boolean) => void, secondBolt = false) {
   const group = dummyGroups.get(playerId);
-  const from = (group?.position ?? worldPosition(gameState.players[playerId].position)).clone().add(new THREE.Vector3(0, 1.35, 0));
   const to = target.clone().add(new THREE.Vector3(0, 1.05, 0));
-  if (group) group.rotation.y = characterFacingRotation(group, to.x - from.x, to.z - from.z);
-  // Keep the charge clear of the body and hat, including at melee range.
-  from.addScaledVector(to.clone().sub(from).normalize(), 0.45);
-  loganAttackVisuals.push(new LoganAttackVisual(scene, from, to, cardId, consume, performance.now(), impact));
+  loganCastingPlayers.add(playerId);
+  applyWizardPowerVisualIntent({ kind: 'cast', playerId, target: to, hold: true });
+  loganPowerWaits.set(playerId, { fallbackAt: performance.now() + 8000, launch: () => {
+    startLoganBoltSequence(secondBolt, hit => {
+      const hand = group?.getObjectByName('Wizard_Power_LeftHand_Controller');
+      group?.updateWorldMatrix(true, true);
+      const from = hand?.getWorldPosition(new THREE.Vector3())
+        ?? (group?.position ?? worldPosition(gameState.players[playerId].position)).clone().add(new THREE.Vector3(0, 1.35, 0));
+      from.addScaledVector(to.clone().sub(from).normalize(), 0.2);
+      loganAttackVisuals.push(cardId === 'grimoire-cleanse'
+        ? new GrimoireCleanseVisual(scene, from, to, consume, performance.now(), hit)
+        : cardId === 'snowball-effect'
+        ? new SnowballEffectVisual(scene, from, to, consume, performance.now(), hit)
+        : new LoganAttackVisual(scene, from, to, cardId, consume, performance.now(), hit));
+    }, (index, last) => {
+      if (last) loganCastingPlayers.delete(playerId);
+      impact(index, last);
+    });
+  } });
 }
 
 function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId?: string, target?: THREE.Vector3, attackerWasInSpiritForm?: boolean): number {
   if (isLoganSpell(cardId) && target) {
-    playLoganSpell(playerId, cardId, target, gameState.players[playerId].manaMode === 'consume', impact);
+    const consume = gameState.players[playerId].manaMode === 'consume';
+    playLoganSpell(playerId, cardId, target, consume, (_index, last) => { if (last) impact(); }, cardId === 'mana-barrage' && consume);
     return Number.POSITIVE_INFINITY;
   }
   const group = dummyGroups.get(playerId);
+  if (group?.userData.character === 'magician' && target) {
+    applyWizardPowerVisualIntent({ kind: 'cast', playerId, target: target.clone().add(new THREE.Vector3(0, 1.05, 0)), hold: false });
+    const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
+    return wizard ? Math.max(500, wizard.actions.Power.getClip().duration * 900) : 650;
+  }
   if (group?.userData.character === 'merylin') {
     playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
     return Number.POSITIVE_INFINITY;
@@ -6421,7 +6500,6 @@ function installOrkkRageCoreGlow(root: THREE.Group, model: THREE.Group) {
   });
   const shell = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16), shellMaterial);
   shell.name = 'OrkkRageCoreShell';
-  shell.userData.preservePreviewMaterial = true;
   shell.renderOrder = 7;
   const inverseScale = effect.userData.inverseWorldScale as THREE.Vector3;
   shell.userData.baseScale = new THREE.Vector3(0.38 * inverseScale.x, 0.32 * inverseScale.y, 0.32 * inverseScale.z);
@@ -6721,7 +6799,6 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     const playerId = root.userData.playerId as PlayerId | undefined;
     if (playerId && gameState.players[playerId]) syncManaOrbVisual(root, gameState.players[playerId]);
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
-    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
     const pendingPowerIntent = root.userData.pendingWizardPowerVisualIntent as WizardPowerVisualIntent | undefined;
     if (pendingPowerIntent) {
       delete root.userData.pendingWizardPowerVisualIntent;
@@ -6768,6 +6845,7 @@ function playWizardDeathAnimation(playerId: PlayerId, startedAt: number): number
 }
 
 function wizardPowerEffectFinished(power: WizardPowerRuntime, playerId: PlayerId) {
+  if (loganCastingPlayers.has(playerId)) return false;
   if (!power.resolvedAt || performance.now() - power.resolvedAt < 120) return false;
   if (spellProjectileAnimations.some((animation) => animation.casterId === playerId)) return false;
   if (movementAnimations.has(playerId)) return false;
@@ -6885,6 +6963,7 @@ const SPECTRE_WALK_TIME_SCALE = 1;
 const SPECTRE_RUN_FRAMES_PER_CELL = 6;
 const SPECTRE_RUN_TIME_SCALE = 1.1;
 const SPECTRE_RELOCATE_SWAP_MS = 280;
+const LIGHTBRINGER_SWAP_MS = 180;
 const SPECTRE_SCALE = 1.38;
 const SPECTRE_REPLICA_SCALE = 1.32;
 type SpectreAnimationState = {
@@ -6913,6 +6992,11 @@ function spectreMovementDuration(travelSquares: number) {
 
 const perkLabelScreenPosition = new THREE.Vector3();
 function spawnPerkUseLabel(event: PerkUseEvent) {
+  if (event.cardId === 'preparation') {
+    const character = dummyGroups.get(event.playerId);
+    if (character) loganAttackVisuals.push(new PreparationVisual(scene, character.position,
+      performance.now(), event.level ?? 1, character));
+  }
   if (!perkLabelsVisible) return;
   perkUseLabels.get(event.playerId)?.element.remove();
   const element = document.createElement('div');
@@ -7091,7 +7175,6 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     delete root.userData.pendingSpectreAnimation;
     playSpectreAnimation(root, pending ?? (replica ? 'Arise' : 'Idle'), 0);
     mixer.update(0);
-    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
   } catch (error) {
     console.error('Failed to load Spectre model; keeping procedural fallback.', error);
   }
@@ -7273,7 +7356,6 @@ async function attachMerylinModel(root: THREE.Group, body: THREE.Group) {
         proceduralDeathAnimations.delete(playerId);
       }
     }
-    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
   } catch (error) {
     console.error('Failed to load Merylin model; keeping procedural fallback.', error);
   } finally {
@@ -7753,7 +7835,6 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     }
     model.visible = !spirit;
     if (playerId) updateSpiritFormVisual(root, Boolean(gameState.players[playerId].spiritForm));
-    if ([...characterPreviewModels.values()].includes(root)) applyCharacterPreviewStyle(root);
     if (!spirit) void attachJohnModel(root, body, true);
     else { root.userData.characterModelLoadSettled = true; root.userData.deathAnimationAvailable = true; }
   } catch (error) {
@@ -8383,7 +8464,6 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
       startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack);
     }
     root.userData.deathAnimationAvailable = true;
-    if (root === characterPreviewModels.get('shinobi')) applyCharacterPreviewStyle(root);
     const playerId = root.userData.playerId as PlayerId | undefined;
     if (playerId) updateSwiftformVisual(root, obiWanHologramActive(root, playerId));
     const pendingPowerIntents = root.userData.pendingObiWanPowerVisualIntents as ObiWanPowerVisualIntent[] | undefined;
@@ -9414,16 +9494,15 @@ function syncBoard() {
       && previousKey !== targetKey
       && waitingBarrier?.arcaneBarrier?.targetPlayerId === id
       && !waitingBarrier.collided;
-    const instantLightbringerSwap = previousKey !== undefined
+    const fastLightbringerSwap = previousKey !== undefined
       && previousKey !== targetKey
       && gameState.players[id].visualMovement?.kind === 'lightbringer-swap';
     if (deferMovementUntilCombatImpact || deferMovementUntilBarrier) {
       // Knee Blast changes the authoritative Square during combat resolution,
       // but its visible push must begin on Da Orkk's authored hit frame.
       // Arcane Barrier likewise waits for the attack's after-combat visuals.
-    } else if (instantLightbringerSwap) {
-      group.position.copy(target);
-      movementAnimations.delete(id);
+    } else if (fastLightbringerSwap) {
+      movementAnimations.set(id, { from: group.position.clone(), to: target.clone(), startedAt: performance.now(), duration: LIGHTBRINGER_SWAP_MS, teleport: true });
     } else if (!previousKey) {
       group.position.copy(target);
       faceCharacterTowardNearestOpponent(group, id);
@@ -9510,6 +9589,9 @@ function syncBoard() {
             spawnSpectreRelocateTether(id, recordedMovement.sourceObjectId);
           }
           if (portalTeleport) {
+            if (recordedMovement?.sourceCardId === 'preparation') {
+              loganAttackVisuals.push(new PreparationVisual(scene, from, movementStartedAt, 1, undefined, target));
+            }
             portalTeleports.get(id)?.visual.dispose();
             portalTeleports.set(id, { movement: movementAnimations.get(id)!, visual: new PortalTeleport(group, from, target.clone(), scene), character: group });
           }
@@ -9662,7 +9744,7 @@ function syncBoard() {
       const belongsToDeferredShieldBashRecall = event.damage.triggerAnimationId === deferredOrkkCombatAttack?.recallAnimationId;
       if (combatDamageEventIds.has(event.id)) {
         processedObjectPushAnimations.add(event.id);
-        pendingCombatDamageVisuals.push({ playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect });
+        pendingCombatDamageVisuals.push({ playerId: event.damage.playerId, amount: event.damage.amount, collision: event.damage.collision, fatal: event.damage.fatal, effect: event.damage.effect, presentationTiming: event.damage.presentationTiming });
         return;
       }
       if (gameState.combatReveal || (combatAnimationImpactPending() && !belongsToDeferredShieldBashRecall && event.damage.presentationTiming !== 'flurry')) return;
@@ -9689,6 +9771,16 @@ function syncBoard() {
       if (group) group.position.copy(worldPosition(event.to));
       objectMovementAnimations.delete(event.objectId);
       lastObjectVisualCells.set(event.objectId,cellLabel(event.to));
+      return;
+    }
+    if (event.fastSwap) {
+      processedObjectPushAnimations.add(event.id);
+      const group = objectGroups.get(event.objectId);
+      if (group) objectMovementAnimations.set(event.objectId, {
+        animationId: event.id, from: group.position.clone(), to: worldPosition(event.to), startedAt: performance.now(), duration: LIGHTBRINGER_SWAP_MS,
+        collided: false, dx: 0, dy: 0, preserveQuaternion: group.quaternion.clone(),
+      });
+      lastObjectVisualCells.set(event.objectId, cellLabel(event.to));
       return;
     }
     if (event.teleport) {
@@ -10080,7 +10172,7 @@ function updateSwiftformVisual(group: THREE.Group, active: boolean) {
       if (!active) return;
       materials = {
         original: child.material,
-        hologram: characterStyledMaterial(child.material, 'hologram'),
+        hologram: characterHologramMaterials(child.material),
         castShadow: child.castShadow,
       };
       swiftformHologramMaterials.set(child, materials);
@@ -11045,29 +11137,9 @@ let characterPreviewCamera: THREE.PerspectiveCamera | null = null;
 let characterPreviewControls: OrbitControls | null = null;
 let characterPreviewModel: THREE.Group | null = null;
 let characterPreviewComposer: EffectComposer | null = null;
-let characterPreviewOutlinePass: OutlinePass | null = null;
 const characterPreviewModels = new Map<SelectableCharacter, THREE.Group>();
-type CharacterPreviewStyle = 'solid' | 'cartoon' | 'hologram';
-type CharacterPreviewMaterialSet = {
-  original: THREE.Material | THREE.Material[];
-  cartoon: THREE.Material | THREE.Material[];
-  hologram: THREE.Material | THREE.Material[];
-  castShadow: boolean;
-};
-let characterPreviewStyle: CharacterPreviewStyle = 'solid';
 const CHARACTER_PREVIEW_FORM_INTERVAL_MS = 10_000;
 const MERYLIN_PREVIEW_PHASE_INTERVAL_MS = 5_000;
-const characterPreviewMaterials = new WeakMap<THREE.Mesh, CharacterPreviewMaterialSet>();
-const characterPreviewToonGradient = new THREE.DataTexture(new Uint8Array([
-  38, 38, 38, 255,
-  105, 105, 105, 255,
-  180, 180, 180, 255,
-  255, 255, 255, 255,
-]), 4, 1, THREE.RGBAFormat);
-characterPreviewToonGradient.minFilter = THREE.NearestFilter;
-characterPreviewToonGradient.magFilter = THREE.NearestFilter;
-characterPreviewToonGradient.generateMipmaps = false;
-characterPreviewToonGradient.needsUpdate = true;
 
 function initializeCharacterBrowser() {
   const tabs = byId('characterBrowserTabs');
@@ -11093,9 +11165,6 @@ function initializeCharacterBrowser() {
     event.preventDefault();
     perkTrack.scrollLeft += event.deltaY;
   }, { passive: false });
-  byId('characterPreviewStyles').querySelectorAll<HTMLButtonElement>('[data-character-preview-style]').forEach((button) => {
-    button.addEventListener('click', () => setCharacterPreviewStyle(button.dataset.characterPreviewStyle as CharacterPreviewStyle));
-  });
   setupCharacterPreview();
   selectBrowserCharacter(browserCharacter);
 }
@@ -11116,7 +11185,7 @@ function selectBrowserCharacter(character: SelectableCharacter) {
 
 function renderCharacterBrowserProfile() {
   const info = CHARACTER_SELECT_INFO[browserCharacter];
-  byId('characterBrowserProfile').innerHTML = `<span>${escapeHtml(CHARACTER_BROWSER_TITLES[browserCharacter])}</span><h3>${escapeHtml(info.name)}</h3><small>Playable character</small><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
+  byId('characterBrowserProfile').innerHTML = `<h3>${escapeHtml(info.name)}</h3><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
 }
 
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
@@ -11193,14 +11262,6 @@ function setupCharacterPreview() {
   characterPreviewRenderer.shadowMap.type = THREE.PCFShadowMap;
   characterPreviewComposer = new EffectComposer(characterPreviewRenderer);
   characterPreviewComposer.addPass(new RenderPass(characterPreviewScene, characterPreviewCamera));
-  characterPreviewOutlinePass = new OutlinePass(new THREE.Vector2(1, 1), characterPreviewScene, characterPreviewCamera);
-  characterPreviewOutlinePass.edgeStrength = 5.5;
-  characterPreviewOutlinePass.edgeThickness = 1.2;
-  characterPreviewOutlinePass.edgeGlow = 0;
-  characterPreviewOutlinePass.visibleEdgeColor.set(0x040706);
-  characterPreviewOutlinePass.hiddenEdgeColor.set(0x040706);
-  characterPreviewOutlinePass.selectedObjects = [];
-  characterPreviewComposer.addPass(characterPreviewOutlinePass);
   characterPreviewComposer.addPass(new OutputPass());
   host.appendChild(characterPreviewRenderer.domElement);
   characterPreviewControls = new OrbitControls(characterPreviewCamera, characterPreviewRenderer.domElement);
@@ -11226,7 +11287,6 @@ function setupCharacterPreview() {
   characterPreviewRenderer.setAnimationLoop((time) => {
     if (!characterPreviewRenderer || !characterPreviewScene || !characterPreviewCamera || !characterPreviewControls || document.querySelector('.character-browser')?.classList.contains('hidden')) { previousTime = time; return; }
     const delta = Math.min((time - previousTime) / 1000, .05); previousTime = time;
-    hologramShaderTime.value = time / 1000;
     characterPreviewControls.update();
     const orkkState = characterPreviewModel?.userData.orkkAnimation as OrkkAnimationState | undefined;
     const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
@@ -11260,36 +11320,6 @@ function setupCharacterPreview() {
     }
     characterPreviewComposer?.render();
   });
-}
-
-function characterCartoonMaterial(source: THREE.Material) {
-  const standard = source as THREE.MeshStandardMaterial;
-  const material = new THREE.MeshToonMaterial({
-    name: `${source.name || 'Character'}_PreviewCartoon`,
-    color: standard.color?.clone() ?? new THREE.Color(0xffffff),
-    map: standard.map ?? null,
-    normalMap: standard.normalMap ?? null,
-    normalScale: standard.normalScale?.clone() ?? new THREE.Vector2(1, 1),
-    aoMap: standard.aoMap ?? null,
-    aoMapIntensity: standard.aoMapIntensity ?? 1,
-    emissive: standard.emissive?.clone() ?? new THREE.Color(0x000000),
-    emissiveMap: standard.emissiveMap ?? null,
-    emissiveIntensity: Math.min(standard.emissiveIntensity ?? 1, 1.4),
-    alphaMap: standard.alphaMap ?? null,
-    alphaTest: source.alphaTest,
-    transparent: source.transparent,
-    opacity: source.opacity,
-    side: source.side,
-    gradientMap: characterPreviewToonGradient,
-  });
-  material.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <opaque_fragment>',
-      '#include <opaque_fragment>\ngl_FragColor.rgb *= 0.58;',
-    );
-  };
-  material.customProgramCacheKey = () => 'character-preview-cartoon-dark-v1';
-  return material;
 }
 
 function characterHologramMaterial(source: THREE.Material) {
@@ -11327,45 +11357,8 @@ function characterHologramMaterial(source: THREE.Material) {
   return material;
 }
 
-function characterStyledMaterial(source: THREE.Material | THREE.Material[], style: Exclude<CharacterPreviewStyle, 'solid'>) {
-  const create = (material: THREE.Material) => style === 'cartoon' ? characterCartoonMaterial(material) : characterHologramMaterial(material);
-  return Array.isArray(source) ? source.map((material) => create(material)) : create(source);
-}
-
-function applyCharacterPreviewStyle(root = characterPreviewModel ?? undefined) {
-  if (!root) return;
-  root.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return;
-    if (child.userData.preservePreviewMaterial) return;
-    let materials = characterPreviewMaterials.get(child);
-    if (!materials) {
-      materials = {
-        original: child.material,
-        cartoon: characterStyledMaterial(child.material, 'cartoon'),
-        hologram: characterStyledMaterial(child.material, 'hologram'),
-        castShadow: child.castShadow,
-      };
-      characterPreviewMaterials.set(child, materials);
-    }
-    child.material = characterPreviewStyle === 'solid' ? materials.original : materials[characterPreviewStyle];
-    child.castShadow = characterPreviewStyle === 'hologram' ? false : materials.castShadow;
-  });
-  if (characterPreviewOutlinePass) {
-    characterPreviewOutlinePass.selectedObjects = characterPreviewStyle === 'cartoon' && root === characterPreviewModel ? [root] : [];
-  }
-}
-
-function syncCharacterPreviewStyleControls() {
-  const controls = byId('characterPreviewStyles');
-  controls.querySelectorAll<HTMLButtonElement>('[data-character-preview-style]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.characterPreviewStyle === characterPreviewStyle));
-  });
-}
-
-function setCharacterPreviewStyle(style: CharacterPreviewStyle) {
-  characterPreviewStyle = style;
-  syncCharacterPreviewStyleControls();
-  applyCharacterPreviewStyle();
+function characterHologramMaterials(source: THREE.Material | THREE.Material[]) {
+  return Array.isArray(source) ? source.map(characterHologramMaterial) : characterHologramMaterial(source);
 }
 
 function showCharacterPreviewModel(character: SelectableCharacter) {
@@ -11392,8 +11385,6 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
   // game-facing convention so an archive preview starts face-forward.
   model.rotation.set(0, model.userData.facingSide === 'positive-z' ? 0 : Math.PI, 0);
   characterPreviewScene.add(model);
-  syncCharacterPreviewStyleControls();
-  applyCharacterPreviewStyle(model);
   characterPreviewCamera?.position.set(0, 1.55, character === 'magician' ? 6.1 : 5.4);
   characterPreviewControls?.target.set(0, character === 'magician' ? 1.55 : 1.35, 0);
   characterPreviewControls?.update();

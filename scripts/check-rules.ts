@@ -1519,6 +1519,8 @@ assert.equal(lightbringerSwap.ok, true, 'Lightbringer can choose to swap places 
 if (lightbringerSwap.ok) {
   assert.deepEqual(lightbringerSwap.state.players.P1.position, { x: 3, y: 2 }, 'Lightbringer moves Merylin onto the target\'s original Square.');
   assert.deepEqual(lightbringerSwap.state.players.P2.position, { x: 2, y: 2 }, 'Lightbringer moves the target onto Merylin\'s original Square.');
+  assert.equal(lightbringerSwap.state.players.P1.visualMovement?.kind, 'lightbringer-swap', 'Merylin uses the fast swap presentation.');
+  assert.equal(lightbringerSwap.state.players.P2.visualMovement?.kind, 'lightbringer-swap', 'The Defender uses the fast swap presentation.');
   assert.equal(lightbringerSwap.state.pendingAttack?.attackValue, 6, 'Lightbringer adds a doubled base High Ground bonus of 2 to its Attack Value 4 after swapping onto High Ground.');
   assert.equal(lightbringerSwap.state.pendingAttack?.attackModifiers?.some((modifier) => modifier.value === 2 && modifier.source.includes('High Ground')), true, 'Lightbringer records its High Ground x2 as one additive +2 modifier.');
 }

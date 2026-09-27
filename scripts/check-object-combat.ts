@@ -147,16 +147,17 @@ for (const swap of [true, false]) {
   assert.deepEqual(state.players.P1.position, swap ? { x: 3, y: 2 } : { x: 2, y: 2 });
   assert.equal(state.objects.some((object) => object.id === 'target'), false);
   assert.equal(state.players.P1.actionsRemaining, initial.players.P1.actionsRemaining - 1);
-  const instantSwap=state.objectPushAnimations.find(event=>event.objectId==='target' && event.instantSwap);
+  const fastSwap=state.objectPushAnimations.find(event=>event.objectId==='target' && event.fastSwap);
   const attackEvent=state.objectPushAnimations.find(event=>event.objectId==='target' && event.attackAnimationPlayerId==='P1');
   if(swap) {
-    assert.equal(state.players.P1.visualMovement?.kind,'lightbringer-swap','Merylin swaps instantly instead of entering a walking route');
-    assert.ok(instantSwap,'The Box receives an instant visual swap event');
+    assert.equal(state.players.P1.visualMovement?.kind,'lightbringer-swap','Merylin uses a fast swap instead of a walking route');
+    assert.ok(fastSwap,'The Box receives a fast visual swap event');
     assert.ok(attackEvent);
-    assert.ok(state.objectPushAnimations.indexOf(instantSwap)<state.objectPushAnimations.indexOf(attackEvent),'The visual swap is applied before the Attack animation event');
+    assert.ok(state.objectPushAnimations.indexOf(fastSwap)<state.objectPushAnimations.indexOf(attackEvent),'The visual swap is applied before the Attack animation event');
+    assert.equal(attackEvent.waitForAnimationId, fastSwap.id, 'The Attack waits for the fast swap to finish');
   } else {
     assert.equal(state.players.P1.visualMovement?.kind,undefined);
-    assert.equal(instantSwap,undefined);
+    assert.equal(fastSwap,undefined);
   }
 }
 

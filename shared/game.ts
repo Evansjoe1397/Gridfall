@@ -352,12 +352,12 @@ export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'disca
 export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; defenderWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
+export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
 export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-sacrifice-tomb-square' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'finished';
-export type CombatReveal = { attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
+export type CombatReveal = { counterspell?: { empowered: boolean }; attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number; dakkothRangeBonus?: number; spellsingerExtraPerkUses?: number };
 export type GameState = { boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
@@ -1842,6 +1842,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.phase = 'choosing-lightbringer-swap' as GamePhase;
     return ok(state);
   }
+  let lightbringerSwapAnimationId: string | undefined;
   if (card.id === 'lightbringer' && lightbringerSwap) {
     const origin = { ...attackOrigin };
     const destination = { ...object.position };
@@ -1852,15 +1853,16 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
       player.visualMovement = { from: origin, path: [{ ...destination }], kind: 'lightbringer-swap' };
     }
     moveBoardObject(state, object, origin);
+    lightbringerSwapAnimationId = `${state.turn}-lightbringer-swap-object-${object.id}-${++instanceSequence}`;
     state.objectPushAnimations.push({
-      id: `${state.turn}-lightbringer-swap-object-${object.id}-${++instanceSequence}`,
+      id: lightbringerSwapAnimationId,
       objectId: object.id,
       from: destination,
       to: origin,
       dx: 0,
       dy: 0,
       collided: false,
-      instantSwap: true,
+      fastSwap: true,
     });
     attackOrigin = destination;
     state.log.unshift(`Lightbringer swapped places with ${object.name} before combat.`);
@@ -2050,13 +2052,13 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     state.danceThrough = { playerId: player.id, stepsRemaining: 3, enemyUnderfoot: null, objectUnderfoot: null, damagePrevented: false, pinnedEnemyIds: [] } as typeof state.danceThrough & { objectUnderfoot: string | null; pinnedEnemyIds: PlayerId[] };
     state.log.unshift('Dance Through: Obi Wan Shinobi may move 1 Square up to 3 times after attacking the Object.');
   }
-  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin' || player.character === 'shinobi' || (player.character === 'john-christ' && !attackerWasInSpiritForm)) {
+  if ((player.character === 'orkk' && object.kind === 'wooden-box') || player.character === 'merylin' || player.character === 'shinobi' || player.character === 'magician' || (player.character === 'john-christ' && !attackerWasInSpiritForm)) {
     const destruction = state.objectPushAnimations.slice(objectAnimationStart).find((event) => event.objectId === object.id && event.destroy);
     if (destruction) {
       destruction.attackAnimationPlayerId = player.id;
       destruction.attackCardId = card.id;
       destruction.attackerWasInSpiritForm = attackerWasInSpiritForm;
-      destruction.waitForAnimationId = shieldBashRecallAnimationId;
+      destruction.waitForAnimationId = lightbringerSwapAnimationId ?? shieldBashRecallAnimationId;
     }
     else state.objectPushAnimations.push({
       id: `${state.turn}-${player.character}-box-attack-${object.id}-${state.objectPushAnimations.length}`,
@@ -2069,7 +2071,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
       attackAnimationPlayerId: player.id,
       attackCardId: card.id,
       attackerWasInSpiritForm,
-      waitForAnimationId: shieldBashRecallAnimationId,
+      waitForAnimationId: lightbringerSwapAnimationId ?? shieldBashRecallAnimationId,
     });
   }
   if (card.id === 'moonlight') resolveMoonlightWave(state, player, attackOrigin, object.position);
@@ -4770,15 +4772,21 @@ function resolveLightbringerSwapDecision(state: GameState, playerId: PlayerId, s
     const attackerOrigin = { ...(attackerReplica?.position ?? attacker.position) };
     const defenderOrigin = { ...(defenderReplica?.position ?? defender.position) };
     const oldHighGround = pending.attackModifiers?.find((modifier) => modifier.source.includes('Lightbringer') && modifier.source.includes('High Ground'))?.value ?? 0;
-    if (attackerReplica) moveBoardObject(state, attackerReplica, defenderOrigin);
+    if (attackerReplica) {
+      moveBoardObject(state, attackerReplica, defenderOrigin);
+      state.objectPushAnimations.push({ id: `${state.turn}-lightbringer-swap-object-${attackerReplica.id}-${++instanceSequence}`, objectId: attackerReplica.id, from: attackerOrigin, to: defenderOrigin, dx: 0, dy: 0, collided: false, fastSwap: true });
+    }
     else {
       attacker.position = defenderOrigin;
-      attacker.visualMovement = { from: attackerOrigin, path: [{ ...defenderOrigin }] };
+      attacker.visualMovement = { from: attackerOrigin, path: [{ ...defenderOrigin }], kind: 'lightbringer-swap' };
     }
-    if (defenderReplica) moveBoardObject(state, defenderReplica, attackerOrigin);
+    if (defenderReplica) {
+      moveBoardObject(state, defenderReplica, attackerOrigin);
+      state.objectPushAnimations.push({ id: `${state.turn}-lightbringer-swap-object-${defenderReplica.id}-${++instanceSequence}`, objectId: defenderReplica.id, from: defenderOrigin, to: attackerOrigin, dx: 0, dy: 0, collided: false, fastSwap: true });
+    }
     else {
       defender.position = attackerOrigin;
-      defender.visualMovement = { from: defenderOrigin, path: [{ ...attackerOrigin }] };
+      defender.visualMovement = { from: defenderOrigin, path: [{ ...attackerOrigin }], kind: 'lightbringer-swap' };
     }
     pending.attackerPosition = { ...(attackerReplica?.position ?? attacker.position) };
     pending.defenderPosition = { ...(defenderReplica?.position ?? defender.position) };
@@ -5151,7 +5159,13 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   pending.combatResolutionCommitted = true;
   const defenderDamageEventStart = ((state as GameState & { damageLog?: DamageLogEntry[] }).damageLog ?? []).length;
+  const combatVisualStart = state.objectPushAnimations.length;
   const combatDamageDealt = dealDamage(state, defender, damage, false, pending.attackerId, 'attack');
+  if (pending.cardId === 'mana-barrage') {
+    for (const event of state.objectPushAnimations.slice(combatVisualStart)) {
+      if (event.damage) event.damage.presentationTiming = 'mana-barrage-combat';
+    }
+  }
   pending.feedSpiritCombatDamage = combatDamageDealt;
   if (pending.attackValue > defenseValue && !blinkMissed) {
     const potato = questPhases(state).currentQuest?.id === 'hot-potato' ? questPhases(state).hotPotato : null;
@@ -5399,6 +5413,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     state.log.unshift(`Arcane Bolt${attackerBeforeCombatEffects.manaMode === 'consume' ? ' (Consume)' : ''} granted ${logan.name} +${logan.arcaneBoltAttackBonus} ATT until end of turn.`);
   }
   let manaBarrageCombatDamage = 0;
+  const barrageBonusVisualStart = state.objectPushAnimations.length;
   if (pending.cardId === 'mana-barrage' && attackerBeforeCombatEffects.manaMode === 'consume') {
     const dealt = dealCombatCardEffectDamage(state, defender, 2, pending.attackerId, 'attack');
     state.log.unshift(`Mana Barrage (Consume) dealt ${dealt} guaranteed Damage after combat.`);
@@ -5409,6 +5424,11 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     } else {
       manaBarrageCombatDamage = dealCombatCardEffectDamage(state, defender, 1, pending.attackerId, 'attack');
       state.log.unshift(`Mana Barrage dealt 1 Damage from the Mana Point applied during combat.`);
+    }
+  }
+  if (pending.cardId === 'mana-barrage') {
+    for (const event of state.objectPushAnimations.slice(barrageBonusVisualStart)) {
+      if (event.damage) event.damage.presentationTiming = 'mana-barrage-bonus';
     }
   }
   if (!attackEffectsCancelled && pending.cardId === 'chain-punchin') {
@@ -5631,7 +5651,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     removeAllDebuffs(defender);
     state.log.unshift(`Not a Shinobi You Looking For removed all negative effects from ${defender.name} after combat.`);
   }
+  let counterspellPresentation: CombatReveal['counterspell'];
   if (defenseCardId === 'counterspell' && !defenseEffectsCancelled) {
+    counterspellPresentation = { empowered: defender.manaPoints > 0 };
     const retaliation = defender.manaPoints > 0 ? 1 : 0;
     if (retaliation > 0) dealCombatCardEffectDamage(state, state.players[pending.attackerId], retaliation, defender.id, 'defense');
     const counterTarget = state.players[pending.attackerId];
@@ -5847,6 +5869,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   const deferredAfterCombatState = JSON.stringify(state);
   const attackCard = cardDefinition({ instanceId: '', cardId: pending.cardId });
   stateBeforeAfterCombatEffects.combatReveal = { attackCardId: pending.cardId, defendCardId: defenseCardId, attackBase: attackCard.value, attackTotal: pending.attackValue, defendBase: defenseBaseValue, defendTotal: defenseValue, attackModifiers: pending.attackModifiers ?? [], defendModifiers, combatWinnerId: blinkMissed ? pending.defenderId : pending.attackValue > defenseValue ? pending.attackerId : pending.defenderId, combatDamage: combatDamageDealt + manaBarrageCombatDamage, combatStackApplied: pending.combatStackApplied, soulStrikeResult: pending.soulStrikeResult, expiresAt: Date.now() + 10_000, acknowledged: [], deferredAfterCombatState };
+  stateBeforeAfterCombatEffects.combatReveal.counterspell = counterspellPresentation;
   // Use actual damage events so prevention, healing, and defensive retaliation
   // cannot make a harmless attack look like it will land a hit.
   stateBeforeAfterCombatEffects.combatReveal.afterCombatAttackDamage = ((state as GameState & { damageLog?: DamageLogEntry[] }).damageLog ?? [])

@@ -8,7 +8,7 @@ const portraitModules = import.meta.glob<string>(
 );
 
 const portraitBySlot = new Map<string, string>();
-const generalPortraitVariants = new Set(['spirit', 'replica']);
+const generalPortraitVariants = new Set(['spirit', 'replica', 'shield']);
 
 for (const [path, url] of Object.entries(portraitModules)) {
   const filename = path.split('/').pop();

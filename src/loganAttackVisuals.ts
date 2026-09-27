@@ -1,8 +1,24 @@
 import * as THREE from 'three';
 
-export type LoganSpell = 'arcane-bolt' | 'mana-blast';
+export type LoganSpell = 'arcane-bolt' | 'mana-blast' | 'mana-barrage' | 'grimoire-cleanse' | 'snowball-effect';
 export function isLoganSpell(cardId?: string): cardId is LoganSpell {
-  return cardId === 'arcane-bolt' || cardId === 'mana-blast';
+  return cardId === 'arcane-bolt' || cardId === 'mana-blast' || cardId === 'mana-barrage' || cardId === 'grimoire-cleanse' || cardId === 'snowball-effect';
+}
+
+/** Spawn the next bolt only after the previous bolt has visibly hit. */
+export function startLoganBoltSequence(secondBolt: boolean, spawn: (hit: () => void) => void,
+  impact: (index: number, last: boolean) => void) {
+  const launch = (index: number) => {
+    let hit = false;
+    spawn(() => {
+      if (hit) return;
+      hit = true;
+      const last = index === 1 || !secondBolt;
+      impact(index, last);
+      if (!last) launch(1);
+    });
+  };
+  launch(0);
 }
 
 /** One bounded cast: gathering light, flight, impact, then a dissipating wake. */
@@ -33,15 +49,15 @@ export class LoganAttackVisual {
     private readonly startedAt: number, private readonly onImpact: () => void) {
     this.from = from.clone();
     this.to = to.clone();
-    this.flight = spell === 'arcane-bolt' ? 420 : 540;
-    this.size = (spell === 'arcane-bolt' ? 0.21 : 0.36) * (consume ? 1.3 : 1);
+    this.flight = spell === 'mana-blast' ? 540 : 420;
+    this.size = (spell === 'mana-blast' ? 0.36 : 0.21) * (consume ? 1.3 : 1);
     this.axis = to.clone().sub(from).normalize();
     if (this.axis.lengthSq() < 0.001) this.axis.set(0, 0, 1);
     this.side = new THREE.Vector3().crossVectors(this.axis, new THREE.Vector3(0, 1, 0));
     if (this.side.lengthSq() < 0.001) this.side.set(1, 0, 0);
     this.side.normalize();
     this.up = new THREE.Vector3().crossVectors(this.side, this.axis).normalize();
-    const color = new THREE.Color(spell === 'arcane-bolt' ? 0x9854ff : 0x26bfff);
+    const color = new THREE.Color(spell === 'arcane-bolt' ? 0x9854ff : spell === 'mana-barrage' ? 0x696bff : 0x26bfff);
     const pale = new THREE.Color(spell === 'arcane-bolt' ? 0xf2caff : 0xbaffff);
     this.energy = new THREE.ShaderMaterial({
       uniforms: { time: { value: 0 }, alpha: { value: 1 }, tint: { value: color } },
@@ -69,7 +85,7 @@ export class LoganAttackVisual {
       new THREE.MeshBasicMaterial({ color: pale, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
     this.head.add(shell, this.core);
     this.head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this.axis);
-    if (spell === 'arcane-bolt') this.head.scale.z = 1.8;
+    if (spell !== 'mana-blast') this.head.scale.z = 1.8;
     const ringMaterial = () => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     this.seal = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 64, 1, 0, Math.PI * 1.8), ringMaterial());
@@ -88,7 +104,7 @@ export class LoganAttackVisual {
         blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), 72);
     this.motes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.motes.frustumCulled = false;
-    this.root.name = spell === 'arcane-bolt' ? 'ArcaneBoltCast' : 'ManaBlastCast';
+    this.root.name = spell === 'arcane-bolt' ? 'ArcaneBoltCast' : spell === 'mana-barrage' ? 'ManaBarrageCast' : 'ManaBlastCast';
     this.root.add(this.head, this.seal, this.impactRoot, this.motes);
     this.root.traverse(part => { part.raycast = () => {}; });
     scene.add(this.root);
@@ -109,7 +125,7 @@ export class LoganAttackVisual {
     this.energy.uniforms.alpha.value = hit ? Math.max(0, 1 - burst * 7) : Math.min(1, age / this.charge);
     this.head.position.lerpVectors(this.from, this.to, progress);
     this.head.scale.setScalar(hit ? 1 + burst * 9 : 0.35 + Math.min(1, age / this.charge) * 0.65);
-    if (this.spell === 'arcane-bolt') this.head.scale.z *= hit ? 1 : 1.8;
+    if (this.spell !== 'mana-blast') this.head.scale.z *= hit ? 1 : 1.8;
     this.core.visible = !hit;
     this.core.rotation.set(age * 0.006, age * 0.009, 0);
     this.seal.scale.setScalar(this.size * (1.7 + Math.min(1, age / this.charge) * 1.4));

@@ -2,7 +2,7 @@
 
 Transparent character artwork displayed behind the combat-resolution dialog belongs here.
 
-Use `<character-id>.<role>.<extension>` for a character's general role portrait. Use `<character-id>.<role>.<card-id>.<extension>` for a card-specific override. A conditional variant uses `<character-id>.<role>.<card-id>.<variant>.<extension>`. The general `spirit` and `replica` variants apply to any card with `<character-id>.<role>.<variant>.<extension>`. Supported extensions are PNG, WebP, and AVIF. Supported roles are `attack` and `defend`.
+Use `<character-id>.<role>.<extension>` for a character's general role portrait. Use `<character-id>.<role>.<card-id>.<extension>` for a card-specific override. A conditional variant uses `<character-id>.<role>.<card-id>.<variant>.<extension>`. The general `spirit`, `replica`, and `shield` variants apply to any card with `<character-id>.<role>.<variant>.<extension>`. Supported extensions are PNG, WebP, and AVIF. Supported roles are `attack` and `defend`.
 
 Examples:
 
@@ -13,6 +13,8 @@ Examples:
 - `john-christ.defend.spirit.png`
 - `spectre.attack.replica.png`
 - `spectre.defend.replica.png`
+- `orkk.attack.shield.png`
+- `orkk.defend.shield.png`
 - `merylin.attack.excalibur.png`
 - `magician.defend.spellblock.webp`
 - `merylin.attack.lightbringer.highground.png`
