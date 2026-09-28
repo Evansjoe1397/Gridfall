@@ -82,11 +82,13 @@ import {
   baseSquareAt,
   armDaWizPath,
   arcaneMisslePath,
+  chainLightningCanTarget,
   mindBlastCanTarget,
   arkaneArowPath,
   cardBaseValue,
   cardDefinition,
   canAttackTargetSquare,
+  canDefendInsideTomb,
   cellLabel,
   BOARD_SIZE,
   createHotseatTestState,
@@ -1517,7 +1519,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 3 · Range 1 automatically uses an Action for 2 Damage · Range 2-3 is a Free Action for 1 Damage · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
   if (gameState.phase === 'choosing-spirit-guardian-square') prompt.textContent = 'Spirit Guardian: select an empty highlighted Square within Range · Escape to cancel';
-  if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy in range and line of sight · Escape to cancel';
+  if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy or Object in range and line of sight. Columns remain intact · Escape to cancel';
   if (gameState.phase === 'choosing-magic-hand-target') prompt.textContent = 'Magic Hand: select any visible Object · Escape to cancel';
   if (gameState.phase === 'choosing-magic-hand-direction') prompt.textContent = 'Magic Hand: select any linear push direction · Escape to cancel';
   if (gameState.phase === 'choosing-shizzle-destination') prompt.textContent = `Shizzle: select an empty Square in a direct line up to ${gameState.shizzle!.stepsRemaining} Squares away · Escape to cancel`;
@@ -1916,6 +1918,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const brainFreezeIcon = player.brainFreezeCombatBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('ice')}<span class="status-tooltip"><strong>Brain Freeze</strong>This character cannot use Combat Cards or Combat Effects for the rest of this turn.</span></div>` : '';
     const brainFreezeMovementBonusIcon = (player.brainFreezeMovementBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('ice')}<b>+${player.brainFreezeMovementBonus}</b><span class="status-tooltip"><strong>Brain Freeze · Stolen MOV</strong>Wreckna has +${player.brainFreezeMovementBonus} MOV stolen with Brain Freeze. The bonus lasts through Wreckna's next turn.</span></div>` : '';
     const dakkothRangeIcon = (player.dakkothRangeBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0" aria-label="Dakkoth: +${player.dakkothRangeBonus} Attack Range until the start of Wreckna's next turn">${gameIcon('range')}<b>+${player.dakkothRangeBonus}</b><span class="status-tooltip"><strong>Dakkoth · +${player.dakkothRangeBonus} Attack Range</strong>Attack Range is increased by ${player.dakkothRangeBonus} until the start of Wreckna's next turn. Level 3 grants an additional +1 Attack Range for the same duration.</span></div>` : '';
+    const necronomiconDefenseIcon = player.character === 'wreckna' && player.necronomiconTombDefenseActive ? `<div class="status-icon highground-active necronomicon-tomb-defense-status" tabindex="0" aria-label="Necronomicon: any Defend Card inside a Tomb">${gameIcon('shield')}<span class="status-tooltip"><strong>Necronomicon · Tomb Defense</strong>Wreckna may use any Defend Card while inside a Tomb. Expires at the start of Wreckna's next turn, after each opponent has had their next turn.</span></div>` : '';
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · ${player.traitBlocked ? 'Suppressed by Curse' : 'Attack Ready'}</strong>Swordcraft has summoned a sword from another realm.${player.traitBlocked ? ' Curse blocks Swordcraft, so Summon cannot enable Attack Cards until the end of this turn.' : ' Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.'}</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
     const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shield')}<b>↩</b><span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
@@ -1940,7 +1943,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -1973,7 +1976,7 @@ function renderHand() {
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && instance.cardId !== 'graveyard') || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -10623,7 +10626,7 @@ function highlightCells() {
     const yamatoMoveValid = (gameState.phase as string) === 'choosing-yamato-move' && distance(actor.position, cell) === 1 && !occupiedByEnemy && !diagonalBlocked && !forbiddenSlideAscent;
     const danceValid = gameState.phase === 'dance-through' && distance(actor.position, cell) === 1 && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
     const doubleJumpValid = gameState.phase === 'double-jump' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
-    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !forbiddenSlideAscent && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
+    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = movementCost(gameState, actor, regularPath);
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
@@ -10669,9 +10672,7 @@ function highlightCells() {
     const shizzleDx = cell.x - actor.position.x; const shizzleDy = cell.y - actor.position.y;
     const shizzleDistance = Math.max(Math.abs(shizzleDx), Math.abs(shizzleDy));
     const shizzleLinear = shizzleDx === 0 || shizzleDy === 0 || Math.abs(shizzleDx) === Math.abs(shizzleDy);
-    const shizzlePath = shizzleLinear ? Array.from({ length: shizzleDistance }, (_, index) => ({ x: actor.position.x + Math.sign(shizzleDx) * (index + 1), y: actor.position.y + Math.sign(shizzleDy) * (index + 1) })) : [];
-    const shizzleClimbsSlide = shizzlePath.some((pathCell, index) => isForbiddenSlideAscent(gameState, index === 0 ? actor.position : shizzlePath[index - 1], pathCell));
-    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleClimbsSlide && !occupiedByPlayer && !occupiedByObject;
+    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !occupiedByPlayer && !occupiedByObject;
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
     const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell; source?: 'replicate' | 'split' } | undefined;
@@ -10715,8 +10716,9 @@ function highlightCells() {
     const positionalEnemyBody = enemyBodyOwnerOnCell ? { ...enemyBodyOwnerOnCell, position: cell } : null;
     const arcaneTargetValid = gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.arcaneMissle!.casterId
       && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], positionalEnemyBody!) : Boolean(arcaneMisslePath(gameState, gameState.players[gameState.arcaneMissle!.casterId], positionalEnemyBody!, gameState.arcaneMissle!.level)));
-    const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.chainLightning!.casterId
-      && distance(gameState.players[gameState.chainLightning!.casterId].position, cell) <= effectiveAttackRange(gameState, gameState.players[gameState.chainLightning!.casterId]) && hasLineOfSight(gameState, gameState.players[gameState.chainLightning!.casterId].position, cell);
+    const chainTargetValid = gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)
+      && (objectsOnCell.some((object) => chainLightningCanTarget(gameState, gameState.chainLightning!.casterId, object.id, 'object'))
+        || Boolean(playerOnCell && chainLightningCanTarget(gameState, gameState.chainLightning!.casterId, playerOnCell.id, 'player')));
     const fireball = (gameState as any).fireball as { casterId: PlayerId; source?: 'fireball' | 'firebolt' } | undefined;
     const fireballRange = 3;
     const fireballTargetValid = gameState.phase === 'choosing-fireball-target' && Boolean(fireball) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== fireball!.casterId
@@ -10874,13 +10876,12 @@ function updateTargetHighlights(time: number) {
     const positionalReplicaOwner = replicaOwner && object ? { ...replicaOwner, position: object.position } : null;
     const validArcaneReplica = canArcaneTarget && Boolean(object && positionalReplicaOwner && replicaOwner!.id !== arcane!.casterId)
       && (mindBlast ? mindBlastCanTarget(gameState, gameState.players[mindBlast.casterId], positionalReplicaOwner!) : Boolean(arcaneMisslePath(gameState, gameState.players[arcane!.casterId], positionalReplicaOwner!, arcane!.level)));
-    const validChainReplica = canChainTarget && Boolean(object && replicaOwner && replicaOwner.id !== chain!.casterId)
-      && distance(gameState.players[chain!.casterId].position, object!.position) <= effectiveAttackRange(gameState, gameState.players[chain!.casterId]) && hasLineOfSight(gameState, gameState.players[chain!.casterId].position, object!.position);
+    const validChainObject = canChainTarget && Boolean(object && chainLightningCanTarget(gameState, chain!.casterId, object.id, 'object'));
     const validFireballReplica = canFireballTarget && Boolean(object && replicaOwner && replicaOwner.id !== fireballTargeting!.casterId)
       && distance(gameState.players[fireballTargeting!.casterId].position, object!.position) <= 3 && hasLineOfSight(gameState, gameState.players[fireballTargeting!.casterId].position, object!.position);
     const validSapReplica = canSapTarget && Boolean(object && replicaOwner && replicaOwner.id !== sap!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[sap!.casterId], object!.position, sap!.range);
     const validDecayReplica = canDecayTarget && Boolean(object && replicaOwner && replicaOwner.id !== decay!.casterId) && wrecknaPerkTargetInRange(gameState, gameState.players[decay!.casterId], object!.position);
-    const validReplicaEffect = !replicaPerkProtected && (validArcaneReplica || validChainReplica || validFireballReplica || validSapReplica || validDecayReplica);
+    const validReplicaEffect = !replicaPerkProtected && (validArcaneReplica || validFireballReplica || validSapReplica || validDecayReplica);
     const validSpectreOriginObject = canSpectreOriginChoice && object?.kind === 'spectre-replica' && object.ownerId === spectreOriginChoice!.casterId;
     const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica' && spectreOriginChoice!.replicaId === objectId;
     const originRing = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
@@ -10893,8 +10894,8 @@ function updateTargetHighlights(time: number) {
     }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validReplicaEffect ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validReplicaEffect ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0.55 : 0;
     });
   });
   const quickAttackShortcutAvailable = selected.kind === 'none' || selected.kind === 'move';
@@ -11030,8 +11031,7 @@ function onBoardClick(event: MouseEvent) {
   } else if (gameState.phase === 'choosing-chain-lightning-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
-    const replicaHit = gameState.objects.find((object) => object.id === objectHit && object.kind === 'spectre-replica');
-    if (replicaHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetKind: 'replica', targetId: replicaHit.id });
+    if (objectHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetKind: 'object', targetId: objectHit });
     else if (playerHit) dispatch({ type: 'chain-lightning-target', playerId: gameState.chainLightning!.casterId, targetKind: 'player', targetId: playerHit });
   } else if ((gameState.phase as string) === 'choosing-sap-target') {
     const playerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;

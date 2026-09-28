@@ -28,6 +28,7 @@
     "check:lightsaber-duration": "tsx scripts/check-lightsaber-duration.ts",
     "check:obi-wan": "tsx scripts/check-obi-wan.ts",
     "check:chain-lightning": "tsx scripts/check-chain-lightning.ts",
+    "check:shizzle-highground": "tsx scripts/check-shizzle-highground.ts",
     "check:snowball-effect": "tsx scripts/check-snowball-effect.ts",
     "check:bone-chill": "tsx scripts/check-bone-chill.ts",
     "check:redirect-objects": "tsx scripts/check-redirect-objects.ts",
