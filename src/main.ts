@@ -57,6 +57,10 @@ import { MoonlightEffects } from './moonlightEffects.ts';
 import { LightbringerEffects } from './lightbringerEffects.ts';
 import { createArcaneMissile, updateArcaneMissile, spawnArcaneImpact, updateArcaneImpacts } from './arcaneMissileVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
+import { createDesertAtmosphere } from './desert-atmosphere.ts';
+import { createStormAtmosphere } from './storm-atmosphere.ts';
+import { createNagrandMountains, NAGRAND_LANDSCAPE_SCALE } from './nagrand-mountains.ts';
+import { ArenaPolishLighting, filmicToneMapping, loadPolishStone, polishedNagrandTiles, polishedTileGeometry, texturePolishedTile, visualPolish } from './visual-polish.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -148,6 +152,7 @@ const LORDAERON_HIGHGROUND_ENTITY_Y = LORDAERON_HIGHGROUND_TOP_Y;
 const STANDARD_HIGHGROUND_HEIGHT = 0.54;
 const STANDARD_HIGHGROUND_CENTER_Y = 0.19;
 const STANDARD_HIGHGROUND_TOP_Y = STANDARD_HIGHGROUND_CENTER_Y + STANDARD_HIGHGROUND_HEIGHT / 2;
+const TRENCH_TILE_DEPTH = 0.32;
 const LORDAERON_TOMB_OVERHANG_SCALE = 1.12;
 let characterPreviewJohnCycleStartedAt = 0;
 let characterPreviewMerylinCycleStartedAt = 0;
@@ -302,6 +307,7 @@ const phaseRewardModal = document.createElement('div');
 phaseRewardModal.id = 'phaseRewardModal'; phaseRewardModal.className = 'choice-modal hidden'; document.body.append(phaseRewardModal);
 const boardEl = byId('board');
 let nagrandNewTextures = false;
+let visualPolishLoading = false;
 const nagrandTextureButton = document.createElement('button');
 nagrandTextureButton.type = 'button';
 nagrandTextureButton.className = 'nagrand-texture-toggle hidden';
@@ -332,11 +338,48 @@ function renderPipeButtonControls() {
 
 function toggleNagrandTextures() {
   if (visualArena().id !== 'nagrand') return;
+  if (polishedNagrandTiles('nagrand')) {
+    notify('Turn off visual polish with Shift+V to compare the older texture options.');
+    return;
+  }
   nagrandNewTextures = !nagrandNewTextures;
   rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
   sizeArenaFloor(visualBoardWidth(), visualBoardHeight());
   highlightCells();
-  notify(nagrandNewTextures ? 'Nagrand: new stone tiles and grass.' : 'Nagrand: original floor and tiles.');
+  notify(nagrandNewTextures ? 'Nagrand: new stone tiles.' : 'Nagrand: original tiles.');
+}
+
+async function toggleVisualPolish() {
+  if (visualPolishLoading) return;
+  if (!visualPolish.enabled && polishedTilePreviewNeedsLoading()) {
+    visualPolishLoading = true;
+    notify('Loading Nagrand stone preview…');
+    try {
+      await loadPolishStone(renderer.capabilities.getMaxAnisotropy());
+    } catch (error) {
+      console.error('Visual polish texture failed to load.', error);
+      notify('Stone preview could not load. Press Shift+V to retry.');
+      return;
+    } finally { visualPolishLoading = false; }
+  }
+  visualPolish.enabled = !visualPolish.enabled;
+  applyArenaLightLevel();
+  // Other arenas retain their exact tile meshes and materials during comparison.
+  if (visualArena().id === 'nagrand') {
+    rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
+    highlightCells();
+  }
+  notify(`Visual polish: ${visualPolish.enabled ? 'ON' : 'OFF'} · Shift+V${visualArena().id === 'pipe' ? ' (Pipe unchanged)' : ''}`);
+}
+
+function polishedTilePreviewNeedsLoading() {
+  return visualPolish.tiles && visualArena().id === 'nagrand';
+}
+
+function toggleFilmicToneMapping() {
+  filmicToneMapping.enabled = !filmicToneMapping.enabled;
+  applyArenaLightLevel();
+  notify(`Filmic tone mapping: ${filmicToneMapping.enabled ? 'ON' : 'OFF'} · Shift+B`);
 }
 const toast = byId('toast');
 const centerNotice = byId('centerNotice');
@@ -851,7 +894,7 @@ function startHotseatState(state: GameState, arenaTitle: string) {
   if (mastheadArena) mastheadArena.textContent = arenaTitle;
   const startedArenaId = visualArena().id;
   lightingArenaId = startedArenaId;
-  setDawnArenaMode(startedArenaId !== 'trench');
+  setArenaLightingDefaults();
   boardVisualKey = '';
   fittedArenaKey = '';
   lobby.classList.add('hidden');
@@ -959,7 +1002,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
         lightingArenaId = onlineArena.id;
-        setDawnArenaMode(onlineArena.id !== 'trench');
+        setArenaLightingDefaults();
         boardVisualKey = '';
         fittedArenaKey = '';
       }
@@ -3320,6 +3363,9 @@ scene.add(keyLight);
 const dawnFillLight = new THREE.DirectionalLight(0xffb56b, 0);
 dawnFillLight.position.set(-8, 3, -6);
 scene.add(dawnFillLight);
+scene.add(dawnFillLight.target);
+const stormFillDirection = new THREE.Vector3();
+const arenaPolishLighting = new ArenaPolishLighting();
 const floor: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> = new THREE.Mesh(new THREE.CylinderGeometry(12.4, 12.65, 0.42, 64), new THREE.MeshStandardMaterial({ color: 0x0d1b18, roughness: 0.7, metalness: 0.35 }));
 floor.userData.geometryKind = 'circle';
 floor.position.y = -0.33; floor.receiveShadow = true; scene.add(floor);
@@ -3462,6 +3508,13 @@ const dawnSkyDome = new THREE.Mesh(
 dawnSkyDome.visible = false;
 dawnSkyDome.renderOrder = -1000;
 scene.add(dawnSkyDome);
+const desertAtmosphere = createDesertAtmosphere(hologramShaderTime);
+scene.add(desertAtmosphere.sky, desertAtmosphere.dust);
+const stormAtmosphere = createStormAtmosphere(hologramShaderTime);
+scene.add(stormAtmosphere.sky, stormAtmosphere.rain, stormAtmosphere.wind);
+const nagrandMountains = createNagrandMountains(hologramShaderTime, `${import.meta.env.BASE_URL}textures/nagrand/cliff-rock-v1.png`);
+let nagrandLandEnabled = true;
+scene.add(nagrandMountains.group);
 
 const horizonGridUniforms = {
   minorColor: { value: new THREE.Color(0x3d0e06) },
@@ -3656,10 +3709,32 @@ const DAWN_LIGHT_LEVEL_STEP = .1;
 let dawnArenaMode = false;
 let dawnLightLevel = 1;
 
+function setArenaLightingDefaults() {
+  const trench = visualArena().id === 'trench';
+  filmicToneMapping.enabled = trench;
+  dawnLightLevel = trench ? 1.5 : 1;
+  setDawnArenaMode(true);
+}
+
 function applyArenaLightLevel() {
-  hemisphereLight.intensity = dawnArenaMode ? 1.45 * dawnLightLevel : 1.6;
+  arenaPolishLighting.restore();
+  const stormLighting = dawnArenaMode && visualArena().id === 'trench';
+  hemisphereLight.intensity = dawnArenaMode ? (stormLighting ? 1.65 : 1.45) * dawnLightLevel : 1.6;
   keyLight.intensity = dawnArenaMode ? 3.35 * dawnLightLevel : 2.8;
-  dawnFillLight.intensity = dawnArenaMode ? .75 * dawnLightLevel : 0;
+  dawnFillLight.intensity = dawnArenaMode ? (stormLighting ? 2.1 : .75) * dawnLightLevel : 0;
+  arenaPolishLighting.apply(renderer, keyLight, dawnFillLight, hemisphereLight, {
+    arena: visualArena().id, width: visualBoardWidth(), height: visualBoardHeight(), center: boardCenterWorld(),
+  });
+}
+
+function updateStormFillLight() {
+  if (!dawnArenaMode || visualArena().id !== 'trench') return;
+  // Low, camera-side bounce lights the visible walls of crates and pillars.
+  // The fixed key alone casts shadows, so orbiting never rotates the shadows.
+  stormFillDirection.set(camera.position.x - controls.target.x, 0, camera.position.z - controls.target.z).normalize();
+  dawnFillLight.target.position.copy(controls.target);
+  dawnFillLight.position.copy(controls.target).addScaledVector(stormFillDirection, 14);
+  dawnFillLight.position.y += 5;
 }
 
 function adjustDawnLightLevel(direction: -1 | 1) {
@@ -3669,8 +3744,12 @@ function adjustDawnLightLevel(direction: -1 | 1) {
 }
 
 function setDawnArenaMode(enabled: boolean) {
+  arenaPolishLighting.restore();
   dawnArenaMode = enabled;
-  const lordaeronPalette = enabled && (visualArena().id === 'lordaeron' || visualArena().id === 'trench');
+  const lordaeronPalette = enabled && visualArena().id === 'lordaeron';
+  const desertPalette = enabled && visualArena().id === 'pipe';
+  const stormPalette = enabled && visualArena().id === 'trench';
+  const mountainPalette = enabled && visualArena().id === 'nagrand';
   dawnSkyUniforms.hauntedSky.value = lordaeronPalette;
   // Preserve the approved green sky; restore the original warm sky brightness.
   dawnSkyUniforms.correctOutputColor.value = !lordaeronPalette;
@@ -3680,6 +3759,8 @@ function setDawnArenaMode(enabled: boolean) {
   hemisphereLight.groundColor.setHex(enabled ? (lordaeronPalette ? 0x061b12 : 0x17080a) : 0x07100e);
   keyLight.color.setHex(enabled ? (lordaeronPalette ? 0xc4f2df : 0xfff0d2) : 0xffffff);
   dawnFillLight.color.setHex(lordaeronPalette ? 0x4bd27c : 0xffb56b);
+  dawnFillLight.position.set(-8, 3, -6);
+  dawnFillLight.target.position.set(0, 0, 0);
   keyLight.position.set(enabled ? -7 : 4, enabled ? 11 : 9, enabled ? -4 : 5);
   dawnSkyUniforms.zenithColor.value.setHex(lordaeronPalette ? 0x07351f : 0x0e0505);
   dawnSkyUniforms.horizonColor.value.setHex(lordaeronPalette ? 0x176b3c : 0x3d1309);
@@ -3692,13 +3773,39 @@ function setDawnArenaMode(enabled: boolean) {
   horizonGridUniforms.majorColor.value.setHex(lordaeronPalette ? 0x27a35c : 0x80210b);
   dawnStarUniforms.glowColor.value.setHex(lordaeronPalette ? 0x35cf77 : 0xff4d0e);
   dawnStarUniforms.coreColor.value.setHex(lordaeronPalette ? 0xb8ffe0 : 0xffdb7a);
+  if (desertPalette) {
+    scene.fog = new THREE.Fog(0x807265, 65, 190);
+    hemisphereLight.color.setHex(0xc6d2da);
+    hemisphereLight.groundColor.setHex(0x44332a);
+    keyLight.color.setHex(0xffe2ba);
+    dawnFillLight.color.setHex(0xd79962);
+  }
+  if (stormPalette) {
+    scene.fog = new THREE.Fog(0x4b5d69, 48, 165);
+    // Restore the diagonal key; an independent low fill handles dark sides.
+    hemisphereLight.color.setHex(0xa7b6c5);
+    hemisphereLight.groundColor.setHex(0x35454e);
+    keyLight.color.setHex(0xd3dfe9);
+    dawnFillLight.color.setHex(0xc7d3dc);
+  }
+  if (mountainPalette) {
+    // Keep the original crimson atmosphere, with room for the distant ranges.
+    scene.fog = new THREE.Fog(0x241014, 85, 340);
+  }
+  updateStormFillLight();
   applyArenaLightLevel();
-  dawnSkyDome.visible = enabled;
-  horizonGrid.visible = enabled;
-  arenaMist.visible = enabled;
-  dawnStarField.visible = enabled;
-  (floor.material as THREE.MeshStandardMaterial).color.setHex(enabled ? (lordaeronPalette ? 0x102c22 : 0x21332f) : 0x0d1b18);
-  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandNewTextures, renderer.capabilities.getMaxAnisotropy());
+  dawnSkyDome.visible = enabled && !desertPalette && !stormPalette;
+  horizonGrid.visible = enabled && !desertPalette && !stormPalette && !mountainPalette;
+  arenaMist.visible = enabled && !desertPalette && !stormPalette && !mountainPalette;
+  dawnStarField.visible = enabled && !desertPalette && !stormPalette;
+  nagrandMountains.setDaylight(mountainPalette);
+  desertAtmosphere.sky.visible = desertPalette;
+  desertAtmosphere.dust.visible = desertPalette;
+  stormAtmosphere.sky.visible = stormPalette;
+  stormAtmosphere.rain.visible = stormPalette;
+  stormAtmosphere.wind.visible = stormPalette;
+  (floor.material as THREE.MeshStandardMaterial).color.setHex(stormPalette ? 0x253136 : desertPalette ? 0x39312b : enabled ? (lordaeronPalette ? 0x102c22 : 0x21332f) : 0x0d1b18);
+  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandLandEnabled, renderer.capabilities.getMaxAnisotropy());
   const arenaFrame = boardEl.closest('.arena-frame');
   arenaFrame?.classList.toggle('dawn-mode', enabled);
   arenaFrame?.classList.toggle('lordaeron-dawn-mode', lordaeronPalette);
@@ -3894,10 +4001,30 @@ new ResizeObserver(() => resize()).observe(boardEl);
 resize();
 const cameraKeys = new Set<string>();
 window.addEventListener('keydown', (event) => {
-  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
+  if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyV' && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    if (!event.repeat) void toggleVisualPolish();
+    return;
+  }
+  if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyB' && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    if (!event.repeat) toggleFilmicToneMapping();
+    return;
+  }
   if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.code === 'KeyL' && !game.classList.contains('hidden') && visualArena().id === 'nagrand') {
     event.preventDefault();
     if (!event.repeat) toggleNagrandTextures();
+    return;
+  }
+  if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.code === 'KeyB' && !game.classList.contains('hidden') && visualArena().id === 'nagrand') {
+    event.preventDefault();
+    if (!event.repeat) {
+      nagrandLandEnabled = !nagrandLandEnabled;
+      nagrandMountains.group.visible = nagrandLandEnabled;
+      sizeArenaFloor(visualBoardWidth(), visualBoardHeight());
+      notify(nagrandLandEnabled ? 'Land shown. Ctrl+B to hide.' : 'Land hidden. Ctrl+B to show.');
+    }
     return;
   }
   const lightIncreaseHotkey = event.altKey && !event.ctrlKey && !event.metaKey && (event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd');
@@ -3950,6 +4077,7 @@ renderer.setAnimationLoop((time) => {
   if (nagrandOuterRingGroup.visible) updateNagrandBrazierFire(time);
   updateCameraMovement(deltaSeconds);
   if (!cameraGrab) controls.update();
+  updateStormFillLight();
   updateTargetHighlights(time);
   updateCharacterMovement(time);
   updateReplicatePullTethers(time);
@@ -4124,6 +4252,8 @@ renderer.setAnimationLoop((time) => {
   updateObjectCalloutBubbles(time);
   // Sky has infinite apparent distance: camera dolly must not move its stars.
   dawnSkyDome.position.copy(camera.position);
+  desertAtmosphere.sky.position.copy(camera.position);
+  stormAtmosphere.sky.position.copy(camera.position);
   dawnStarField.position.copy(camera.position);
   renderer.render(scene, camera);
 });
@@ -5410,8 +5540,14 @@ function boardCenterWorld(width = visualBoardWidth(), height = visualBoardHeight
 
 function trenchTileDepth(cell: Cell) {
   const arena = visualArena();
-  // A subtle recess: much smaller than the 0.38 low/high-ground step.
-  return (arena.id === 'trench' || arena.id === 'pipe') && arena.trenchSquares?.includes(cellLabel(cell)) ? 0.18 : 0;
+  if (!arena.trenchSquares?.includes(cellLabel(cell))) return 0;
+  return arena.id === 'trench' ? TRENCH_TILE_DEPTH : arena.id === 'pipe' ? 0.18 : 0;
+}
+
+function slideRampRise(cell: Cell, progress: number) {
+  // The recessed Trench ramps stay level a little longer at their low ends.
+  const lowEnd = visualArena().id === 'trench' && trenchTileDepth(cell) > 0 ? 0.25 : 0;
+  return THREE.MathUtils.smoothstep(progress, lowEnd, 1);
 }
 
 function createSlideRamp(cell: Cell, color: number): THREE.Group {
@@ -5434,7 +5570,7 @@ function createSlideRamp(cell: Cell, color: number): THREE.Group {
     const along = THREE.MathUtils.lerp(lowEdge, highEdge, progress);
     // The parent tile is recessed; compensate at the upper end so it still
     // joins the unchanged high ground, increasing the slope's rise.
-    const height = THREE.MathUtils.smoothstep(progress, 0, 1) * (.375 + trenchDepth) + .085;
+    const height = slideRampRise(cell, progress) * (.375 + trenchDepth) + .085;
     for (let column = 0; column <= segments; column++) {
       const across = THREE.MathUtils.lerp(-halfWidth, halfWidth, column / segments);
       positions.push(lateral.x * across + rise.x * along, height, lateral.y * across + rise.y * along);
@@ -5529,7 +5665,9 @@ function createCell(cell: Cell) {
   }
   const highGroundHeight = lordaeron ? LORDAERON_HIGHGROUND_TOP_Y + 0.08 : STANDARD_HIGHGROUND_HEIGHT;
   const highGroundCenterY = lordaeron ? (LORDAERON_HIGHGROUND_TOP_Y - 0.08) * 0.5 : STANDARD_HIGHGROUND_CENTER_Y;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.72, highGround ? highGroundHeight : 0.16, 1.72), material);
+  const polishTile = polishedNagrandTiles(arena.id);
+  const tileHeight = highGround ? highGroundHeight : 0.16;
+  const mesh = new THREE.Mesh(polishTile ? polishedTileGeometry(tileHeight, cell.x, cell.y) : new THREE.BoxGeometry(1.72, tileHeight, 1.72), material);
   if (arena.id === 'trench') {
     const preserveColor = !trenchSquare && (ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null);
     textureTrenchTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), preserveColor);
@@ -5538,11 +5676,14 @@ function createCell(cell: Cell) {
     const preserveColor = ownerOne || ownerTwo || ownerThree || drawSquare || unclaimedPlacementBase || claimedColor !== null;
     textureLordaeronTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), preserveColor);
   }
-  if (arena.id === 'nagrand' && nagrandNewTextures) {
+  if (polishTile) {
+    texturePolishedTile(material, cell.x, cell.y, Boolean(ownerOne || ownerTwo || ownerThree || drawSquare || kamelotPainted || unclaimedPlacementBase || claimedColor !== null), highGround, renderer.capabilities.getMaxAnisotropy(), protectedSquare);
+  } else if (arena.id === 'nagrand' && nagrandNewTextures) {
     textureNagrandTile(mesh, label, renderer.capabilities.getMaxAnisotropy(), ownerOne || ownerTwo || ownerThree || drawSquare);
   }
   mesh.position.copy(worldPosition(cell)); mesh.position.y = highGround ? highGroundCenterY : -trenchTileDepth(cell);
   mesh.receiveShadow = true;
+  mesh.castShadow = polishTile;
   mesh.userData.cell = cell;
   if (lordaeronTombCell) {
     const highlight = new THREE.Mesh(
@@ -9090,10 +9231,15 @@ function addLabel(text: string, x: number, z: number) {
 
 function rebuildBoardGeometry(width: number, height: number) {
   nagrandTextureButton.classList.toggle('hidden', visualArena().id !== 'nagrand');
-  nagrandTextureButton.textContent = `Textures: ${nagrandNewTextures ? 'new' : 'original'} · Ctrl+L`;
+  nagrandTextureButton.textContent = polishedNagrandTiles(visualArena().id) ? 'Textures: polish preview · Shift+V' : `Textures: ${nagrandNewTextures ? 'new' : 'original'} · Ctrl+L`;
   nagrandTextureButton.setAttribute('aria-pressed', String(nagrandNewTextures));
   const mistCenter = boardCenterWorld(width, height);
   arenaMist.position.set(mistCenter.x, -1.4, mistCenter.z);
+  desertAtmosphere.dust.position.x = mistCenter.x;
+  desertAtmosphere.dust.position.z = mistCenter.z;
+  stormAtmosphere.rain.position.set(mistCenter.x, 0, mistCenter.z);
+  stormAtmosphere.wind.position.x = mistCenter.x;
+  stormAtmosphere.wind.position.z = mistCenter.z;
   cellMeshes.splice(0).forEach((mesh) => {
     scene.remove(mesh);
     mesh.geometry.dispose();
@@ -9110,6 +9256,8 @@ function rebuildBoardGeometry(width: number, height: number) {
   syncTrenchPerimeter(width, height);
   syncLordaeronTomb();
   fitCameraToArena(width, height);
+  // Arena dimensions can change while the preview remains enabled.
+  if (visualPolish.enabled) applyArenaLightLevel();
 }
 
 function loadNagrandOuterRingAsset() {
@@ -9134,6 +9282,7 @@ function sizeNagrandOuterRing(model: THREE.Group, width: number, height: number)
 
 function syncNagrandOuterRing(width: number, height: number) {
   const visible = visualArena().id === 'nagrand';
+  nagrandMountains.sync(visible && nagrandLandEnabled, boardCenterWorld(width, height), nagrandOuterRingSpan(width, height));
   nagrandOuterRingGroup.visible = visible;
   if (!visible) return;
   const center = boardCenterWorld(width, height);
@@ -9381,6 +9530,8 @@ function configureCameraProjectionForLayout(): CameraViewportCenter {
 }
 
 function sizeArenaFloor(width: number, height: number) {
+  // Keep the support surface below the recessed Trench tiles instead of hiding them.
+  floor.position.y = visualArena().id === 'trench' ? -0.33 - TRENCH_TILE_DEPTH : -0.33;
   if (visualArena().id === 'lordaeron' || visualArena().id === 'trench') {
     textureNagrandPlatform(floor, false, renderer.capabilities.getMaxAnisotropy());
     if (floor.userData.geometryKind !== 'rectangle') {
@@ -9408,8 +9559,8 @@ function sizeArenaFloor(width: number, height: number) {
   const arenaRadius = Math.hypot(spanX, spanZ) / 2 + 2;
   const floorRadius = visualArena().id === 'nagrand' ? nagrandOuterRingSpan(width, height) * 0.49 : arenaRadius;
   floor.scale.set(floorRadius / 12.4, 1, floorRadius / 12.4);
-  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandNewTextures, renderer.capabilities.getMaxAnisotropy());
-  if (!nagrandNewTextures) floor.material.color.setHex(dawnArenaMode ? 0x21332f : 0x0d1b18);
+  textureNagrandPlatform(floor, visualArena().id === 'nagrand' && nagrandLandEnabled, renderer.capabilities.getMaxAnisotropy());
+  if (visualArena().id !== 'nagrand' || !nagrandLandEnabled) floor.material.color.setHex(dawnArenaMode ? 0x21332f : 0x0d1b18);
 }
 
 function fitCameraToArena(width: number, height: number, force = false) {
@@ -9425,7 +9576,8 @@ function fitCameraToArena(width: number, height: number, force = false) {
   const viewingDirection = new THREE.Vector3(0.5, 1.05, 1).normalize();
   const center = boardCenterWorld(width, height);
   const viewportCenter = configureCameraProjectionForLayout();
-  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ, viewportCenter) * 1.68;
+  const landscapeFraming = visualArena().id === 'nagrand' ? NAGRAND_LANDSCAPE_SCALE : 1;
+  const cameraDistance = fittedCameraDistance(center, viewingDirection, spanX, spanZ, viewportCenter) * 1.68 * landscapeFraming;
   controls.target.copy(center);
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
@@ -9464,8 +9616,8 @@ function worldPosition(cell: Cell) {
   const highGroundY = arena.id === 'lordaeron' ? LORDAERON_HIGHGROUND_ENTITY_Y : STANDARD_HIGHGROUND_TOP_Y;
   const trenchDepth = trenchTileDepth(cell);
   const rampCenterProgress = 0.86 / (0.86 + 0.96);
-  const recess = slide ? trenchDepth * (1 - THREE.MathUtils.smoothstep(rampCenterProgress, 0, 1)) : trenchDepth;
-  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : (slide ? 0.26 : 0.08) - recess, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
+  const slideY = .085 - trenchDepth + slideRampRise(cell, rampCenterProgress) * (.375 + trenchDepth);
+  return new THREE.Vector3((cell.x - (visualBoardWidth() + 1) / 2) * 1.92, highGround ? highGroundY : slide ? slideY : .08 - trenchDepth, (cell.y - (visualBoardHeight() - 1) / 2) * 1.92);
 }
 
 function automaticSlideSegmentIndex(movement: NonNullable<GameState['players'][PlayerId]['visualMovement']>) {
@@ -9694,7 +9846,7 @@ function syncBoard() {
   const arenaId = visualArena().id;
   if (lightingArenaId !== arenaId) {
     lightingArenaId = arenaId;
-    setDawnArenaMode(arenaId !== 'trench');
+    setArenaLightingDefaults();
   }
   if (boardVisualKey !== boardGeometryKey()) rebuildBoardGeometry(visualBoardWidth(), visualBoardHeight());
   syncSpectreShadowTrail();

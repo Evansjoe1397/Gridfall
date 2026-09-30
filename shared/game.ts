@@ -253,7 +253,7 @@ export const CARDS: readonly Card[] = [
   { id: 'shadow-dagger', name: 'Shadow Dagger', kind: 'perk', value: 1, levelEffects: ["Throw a dagger in a straight line to the board edge. Until the end of the turn, Spectre gains +1 MOV and may follow its trail through forbidden terrain (including characters). Crossing forbidden terrain doesn't cost MOV. Spectre may climb onto boxes along the trail and use them as High Ground.", 'Enemies hit by the dagger receive 1 Damage', 'Enemies hit by the dagger get -1 DEF until end of turn'] },
   { id: 'consume-replica', name: 'Shadow Cloak', kind: 'perk', value: 1, levelEffects: ['Destroy all replicas. Gain Spell Immunity until the beginning of your next turn and add Headache to your Hand', 'Remove all negative Status Cards and effects from your Hand', 'Gain +1 ATT until end of turn for each effect removed'] },
   { id: 'haunt', name: 'Haunt', kind: 'perk', value: 1, levelEffects: ['Create a replica behind each enemy based on their facing. A replica may stand atop a Box; if that space is unavailable, use the best adjacent space. Gain +1 ATT until end of turn. Replace existing replicas', 'All enemies reveal 1 random Block Card from their Hand privately to Spectre. They must use that Card to Block.', 'Gain 1 Action'] },
-  { id: 'solitude', name: 'Solitude', kind: 'attack', value: 3, effectText: 'Before combat: +2 ATT if the target has no adjacent Objects or characters, excluding Spectre, her replica, and any non-Box Object Spectre is currently traversing with Shadow Dagger.' },
+  { id: 'solitude', name: 'Solitude', kind: 'attack', value: 3, effectText: 'If the target has no adjacent Objects or characters, excluding Spectre, her replica, and any non-Box Object Spectre is currently traversing with Shadow Dagger, Attack Value is 5.' },
   { id: 'deja-vu', name: 'Deja Vu', kind: 'attack', value: 1, effectText: 'If you control a replica, gain 1 Action and draw 1 Card. Otherwise, return Deja Vu to your Hand.' },
   { id: 'echo-strike', name: 'Echo Strike', kind: 'attack', value: 2, effectText: 'After combat, deal 1 Damage to every enemy character adjacent to any of your replicas.' },
   { id: 'soul-strike', name: 'Soul Strike', kind: 'attack', value: 3, effectText: "If the enemy has no Cards in Hand, deal 2 additional Damage. Otherwise, reveal 1 random Perk, Attack, or Block Card from their Hand privately to Spectre. If it is a Perk, discard it. If it is an Attack or Block, the enemy must use that Card first when they next Attack or Block (they may still take the hit)." },
@@ -3068,6 +3068,7 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
   const boneChillSteal = card.id === 'bone-chill' ? Math.min(2, Math.max(1, distance(origin, combatTarget))) : 0;
   const boneChillMeleeBonus = card.id === 'bone-chill' && boneChillSteal === 1 ? 1 : 0;
   const attackModifiers: CombatModifier[] = [
+    solitudeEligible && { value: 2, source: 'Solitude · isolated target' },
     highGroundBonus && { value: highGroundBonus, source: card.id === 'lightbringer' ? 'Lightbringer · High Ground ×2' : 'High Ground advantage' },
     temporaryBonus && { value: temporaryBonus, source: 'Spectre temporary ATT' },
     accumulateBonus && { value: accumulateBonus, source: 'Accumulate' },
@@ -3094,7 +3095,7 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
     defenderId: defender.id,
     cardId: card.id,
     cardInstanceId: instance.instanceId,
-    attackValue: Math.max(0, card.value + highGroundBonus + temporaryBonus + accumulateBonus + lightsaberBonus + rageBonus + magicianBonus + spiritBonus + manaBlastBonus + boneChillMeleeBonus - exhaustPenalty - guardianPenalty),
+    attackValue: Math.max(0, (solitudeEligible ? 5 : card.value) + highGroundBonus + temporaryBonus + accumulateBonus + lightsaberBonus + rageBonus + magicianBonus + spiritBonus + manaBlastBonus + boneChillMeleeBonus - exhaustPenalty - guardianPenalty),
     attackModifiers,
     returnToHandAfterCombat: false,
     attackerPosition: { ...origin },
@@ -3113,7 +3114,6 @@ function resolveSpectreAttack(state: GameState, command: Extract<GameCommand, { 
   const oracle = defender.character === 'merylin' && !targetReplica ? defender.hand.find((entry) => entry.cardId === 'oracle') : undefined;
   deferSpiritAttackExit(state, attacker);
   if (oracle) Object.assign(state.pendingAttack, { oracleInstanceId: oracle.instanceId, oracleValueAtCombatStart: cardBaseValue(oracle), oracleRevealedThisCombat: false, oracleAttackRevealed: false });
-  if (card.id === 'solitude') (state.pendingAttack as PendingAttack & { solitudeEligible?: boolean }).solitudeEligible = solitudeEligible;
   state.phase = 'defending';
   state.log.unshift(`${attacker.name} used ${card.name} from ${effectiveOrigin === 'replica' ? 'the replica' : 'their character'} against ${targetReplica ? `${defender.name}'s replica` : defender.name}.`);
   return ok(state);
@@ -3560,6 +3560,12 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     const fingerOfDeathBonus = card.id === 'finger-of-death' && activeWrecknaPhylactery(state, player.id, 'might') ? 2 : 0;
     const barbarianBonus = player.character === 'merylin' ? player.barbarianNextAttackBonus ?? 0 : 0;
     const excaliburRangeBonus = card.id === 'excalibur' && distance(player.position, defender.position) === 2 ? 1 : 0;
+    const shadowTransitObjectIds = new Set(isSpectreShadowTrailCell(state, player, player.position)
+      ? state.objects.filter((object) => object.kind !== 'wooden-box' && object.position.x === player.position.x && object.position.y === player.position.y).map((object) => object.id)
+      : []);
+    const solitudeBonus = card.id === 'solitude'
+      && !Object.values(state.players).some((entry) => entry.id !== player.id && entry.id !== defender.id && entry.hp > 0 && distance(entry.position, defender.position) === 1)
+      && !state.objects.some((object) => !(object.kind === 'spectre-replica' && object.ownerId === player.id) && !shadowTransitObjectIds.has(object.id) && distance(object.position, defender.position) === 1) ? 2 : 0;
     const boneChillSteal = card.id === 'bone-chill' ? Math.min(2, Math.max(1, distance(player.position, defender.position))) : 0;
     const boneChillMeleeBonus = card.id === 'bone-chill' && boneChillSteal === 1 ? 1 : 0;
     const attackModifiers: CombatModifier[] = [
@@ -3572,6 +3578,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       fingerOfDeathBonus && { value: fingerOfDeathBonus, source: 'Finger of Death · Phylactery of Might' },
       barbarianBonus && { value: barbarianBonus, source: 'Barbarian Stance · next Attack' },
       excaliburRangeBonus && { value: excaliburRangeBonus, source: 'Excalibur · Range 2' },
+      solitudeBonus && { value: solitudeBonus, source: 'Solitude · isolated target' },
       boneChillMeleeBonus && { value: boneChillMeleeBonus, source: 'Bone Chill · melee' },
       bannerBonus && { value: bannerBonus, source: 'The Banner' },
       exhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
@@ -3580,7 +3587,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     if (card.id === 'mana-barrage' && player.manaMode === 'consume') {
       attackModifiers.push({ value: 2, source: 'Mana Barrage Consume', kind: 'extra-damage', timing: 'after combat' });
     }
-    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + fingerOfDeathBonus + barbarianBonus + excaliburRangeBonus + boneChillMeleeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, barbarianHeadache: Boolean(player.barbarianNextAttackHeadache), attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, boneChillSteal: boneChillSteal || undefined, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
+    state.pendingAttack = { attackerId: player.id, defenderId: defender.id, cardId: card.id, cardInstanceId: instance.instanceId, attackValue: card.value + solitudeBonus + fingerOfDeathBonus + barbarianBonus + excaliburRangeBonus + boneChillMeleeBonus + lightsaberBonus + rageBonus + highGroundBonus + magicianAttackBonus + spiritAttackBonus + manaBlastConsumeBonus + bannerBonus - exhaustPenalty - guardianPenalty, attackModifiers, returnToHandAfterCombat, barbarianHeadache: Boolean(player.barbarianNextAttackHeadache), attackerPosition: { ...player.position }, defenderPosition: { ...defender.position }, boneChillSteal: boneChillSteal || undefined, shieldEquippedAtStart: player.shieldEquipped, rageSpent: rageBonus, generatesMana: player.character === 'magician' && player.manaMode === 'generate', attackerUsedManaConsume: player.character === 'magician' && player.manaMode === 'consume', attackerWasInSpiritForm: Boolean(spiritAttackBonus) };
     player.barbarianNextAttackHeadache = false;
     state.pendingAttack.defenderTombId = occupiedWrecknaTomb(state, defender)?.id;
     const oracle = defender.character === 'merylin' ? defender.hand.find((entry) => entry.cardId === 'oracle') : undefined;
@@ -4829,20 +4836,6 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
       (pending.attackModifiers ??= []).push({ value: 1, source: 'Fistbolt pre-combat Rage' });
     }
     state.log.unshift('Fistbolt generated 1 Rage after Defender pre-combat effects.');
-  }
-  const solitude = pending as PendingAttack & { solitudeEligible?: boolean; solitudeResolved?: boolean };
-  if (pending.cardId === 'solitude' && !solitude.solitudeResolved) {
-    solitude.solitudeResolved = true;
-    const shadowTransitObjectIds = new Set(isSpectreShadowTrailCell(state, attacker, attacker.position)
-      ? state.objects.filter((object) => object.kind !== 'wooden-box' && object.position.x === attacker.position.x && object.position.y === attacker.position.y).map((object) => object.id)
-      : []);
-    solitude.solitudeEligible = !Object.values(state.players).some((player) => player.id !== attacker.id && player.id !== defender.id && player.hp > 0 && distance(player.position, defenderCombatPosition) === 1)
-      && !state.objects.some((object) => object.id !== pending.defenderReplicaId && !(object.kind === 'spectre-replica' && object.ownerId === attacker.id) && !shadowTransitObjectIds.has(object.id) && distance(object.position, defenderCombatPosition) === 1);
-    if (solitude.solitudeEligible && !attackEffectsCancelled) {
-      pending.attackValue += 2;
-      pending.attackModifiers = [...(pending.attackModifiers ?? []), { value: 2, source: 'Solitude pre-combat effect' }];
-      state.log.unshift('Solitude applied +2 ATT before combat because the target had no adjacent Objects or other characters.');
-    } else if (solitude.solitudeEligible) state.log.unshift(`${cardDefinition({ instanceId: '', cardId: defenseCardId! }).name} cancelled Solitude's before-combat +2 ATT effect.`);
   }
 
   pending.attackPreCombatResolved = true;

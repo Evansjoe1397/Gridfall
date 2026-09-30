@@ -177,12 +177,12 @@ After combat, the replica deals 1 Damage to every adjacent enemy character.
 
 ### Solitude — 3 ATT
 
-Gain +2 ATT if the target has no adjacent Objects or characters other than Spectre and Spectre's replica.
+If the target has no adjacent Objects or characters, excluding Spectre, her replica, and any non-Box Object Spectre is currently traversing with Shadow Dagger, Attack Value is 5. This conditional value is not a card effect and cannot be cancelled.
 
 - Columns normally count as Objects and therefore prevent the bonus. A Column or other non-Box Object currently sharing Spectre's Square because she is traversing it with Shadow Dagger is ignored together with Spectre.
 - Other board Objects, allies, and enemies adjacent to the target prevent the bonus.
 - Spectre and Spectre's replica are ignored when checking the target's adjacent Squares.
-- Example: the target is adjacent only to the attacking replica and a Column; the Column prevents the bonus. If Spectre is currently inside that Column through Shadow Dagger, the Column is ignored and Solitude gains +2 ATT.
+- Example: the target is adjacent only to the attacking replica and a Column; the Column prevents the bonus. If Spectre is currently inside that Column through Shadow Dagger, the Column is ignored and Solitude has Attack Value 5.
 - Refinement: check the condition when the Attack is declared so the combat preview shows the correct ATT modifier.
 
 ## Starting defends

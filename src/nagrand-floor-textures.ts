@@ -3,17 +3,17 @@ import { retryAssetLoad } from './retry-asset-load.ts';
 
 type StoneMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 let ground: Promise<THREE.Texture> | undefined;
-let grass: Promise<THREE.Texture> | undefined;
+let platformRock: Promise<THREE.Texture> | undefined;
 
-function loadGrass(anisotropy: number) {
-  return grass ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/platform-grass.png?v=1`, (url) => new THREE.TextureLoader().loadAsync(url))
+function loadPlatformRock(anisotropy: number) {
+  return platformRock ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/cliff-rock-v1.png`, (url) => new THREE.TextureLoader().loadAsync(url))
     .then((texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.anisotropy = Math.min(8, anisotropy);
       return texture;
     }).catch((error) => {
-      grass = undefined;
+      platformRock = undefined;
       throw error;
     });
 }
@@ -77,12 +77,12 @@ export function textureNagrandPlatform(mesh: StoneMesh, enabled: boolean, anisot
   }
   const uv = mesh.geometry.attributes.uv;
   const positions = mesh.geometry.attributes.position;
-  // Continuous turf across the platform, independent of the stone tile atlas.
+  // Match the summit's top-down rock projection, independent of tile textures.
   for (let i = 0; i < uv.count; i++) {
-    uv.setXY(i, positions.getX(i) * mesh.scale.x / 5.76, positions.getZ(i) * mesh.scale.z / 5.76);
+    uv.setXY(i, positions.getX(i) * mesh.scale.x * .14, positions.getZ(i) * mesh.scale.z * .14);
   }
   uv.needsUpdate = true;
-  void loadGrass(anisotropy).then((texture) => {
+  void loadPlatformRock(anisotropy).then((texture) => {
     if (material.userData.groundRevision !== revision) return;
     material.map = texture;
     material.color.setScalar(0.85);

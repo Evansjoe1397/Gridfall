@@ -7187,12 +7187,12 @@ solitudeShadowColumnState.spectreShadow = { casterId: 'P1', level: 1, origin: 's
 const solitudeFromColumn = applyGameCommand(solitudeShadowColumnState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'solitude-inside-column', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
 assert.equal(solitudeFromColumn.ok, true, 'Spectre may use Solitude while traversing a Column with Shadow Dagger.');
 if (solitudeFromColumn.ok) {
-  assert.equal(solitudeFromColumn.state.pendingAttack?.attackValue, 3, 'Solitude waits until the before-combat stage to apply its conditional bonus.');
+  assert.equal(solitudeFromColumn.state.pendingAttack?.attackValue, 5, 'Solitude has conditional Attack Value 5 when declared.');
   const solitudeFromColumnResolved = applyCommand(solitudeFromColumn.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(solitudeFromColumnResolved.ok, true);
   if (solitudeFromColumnResolved.ok) {
-    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackTotal, 5, 'The traversed Column is ignored and Solitude gains +2 ATT before combat.');
-    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), true, 'The combat preview identifies the Solitude bonus.');
+    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackTotal, 5, 'The traversed Column is ignored and Solitude has Attack Value 5.');
+    assert.equal(solitudeFromColumnResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude · isolated target'), true, 'The combat preview identifies the Solitude bonus.');
   }
 }
 
@@ -7559,20 +7559,20 @@ if (dejaObjectReshuffle.ok) {
   assert.deepEqual(player.discard.map((card) => card.instanceId), ['deja-object-reshuffle'], 'Object-targeting Deja Vu is excluded from its own reshuffle and then discarded.');
 }
 
-const solitudeBeforeCombatState = createHotseatTestState(true, 'spectre', 'dummy');
-solitudeBeforeCombatState.phase = 'active'; solitudeBeforeCombatState.activePlayerId = 'P1'; solitudeBeforeCombatState.objects = [];
-solitudeBeforeCombatState.players.P1.position = { x: 2, y: 2 }; solitudeBeforeCombatState.players.P2.position = { x: 3, y: 2 };
-solitudeBeforeCombatState.players.P1.hand = [{ instanceId: 'solitude-before-combat', cardId: 'solitude' }]; solitudeBeforeCombatState.players.P2.hand = [];
-const solitudeBeforeCombatAttack = applyGameCommand(solitudeBeforeCombatState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'solitude-before-combat', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
-assert.equal(solitudeBeforeCombatAttack.ok, true);
-if (solitudeBeforeCombatAttack.ok) {
-  assert.equal(solitudeBeforeCombatAttack.state.pendingAttack?.attackValue, 3, 'Solitude does not preload its conditional bonus before the Defend response.');
-  const defenderHp = solitudeBeforeCombatAttack.state.players.P2.hp;
-  const solitudeResolved = applyCommand(solitudeBeforeCombatAttack.state, { type: 'pass-defense', playerId: 'P2' });
+const solitudeConditionalValueState = createHotseatTestState(true, 'spectre', 'dummy');
+solitudeConditionalValueState.phase = 'active'; solitudeConditionalValueState.activePlayerId = 'P1'; solitudeConditionalValueState.objects = [];
+solitudeConditionalValueState.players.P1.position = { x: 2, y: 2 }; solitudeConditionalValueState.players.P2.position = { x: 3, y: 2 };
+solitudeConditionalValueState.players.P1.hand = [{ instanceId: 'solitude-conditional-value', cardId: 'solitude' }]; solitudeConditionalValueState.players.P2.hand = [];
+const solitudeConditionalValueAttack = applyGameCommand(solitudeConditionalValueState, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'solitude-conditional-value', origin: 'spectre', targetKind: 'player', targetId: 'P2' });
+assert.equal(solitudeConditionalValueAttack.ok, true);
+if (solitudeConditionalValueAttack.ok) {
+  assert.equal(solitudeConditionalValueAttack.state.pendingAttack?.attackValue, 5, 'Solitude declares Attack Value 5 before the Defend response.');
+  const defenderHp = solitudeConditionalValueAttack.state.players.P2.hp;
+  const solitudeResolved = applyCommand(solitudeConditionalValueAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(solitudeResolved.ok, true);
   if (solitudeResolved.ok) {
-    assert.equal(solitudeResolved.state.players.P2.hp, defenderHp - 5, 'Solitude applies +2 ATT during the before-combat stage when its target is isolated.');
-    assert.equal(solitudeResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), true);
+    assert.equal(solitudeResolved.state.players.P2.hp, defenderHp - 5, 'Solitude has Attack Value 5 when its target is isolated.');
+    assert.equal(solitudeResolved.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude · isolated target'), true);
   }
 }
 
@@ -7587,8 +7587,8 @@ if (blockedSolitudeAttack.ok) {
   const blockedSolitude = applyCommand(blockedSolitudeAttack.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'solitude-block' });
   assert.equal(blockedSolitude.ok, true);
   if (blockedSolitude.ok) {
-    assert.equal(blockedSolitude.state.players.P2.hp, defenderHp - 1, 'Block cancels Solitude before combat, leaving its base 3 ATT against 2 DEF.');
-    assert.equal(blockedSolitude.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude pre-combat effect'), false);
+    assert.equal(blockedSolitude.state.players.P2.hp, defenderHp - 3, 'Block cannot cancel Solitude conditional Attack Value 5 against 2 DEF.');
+    assert.equal(blockedSolitude.state.combatReveal?.attackModifiers?.some((modifier) => modifier.source === 'Solitude · isolated target'), true);
   }
 }
 
