@@ -17,6 +17,7 @@
     "check:objects": "tsx scripts/check-object-combat.ts",
     "check:blessed-might": "tsx scripts/check-blessed-might.ts",
     "check:combat-order": "tsx scripts/check-combat-order.ts",
+    "check:mana-shield": "tsx scripts/check-mana-shield.ts",
     "check:arcane-barrier-order": "tsx scripts/check-arcane-barrier-order.ts",
     "check:spirit-combat": "tsx scripts/check-spirit-combat.ts",
     "check:spirit-highground": "tsx scripts/check-spirit-highground.ts",

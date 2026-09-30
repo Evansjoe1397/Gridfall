@@ -1969,7 +1969,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianHeadacheIcon = player.character === 'merylin' && player.barbarianNextAttackHeadache ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('headache')}<span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>Merylin's next Attack adds Headache to the target's Hand after combat. Attacking an Object consumes this effect without applying Headache.</span></div>` : '';
     const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Kamelot or Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
-    const spellsingerAttackIcon = player.character === 'merylin' && (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Kamelot or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. Merylin may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after her normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
+    const spellsingerAttackIcon = (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Dakkoth, Kamelot or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. This character may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after their normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
     const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Bone Chill, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
     const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, Curse, or Brain Freeze reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">${gameIcon('pass-through')}<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
@@ -2718,7 +2718,7 @@ function renderCombatReveal() {
       to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
       empowered: reveal.counterspell.empowered }
     : null;
-  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield'
+  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield' && (pendingSwing.manaShieldManaBeforeCombat ?? 0) < 3
     ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
       position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
     : null;
@@ -3201,13 +3201,13 @@ function notify(message: string) {
 
 function renderPrivateNotice() {
   const notice = (gameState as GameState & { privateNotice?: { id: string; playerId: PlayerId; message: string; createdAt: number } | null }).privateNotice;
-  const viewerId = mode === 'online' ? localSeat : gameState.activePlayerId;
+  const viewerId = mode === 'online' ? localSeat : notice?.playerId;
   if (!notice || notice.id === lastPrivateNoticeId || viewerId !== notice.playerId || Date.now() - notice.createdAt > 10_000) return;
   lastPrivateNoticeId = notice.id;
   window.clearTimeout(centerNoticeTimer);
   centerNotice.textContent = notice.message;
   centerNotice.classList.add('visible');
-  centerNoticeTimer = window.setTimeout(() => centerNotice.classList.remove('visible'), 1800);
+  centerNoticeTimer = window.setTimeout(() => centerNotice.classList.remove('visible'), 4000);
 }
 
 function closeObjectAttackConfirmation() {

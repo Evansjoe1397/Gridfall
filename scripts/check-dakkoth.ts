@@ -3,7 +3,7 @@ import { applyCommand, cardDefinition, createHotseatTestState, effectiveAttackRa
 
 assert.equal(
   cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[2],
-  'Gain 1 Action, 1 MOV, and +1 Attack Range until the start of your next turn',
+  'Gain 1 Attack, +1 Attack Range and 1 Movement.',
   'Dakkoth Level 3 describes its additional Attack Range bonus.',
 );
 assert.equal(cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[1], 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the sacrifice');
@@ -35,13 +35,24 @@ assert.equal(objectTargeted.ok, true, 'Dakkoth targets an Object for its Phylact
 const completed = applyCommand(objectTargeted.state, { type: 'wreckna-phylactery-choice', playerId: 'P1', phylacteryType: 'might' });
 assert.equal(completed.ok, true, 'Dakkoth Level 3 completes.');
 
-assert.equal(completed.state.players.P1.actionsRemaining, 2, 'Dakkoth Level 3 grants 1 Action.');
+assert.equal(completed.state.players.P1.actionsRemaining, 1, 'Dakkoth Level 3 does not grant a general Action.');
+assert.equal(completed.state.players.P1.spellsingerExtraAttacks, 1, 'Dakkoth Level 3 grants 1 Attack-only Action.');
 assert.equal(completed.state.players.P1.movementRemaining, 3, 'Dakkoth Level 3 grants 1 MOV.');
 assert.equal(completed.state.players.P1.dakkothRangeBonus, 2, 'Dakkoth Level 3 adds +1 Attack Range to its Level 1 bonus.');
 assert.equal(effectiveAttackRange(completed.state, completed.state.players.P1), 4, 'Wreckna has +2 total Attack Range from Dakkoth Level 3.');
 
+const attackOnly = structuredClone(completed.state);
+attackOnly.players.P1.actionsRemaining = 0;
+attackOnly.players.P1.hand = [{ instanceId: 'bonus-attack', cardId: 'attack-2' }, { instanceId: 'status-cost', cardId: 'pinned' }];
+assert.equal(applyCommand(attackOnly, { type: 'remove-status', playerId: 'P1', cardInstanceId: 'status-cost' }).ok, false, 'The extra Attack cannot pay for a status removal Action.');
+const bonusAttack = applyCommand(attackOnly, { type: 'attack', playerId: 'P1', cardInstanceId: 'bonus-attack', targetId: 'dakkoth-box', targetKind: 'object' });
+assert.equal(bonusAttack.ok, true, 'The extra Attack allows an Attack when general Actions are exhausted.');
+assert.equal(bonusAttack.state.players.P1.spellsingerExtraAttacks, 0, 'Playing the Attack spends the extra Attack allowance.');
+assert.equal(bonusAttack.state.players.P1.actionsRemaining, 0, 'The extra Attack does not create general Actions.');
+
 const ended = applyCommand(completed.state, { type: 'end-turn', playerId: 'P1' });
 assert.equal(ended.ok, true, 'Wreckna can end the turn after Dakkoth resolves.');
+assert.equal(ended.state.players.P1.spellsingerExtraAttacks, 0, 'The extra Attack expires at turn end.');
 assert.equal(ended.state.players.P1.dakkothRangeBonus, 2, 'Dakkoth Attack Range remains active through the enemy turn.');
 const enemyEnded = applyCommand(ended.state, { type: 'end-turn', playerId: 'P2' });
 assert.equal(enemyEnded.ok, true, 'The enemy can end their turn.');

@@ -159,8 +159,8 @@ export const CARDS: readonly Card[] = [
   { id: 'immortality', name: 'Immortality', kind: 'defend', value: 2, effectText: 'Prevent all combat and effect Damage if you have an active Phylactery. After combat, choose one to sacrifice and teleport onto its Square.' },
   { id: 'graveyard', name: 'Graveyard', kind: 'defend', value: 3, canDefendInsideTomb: true, effectText: 'Value is 4 while adjacent to or inside a Tomb. You can use this Card from inside a Tomb.' },
   { id: 'lichdom', name: 'Lichdom', kind: 'perk', value: 1, levelEffects: ['Draw 1 Card', 'May sacrifice 1 Hit Point to create a Phylactery', 'Choose a Card in Hand to create a one-time copy'] },
-  { id: 'dakkoth', name: 'Dakkoth', kind: 'perk', value: 1, levelEffects: ['Gain +1 Attack Range until the start of your next turn. Create a Tomb within Range', 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the sacrifice', 'Gain 1 Action, 1 MOV, and +1 Attack Range until the start of your next turn'] },
-  { id: 'sap', name: 'Sap', kind: 'perk', value: 1, levelEffects: ['A target in Range chooses a Defend Card to reveal', '+2 Range', 'Force the target to discard the highest occupied Perk from Spell Echo, checking level 3, then 2, then 1'] },
+  { id: 'dakkoth', name: 'Dakkoth', kind: 'perk', value: 1, levelEffects: ['Gain +1 Attack Range until the start of your next turn. Create a Tomb within Range', 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the sacrifice', 'Gain 1 Attack, +1 Attack Range and 1 Movement.'] },
+  { id: 'sap', name: 'Sap', kind: 'perk', value: 1, levelEffects: ['A target in Range chooses a Defend Card to reveal', '+2 Range, reveal all Defend cards.', 'Force the target to discard the highest occupied Perk from Spell Echo.'] },
   { id: 'necronomicon', name: 'Necronomicon', kind: 'perk', value: 1, levelEffects: ['Infuse a Tomb to create a Phylactery', "Teleport into the infused Tomb. Can use any Defend Card from inside a Tomb until the start of Wreckna's next turn", 'Restore 1 HP and draw 1 Card'] },
   { id: 'decay', name: 'Curse', kind: 'perk', value: 1, levelEffects: ['Steal 1 MOV from the target', "Add Exhaust to the target's Discard", "Block the target's Trait until the end of their turn"] },
   { id: 'blessed-light', name: 'Blessed Light', kind: 'attack', value: 2, effectText: "Shuffle Exhaust into the target's Deck. Create Blessing: Light." },
@@ -213,7 +213,7 @@ export const CARDS: readonly Card[] = [
   { id: 'mana-barrage', name: 'Mana Barrage', kind: 'attack', value: 3, effectText: 'During combat, you may spend 1 Mana Point to deal 1 Damage to the target.', consumeText: 'Consume: Deal 2 guaranteed Damage after combat instead.' },
   { id: 'grimoire-cleanse', name: 'Grimoire Cleanse', kind: 'attack', value: 3, effectText: 'If you win combat, force the target to Discard 2 Cards.', consumeText: 'Consume: Gain +1 MOV per Card discarded.' },
   { id: 'spellblock', name: 'SpellBlock', kind: 'defend', value: 2, effectText: 'Before combat: cancel the Attack Card effect. Generate Mana Points equal to the amount of Damage blocked in combat.' },
-  { id: 'mana-shield', name: 'Mana Shield', kind: 'defend', value: 0, effectText: 'Generate 1 Mana Point before combat. Gain +1 Defend Value per stored Mana Point. After combat, remove 1 Mana Point per Damage blocked.' },
+  { id: 'mana-shield', name: 'Mana Shield', kind: 'defend', value: 0, effectText: 'Generate 1 Mana Point before combat. Gain +1 Defend Value per stored Mana Point. After combat: remove 1 Mana Point per Damage blocked (up to 2). Do not remove Mana Points if you had 3 stored before combat.' },
   { id: 'arcane-barrier', name: 'Arcane Barrier', kind: 'defend', value: 2, effectText: "Push the adjacent Attacker 1 Square away. Deal 1 Damage if they can't be pushed." },
   { id: 'counterspell', name: 'Counterspell', kind: 'defend', value: 3, effectText: "If Logan has any stored Mana Points, deal 1 Damage to the attacking Player. Place a Headache Card on top of the enemy's Deck." },
   { id: 'blink', name: 'Blink', kind: 'defend', value: 0, effectText: 'Before combat, remove all Mana Points. If you have none, discard another Card from your Hand instead. If neither cost can be paid, Blink has no effect. Otherwise, choose a currently visible empty Square, then teleport there after the combat window closes. The Attack misses: prevent all Damage and negative effects on Logan. Other after-combat effects still resolve.' },
@@ -353,7 +353,7 @@ export type PlayerState = {
 export type MatchStats = { squaresMoved: number; attackDamage: number; perkDamage: number; defensiveRetaliationDamage: number; totalDamage: number; hitPointsHealed: number; combatDamageBlocked: number; objectsDestroyed: number };
 export type CombatModifier = { value: number; source: string; kind?: 'extra-damage'; timing?: 'during combat' | 'after combat' };
 export type SoulStrikeResult = { cardId?: CardTypeId; outcome: 'damage' | 'discarded-perk' | 'forced-attack' | 'forced-defend' | 'no-eligible' | 'prevented'; damage?: number };
-export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; barbarianHeadache?: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; defenderTombId?: string; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; defenderWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
+export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId: CardTypeId; cardInstanceId: string; attackValue: number; attackModifiers?: CombatModifier[]; returnToHandAfterCombat: boolean; barbarianHeadache?: boolean; attackerPosition?: Cell; defenderPosition?: Cell; attackerBody?: 'character' | 'replica'; defenderBody?: 'character' | 'replica'; attackerReplicaId?: string; defenderReplicaId?: string; boneChillSteal?: number; defenderTombId?: string; graveyardDefenseBonus?: number; wrecknaMightApplied?: boolean; shieldEquippedAtStart?: boolean; rageSpent?: number; generatesMana?: boolean; attackerUsedManaConsume?: boolean; attackerWasInSpiritForm?: boolean; defenderWasInSpiritForm?: boolean; grimoireDiscardsRemaining?: number; manaShieldManaGenerated?: boolean; manaShieldManaBeforeCombat?: number; manaBarrageManaApplied?: boolean; blessingLightApplied?: boolean; blessingMightApplied?: boolean; blessingShieldApplied?: boolean; blessingShieldPlayerId?: PlayerId; blessingShieldPlayerIds?: PlayerId[]; blessingShieldStatusPlayerIds?: PlayerId[]; blessingFaithApplied?: boolean; blessingFaithDecidedPlayerIds?: PlayerId[]; blessedBlockResolved?: boolean; blessedSwiftnessResolved?: boolean; blessingShieldHeldBeforeBlessedBlock?: boolean; feedSpiritOffered?: boolean; feedSpiritCombatDamage?: number; resurrectionNegatesDamage?: boolean; immortalityNegatesDamage?: boolean; mythrilHelmetApplied?: boolean; devourProtectionPlayerId?: PlayerId; soulStrikeResolved?: boolean; soulStrikeResult?: SoulStrikeResult; redirect?: { usedObjectIds: string[]; effectDamageRedirected: boolean; statusRedirected: boolean }; combatStackResolved?: boolean; combatStackPreCombatResolved?: boolean; combatStackDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; combatStackDefenderAttachedExhaust?: boolean; combatStackDefenderMockery?: number; combatStackDefenderBanner?: boolean; combatStackDefenderHelmet?: boolean; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; combatResolutionCommitted?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb' | 'pipe-button'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
 export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)' } };
@@ -5208,10 +5208,13 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
         return ok(state);
       }
     }
-    if (selectedDefense.cardId === 'mana-shield' && !pending.manaShieldManaGenerated && !blessedMightCancelsDefenseCard(pending, selectedDefense.cardId)) {
-      const generated = grantMana(defender, 1);
-      pending.manaShieldManaGenerated = true;
-      state.log.unshift(`Mana Shield generated ${generated} Mana before combat (${defender.manaPoints}/3).`);
+    if (selectedDefense.cardId === 'mana-shield' && pending.manaShieldManaBeforeCombat == null && !blessedMightCancelsDefenseCard(pending, selectedDefense.cardId)) {
+      pending.manaShieldManaBeforeCombat = defender.manaPoints;
+      if (pending.manaShieldManaBeforeCombat < 3) {
+        const generated = grantMana(defender, 1);
+        pending.manaShieldManaGenerated = generated > 0;
+        state.log.unshift(`Mana Shield generated ${generated} Mana before combat (${defender.manaPoints}/3).`);
+      }
     }
     if (selectedDefense.cardId === 'blessed-block' && !pending.blessedBlockResolved) {
       pending.blessingShieldHeldBeforeBlessedBlock = defender.hand.some((card) => card.cardId === 'blessing-shield');
@@ -5545,9 +5548,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     const gainedMana = grantMana(defender, blockedDamage);
     state.log.unshift(`SpellBlock blocked ${blockedDamage} Damage and generated ${gainedMana} Mana for ${defender.name} (${defender.manaPoints}/3).`);
   }
-  if (defenseCardId === 'mana-shield' && !defenseEffectsCancelled) {
+  if (defenseCardId === 'mana-shield' && !defenseEffectsCancelled && (pending.manaShieldManaBeforeCombat ?? 0) < 3) {
     const blockedDamage = Math.max(0, Math.min(pending.attackValue, defenseValue));
-    const spentMana = Math.min(defender.manaPoints, blockedDamage);
+    const spentMana = Math.min(defender.manaPoints, blockedDamage, 2);
     defender.manaPoints -= spentMana;
     state.log.unshift(`Mana Shield blocked ${blockedDamage} Damage and removed ${spentMana} Mana after combat (${defender.manaPoints}/3 remaining).`);
   }
@@ -6423,10 +6426,10 @@ function completeDakkoth(state: GameState, playerId: PlayerId) {
   if (!pending || pending.casterId !== playerId) return;
   const player = state.players[playerId];
   if (pending.level >= 3) {
-    player.actionsRemaining += 1;
+    player.spellsingerExtraAttacks = (player.spellsingerExtraAttacks ?? 0) + 1;
     player.dakkothRangeBonus = (player.dakkothRangeBonus ?? 0) + 1;
     player.movementRemaining += 1;
-    state.log.unshift(`Dakkoth level 3: ${player.name} gained 1 Action, +1 Attack Range until the start of their next turn, and 1 MOV.`);
+    state.log.unshift(`Dakkoth level 3: ${player.name} gained 1 Attack-only Action, +1 Attack Range until the start of their next turn, and 1 MOV.`);
   }
   extended.dakkoth = null;
   state.phase = 'active';
@@ -6505,6 +6508,19 @@ function finishSap(state: GameState, pending: NonNullable<WrecknaChoiceState['sa
   return ok(state);
 }
 
+function revealSapDefendCards(state: GameState, pending: NonNullable<WrecknaChoiceState['sap']>, target: PlayerState, cards: CardInstance[]) {
+  for (const card of cards) {
+    card.revealedToPlayerIds = [...new Set([...(card.revealedToPlayerIds ?? []), pending.casterId])];
+  }
+  const message = pending.level >= 2
+    ? 'All Defend cards were revealed to Wreckna.'
+    : `You have revealed ${cardDefinition(cards[0]).name} to Wreckna.`;
+  (state as PrivateNoticeState).privateNotice = { id: `sap-reveal-${state.turn}-${++instanceSequence}`, playerId: target.id, message, createdAt: Date.now() };
+  state.log.unshift(pending.level >= 2
+    ? `${target.name} revealed all Defend Cards to ${state.players[pending.casterId].name} for Sap.`
+    : `${target.name} revealed ${cardDefinition(cards[0]).name} to ${state.players[pending.casterId].name} for Sap.`);
+}
+
 function resolveSapTarget(state: GameState, playerId: PlayerId, targetId: string, targetKind: 'player' | 'replica' = 'player'): CommandResult {
   const extended = state as WrecknaChoiceState;
   const pending = extended.sap;
@@ -6524,6 +6540,10 @@ function resolveSapTarget(state: GameState, playerId: PlayerId, targetId: string
     state.log.unshift(message);
     return finishSap(state, pending, target);
   }
+  if (pending.level >= 2 || defendCards.length === 1) {
+    revealSapDefendCards(state, pending, target, defendCards);
+    return finishSap(state, pending, target);
+  }
   state.phase = 'choosing-sap-defend';
   state.log.unshift(`Sap: ${target.name} must choose a Defend Card to reveal to ${caster.name}.`);
   return ok(state);
@@ -6535,8 +6555,7 @@ function resolveSapDefendReveal(state: GameState, playerId: PlayerId, cardInstan
   const target = state.players[playerId];
   const card = target?.hand.find((instance) => instance.instanceId === cardInstanceId);
   if (!card || cardDefinition(card).kind !== 'defend') return fail(state, 'Sap requires a Defend Card from the target\'s Hand.');
-  card.revealedToPlayerIds = [...new Set([...(card.revealedToPlayerIds ?? []), pending.casterId])];
-  state.log.unshift(`${target.name} revealed ${cardDefinition(card).name} to ${state.players[pending.casterId].name} for Sap.`);
+  revealSapDefendCards(state, pending, target, [card]);
   return finishSap(state, pending, target);
 }
 
