@@ -339,6 +339,7 @@ export type PlayerState = {
   lightsaberAppliedWhileTraitBlocked?: boolean;
   merylinSummonedDefenseBonus?: number;
   carianReturnNextDefend?: boolean;
+  windwalkerActive?: boolean;
   windwalkerMoveBonus?: number;
   windwalkerUnrestrictedMovement?: boolean;
   barbarianNextAttackBonus?: number;
@@ -346,7 +347,7 @@ export type PlayerState = {
   spellsingerExtraPerkUses?: number;
   spellsingerExtraAttacks?: number;
   decayMovementBonus?: number;
-  visualMovement?: { from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate' | 'lightbringer-swap'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
+  visualMovement?: { dash?: boolean; fastRun?: boolean; from: Cell; path: Cell[]; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate' | 'lightbringer-swap'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
   visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability' | 'movement-cancelled';
   matchStats?: MatchStats;
 };
@@ -3449,7 +3450,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     const movementOrigin = { ...player.position };
     captureMovementUndo(state, player);
     recordQuestMovement(state, player.id, cost, false, command.to);
-    player.visualMovement = { from: movementOrigin, path: path.map((cell) => ({ ...cell })) };
+    player.visualMovement = { from: movementOrigin, path: path.map((cell) => ({ ...cell })), dash: state.phase === 'dashing', fastRun: state.phase === 'dashing' || (player.character === 'merylin' && Boolean(player.windwalkerActive)) };
     player.position = command.to;
     if (player.character === 'spectre') player.spectreOnBoxId = shadowBoxDestination ? targetObject!.id : null;
     player.wrecknaInsideTombId = enteringTomb ? destinationTomb!.id : null;
@@ -3873,6 +3874,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     return;
   }
   if (perk.id === 'windwalker-stance') {
+    player.windwalkerActive = true;
     const previousBonus = player.windwalkerMoveBonus ?? 0;
     let gainedMovement = 0;
     if (level >= 2) {
@@ -5024,7 +5026,7 @@ function resolveYamatoMove(state: GameState, playerId: PlayerId, to: Cell | null
     const origin = { ...defender.position };
     defender.position = { ...to };
     pending.defenderPosition = { ...to };
-    defender.visualMovement = { from: origin, path: [{ ...to }] };
+    defender.visualMovement = { from: origin, path: [{ ...to }], sourceCardId: 'yamato', fastRun: true };
     recordQuestMovement(state, defender.id, 1, false, to);
     markCharacterMoved(defender, 'own-card');
     state.log.unshift(`${defender.name} moved from ${cellLabel(origin)} to ${cellLabel(to)} with Yamato before combat.`);
@@ -8415,6 +8417,10 @@ function resolveBurningDash(state: GameState, player: PlayerState): GameState {
   state.log.unshift(`${player.name} received ${burningCards.length} Damage from Burning before Dash movement.`);
   if (player.hp <= 0 || state.winner) return state;
   const path = spendMovementRandomly(state, player, 'Burning Dash');
+  if (path.length > 0 && player.visualMovement) {
+    player.visualMovement.fastRun = true;
+    player.visualMovement.dash = true;
+  }
   state.log.unshift(`${player.name} Removed ${burningIds.length} Burning Status Card${burningIds.length === 1 ? '' : 's'} by Dashing and moved randomly ${path.length} Square${path.length === 1 ? '' : 's'}.`);
   state.dashCancellation = null;
   return endTurn(state);
@@ -8558,6 +8564,7 @@ function endTurn(state: GameState): GameState {
   if ((current.decayMovementBonus ?? 0) > 0) state.log.unshift(`Curse's stolen +${current.decayMovementBonus} MOV expired for ${current.name} at turn end.`);
   current.decayMovementBonus = 0;
   if ((current.windwalkerMoveBonus ?? 0) > 0) state.log.unshift(`Windwalker Stance's +${current.windwalkerMoveBonus} MOV${current.windwalkerUnrestrictedMovement ? ' and unrestricted traversal' : ''} expired for ${current.name}.`);
+  current.windwalkerActive = false;
   current.windwalkerMoveBonus = 0;
   current.windwalkerUnrestrictedMovement = false;
   current.swiftformMoveBonus = 0; current.grimoireMoveBonus = 0; current.swiftformCanPassEnemies = false; current.swiftformPinsPassedEnemies = false; current.swiftformLightsaberAtTurnEnd = false; current.swiftformEnemyUnderfoot = null; current.swiftformPinnedEnemyIds = [];

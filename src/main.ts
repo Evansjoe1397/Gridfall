@@ -1,3 +1,4 @@
+import { DashWindTrails } from './dashWindTrails.ts';
 import { CounterspellVisual } from './counterspellVisual.ts';
 import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
 import { isLoganSpell, LoganAttackVisual, startLoganBoltSequence, type LoganSpell } from './loganAttackVisuals.ts';
@@ -236,6 +237,7 @@ app.innerHTML = `
     <div class="choice-modal hidden" id="armDaWizModal"></div>
     <div class="choice-modal mana-choice-modal hidden" id="manaModal"></div>
     <div class="choice-modal hidden" id="focusModal"></div>
+    <div class="choice-modal hidden" id="endTurnReminder" role="dialog" aria-modal="true" aria-labelledby="endTurnReminderTitle"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
     <div class="hints-modal hidden" id="hintsModal" role="dialog" aria-modal="true" aria-labelledby="hintsTitle"><section class="hints-window"><button class="hints-language" id="hintsLanguage" type="button">RU</button><nav class="hints-tabs" aria-label="Help sections"><button class="active" id="hintsTab" type="button">Hints</button><button id="characterTab" type="button">Character</button></nav><button class="hints-close" id="hintsClose" type="button" aria-label="Close hints">×</button><div class="hints-content" id="hintsContent"></div></section></div>
@@ -456,7 +458,7 @@ document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
 });
 document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
 document.querySelector('#mindTricksFinishButton')!.addEventListener('click', () => dispatch({ type: 'mind-tricks-finish', playerId: actingPlayer() }));
-document.querySelector('#endTurn')!.addEventListener('click', () => dispatch({ type: 'end-turn', playerId: actingPlayer() }));
+document.querySelector('#endTurn')!.addEventListener('click', requestEndTurn);
 document.querySelector('#leaveGame')!.addEventListener('click', () => void leaveMatch());
 document.querySelector('#objectAttackConfirmYes')!.addEventListener('click', () => {
   const pending = pendingObjectAttackConfirmation;
@@ -486,6 +488,11 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
 });
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if (!byId('endTurnReminder').classList.contains('hidden')) {
+    if (event.code === 'Escape') { event.preventDefault(); closeEndTurnReminder(); }
+    else if (event.code !== 'Tab' && event.code !== 'Enter' && event.code !== 'Space') event.preventDefault();
+    return;
+  }
   if (event.code === 'Tab' && !game.classList.contains('hidden') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
     event.preventDefault();
     if (!event.repeat) {
@@ -592,7 +599,7 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'Space' && !game.classList.contains('hidden')) {
     event.preventDefault();
-    dispatch({ type: 'end-turn', playerId: actingPlayer() });
+    if (!event.repeat) requestEndTurn();
   }
   if (event.code === 'KeyF' && !game.classList.contains('hidden')) {
     const freeMoveButton = byId('freeMoveButton') as HTMLButtonElement;
@@ -1330,6 +1337,37 @@ function spectreVisualIntentForAction(event: SpectreActionEvent): SpectreVisualI
   return { playerId: event.playerId, animation: 'Fear' };
 }
 
+function closeEndTurnReminder() {
+  byId('endTurnReminder').classList.add('hidden');
+  byId('endTurnReminder').innerHTML = '';
+  byId('endTurn').focus();
+}
+
+function requestEndTurn() {
+  if ((byId('endTurn') as HTMLButtonElement).disabled) return;
+  const playerId = actingPlayer();
+  const actor = gameState.players[playerId];
+  const canDash = !(byId('dashButton') as HTMLButtonElement).disabled;
+  const canGuard = !(byId('guardButton') as HTMLButtonElement).disabled;
+  if (gameState.phase !== 'active' || actor.hand.length <= 5 || (!canDash && !canGuard)) {
+    dispatch({ type: 'end-turn', playerId });
+    return;
+  }
+  const finisher = canDash ? 'dash' : 'guard';
+  const modal = byId('endTurnReminder');
+  modal.innerHTML = `<div class="choice-dialog"><span>BEFORE ENDING YOUR TURN</span><h2 id="endTurnReminderTitle">You have ${actor.hand.length} cards in your hand. Want to ${finisher} first?</h2><p>You can also use Guard before ending your turn.</p><div class="choice-cards"><button id="endTurnReminderYes" type="button"><strong>Yes</strong><small>Use ${canDash ? 'Dash' : 'Guard'}</small></button><button id="endTurnReminderNo" type="button"><strong>No</strong><small>Continue to discard</small></button></div></div>`;
+  modal.classList.remove('hidden');
+  byId('endTurnReminderYes').addEventListener('click', () => {
+    closeEndTurnReminder();
+    if (gameState.phase === 'active' && actingPlayer() === playerId && canLocalAct(playerId)) dispatch({ type: finisher, playerId });
+  });
+  byId('endTurnReminderNo').addEventListener('click', () => {
+    closeEndTurnReminder();
+    if (gameState.phase === 'active' && actingPlayer() === playerId && canLocalAct(playerId)) dispatch({ type: 'end-turn', playerId });
+  });
+  byId('endTurnReminderYes').focus();
+}
+
 function dispatch(command: GameCommand) {
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
@@ -1363,6 +1401,7 @@ function dispatch(command: GameCommand) {
 }
 
 function renderAll() {
+  if (!byId('endTurnReminder').classList.contains('hidden')) closeEndTurnReminder();
   // Latch a closing Merylin summary before syncBoard consumes damage events.
   renderCombatReveal();
   quickAttackEligibilityCache = null;
@@ -1993,6 +2032,15 @@ function renderHand() {
   const viewerId = actingPlayer();
   const actualViewer = gameState.players[viewerId];
   const viewer = { ...actualViewer, hand: actualViewer.hand.filter((card) => !unreleasedBlessingForCard(card.instanceId)) };
+  const hasHeldExhaust = actualViewer.hand.some((instance) => instance.cardId === 'exhaust');
+  const handValueHtml = (instance: typeof viewer.hand[number]) => {
+    const card = cardDefinition(instance);
+    const baseValue = cardBaseValue(instance);
+    const reduced = hasHeldExhaust && (card.kind === 'attack' || card.kind === 'defend');
+    return reduced
+      ? `<b class="exhaust-reduced-value" title="${baseValue} − 1 from Exhaust in Hand">${Math.max(0, baseValue - 1)}</b>`
+      : `<b>${baseValue}</b>`;
+  };
   const handElement = byId('hand');
   handElement.classList.toggle('compact-hand', compactHandMode);
   handElement.classList.toggle('hand-overflow', viewer.hand.length > 5);
@@ -2019,7 +2067,7 @@ function renderHand() {
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${value}</b> DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -2028,7 +2076,7 @@ function renderHand() {
   if ((gameState.phase as string) === 'choosing-decay-discard') {
     const decay = (gameState as GameState & { decay?: { targetId?: PlayerId; remaining: number } }).decay;
     if (!decay?.targetId || viewerId !== decay.targetId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Curse to resolve.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-decay-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'decay-discard', playerId: viewerId, cardInstanceId: button.dataset.decayDiscard! })));
     return;
   }
@@ -2038,7 +2086,7 @@ function renderHand() {
     handElement.innerHTML = viewer.hand.map((instance) => {
       const card = cardDefinition(instance);
       const eligible = card.kind === 'defend';
-      return `<button class="card ${cardVisualClass(card)}" data-sap-defend="${instance.instanceId}" ${!eligible || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${eligible ? 'SAP · SELECT TO REVEAL' : 'SAP · DEFEND CARD REQUIRED'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${eligible ? '<span class="card-interaction">Reveal this Card to Wreckna and keep it in Hand.</span>' : ''}</small></button>`;
+      return `<button class="card ${cardVisualClass(card)}" data-sap-defend="${instance.instanceId}" ${!eligible || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${eligible ? 'SAP · SELECT TO REVEAL' : 'SAP · DEFEND CARD REQUIRED'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${eligible ? '<span class="card-interaction">Reveal this Card to Wreckna and keep it in Hand.</span>' : ''}</small></button>`;
     }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-sap-defend]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'sap-defend-reveal', playerId: viewerId, cardInstanceId: button.dataset.sapDefend! })));
     return;
@@ -2048,7 +2096,7 @@ function renderHand() {
     if (!wisdom || viewerId !== wisdom.playerId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to discard for Phylactery of Wisdom.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => {
       const card = cardDefinition(instance);
-      return `<button class="card ${cardVisualClass(card)}" data-wisdom-hand-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'PHYLACTERY OF WISDOM · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+      return `<button class="card ${cardVisualClass(card)}" data-wisdom-hand-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'PHYLACTERY OF WISDOM · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
     }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-wisdom-hand-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-discard', playerId: viewerId, cardInstanceId: button.dataset.wisdomHandDiscard! })));
     return;
@@ -2056,14 +2104,14 @@ function renderHand() {
   if (gameState.phase === 'choosing-lichdom-copy') {
     const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
     if (!lichdom || viewerId !== lichdom.casterId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to choose a Card for Lichdom.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-lichdom-copy="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>LICHDOM · CREATE ONE-TIME COPY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-lichdom-copy="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>LICHDOM · CREATE ONE-TIME COPY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-lichdom-copy]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'lichdom-copy-choice', playerId: viewerId, cardInstanceId: button.dataset.lichdomCopy! })));
     return;
   }
   if (gameState.phase === 'choosing-shadow-barter-discard') {
     const shadowBarter = (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } | null }).shadowBarter;
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
     return;
   }
@@ -2079,7 +2127,7 @@ function renderHand() {
       const eligible = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded);
       byId('hand').innerHTML = eligible.map((instance) => {
         const card = cardDefinition(instance);
-        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
       }).join('');
       document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
       return;
@@ -2089,7 +2137,7 @@ function renderHand() {
       const defenses = viewer.hand.filter((instance) => !(locked?.type === 'defend' && locked.cardInstanceId === instance.instanceId) && !cardDefinition(instance).cannotBeDiscarded && cardDefinition(instance).kind === 'defend');
       byId('hand').innerHTML = defenses.map((instance) => {
         const card = cardDefinition(instance);
-        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
       }).join('');
       document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
       return;
@@ -2097,7 +2145,7 @@ function renderHand() {
     const attacks = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded && (mindBlast || cardDefinition(instance).kind === requiredKind));
     byId('hand').innerHTML = attacks.map((instance) => {
       const card = cardDefinition(instance);
-      return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${card.name.toUpperCase()}</strong><div><b>${card.value}</b> ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
+      return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${card.name.toUpperCase()}</strong><div>${handValueHtml(instance)} ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
     }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
     return;
@@ -2105,7 +2153,7 @@ function renderHand() {
   if (gameState.phase === 'choosing-grimoire-discard') {
     const pending = gameState.pendingAttack!;
     if (viewerId !== pending.defenderId) { handElement.innerHTML = `<div class="drone-placeholder">Waiting for the target to discard for Grimoire Cleanse.</div>`; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-grimoire-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'grimoire-discard', playerId: viewerId, cardInstanceId: button.dataset.grimoireDiscard! })));
     return;
   }
@@ -2115,7 +2163,7 @@ function renderHand() {
       byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredPlayer].name)} to discard cards.</div>`;
       return;
     }
-    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
+    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-flurry-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'flurry-enemy-discard', playerId: viewerId, cardInstanceId: button.dataset.flurryDiscard! })));
     return;
   }
@@ -2138,7 +2186,7 @@ function renderHand() {
     const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
     const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
-    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''} ${instance.soulStrikeForcedUse ? 'soul-strike-marked' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
+    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''} ${instance.soulStrikeForcedUse ? 'soul-strike-marked' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-instance]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     if (gameState.phase === 'choosing-preparation-discard') dispatch({ type: 'preparation-discard', playerId: viewerId, cardInstanceId: button.dataset.instance! });
@@ -3931,8 +3979,10 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
 const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: number; startedAt: number }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
+const dashWindTrails = new DashWindTrails(scene);
+const dashPreviousPosition = new THREE.Vector3();
 const portalTeleports = new Map<PlayerId, { movement: CharacterMovementAnimation; visual: PortalTeleport; character: THREE.Group }>();
 const portalStyleTeleportCards = new Set<CardTypeId>(['portal', 'portal-perk', 'blink', 'resurrection', 'immortality', 'necronomicon', 'preparation']);
 const replicatePullAnimations: { line: THREE.Line; targetId: PlayerId; sourceCell: Cell; sourceObjectId?: string; startedAt: number; duration: number; seed: number }[] = [];
@@ -5033,6 +5083,7 @@ function updateSpellProjectiles(time: number) {
 }
 
 function updateCharacterMovement(time: number) {
+  dashWindTrails.update(time);
   portalTeleports.forEach((portal, id) => {
     if (movementAnimations.get(id) !== portal.movement || dummyGroups.get(id) !== portal.character) {
       portal.visual.dispose();
@@ -5103,7 +5154,12 @@ function updateCharacterMovement(time: number) {
         eased = THREE.MathUtils.lerp(slideRouteStart, 1, slideProgress);
       }
     }
+    dashPreviousPosition.copy(group.position);
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
+    if (animation.dash && !animation.forced && !animation.teleport && !animation.verticalOnly
+      && group.visible && !group.userData.defeated && group.position.distanceToSquared(dashPreviousPosition) > 0.000001) {
+      dashWindTrails.emit(playerId, group.position, characterMovementDirection, time);
+    }
     if (animation.danceThrough) group.position.y = THREE.MathUtils.lerp(animation.from.y, animation.to.y, eased);
     if (!animation.verticalOnly && !animation.forced && group.userData.facingSide && hasMovementDirection) {
       const { x: dx, z: dz } = characterMovementDirection;
@@ -5794,8 +5850,9 @@ function createWoodenBox() {
 
 function createArenaPillar() {
   const arenaId = visualArena().id;
+  const root = new THREE.Group();
+  root.scale.set(1.1, 1.25, 1.1);
   if (arenaId === 'pipe') {
-    const root = new THREE.Group();
     root.name = 'Pipe Column';
     root.userData.pillarVariant = 'pipe';
     const metal = new THREE.MeshStandardMaterial({ color: 0x485e65, metalness: 0.8, roughness: 0.31 });
@@ -5814,7 +5871,6 @@ function createArenaPillar() {
   // while The Trench reuses the established Lordaeron pillar model.
   const variant = arenaId === 'nagrand' ? 'nagrand' : 'lordaeron';
   const trenchModel = null;
-  const root = new THREE.Group();
   root.name = `Pillar - ${arenaId}`;
   root.userData.pillarVariant = variant;
   root.userData.pillarArena = arenaId;
@@ -6013,9 +6069,9 @@ type OrkkAnimationState = {
   shieldIdleSocketLocalQuaternion: THREE.Quaternion;
 };
 
-function orkkMovementDuration(travelSquares: number) {
-  if (travelSquares <= 1) return ORKK_CASUAL_WALK_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_CASUAL_WALK_TIME_SCALE * 1000;
-  if (travelSquares === 2) return ORKK_WALKING_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_WALKING_TIME_SCALE * 1000;
+function orkkMovementDuration(travelSquares: number, fastRun = false) {
+  if (!fastRun && travelSquares <= 1) return ORKK_CASUAL_WALK_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_CASUAL_WALK_TIME_SCALE * 1000;
+  if (!fastRun && travelSquares === 2) return ORKK_WALKING_FRAMES / ORKK_LOCOMOTION_FPS / ORKK_WALKING_TIME_SCALE * 1000;
   return travelSquares * ORKK_RUNNING_FRAMES_PER_CELL / ORKK_LOCOMOTION_FPS / ORKK_RUNNING_TIME_SCALE * 1000;
 }
 
@@ -6639,7 +6695,7 @@ function updateOrkkAnimation(group: THREE.Group, playerId: PlayerId, moving: boo
   if (moving) {
     const movement = movementAnimations.get(playerId);
     const squares = movement?.travelSquares ?? movement?.path?.length ?? 1;
-    const movementName = squares >= 3 ? 'Running' : squares === 2 ? 'Walking' : 'CasualWalk';
+    const movementName = movement?.fastRun || squares >= 3 ? 'Running' : squares === 2 ? 'Walking' : 'CasualWalk';
     playOrkkAnimation(group, movementName);
   } else {
     const equippedShield = group.getObjectByName('EquippedShield');
@@ -6703,6 +6759,7 @@ function resetSeriesMatchVisuals() {
   lastVisualCells.clear();
   lastObjectVisualCells.clear();
   movementAnimations.clear();
+  dashWindTrails.clear();
   objectMovementAnimations.clear();
   objectImpactAnimations.clear();
   processedObjectPushAnimations.clear();
@@ -7370,10 +7427,10 @@ function spectreIdlePhase(root: THREE.Group) {
   return (hash >>> 0) / 0xffffffff;
 }
 
-function spectreMovementDuration(travelSquares: number) {
+function spectreMovementDuration(travelSquares: number, fastRun = false) {
   const squares = Math.max(1, travelSquares);
-  const framesPerCell = squares >= 3 ? SPECTRE_RUN_FRAMES_PER_CELL : SPECTRE_WALK_FRAMES_PER_CELL;
-  const timeScale = squares >= 3 ? SPECTRE_RUN_TIME_SCALE : SPECTRE_WALK_TIME_SCALE;
+  const framesPerCell = fastRun || squares >= 3 ? SPECTRE_RUN_FRAMES_PER_CELL : SPECTRE_WALK_FRAMES_PER_CELL;
+  const timeScale = fastRun || squares >= 3 ? SPECTRE_RUN_TIME_SCALE : SPECTRE_WALK_TIME_SCALE;
   return squares * framesPerCell / SPECTRE_LOCOMOTION_FPS / timeScale * 1000;
 }
 
@@ -7481,7 +7538,7 @@ function updateSpectreAnimation(group: THREE.Group, playerId: PlayerId | undefin
   const locomoting = Boolean(movement && !movement.verticalOnly && !movement.forced && !movement.teleport && !isCharacterSliding(movement));
   if (locomoting && movement) {
     const travelSquares = movement.travelSquares ?? movement.path?.length ?? 1;
-    const movementName: SpectreAnimationName = travelSquares >= 3 ? 'Run' : 'Walk';
+    const movementName: SpectreAnimationName = movement.fastRun || travelSquares >= 3 ? 'Run' : 'Walk';
     if (state.current !== movementName) playSpectreAnimation(group, movementName);
     return;
   }
@@ -7765,6 +7822,7 @@ function updateMerylinAnimation(group: THREE.Group, playerId: PlayerId | undefin
   }
   const summoned = previewWeapon !== undefined || Boolean(playerId && gameState.players[playerId]?.merylinSummonActive);
   state.update(delta, moving ? {
+    fastRun: route.fastRun,
     squares: route.travelSquares ?? route.path?.length ?? 1,
     ...motion, durationMs: route.duration, elapsedMs: now - route.startedAt,
     bodyScale: Math.max(.001, group.children[0].scale.x * group.scale.x),
@@ -8314,7 +8372,7 @@ function updateJohnAnimation(group: THREE.Group, playerId: PlayerId | undefined,
   const movement = playerId ? movementAnimations.get(playerId) : undefined;
   const now = performance.now();
   const walking = movement && now >= movement.startedAt && !movement.forced && !movement.teleport && !movement.verticalOnly && !isCharacterSliding(movement, now);
-  const next: JohnAnimationName = walking ? state.spirit ? 'Walk' : johnMovementClip(movement.travelSquares ?? movement.path?.length ?? 1) : 'Idle';
+  const next: JohnAnimationName = walking ? state.spirit ? 'Walk' : johnMovementClip(movement.travelSquares ?? movement.path?.length ?? 1, movement.fastRun) : 'Idle';
   if (state.current !== next) {
     state.actions[state.current].fadeOut(0.1);
     state.actions[next].reset().setEffectiveTimeScale(1).fadeIn(0.1).play();
@@ -8546,7 +8604,8 @@ function obiWanRunFastDuration(travelSquares: number) {
   return Math.max(0, travelSquares) * OBI_WAN_RUN_FAST_FRAMES_PER_CELL / OBI_WAN_WALK_FPS / OBI_WAN_RUN_FAST_TIME_SCALE * 1000;
 }
 
-function obiWanMovementDuration(travelSquares: number) {
+function obiWanMovementDuration(travelSquares: number, fastRun = false) {
+  if (fastRun) return obiWanRunFastDuration(travelSquares);
   if (travelSquares <= 1) return OBI_WAN_CASUAL_WALK_FRAMES / OBI_WAN_WALK_FPS / OBI_WAN_WALK_TIME_SCALE * 1000;
   if (travelSquares === 2) return OBI_WAN_WALKING_FRAMES / OBI_WAN_WALK_FPS / OBI_WAN_WALKING_TIME_SCALE * 1000;
   return travelSquares >= 5 ? obiWanRunFastDuration(travelSquares) : obiWanRunningDuration(travelSquares);
@@ -9117,6 +9176,7 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
   const locomoting = moving && movement && !movement.verticalOnly && !movement.forced;
   const next: ObiWanAnimationState['current'] = !locomoting
     ? 'Idle'
+      : movement.fastRun ? 'RunFast'
       : movement.obiWanReturn ? 'Running'
       : travelSquares <= 1 ? 'CasualWalkOneCell'
       : travelSquares === 2 ? 'Walking'
@@ -9933,6 +9993,8 @@ function syncBoard() {
         const travelSquares = Math.max(1, visualPath.length || distanceFromWorld(from, target));
         const slideSegmentIndex = recordedPathMatches && recordedMovement ? automaticSlideSegmentIndex(recordedMovement) : undefined;
         const forced = gameState.players[id].visualMovementCause === 'enemy-ability';
+        // Capture the gait from the recorded move: Dash may already have ended the turn.
+        const fastRun = !forced && Boolean(recordedPathMatches && recordedMovement?.fastRun);
         const replicatePull = recordedMovement?.kind === 'replicate-pull';
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
         const portalTeleport = Boolean(recordedPathMatches && recordedMovement?.sourceCardId && portalStyleTeleportCards.has(recordedMovement.sourceCardId));
@@ -9942,15 +10004,15 @@ function syncBoard() {
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
           : !forced && character === 'shinobi'
-            ? obiWanMovementDuration(travelSquares)
+            ? obiWanMovementDuration(travelSquares, fastRun)
           : !forced && character === 'merylin'
-            ? merylinMovementDuration(travelSquares)
+            ? merylinMovementDuration(travelSquares, fastRun)
           : !forced && character === 'orkk'
-              ? orkkMovementDuration(travelSquares)
+              ? orkkMovementDuration(travelSquares, fastRun)
               : !forced && character === 'spectre'
-                ? spectreMovementDuration(travelSquares)
+                ? spectreMovementDuration(travelSquares, fastRun)
               : !forced && character === 'john-christ'
-                ? gameState.players[id].spiritForm ? johnSpiritMovementDuration(travelSquares) : johnMovementDuration(travelSquares)
+                ? gameState.players[id].spiritForm ? johnSpiritMovementDuration(travelSquares) : johnMovementDuration(travelSquares, fastRun)
               : 320 + travelSquares * 150;
         const locomotionDuration = slideSegmentIndex === undefined
           ? fullRouteLocomotionDuration
@@ -9961,7 +10023,7 @@ function syncBoard() {
         const duration = slideStartsAtMs === undefined ? locomotionDuration
           : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS + Math.max(0, slideSteps - 1) * SLIDE_GLIDE_DURATION_MS
             : slideStartsAtMs + slideSteps * SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, path: visualPath.length > 0 ? visualPath : undefined, travelSquares, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
+        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });

@@ -10,16 +10,17 @@ export type MerylinClip = typeof MERYLIN_CLIPS[number];
 export type MerylinGait = 'Casual_Walk' | 'Running';
 // Ground-contact backward foot speeds measured on this rig in Blender, units/second.
 const stanceSpeed: Record<MerylinGait, number> = { Casual_Walk: 0.6364168525, Running: 4.3751138449 };
-export function merylinGait(squares: number): MerylinGait {
-  return squares <= 1 ? 'Casual_Walk' : 'Running';
+export function merylinGait(squares: number, fastRun = false): MerylinGait {
+  return !fastRun && squares <= 1 ? 'Casual_Walk' : 'Running';
 }
-export function merylinMovementDuration(squares: number): number {
-  return Math.max(1, squares) * 1.92 / (stanceSpeed[merylinGait(squares)] * MERYLIN_SCALE) * 1000;
+export function merylinMovementDuration(squares: number, fastRun = false): number {
+  return Math.max(1, squares) * 1.92 / (stanceSpeed[merylinGait(squares, fastRun)] * MERYLIN_SCALE) * 1000;
 }
 export function merylinPlaybackRate(gait: MerylinGait, distance: number, durationMs: number, bodyScale = 1): number {
   return distance / Math.max(.001, durationMs / 1000) / (stanceSpeed[gait] * MERYLIN_SCALE * bodyScale);
 }
 export interface MerylinMovement {
+  fastRun?: boolean;
   squares: number;
   distance: number;
   durationMs: number;
@@ -132,7 +133,7 @@ export class MerylinAnimation {
       return;
     }
     if (movement) {
-      const gait = merylinGait(movement.squares);
+      const gait = merylinGait(movement.squares, movement.fastRun);
       if (this.current !== gait) this.play(gait);
       const action = this.actions[gait];
       const rate = merylinPlaybackRate(gait, movement.distance, movement.durationMs, movement.bodyScale);

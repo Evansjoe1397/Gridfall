@@ -70,12 +70,12 @@ export function johnSpiritPlaybackRate(distance: number, durationMs: number, bod
 const STANCE_SPEED = { Walk: 0.7395400766, Run: 3.2335298256 };
 const DEFAULT_RATE = { Walk: 1.35, Run: 1 };
 
-export function johnMovementClip(squares: number): 'Walk' | 'Run' {
-  return squares >= 2 ? 'Run' : 'Walk';
+export function johnMovementClip(squares: number, fastRun = false): 'Walk' | 'Run' {
+  return fastRun || squares >= 2 ? 'Run' : 'Walk';
 }
 
-export function johnMovementDuration(squares: number): number {
-  const clip = johnMovementClip(squares);
+export function johnMovementDuration(squares: number, fastRun = false): number {
+  const clip = johnMovementClip(squares, fastRun);
   return Math.max(1, squares) * 1.92 / (STANCE_SPEED[clip] * JOHN_MODEL_SCALE * DEFAULT_RATE[clip]) * 1000;
 }
 

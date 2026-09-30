@@ -1511,3 +1511,5 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .game:not(.hidden) .pipe-button-controls {
   bottom: calc(clamp(240px, 28vh, 260px) + 82px);
 }
+
+.card b.exhaust-reduced-value { color: #ff8b8b; }
