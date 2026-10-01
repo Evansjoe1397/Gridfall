@@ -37,3 +37,29 @@ for (const mode of ['decline', 'spend', 'consume', 'no-mana'] as const) {
   }
 }
 console.log('Mana Barrage damage presentation checks passed: decline, spend, Consume, no Mana, and defended combat.');
+
+for (const stack of [false, true]) {
+  let state = createHotseatTestState(true, 'magician', 2, 'merylin');
+  state.objects = []; state.elevations = {};
+  (state as GameState & { simultaneousCombatStack: boolean }).simultaneousCombatStack = stack;
+  state.players.P1.position = { x: 2, y: 2 };
+  state.players.P2.position = { x: 3, y: 2 };
+  state.players.P1.manaMode = 'consume';
+  state.players.P1.hand = [{ instanceId: 'barrage', cardId: 'mana-barrage' }];
+  state.players.P2.hand = [{ instanceId: 'block', cardId: 'decisive-block' }];
+  state.players.P2.hp = 20;
+  state = step(state, { type: 'attack', playerId: 'P1', cardInstanceId: 'barrage', targetId: 'P2' });
+  state = step(state, { type: 'defend', playerId: 'P2', cardInstanceId: 'block' });
+  if (state.phase === 'choosing-combat-stack') {
+    state = step(state, { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: null });
+    state = step(state, { type: 'combat-stack-choice', playerId: 'P2', cardInstanceId: null });
+  }
+  assert.equal(state.combatReveal?.attackModifiers?.some(modifier => modifier.source === 'Mana Barrage Consume'), true, 'The card still describes its Consume effect.');
+  assert.ok(state.combatReveal?.deferredAfterCombatState);
+  const resolved: GameState = JSON.parse(state.combatReveal!.deferredAfterCombatState!);
+  assert.equal(resolved.players.P2.hp, 20, 'Decisive Block cancels Mana Barrage Consume after-combat Damage.');
+  assert.equal(resolved.objectPushAnimations.some(event => event.damage?.presentationTiming === 'mana-barrage-bonus'), false, 'No cancelled bonus Damage animation is queued.');
+  assert.equal(resolved.log.some(line => line.includes('Mana Barrage (Consume) dealt')), false, 'The cancelled effect is not logged as dealt.');
+}
+
+console.log('Decisive Block cancels Mana Barrage Consume in both combat modes.');

@@ -26,6 +26,7 @@ import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
 import { stabilizeOrkkHeldProps } from './orkkHeldProps.ts';
+import { orientOrkkShieldUpright } from './orkk-shield-rest.ts';
 import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS, JOHN_MIND_BLAST_IMPACT_SECONDS, JOHN_MODEL_SCALE, JOHN_SCEPTER_HEAD_LOCAL, JOHN_SPIRIT_ATTACK_CLIP, JOHN_SPIRIT_ATTACK_DAMAGE_SECONDS, johnAnimationAvailableInForm, johnAttackAnimation, johnAttackReleaseSeconds, johnAttackUsesProjectile, johnCastProjectileDurationMs, johnMovementClip, johnMovementDuration, johnPlaybackRate, johnUsesCastOverhead, type JohnAnimationName, type JohnAttackAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { groundJohnBlessingClip } from './johnChristGrounding.ts';
@@ -2521,7 +2522,7 @@ function renderPhaseRewardModal() {
     return;
   }
   if (progress.selectedCardId) {
-    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons"><button data-phase-destination="hand"><strong>Hand</strong></button><button data-phase-destination="top"><strong>Top</strong></button><button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
+    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons"><button data-phase-destination="hand"><strong>Hand</strong></button><button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
     phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-destination]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-destination', playerId, destination: button.dataset.phaseDestination as any })));
     return;
   }
@@ -7102,13 +7103,13 @@ function settleOrkkShieldAtRest(root: THREE.Group, ownerId?: PlayerId, target?: 
   const shieldOwnerId = root.userData.ownerId as PlayerId | undefined;
   const owner = shieldOwnerId ? dummyGroups.get(shieldOwnerId) : undefined;
   const state = owner?.userData.orkkAnimation as OrkkAnimationState | undefined;
-  if (!restingTarget || !owner || !state) return;
-  owner.updateWorldMatrix(true, true);
-  const idleWorldQuaternion = owner.getWorldQuaternion(new THREE.Quaternion()).multiply(state.shieldIdleSocketLocalQuaternion);
+  if (!restingTarget) return;
+  owner?.updateWorldMatrix(true, true);
+  const idleWorldQuaternion = owner && state
+    ? owner.getWorldQuaternion(new THREE.Quaternion()).multiply(state.shieldIdleSocketLocalQuaternion)
+    : new THREE.Quaternion();
   root.position.copy(restingTarget);
-  root.quaternion.copy(idleWorldQuaternion);
-  root.updateWorldMatrix(true, true);
-  const bounds = new THREE.Box3().setFromObject(root);
+  const bounds = orientOrkkShieldUpright(root, idleWorldQuaternion);
   const visibleCenter = bounds.getCenter(new THREE.Vector3());
   if (Number.isFinite(visibleCenter.x) && Number.isFinite(visibleCenter.z)) {
     root.position.x += restingTarget.x - visibleCenter.x;
@@ -10942,13 +10943,13 @@ function highlightCells() {
     const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
-    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian'
+    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield'
       && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, cell);
     const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
     const lichdomCaster = lichdom ? gameState.players[lichdom.casterId] : null;
-    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(lichdomCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, lichdomCaster!, cell);
+    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(lichdomCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, lichdomCaster!, cell);
     const dakkothTombSacrificeValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && Boolean(dakkothCaster) && objectOnCell?.kind === 'tomb' && objectOnCell.ownerId === dakkoth?.casterId && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
-    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(dakkothCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
+    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(dakkothCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
     const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
     const necronomiconCaster = necronomicon ? gameState.players[necronomicon.casterId] : null;
     const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && Boolean(necronomiconCaster) && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType && wrecknaPerkTargetInRange(gameState, necronomiconCaster!, cell);
@@ -11075,12 +11076,12 @@ function updateTargetHighlights(time: number) {
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
     const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
     const testPhylacteryCaster = testPhylactery ? gameState.players[testPhylactery.casterId] : null;
-    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
+    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian' && object!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
     const wrecknaObjectCaster = wrecknaObjectTargeting ? gameState.players[wrecknaObjectTargeting.casterId] : null;
     const validWrecknaObject = Boolean(object && wrecknaObjectCaster && canLocalAct(wrecknaObjectCaster.id) && wrecknaPerkTargetInRange(gameState, wrecknaObjectCaster, object.position) && (
-      (gameState.phase === 'choosing-lichdom-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian')
+      (gameState.phase === 'choosing-lichdom-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
       || ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && object.kind === 'tomb' && object.ownerId === wrecknaObjectCaster.id)
-      || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian')
+      || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
       || ((gameState.phase as string) === 'choosing-necronomicon-tomb' && object.kind === 'tomb' && !object.phylacteryType)
     ));
     const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;

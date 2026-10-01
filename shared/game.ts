@@ -102,7 +102,7 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('phase-card-choice'), playerId: PlayerIdSchema, cardId: CardTypeIdSchema }),
   z.object({ type: z.literal('phase-three-operation'), playerId: PlayerIdSchema, cardInstanceId: z.string(), operation: z.enum(['duplicate', 'remove']) }),
   z.object({ type: z.literal('phase-three-finish'), playerId: PlayerIdSchema }),
-  z.object({ type: z.literal('phase-card-destination'), playerId: PlayerIdSchema, destination: z.enum(['hand', 'top', 'shuffle']) }),
+  z.object({ type: z.literal('phase-card-destination'), playerId: PlayerIdSchema, destination: z.enum(['hand', 'shuffle']) }),
   z.object({ type: z.literal('fireball-target'), playerId: PlayerIdSchema, targetId: z.string(), targetKind: z.enum(['player', 'replica']).optional() }),
   z.object({ type: z.literal('portal-teleport'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('vicious-mockery-decision'), playerId: PlayerIdSchema, use: z.boolean() }),
@@ -186,8 +186,8 @@ export const CARDS: readonly Card[] = [
   { id: 'blessing-swiftness', name: 'Blessing: Swiftness', kind: 'status', value: 1, effectText: '+1 MOV while in Hand. Discard automatically at the end of turn if you have more than 5 Cards in Hand.', canDiscardForHandLimit: true },
   { id: 'blessing-faith', name: 'Blessing: Faith', kind: 'status', value: 1, effectText: 'Apply in combat to negate all Damage dealt to both sides. Expires at the beginning of your Turn.', canDiscardForHandLimit: true },
   { id: 'echo-pulse', name: 'Echo Pulse', kind: 'perk', value: 1, levelEffects: ['Draw 1 Card', 'Gain 1 Action', 'Restore 2 HP'] },
-  { id: 'fireball', name: 'Fireball', kind: 'perk', value: 2, effectText: "As an Action at Range 3: deal 2 Damage and add Burning to the target's Hand. Does not count as the Perk used this turn. Remove Fireball from the game after use." },
-  { id: 'firebolt', name: 'Firebolt', kind: 'perk', value: 1, effectText: "Deal 1 Damage to a target at Range 3 and add Burning to the target's Hand." },
+  { id: 'fireball', name: 'Fireball', kind: 'perk', value: 2, effectText: "As an Action at Range 3: deal 2 Damage and add Burning to the target's Hand. Does not count as the Perk used this turn. Remove Fireball from the game after use or discard." },
+  { id: 'firebolt', name: 'Firebolt', kind: 'perk', value: 1, effectText: "Deal 1 Damage to a target at Range 3 and add Burning to the target's Hand. Remove Firebolt from the game after use or discard." },
   { id: 'portal', name: 'Portal', kind: 'free-action', value: 1, effectText: 'Play as a Free Action. Teleport to an empty Square currently visible from the caster. Removed on use or Discard.' },
   { id: 'portal-perk', name: 'Portal', kind: 'perk', value: 1, effectText: 'Use as a Perk. Teleport to an empty Square currently visible from the caster.' },
   { id: 'hot-potato', name: 'Hot Potato', kind: 'status', value: 0, effectText: 'Cannot be Discarded. Discard 1 Card at the end of your turn. Lose Hot Potato to the Attacker if they win combat.', cannotBeDiscarded: true },
@@ -369,6 +369,7 @@ export type GameState = { boardSize: number; turn: number; activePlayerId: Playe
 
 export type KamelotChange = { label: string; ownerId: PlayerId; value: 1 | 2 | 3; ready: boolean };
 export type GameStateWithKamelot = GameState & { kamelotChanges?: KamelotChange[] };
+type GameStateWithManaChoiceQueue = GameState & { queuedManaChoice?: boolean };
 export type BestOfThreeMode = 'duel' | 'tournament';
 export type SeriesArena = Extract<ArenaId, 'nagrand' | 'trench' | 'pipe'>;
 export type SeriesArenaOrder = readonly [SeriesArena, SeriesArena, SeriesArena];
@@ -786,7 +787,7 @@ export const ACTION_QUEST_POOL: readonly ActionQuestDefinition[] = [
   { id: 'damage-contest', name: 'Damage Contest', condition: 'Who deals the most Damage in the next 3 Rounds.', reward: 'Fireball Card', durationRounds: 3, determineWinners: progressLeaders },
   { id: 'rabbit-run', name: 'Rabbit Run', condition: 'Most distance moved. Teleports count as 1.', reward: 'Portal Card', durationRounds: 5, determineWinners: progressLeaders },
   { id: 'provocateur', name: 'Provocateur', condition: 'Spend the most Rounds starting and ending the same turn on High Ground during the next 5 Rounds.', reward: 'Vicious Mockery +2', durationRounds: 5, determineWinners: progressLeaders },
-  { id: 'capture-the-flag', name: 'The Conqueror', condition: "Take an enemy Flag and start a turn on your own Base during the next 5 Rounds. Reciprocal captures at the same turn start result in a Draw. A defeated carrier drops the Flag on their Square.", reward: 'The Banner', durationRounds: 5 },
+  { id: 'capture-the-flag', name: 'The Conqueror', condition: "Take an enemy Flag and start a turn on one of your original Base Squares during the next 5 Rounds. At the Round limit, any enemy Flag carrier on an original Base Square qualifies. Kamelot-created Base Squares do not count. Multiple qualifiers draw. A defeated carrier drops the Flag on their Square.", reward: 'The Banner', durationRounds: 5 },
   { id: 'tank-junior', name: 'Tank Junior', condition: 'Block the most Damage in combat during the next 4 Rounds. Defend Value and damage prevented by Defend Card effects both count.', reward: 'Mythril Helmet', durationRounds: 4, determineWinners: progressLeaders, grantReward: (state, winnerId) => state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'mythril-helmet', revealedToOpponent: true }) },
   { id: 'the-elephant', name: 'The Elephant', condition: 'Destroy the most Objects during the next 4 Rounds.', reward: 'Boomerang', durationRounds: 4, determineWinners: progressLeaders, grantReward: (state, winnerId) => state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'boomerang' }) },
   { id: 'the-gambler', name: 'The Gambler', condition: 'Add the most Cards to your Discard Deck by any means during the next 3 Rounds. Removed Cards do not count.', reward: 'Monarch Flush', durationRounds: 3, determineWinners: progressLeaders, grantReward: (state, winnerId) => state.players[winnerId].hand.push({ instanceId: `${winnerId}-${++instanceSequence}`, cardId: 'monarch-flush' }) },
@@ -847,7 +848,7 @@ function createCaptureFlags(state: GameState): NonNullable<QuestPhaseState['capt
   return (Object.keys(state.players) as PlayerId[])
     .filter((id) => state.players[id].hp > 0 && state.players[id].character !== 'dummy')
     .flatMap((ownerId) => {
-      const squares = [...ownedBaseSquares(state, ownerId)].map(cellFromLabel);
+      const squares = [...originalOwnedBaseSquares(state, ownerId)].map(cellFromLabel);
       if (squares.length < 2) return [];
       const homeSquares: [Cell, Cell] = [{ ...squares[0] }, { ...squares[1] }];
       return [{ id: `capture-flag-${ownerId}`, ownerId, homeSquares, homeAnchor: { x: (homeSquares[0].x + homeSquares[1].x) / 2, y: (homeSquares[0].y + homeSquares[1].y) / 2 }, status: 'home' as const, carrierId: null, droppedAt: null, grabbedFromHome: false }];
@@ -875,9 +876,10 @@ function resolveCaptureTheFlagAtTurnStart(state: GameState) {
   const qualifyingFlags = phases.captureTheFlag.flags.filter((flag) => {
     if (flag.status !== 'carried' || !flag.carrierId || flag.ownerId === flag.carrierId) return false;
     const carrier = state.players[flag.carrierId];
-    return Boolean(carrier?.hp > 0 && ownedBaseSquares(state, carrier.id).has(cellLabel(carrier.position)));
+    return Boolean(carrier?.hp > 0 && originalOwnedBaseSquares(state, carrier.id).has(cellLabel(carrier.position)));
   });
-  if (!qualifyingFlags.some((flag) => flag.carrierId === state.activePlayerId)) return;
+  const reachedRoundLimit = state.turn > phases.currentQuest.endsAfterRound;
+  if (!reachedRoundLimit && !qualifyingFlags.some((flag) => flag.carrierId === state.activePlayerId)) return;
   const winners = [...new Set(qualifyingFlags.map((flag) => flag.carrierId!))];
   if (winners.length === 0) return;
   for (const flag of qualifyingFlags) {
@@ -887,8 +889,8 @@ function resolveCaptureTheFlagAtTurnStart(state: GameState) {
   phases.currentQuest.winners = winners;
   for (const winnerId of winners) phases.currentQuest.progress[winnerId] = 2;
   state.log.unshift(winners.length > 1
-    ? `${winners.map((id) => state.players[id].name).join(' and ')} began the turn-start check carrying reciprocal enemy Flags on their own Bases, drawing The Conqueror.`
-    : `${state.players[winners[0]].name} began a turn-start check carrying an enemy Flag on their Base and completed The Conqueror.`);
+    ? `${winners.map((id) => state.players[id].name).join(' and ')} carried enemy Flags on their own Bases at ${reachedRoundLimit ? 'the Round-limit' : 'a turn-start'} check, drawing The Conqueror.`
+    : `${state.players[winners[0]].name} carried an enemy Flag on their Base at ${reachedRoundLimit ? 'the Round-limit' : 'a turn-start'} check and completed The Conqueror.`);
   resolveCurrentActionQuest(state);
 }
 
@@ -1089,7 +1091,7 @@ export function beginWrecknaPhylacteryChoice(state: GameState, casterId: PlayerI
   const caster = state.players[casterId];
   const object = state.objects.find((entry) => entry.id === objectId);
   if (caster?.character !== 'wreckna') return fail(state, 'Only Wreckna can create a Phylactery.');
-  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian') return fail(state, 'A Phylactery requires a non-Column Object.');
+  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian' || object.kind === 'orkk-shield') return fail(state, 'A Phylactery requires an Object other than a Column or Da Orkk\'s Shield.');
   if (activeWrecknaPhylacteryCount(state, casterId) >= MAX_ACTIVE_PHYLACTERIES) {
     state.log.unshift(`${caster.name} already has the maximum of ${MAX_ACTIVE_PHYLACTERIES} active Phylacteries; no new Object was infused.`);
     return ok(state);
@@ -1121,7 +1123,7 @@ function resolveWrecknaPhylacteryChoice(state: GameState, playerId: PlayerId, ty
   if (!choice.availableTypes.includes(type)) return fail(state, 'That Phylactery type is already active.');
   if (activeWrecknaPhylacteryCount(state, playerId) >= MAX_ACTIVE_PHYLACTERIES) return fail(state, `Wreckna can have no more than ${MAX_ACTIVE_PHYLACTERIES} active Phylacteries.`);
   const object = state.objects.find((entry) => entry.id === choice.objectId);
-  if (!object) return fail(state, 'The Object selected for infusion no longer exists.');
+  if (!object || object.kind === 'orkk-shield') return fail(state, 'The Object selected for infusion is unavailable.');
   object.phylacteryType = type; object.phylacteryOwnerId = playerId;
   const resumePhase = choice.resumePhase ?? 'active';
   extended.wrecknaPhylacteryChoice = null; state.phase = resumePhase;
@@ -1628,10 +1630,9 @@ export function phaseCardCandidates(state: GameState, playerId: PlayerId): CardT
   return [...oppositeFocusCards, ...remainingInitialFocusCard];
 }
 
-function addPhaseCard(player: PlayerState, cardId: CardTypeId, destination: 'hand' | 'top' | 'shuffle') {
+function addPhaseCard(player: PlayerState, cardId: CardTypeId, destination: 'hand' | 'shuffle') {
   const instance = { instanceId: `${player.id}-${++instanceSequence}`, cardId };
   if (destination === 'hand') player.hand.push(instance);
-  else if (destination === 'top') { player.deck.push(instance); player.knownTopCardId = cardId; }
   else { player.deck = shuffle([...player.deck, instance]); player.knownTopCardId = null; }
 }
 
@@ -1723,7 +1724,7 @@ function finishPhaseThreeChoices(state: GameState, playerId: PlayerId): CommandR
   return ok(state);
 }
 
-function resolvePhaseDestination(state: GameState, playerId: PlayerId, destination: 'hand' | 'top' | 'shuffle'): CommandResult {
+function resolvePhaseDestination(state: GameState, playerId: PlayerId, destination: 'hand' | 'shuffle'): CommandResult {
   const reward = questPhases(state).phaseReward;
   if (!reward || !reward.pendingPlayerIds.includes(playerId) || !['choosing-phase-card', 'choosing-phase-three-card'].includes(state.phase)) return fail(state, 'No Phase reward destination is pending.');
   const progress = phaseRewardPlayerProgress(reward, playerId);
@@ -3234,6 +3235,12 @@ export function applyCommand(source: GameState, rawCommand: unknown): CommandRes
     beginPendingSplit(result.state);
     beginPendingAnguish(result.state);
     finishSpiritAttack(result.state);
+    const queue = result.state as GameStateWithManaChoiceQueue;
+    if (source.phase === 'choosing-mana-mode' && result.state.pendingManaChoice && result.state.phase !== 'active' && result.state.phase !== 'choosing-mana-mode') queue.queuedManaChoice = true;
+    if (queue.queuedManaChoice && result.state.phase === 'active' && result.state.pendingManaChoice === result.state.activePlayerId) {
+      result.state.phase = 'choosing-mana-mode';
+      queue.queuedManaChoice = false;
+    }
   }
   return result;
 }
@@ -5757,7 +5764,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   let manaBarrageCombatDamage = 0;
   const barrageBonusVisualStart = state.objectPushAnimations.length;
-  if (pending.cardId === 'mana-barrage' && attackerBeforeCombatEffects.manaMode === 'consume') {
+  if (!attackEffectsCancelled && pending.cardId === 'mana-barrage' && attackerBeforeCombatEffects.manaMode === 'consume') {
     const dealt = dealCombatCardEffectDamage(state, defender, 2, pending.attackerId, 'attack');
     state.log.unshift(`Mana Barrage (Consume) dealt ${dealt} guaranteed Damage after combat.`);
   } else if (pending.cardId === 'mana-barrage' && pending.manaBarrageManaApplied) {
@@ -6386,7 +6393,7 @@ function resolveLichdomTarget(state: GameState, playerId: PlayerId, objectId: st
   const pending = extended.lichdom;
   if (state.phase !== 'choosing-lichdom-target' || !pending || pending.casterId !== playerId || pending.stage !== 'target') return fail(state, 'Lichdom is not waiting for an Object.');
   const object = state.objects.find((entry) => entry.id === objectId);
-  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian') return fail(state, 'Lichdom requires an Object that is not a Column.');
+  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian' || object.kind === 'orkk-shield') return fail(state, 'Lichdom cannot infuse a Column or Da Orkk\'s Shield.');
   if (!wrecknaPerkTargetInRange(state, state.players[playerId], object.position)) return fail(state, `Lichdom requires an Object within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
   pending.stage = 'phylactery';
   const result = beginWrecknaPhylacteryChoice(state, playerId, objectId, { hp: 1 });
@@ -6481,7 +6488,7 @@ function resolveDakkothPhylacteryTarget(state: GameState, playerId: PlayerId, ob
   const pending = extended.dakkoth;
   if ((state.phase as string) !== 'choosing-dakkoth-phylactery-target' || !pending || pending.casterId !== playerId || pending.stage !== 'target') return fail(state, 'Dakkoth is not waiting for a Phylactery Object.');
   const object = state.objects.find((entry) => entry.id === objectId);
-  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian') return fail(state, 'Dakkoth requires an Object that is not a Column.');
+  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian' || object.kind === 'orkk-shield') return fail(state, 'Dakkoth cannot infuse a Column or Da Orkk\'s Shield.');
   if (!wrecknaPerkTargetInRange(state, state.players[playerId], object.position)) return fail(state, `Dakkoth requires an Object within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
   pending.stage = 'phylactery';
   const result = beginWrecknaPhylacteryChoice(state, playerId, objectId);
@@ -6658,7 +6665,7 @@ function resolveTestPhylacteryTarget(state: GameState, playerId: PlayerId, objec
   const pending = extended.testPhylactery;
   if (state.phase !== 'choosing-test-phylactery-target' || !pending || pending.casterId !== playerId) return fail(state, 'Test Phylactery is not waiting for an Object.');
   const object = state.objects.find((entry) => entry.id === objectId);
-  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian') return fail(state, 'Test Phylactery requires an Object that is not a Column.');
+  if (!object || object.kind === 'wall-pillar' || object.kind === 'spirit-guardian' || object.kind === 'orkk-shield') return fail(state, 'Test Phylactery cannot infuse a Column or Da Orkk\'s Shield.');
   if (!wrecknaPerkTargetInRange(state, state.players[playerId], object.position)) return fail(state, `Test Phylactery requires an Object within Range ${effectiveAttackRange(state, state.players[playerId])} and line of sight.`);
   extended.testPhylactery = null;
   state.phase = 'active';
@@ -7576,9 +7583,16 @@ function resolveArkaneArowTarget(state: GameState, playerId: PlayerId, target: C
   for (const event of state.objectPushAnimations.slice(damageAnimationStart)) {
     if (event.damage?.collision) event.damage.triggerAnimationId = shieldAnimationId;
   }
+  const shieldSlideOrigin = { ...shieldLanding };
+  shieldLanding = shieldLandingAfterSlide(state, shieldLanding, previous);
   caster.shieldEquipped = false;
   state.objects.push({ id: shieldId, name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: playerId, hp: 3, maxHp: 3, position: { ...shieldLanding }, heavy: true });
   const animationPath = collision ? travelledPath.slice(0, -1) : travelledPath;
+  if (shieldLanding.x !== shieldSlideOrigin.x || shieldLanding.y !== shieldSlideOrigin.y) {
+    if (animationPath.at(-1)?.x !== shieldSlideOrigin.x || animationPath.at(-1)?.y !== shieldSlideOrigin.y) animationPath.push(shieldSlideOrigin);
+    animationPath.push({ ...shieldLanding });
+    state.log.unshift(`Da Orkk's Shield slid from ${cellLabel(shieldSlideOrigin)} to ${cellLabel(shieldLanding)}.`);
+  }
   state.objectPushAnimations.push({
     id: shieldAnimationId,
     objectId: shieldId,
@@ -8624,6 +8638,7 @@ function finalizeTurn(state: GameState): GameState {
     }
   }
   state.activePlayerId = nextId; state.phase = 'active'; state.pendingAttack = null; state.dashCancellation = null; state.danceThrough = null; state.doubleJump = null; state.forceThrow = null; state.forcePull = null; state.arkaneArow = null; state.armDaWiz = null; state.preparation = null; state.arcaneMissle = null; state.chainLightning = null; state.magicHand = null; state.shizzle = null; state.mindTricks = null; state.forceDisarm = null; state.flurry = null; state.pendingManaChoice = null;
+  (state as GameStateWithManaChoiceQueue).queuedManaChoice = false;
   if (arenaForState(state).id === 'pipe') {
     state.pipeTurnIndex = (state.pipeTurnIndex ?? 0) + 1;
     for (const zone of [1, 2] as const) {
@@ -8704,8 +8719,8 @@ function finalizeTurn(state: GameState): GameState {
   if (next.character === 'magician') {
     next.manaMode = 'generate';
     if (next.manaPoints === 3 && !next.traitBlocked) {
-      state.phase = 'choosing-mana-mode';
       state.pendingManaChoice = next.id;
+      (state as GameStateWithManaChoiceQueue).queuedManaChoice = true;
       state.log.unshift(`${next.name} has 3 Mana. Choose Consume for advanced spell effects this turn, or Generate to retain Mana and continue charging after spells resolve.`);
     }
   }
@@ -8744,6 +8759,7 @@ function resolveManaChoice(state: GameState, playerId: PlayerId, consume: boolea
     state.log.unshift(`${player.name} retained 3 Mana and chose Generate for this turn.`);
   }
   state.pendingManaChoice = null;
+  (state as GameStateWithManaChoiceQueue).queuedManaChoice = false;
   state.phase = 'active';
   return ok(state);
 }
@@ -8751,6 +8767,7 @@ function resolveManaChoice(state: GameState, playerId: PlayerId, consume: boolea
 function minimizeManaChoice(state: GameState, playerId: PlayerId): CommandResult {
   if (state.phase !== 'choosing-mana-mode' || state.pendingManaChoice !== playerId || state.activePlayerId !== playerId) return fail(state, 'Classic Wizardry is not waiting for this Player.');
   state.phase = 'active';
+  (state as GameStateWithManaChoiceQueue).queuedManaChoice = false;
   state.log.unshift(`${state.players[playerId].name} minimized the Consume decision to review the Hand and battlefield.`);
   return ok(state);
 }
@@ -8768,14 +8785,40 @@ function gainManaFromResolvedSpell(state: GameState, player: PlayerState) {
   state.log.unshift(gained > 0 ? `${player.name} generated 1 Mana after resolving a spell (${player.manaPoints}/3).` : `${player.name}'s Mana storage is already full (3/3).`);
 }
 
+export function shieldLandingAfterSlide(state: GameState, position: Cell, approach: Cell): Cell {
+  if (!arenaForState(state).slideSquares?.includes(cellLabel(position))) return { ...position };
+  const directions: Cell[] = [];
+  const addDirection = (dx: number, dy: number) => {
+    if ((!dx && !dy) || directions.some((direction) => direction.x === dx && direction.y === dy)) return;
+    directions.push({ x: dx, y: dy });
+  };
+  if (isHighGround(state, approach) && distance(approach, position) === 1) addDirection(position.x - approach.x, position.y - approach.y);
+  for (const dx of [0, -1, 1]) for (const dy of [0, -1, 1]) {
+    if (!dx && !dy) continue;
+    const uphill = { x: position.x - dx, y: position.y - dy };
+    if (uphill.x >= 1 && uphill.x <= boardWidth(state) && uphill.y >= 0 && uphill.y < boardHeight(state) && isHighGround(state, uphill)) addDirection(dx, dy);
+  }
+  addDirection(Math.sign(position.x - approach.x), Math.sign(position.y - approach.y));
+  for (const dx of [0, -1, 1]) for (const dy of [0, -1, 1]) addDirection(dx, dy);
+  for (const { x: dx, y: dy } of directions) {
+    const next = { x: position.x + dx, y: position.y + dy };
+    if (next.x < 1 || next.x > boardWidth(state) || next.y < 0 || next.y >= boardHeight(state) || isHighGround(state, next)) continue;
+    if (state.objects.some((object) => object.position.x === next.x && object.position.y === next.y)) continue;
+    if (Object.values(state.players).some((player) => player.hp > 0 && player.position.x === next.x && player.position.y === next.y)) continue;
+    return next;
+  }
+  return { ...position };
+}
+
 export function unequipOrkkShield(state: GameState, playerId: PlayerId, position: Cell): boolean {
   const player = state.players[playerId];
   if (player.character !== 'orkk' || !player.shieldEquipped) return false;
   if (Object.values(state.players).some((entry) => entry.position.x === position.x && entry.position.y === position.y)) return false;
   if (state.objects.some((entry) => entry.position.x === position.x && entry.position.y === position.y)) return false;
+  const landing = shieldLandingAfterSlide(state, position, player.position);
   player.shieldEquipped = false;
-  state.objects.push({ id: `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`, name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: playerId, hp: 3, maxHp: 3, position: { ...position }, heavy: true });
-  state.log.unshift(`${player.name} unequipped his Shield at ${cellLabel(position)}.`);
+  state.objects.push({ id: `${playerId}-iron-shield-${state.turn}-${++instanceSequence}`, name: "Da Orkk's Iron Shield", kind: 'orkk-shield', ownerId: playerId, hp: 3, maxHp: 3, position: landing, heavy: true });
+  state.log.unshift(`${player.name} unequipped his Shield at ${cellLabel(position)}${landing.x !== position.x || landing.y !== position.y ? `; it slid to ${cellLabel(landing)}` : ''}.`);
   return true;
 }
 
@@ -9018,7 +9061,7 @@ function discardFromHand(player: PlayerState, instanceId: string) {
   if (index < 0) return;
   const [card] = player.hand.splice(index, 1);
   if (card.cardId === 'pinned') player.pinnedStacks = Math.max(0, player.pinnedStacks - 1);
-  if (card.cardId === 'feint' || card.cardId === 'weak-feint' || card.cardId === 'judgement') {
+  if (card.cardId === 'feint' || card.cardId === 'weak-feint' || card.cardId === 'judgement' || card.cardId === 'fireball' || card.cardId === 'firebolt') {
     adjustUnspentMovementForRangeChange(player, previousMoveRange);
     return;
   }
