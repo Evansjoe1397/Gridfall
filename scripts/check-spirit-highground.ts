@@ -32,8 +32,8 @@ for (const label of ['C6', 'D6']) {
 const noOverlap = setup();
 noOverlap.players.P2.position = cell('H8');
 noOverlap.players.P1.spiritEnemyUnderfoot = null;
-assert.notDeepEqual(movementPath(noOverlap, noOverlap.players.P1, cell('C6')), [cell('C6')], 'Spirit Form alone does not waive Slide ascent.');
-assert.equal(applyCommand(noOverlap, { type: 'move', playerId: 'P1', to: cell('C6') }).ok, false);
+assert.deepEqual(movementPath(noOverlap, noOverlap.players.P1, cell('C6')), [cell('C6')], 'Spirit Form may climb from a Slide-only Square without an enemy overlap.');
+assert.equal(applyCommand(noOverlap, { type: 'move', playerId: 'P1', to: cell('C6') }).ok, true);
 
 const blockedTrait = setup();
 blockedTrait.players.P1.traitBlocked = true;
