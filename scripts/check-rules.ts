@@ -1823,14 +1823,15 @@ windwalkerLevelThreeState.players.P1.spellEcho = [null, null, { instanceId: 'win
 const windwalkerLevelThree = applyGameCommand(windwalkerLevelThreeState, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(windwalkerLevelThree.ok, true);
 if (windwalkerLevelThree.ok) {
-  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerMoveBonus, 3, 'Windwalker Stance level 2 adds +2 MOV for +3 MOV total at level 3.');
-  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerUnrestrictedMovement, true, 'Windwalker Stance level 3 enables direct movement to any unoccupied Square.');
+  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerMoveBonus, 2, 'Windwalker Stance Level 3 inherits the +2 MOV bonus.');
+  assert.equal(windwalkerLevelThree.state.players.P1.windwalkerUnrestrictedMovement, true, 'Windwalker Stance Level 3 enables adjacent traversal for 1 MOV per step.');
   assert.equal(applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 4, y: 0 } }).ok, false, 'Windwalker cannot end movement on an occupied Square.');
   const crossedEverything = applyGameCommand(windwalkerLevelThree.state, { type: 'move', playerId: 'P1', to: { x: 5, y: 0 } });
   assert.equal(crossedEverything.ok, true);
   if (crossedEverything.ok) {
-    assert.deepEqual(crossedEverything.state.players.P1.position, { x: 5, y: 0 }, 'Windwalker moves directly across the board to an empty destination.');
-    assert.equal(crossedEverything.state.players.P1.movementRemaining, 6, 'Windwalker direct movement costs 1 MOV regardless of distance.');
+    assert.deepEqual(crossedEverything.state.players.P1.position, { x: 5, y: 0 }, 'Windwalker follows a route to an empty destination.');
+    assert.equal(crossedEverything.state.players.P1.movementRemaining, 2, 'Windwalker spends 4 MOV for the four adjacent steps.');
+    assert.equal(crossedEverything.state.players.P1.visualMovement?.path.some((cell) => cell.x === 2 && cell.y === 0), false, 'Windwalker routes around the Column instead of crossing it.');
   }
 }
 
@@ -3791,10 +3792,11 @@ if (kneeBlastAttack.ok) {
   const kneeBlastResult = applyCommand(kneeBlastAttack.state, { type: 'pass-defense', playerId: 'P2' });
   assert.equal(kneeBlastResult.ok, true);
   if (kneeBlastResult.ok) {
-    assert.deepEqual(kneeBlastResult.state.players.P2.position, { x: 8, y: 1 }, 'Knee Blast pushes directly away from Da Orkk until the Board edge interrupts its Rage distance.');
-    assert.equal(kneeBlastResult.state.players.P2.visualMovement?.sourceCardId, 'knee-blast', 'Knee Blast marks its push so presentation waits for Da Orkk\'s hit frame.');
-    assert.equal(kneeBlastResult.state.players.P2.hand.some((card) => card.cardId === 'headache'), true, 'Colliding with the Board edge adds Headache.');
-    assert.equal(kneeBlastResult.state.players.P2.hp, 14, 'Knee Blast collision itself causes no additional damage.');
+    const kneeBlastResolved = JSON.parse(kneeBlastResult.state.combatReveal?.deferredAfterCombatState ?? JSON.stringify(kneeBlastResult.state));
+    assert.deepEqual(kneeBlastResolved.players.P2.position, { x: 8, y: 1 }, 'Knee Blast pushes directly away from Da Orkk until the Board edge interrupts its Rage distance.');
+    assert.equal(kneeBlastResolved.players.P2.visualMovement?.sourceCardId, 'knee-blast', 'Knee Blast marks its push so presentation waits for Da Orkk\'s hit frame.');
+    assert.equal(kneeBlastResolved.players.P2.hand.some((card: { cardId: string }) => card.cardId === 'headache'), true, 'Colliding with the Board edge adds Headache.');
+    assert.equal(kneeBlastResolved.players.P2.hp, 13, 'Knee Blast deals 1 additional Damage when the enemy collides with the Board edge.');
   }
 }
 
@@ -4437,17 +4439,18 @@ if (calmAttack.ok) {
   const calmCombat = applyCommand(calmAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: calmCard.instanceId });
   assert.equal(calmCombat.ok, true);
   if (calmCombat.ok) {
-    assert.equal(calmCombat.state.players.P1.hp, 20);
-    assert.equal(calmCombat.state.players.P1.lightsaberBuff, false);
-    assert.equal(calmCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(calmCombat.state.players.P2.pinnedStacks, 2);
-    calmCombat.state.players.P2.hand.push({ instanceId: 'next-combat-attack', cardId: 'light-the-saber' });
-    const nextAttack = applyCommand(calmCombat.state, { type: 'attack', playerId: 'P2', cardInstanceId: 'next-combat-attack', targetId: 'P1' });
+    const calmResolved = JSON.parse(calmCombat.state.combatReveal?.deferredAfterCombatState ?? JSON.stringify(calmCombat.state));
+    assert.equal(calmResolved.players.P1.hp, 20);
+    assert.equal(calmResolved.players.P1.lightsaberBuff, true, 'Calmness keeps positive effects.');
+    assert.equal(calmResolved.players.P1.pinnedStacks, 3, 'Calmness keeps existing -MOV stacks and allows Cut Them Legs to add another.');
+    assert.equal(calmResolved.players.P2.pinnedStacks, 2);
+    calmResolved.players.P2.hand.push({ instanceId: 'next-combat-attack', cardId: 'light-the-saber' });
+    const nextAttack = applyCommand(calmResolved, { type: 'attack', playerId: 'P2', cardInstanceId: 'next-combat-attack', targetId: 'P1' });
     assert.equal(nextAttack.ok, true);
     if (nextAttack.ok) {
       const nextCombat = applyCommand(nextAttack.state, { type: 'pass-defense', playerId: 'P1' });
       assert.equal(nextCombat.ok, true);
-      if (nextCombat.ok) assert.equal(nextCombat.state.players.P1.pinnedStacks, 1);
+      if (nextCombat.ok) assert.equal(JSON.parse(nextCombat.state.combatReveal?.deferredAfterCombatState ?? JSON.stringify(nextCombat.state)).players.P1.pinnedStacks, 4);
     }
   }
 }
@@ -4466,7 +4469,7 @@ if (unpinnedCalmAttack.ok) {
   const unpinnedCalmCombat = applyCommand(unpinnedCalmAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: unpinnedCalmCard.instanceId });
   assert.equal(unpinnedCalmCombat.ok, true);
   if (unpinnedCalmCombat.ok) {
-    assert.equal(unpinnedCalmCombat.state.players.P1.hp, 17);
+    assert.equal(unpinnedCalmCombat.state.players.P1.hp, 18, 'Calmness has 1 DEF without its conditional effect.');
     assert.equal(unpinnedCalmCombat.state.players.P2.pinnedStacks, 0);
   }
 }
@@ -4486,10 +4489,11 @@ if (calmHelloAttack.ok) {
   const calmHelloCombat = applyCommand(calmHelloAttack.state, { type: 'defend', playerId: 'P1', cardInstanceId: helloCalmCard.instanceId });
   assert.equal(calmHelloCombat.ok, true);
   if (calmHelloCombat.ok) {
-    assert.equal(calmHelloCombat.state.players.P1.hp, 20);
-    assert.equal(calmHelloCombat.state.players.P1.pinnedStacks, 0);
-    assert.equal(calmHelloCombat.state.players.P2.pinnedStacks, 1);
-    assert.equal(calmHelloCombat.state.players.P1.hand.some((card) => card.cardId === 'headache'), false, 'Calmness must prevent Hello There from applying Headache.');
+    const calmHelloResolved = JSON.parse(calmHelloCombat.state.combatReveal?.deferredAfterCombatState ?? JSON.stringify(calmHelloCombat.state));
+    assert.equal(calmHelloResolved.players.P1.hp, 20);
+    assert.equal(calmHelloResolved.players.P1.pinnedStacks, 2);
+    assert.equal(calmHelloResolved.players.P2.pinnedStacks, 1);
+    assert.equal(calmHelloResolved.players.P1.hand.some((card: { cardId: string }) => card.cardId === 'headache'), true, 'Calmness negates Damage without preventing Hello There from applying Headache.');
   }
 }
 

@@ -32,7 +32,7 @@ for (const stack of [true, false]) {
       assert.ok(state.players.P1.hand.some((card) => card.instanceId === 'light'));
     } else assert.equal(state.phase, stack ? 'choosing-combat-stack' : 'choosing-blessing-light', 'A reduction that allows Damage remains available');
   }
-  const zero = setup('attack-2', 'calmness', stack);
+  const zero = setup('attack-2', 'feed-the-spirit', stack);
   zero.players.P1.hand.push({ instanceId: 'light', cardId: 'blessing-light' });
   assert.ok(reveal(zero).combatReveal?.deferredAfterCombatState, 'A zero Defend Value cannot be usefully reduced');
 

@@ -1,9 +1,26 @@
 # Gridfall Development Handoff
 
-Updated 2026-09-30. Read this document completely before continuing.
+Updated 2026-10-02. Read this document completely before continuing.
+
+## Current state at handoff
+
+- Repository: `C:\Users\evans\BoardGame\BoardGame2`, branch `main`. The user authorized committing and pushing all completed pending work on 2026-10-02. The commit containing this handoff builds on `c08fdff` (`Fix gameplay effects, quests, and turn prompts`); inspect live Git history/status for its hash and push status.
+- This publication includes `AGENTS.md`, `HANDOFF.md`, `package.json`, `scripts/check-best-of-three.ts`, `scripts/check-rules.ts`, `scripts/check-spirit-highground.ts`, `scripts/check-windwalker.ts`, `shared/game.ts`, `src/main.ts`, `src/style.css`, `scripts/check-calmness.ts`, `scripts/check-knee-blast.ts`, `scripts/check-slide-traversal.ts`, and `src/hotkeys.ts`. After a successful push, the working tree should be clean and `main` should match `origin/main`. Older Tomb Block work is already included in the preceding pushed baseline.
+- Calmness has 1 DEF and negates Damage during combat if the attacker has -MOV stacks, while allowing negative effects such as Headache. Knee Blast now adds 1 Damage and Headache after its Rage-based push collides with anything. Their focused checks passed, as did `check:replicas`, `check:combat-order` (3024 pairings), typecheck, build, and `git diff --check`. The legacy `check:rules` still has a previously known stale Windwalker Level 1 assertion; do not report that entire suite as passing.
+- No browser checks were run, per `AGENTS.md`. Dev mode was launched hidden on 2026-10-02 with `npm run dev`, logging to `dev-output.log` and `dev-error.log`. The client at `http://localhost:5173/` and server at `http://127.0.0.1:2567/` returned HTTP 200 after the Hotkeys update; Vite served the updated main and Hotkeys modules. Recheck runtime state before another launch to avoid duplicates.
+- The detailed entries below record when work was done. Their old "uncommitted", baseline, and tunnel-status statements are historical; this publication note and live Git/process checks take precedence.
 
 ## Current development update
 
+- Best-of-Three Match 3 now finishes any missed Phase reward choices before resetting to Round 1 and announcing its first fresh Action Quest. Both winning characters keep eligible Cards, all held Action Quest Rewards (including the one-use Monarch's Flush Draw Reward), and Spell Echo positions. Negative Status and Blessing Cards are excluded from all piles, including old saved snapshots; transient Soul Strike forced-use flags are cleared and character status/stat fields come from the fresh match state. Match 3 ends on defeat or immediately after its fifth Quest resolves, using the existing match-statistics tiebreaker after granting the final Reward. Early Conqueror completion also ends the fifth Quest; later ordinary Phase rewards do not reset the timer again. The quest panel uses the shared five-Quest limit and five-Round schedule. Expanded `check:best-of-three` covers reward carryover, all negative/Blessing Cards, catch-up through Phase 3, equal progression, hotseat/online setup, drawn Match 3 replays, full five-Quest play, shorter fifth-Quest deadlines, and early Conqueror victory. It, `check:action-quest-timing`, `check:pipe`, `check:combat-order` (3024 pairings), typecheck, build, and `git diff --check` passed. Dev client/server returned HTTP 200. No browser checks; all changes remain uncommitted.
+- Active pass-through movement now ignores automatic Slide effects: Spirit Form, Swiftform, Windwalker Level 3, Dance Through, Double Jump, Shizzle (normal and Consume), and Spectre movement on the shadow trail. Occupied Slide Squares can be traversed within each ability's existing passage and finishing rules. A Slide-only Square permits any otherwise legal adjacent exit, including High Ground; a Square that is both Slide and Trench cannot be used for a High Ground ascent, including while entering a shadow trail or crossing the edge inside a multi-step route. Ordinary and forced movement retain their Slide behavior. Shared pathfinding, command handlers, UI highlights, Shizzle text, and Windwalker tooltip agree. Recorded traversal suppresses inferred Slide animation after an ability ends. New `check:slide-traversal`, `check:windwalker`, updated `check:spirit-highground`, `check:shizzle-highground`, `check:pipe`, `check:replicas`, `check:combat-order` (3024 pairings), the direct movement-animation check, typecheck, build, and `git diff --check` passed. Client/server HTTP 200 and updated dev rules were verified. No browser checks. All changes remain uncommitted.
+- Windwalker Stance Level 3 now uses adjacent-step routes costing 1 MOV per step, including Shallow Water entry/exit and Slide/Trench ascent onto High Ground. Merylin may pass through enemies and ordinary Objects but cannot cross Wall Objects (including Shields and Columns) or squeeze through a corner closed by two Wall Objects. She must finish on an unoccupied Square and have enough MOV to complete the route. The former board-wide 1-MOV teleport is removed. The +2 MOV bonus, negative-movement immunity, and turn-end expiry remain. English Card text, logs, and the HUD tooltip describe the rule. Expanded `check:windwalker`, plus `check:pipe`, `check:barbarian`, `check:spirit-highground`, typecheck, build, `git diff --check`, and local client/server HTTP checks passed. Dev mode serves the updated rules. No browser checks. Changes remain uncommitted alongside earlier work.
+- Hotkeys key badges were enlarged to 20px bold text with larger outlines and padding. Build and `git diff --check` passed. The hidden dev process was relaunched on 2026-10-02 after it stopped; both endpoints returned HTTP 200 following the Windwalker update.
+- HINTS now includes a Hotkeys tab with 37 entries covering turn actions, Hand Cards, Spell Echo, contextual choices, camera keys and gestures, visual settings, and mouse/browser shortcuts. The English catalog is `src/hotkeys.ts`; `AGENTS.md` requires updating it whenever a binding is added, changed, or removed. The misleading HINTS `(H)` label was removed because H toggles Character HP bars. The four-tab layout fits narrow screens and the list scrolls. Typecheck, build, `git diff --check`, and non-browser HTTP checks passed. The production build retains its known chunk-size warning. No browser checks. The Hotkeys work and earlier Calmness/Knee Blast work remain uncommitted.
+- Pulled on 2026-10-02: already up to date at `c08fdff`. The interrupted pull's named temporary stash was restored successfully and dropped; historical stashes remain untouched. Dev mode was then started hidden, with both endpoints returning HTTP 200.
+- Knee Blast now reads: "After combat, push the enemy X Squares, where X is the number of Rage Stacks. Deal 1 Damage and add Headache to their Hand if target collides with anything." Its existing after-combat push now deals 1 Attack Card effect Damage on a board-edge or obstacle collision, then adds Headache to the enemy's Hand, respecting combat protection and effect cancellation. A clear push adds neither. `check:knee-blast`, `check:replicas`, `check:combat-order` (3024 pairings), `check:calmness`, typecheck, and build passed. No browser checks. Knee Blast and preceding Calmness changes remain uncommitted.
+- Calmness now has Defend Value 1 and reads "During this combat negate all damage if the attacker has -MOV stacks." With a Pinned attacker it prevents combat Damage and Attack Card effect Damage, including Mana Barrage Consume; it no longer removes the defender's buffs, debuffs, or Status Cards, and it no longer blocks Attack Card debuffs. `check:calmness`, `check:combat-order` (3024 pairings), typecheck, build, and `git diff --check` passed. The legacy `check:rules` still stops earlier on an unrelated stale Windwalker Level 1 expectation. No browser checks. Calmness changes remain uncommitted.
+- The preceding gameplay fixes were committed and pushed as `c08fdff` (`Fix gameplay effects, quests, and turn prompts`) on 2026-10-01. `main` matched `origin/main` and the working tree was clean before the Calmness edit.
 - Logan's full-Mana Consume/Generate decision now queues at the start of his turn and opens once any higher-priority game choice ends. At Phase reward boundaries, the Focus/Perk reward, winner Card destination, other Players' reward choices, and series catch-up rewards finish before the Consume modal appears. The choice remains unavailable during those steps and can still be minimized and restored normally afterward. New `check:mana-choice-queue` covers the Phase 1 Focus/placement flow, immediate turns, Consume, Generate, and minimize; `check:best-of-three`, `check:action-quest-timing`, typecheck, build, and `git diff --check` passed. No browser checks. Changes remain uncommitted.
 - The Conqueror now uses each player's original arena Base Squares for Flag homes and capture qualification, including Merylin. Kamelot-created Base Squares cannot complete the Quest, while carrying an enemy Flag onto an original Base can. This also keeps Flag homes stable if Kamelot repaints an opponent's original Base. Quest text clarifies the rule. Expanded `check:action-quest-timing`, `check:kamelot`, typecheck, build, and `git diff --check` passed. No browser checks. Changes remain uncommitted.
 - The Conqueror now checks every living character carrying an enemy Flag on their own Base when its final Round expires, including carriers who are not the next active player. One qualifier wins The Banner; multiple qualifiers draw and receive the Draw Reward. Earlier in the Quest, the turn-start requirement is unchanged. The quest text explains the deadline rule. `check:action-quest-timing` covers inactive carriers, pre-deadline behavior, and a reciprocal deadline draw; it, typecheck, build, and `git diff --check` passed. No browser checks. Changes remain uncommitted.
@@ -49,7 +66,7 @@ Updated 2026-09-30. Read this document completely before continuing.
 - `npm run check:kamelot` covers Base defense timing, Yellow and enemy Base replacement, the oldest-change queue, and Level 3's additional Perk. Typecheck, production build, `check:pipe`, `check:best-of-three`, and `git diff --check` passed. No browser verification was performed.
 - Previously pulled upstream through `d1e7a15` while preserving the pending Tomb Block work below.
 - The uncommitted working tree also includes The Pipe arena, shallow water/flood buttons, and Best-of-Three mode (1 versus 1 and The Tournament) in `shared/arenas.ts`, `shared/game.ts`, `server/index.ts`, `src/main.ts`, and `src/style.css`.
-- Best-of-Three records each match, waits for both players after a result, resets Match 2, and carries winning characters' cards and Spell Echo positions into a deciding Match 3. Match 3 starts at the later completed Phase and grants the other winner missed Phase rewards before play. Drawn matches replay the same series match.
+- Best-of-Three records each match, waits for both players after a result, resets Match 2, and carries winning characters' eligible cards and Spell Echo positions into a deciding Match 3. Match 3 grants the other winner missed Phase rewards, then resets to Round 1 and a fresh five-Quest limit as described above. Drawn matches replay the same series match.
 - Best-of-Three now shuffles Nagrand, Trench, and Pipe once per series, assigns one unique arena to each match, and keeps the assigned arena for any replay. Its setup screens no longer offer a fixed arena choice.
 - The final Best-of-Three results screen displays every completed match together, including arena, winner, round, and both players' match statistics. Match results are stored in series state before the next match resets player state.
 - The Pipe has Slide Squares at C1, E1-E3, D6-D8, and F8. Entering a Slide Square from adjacent High Ground triggers the existing free Slide step; if it enters flooded Shallow Water, it continues in the same direction across water, stopping on dry ground, at the edge, or after a character collision. Pipe checks cover both water zones and collision cases.
@@ -61,8 +78,8 @@ Updated 2026-09-30. Read this document completely before continuing.
 - Workspace: `C:\Users\evans\BoardGame\BoardGame2`
 - Repository: `https://github.com/Evansjoe1397/Gridfall.git`
 - Branch: `main`
-- Local HEAD: `fd10e0a` (`Add anims for Mana Shield, Arcane Bolt and Mana Blast, also fixes in other animation bugs`)
-- `git status -sb` reports `main...origin/main` with no ahead/behind count after the September 26 pull; local work remains uncommitted.
+- Local HEAD: `c08fdff` (`Fix gameplay effects, quests, and turn prompts`), matching the last pushed baseline reported by Git status on 2026-10-01.
+- Current uncommitted files are listed in **Current state at handoff** above. Recheck Git status when resuming.
 - Read `AGENTS.md` before doing any work. It prohibits browser checks and browser automation unless the user explicitly overrides that rule.
 - Preserve all existing work. Do not commit or push unless the user explicitly requests it.
 - Use `apply_patch` for source edits. Run long-lived development processes in hidden/background windows.
@@ -70,39 +87,60 @@ Updated 2026-09-30. Read this document completely before continuing.
 
 ## Uncommitted work to preserve
 
-The working tree contains the latest requested Phylactery-protection rule:
+The current working tree contains Calmness, Knee Blast, Windwalker Level 3 traversal, pass-through Slide rules, Match 3 resets/card transfers, and the Hotkeys tab:
 
-- `shared/game.ts` - Tomb Block now builds a preferred random-target pool that excludes Squares occupied by Phylactery-infused Objects whenever at least one other eligible adjacent Square exists. Empty Squares and Squares occupied by non-infused Objects remain valid. An infused Object is retained as a last-resort target only when no safer eligible Square exists.
-- `scripts/check-tomb-block.ts` - new focused regression coverage for both priority cases: preserving an infused Object when an alternative exists, and using it as a last resort when it is the only legal Square.
-- `package.json` - adds `npm run check:tomb-block`.
-- `HANDOFF.md` - this updated handoff.
+- `shared/game.ts`: Calmness now has 1 DEF and conditionally negates combat and Attack Card effect Damage without removing effects or blocking Status Cards. Knee Blast now deals 1 after-combat Damage on a push collision before applying Headache, with normal combat protection and effect cancellation.
+- `scripts/check-rules.ts`: updates the relevant Calmness and Knee Blast expectations.
+- `scripts/check-calmness.ts`, `scripts/check-knee-blast.ts`: new focused regressions.
+- `package.json`: adds `check:calmness` and `check:knee-blast`.
+- `HANDOFF.md`: records this handoff and historical development notes.
+- `src/main.ts`, `src/style.css`, `src/hotkeys.ts`: add and render the Hotkeys tab and its responsive shortcut list; remove the incorrect HINTS key label.
+- `AGENTS.md`: requires keeping the Hotkeys catalog synchronized with shortcut changes.
+- `shared/game.ts`, `src/main.ts`, `scripts/check-windwalker.ts`, `scripts/check-rules.ts`: implement and describe Windwalker Level 3's adjacent traversal, ordinary-occupant passage, Wall Object blocking, and empty-destination requirement.
+- `shared/game.ts`, `src/main.ts`, `scripts/check-spirit-highground.ts`, `scripts/check-slide-traversal.ts`, `package.json`: unify pass-through Slide immunity and the Trench Slide ascent exception, including matching highlights and movement animation metadata.
+- `shared/game.ts`, `src/main.ts`, `scripts/check-best-of-three.ts`: reset Match 3 rounds and quest history after catch-up rewards, filter transferred statuses, preserve Quest Reward Cards, and finish on the fifth Quest's completion.
 
 Expected status after this handoff:
 
 ```text
 ## main...origin/main
+ M AGENTS.md
  M HANDOFF.md
  M package.json
+ M scripts/check-best-of-three.ts
+ M scripts/check-rules.ts
+ M scripts/check-spirit-highground.ts
+ M scripts/check-windwalker.ts
  M shared/game.ts
-?? scripts/check-tomb-block.ts
+ M src/main.ts
+ M src/style.css
+?? scripts/check-calmness.ts
+?? scripts/check-knee-blast.ts
+?? scripts/check-slide-traversal.ts
+?? src/hotkeys.ts
 ```
 
-Do not discard or overwrite these changes. They have not been committed or pushed.
+Do not discard or overwrite these changes. They have not been committed or pushed. The earlier Tomb Block Phylactery-protection change and its check are already in the pushed baseline.
 
 ## Validation of the pending work
 
-Completed successfully after the Tomb Block priority change:
+Completed successfully after the Calmness and Knee Blast changes:
 
-- `npm run check:tomb-block`: PASS (`Tomb Block priority checks passed.`)
+- `npm run check:calmness`: PASS
+- `npm run check:knee-blast`: PASS
+- `npm run check:replicas`: PASS
+- `npm run check:combat-order`: PASS (3024 Attack/Defend pairings)
 - `npm run typecheck`: PASS
 - `npm run build`: PASS
 - `git diff --check`: PASS, with only normal Git LF/CRLF working-copy warnings
 
-The production build still emits the known non-fatal JavaScript chunk-size warning. No browser or visual verification was performed, in accordance with `AGENTS.md`.
+The production build still emits the known non-fatal JavaScript chunk-size warning. The legacy `check:rules` suite has a known stale Windwalker Level 1 assertion before it reaches these updated cases and was not rerun successfully. No browser or visual verification was performed, in accordance with `AGENTS.md`.
 
 ## Latest pushed baseline
 
-Commit `d756201` (`Rework Wreckna card effects`) is pushed to `origin/main`. It includes the accumulated Wreckna changes:
+Commit `c08fdff` (`Fix gameplay effects, quests, and turn prompts`) is the latest pushed baseline. It includes the preceding Logan Mana-choice queue, Conqueror quest rules, Da Orkk Shield placement, and other gameplay changes described in the dated notes above. The current Calmness and Knee Blast work is on top of it and remains local.
+
+Earlier commit `d756201` (`Rework Wreckna card effects`) included these Wreckna changes:
 
 - Wreckna maximum HP changed to 15.
 - Tomb Block cancels the Attack effect and creates a random adjacent Tomb; its former healing was removed.
@@ -113,11 +151,11 @@ Commit `d756201` (`Rework Wreckna card effects`) is pushed to `origin/main`. It 
 - Necronomicon Level 2 teleports Wreckna into the newly infused Tomb; Level 3 restores 1 HP and draws 1 Card. Its former next-Attack bonus and enemy-discard mechanics/UI were removed.
 - Focused checks were added or updated for Sacrifice, Dakkoth, Graveyard, Curse, and Necronomicon.
 
-The preceding pushed commit is `1ff0f36` (`Add combat portraits and refine character selection`), containing the combat character-image system, character/card-specific image mappings, character-selection portrait/layout work, English card changes, and related UI refinements from the prior session.
+An earlier pushed commit is `1ff0f36` (`Add combat portraits and refine character selection`), containing the combat character-image system, character/card-specific image mappings, character-selection portrait/layout work, English card changes, and related UI refinements.
 
 ## Runtime state and launch guidance
 
-No listener output was returned for ports `5173` or `2567` while preparing this handoff, so assume development mode is stopped and recheck before launching. Full process inspection may require elevated shell permissions.
+Dev mode was started hidden on 2026-10-02 after the pull, with logs in `dev-output.log` and `dev-error.log`. Both `http://localhost:5173/` and `http://127.0.0.1:2567/` returned HTTP 200 after the Hotkeys change, and the client served the updated modules. Recheck before launching and do not assume a previously documented Cloudflare Quick Tunnel URL is still active.
 
 Development mode:
 
@@ -140,10 +178,10 @@ Public multiplayer must follow the workflow in `AGENTS.md`: build, run the produ
 
 Large rules and UI files contain layered historical logic. Search related selectors, state, command handlers, and existing tests before editing. Keep Hotseat and multiplayer behavior aligned unless explicitly directed otherwise.
 
-The last documented full `npm run check:rules` run stopped at a pre-existing Arcane Bolt assertion around `scripts/check-rules.ts:543`. Do not claim the complete rules suite passes unless it is rerun successfully, and do not broaden unrelated work into fixing that assertion without a request.
+The latest documented full `npm run check:rules` run stopped at a stale Windwalker Level 1 assertion before the Calmness and Knee Blast cases. Do not claim the complete rules suite passes unless it is rerun successfully. Use the focused checks for these changes.
 
 There are historical safety stashes from earlier pulls. Do not apply or drop any stash without inspecting it and confirming it is needed.
 
 ## Prompt for the new conversation
 
-Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` and `AGENTS.md` completely first. Inspect Git status and preserve the uncommitted Tomb Block Phylactery-protection work described in the handoff. Do not apply or drop historical stashes unless they are inspected and demonstrably needed. Do not commit or push unless I explicitly request it. Keep Russian localization paused and create English content only. Use non-browser verification as required by `AGENTS.md`. Wait for my next development request.
+Continue development of Gridfall in `C:\Users\evans\BoardGame\BoardGame2`. Read `HANDOFF.md` and `AGENTS.md` completely first. Inspect Git status and preserve the uncommitted Calmness and Knee Blast changes and focused checks listed in the handoff. HEAD was `c08fdff` on `main` at handoff. Do not apply or drop historical stashes unless they are inspected and demonstrably needed. Do not commit or push unless I explicitly request it. Keep Russian localization paused and create English content only. Use non-browser verification as required by `AGENTS.md`. Wait for my next development request.

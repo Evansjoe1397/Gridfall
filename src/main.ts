@@ -14,6 +14,7 @@ import { characterProfile } from './character-profiles.ts';
 import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
 import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
+import { HOTKEY_SECTIONS } from './hotkeys.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
 import { createQuestFlag, flutterQuestFlag, disposeQuestFlag } from './questFlagVisuals.ts';
@@ -100,6 +101,8 @@ import {
   canDefendInsideTomb,
   cellLabel,
   BOARD_SIZE,
+  PHASE_LENGTH_ROUNDS,
+  MAX_ACTION_QUESTS,
   createHotseatTestState,
   createTrenchTestState,
   createPipeTestState,
@@ -115,6 +118,7 @@ import {
   isNegativeStatusCard,
   isShadowCloakedPerkTarget,
   isForbiddenSlideAscent,
+  isForbiddenSlideAscentForPlayer,
   isShallowWater,
   isSpectreShadowTrailCell,
   isCardRevealedToOpponents,
@@ -274,7 +278,7 @@ let hintsOpen = false;
 let healthBarsVisible = true;
 let perkLabelsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
-let hintsTab: 'hints' | 'character' | 'damage' = 'hints';
+let hintsTab: 'hints' | 'character' | 'damage' | 'hotkeys' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
@@ -397,6 +401,11 @@ damageLogTab.id = 'damageLogTab';
 damageLogTab.type = 'button';
 damageLogTab.textContent = 'Damage Log';
 document.querySelector('.hints-tabs')?.append(damageLogTab);
+const hotkeysTab = document.createElement('button');
+hotkeysTab.id = 'hotkeysTab';
+hotkeysTab.type = 'button';
+hotkeysTab.textContent = 'Hotkeys';
+document.querySelector('.hints-tabs')?.append(hotkeysTab);
 const interfaceObserver = new MutationObserver(() => {
   if (hintsLanguage === 'ru') applyInterfaceLanguage();
 });
@@ -450,6 +459,7 @@ document.querySelector('#hintsLanguage')!.addEventListener('click', () => {
 document.querySelector('#hintsTab')!.addEventListener('click', () => { hintsTab = 'hints'; renderHintsModal(); });
 document.querySelector('#characterTab')!.addEventListener('click', () => { hintsTab = 'character'; renderHintsModal(); });
 damageLogTab.addEventListener('click', () => { hintsTab = 'damage'; renderHintsModal(); });
+hotkeysTab.addEventListener('click', () => { hintsTab = 'hotkeys'; renderHintsModal(); });
 document.querySelector('#discardClose')!.addEventListener('click', () => { discardViewerPlayerId = null; renderDiscardModal(); });
 document.querySelector('#discardModal')!.addEventListener('click', (event) => { if (event.target === byId('discardModal')) { discardViewerPlayerId = null; renderDiscardModal(); } });
 document.querySelector('#directPerkButton')!.addEventListener('click', () => {
@@ -491,6 +501,7 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
   if (!card || (event.relatedTarget instanceof Node && card.contains(event.relatedTarget))) return;
   hideCardPreview();
 });
+// Keep src/hotkeys.ts in sync when changing these shortcuts.
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
   if (!byId('endTurnReminder').classList.contains('hidden')) {
@@ -1779,7 +1790,7 @@ async function downloadCombatSummary() {
 
 function renderHintsModal() {
   const modal = byId('hintsModal');
-  byId('hintsButton').textContent = hintsLanguage === 'ru' ? 'ПОДСКАЗКИ (H)' : 'HINTS (H)';
+  byId('hintsButton').textContent = hintsLanguage === 'ru' ? 'ПОДСКАЗКИ' : 'HINTS';
   modal.classList.toggle('hidden', !hintsOpen);
   if (!hintsOpen) return;
   const ru = hintsLanguage === 'ru';
@@ -1791,14 +1802,19 @@ function renderHintsModal() {
   byId('characterTab').classList.toggle('active', hintsTab === 'character');
   byId('damageLogTab').textContent = ru ? 'Журнал урона' : 'Damage Log';
   byId('damageLogTab').classList.toggle('active', hintsTab === 'damage');
+  hotkeysTab.classList.toggle('active', hintsTab === 'hotkeys');
   byId('hintsClose').setAttribute('aria-label', ru ? 'Закрыть подсказки' : 'Close hints');
   const content = byId('hintsContent');
-  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'character' ? characterTraitHtml(ru) : damageLogHtml(ru);
+  content.innerHTML = hintsTab === 'hints' ? hintsRulesHtml(ru) : hintsTab === 'character' ? characterTraitHtml(ru) : hintsTab === 'hotkeys' ? hotkeysHtml() : damageLogHtml(ru);
   if (hintsTab === 'damage') {
     const intro = content.querySelector<HTMLElement>('.damage-log-intro');
     if (intro) intro.textContent = ru ? 'Все отдельные случаи урона и восстановления HP в этом матче. Потеря HP не считается уроном.' : 'Every separate instance of damage and restored HP in this match. Effects that explicitly lose HP are not damage.';
   }
   applyInterfaceLanguage();
+}
+
+function hotkeysHtml() {
+  return `<h2 id="hintsTitle">Hotkeys &amp; Shortcuts</h2><p class="hotkeys-intro">Keyboard shortcuts use the shown key positions and are ignored while typing in input fields. Turn actions and Card shortcuts require an available action or enabled control. Open this tab from the HINTS button.</p>${HOTKEY_SECTIONS.map((section) => `<section class="hotkeys-group"><h3>${escapeHtml(section.title)}</h3><table><thead><tr><th scope="col">Keys / gesture</th><th scope="col">Action</th></tr></thead><tbody>${section.shortcuts.map((shortcut) => `<tr><td>${shortcut.keys.map((key) => `<kbd>${escapeHtml(key)}</kbd>`).join(' + ')}</td><td>${escapeHtml(shortcut.action)}${shortcut.detail ? `<small>${escapeHtml(shortcut.detail)}</small>` : ''}</td></tr>`).join('')}</tbody></table></section>`).join('')}`;
 }
 
 function characterTraitHtml(ru: boolean) {
@@ -2023,7 +2039,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const summonIcon = player.character === 'merylin' && player.merylinSummonActive ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('attack')}<span class="status-tooltip"><strong>Summon · ${player.traitBlocked ? 'Suppressed by Curse' : 'Attack Ready'}</strong>Swordcraft has summoned a sword from another realm.${player.traitBlocked ? ' Curse blocks Swordcraft, so Summon cannot enable Attack Cards until the end of this turn.' : ' Merylin may use one Attack Card; doing so consumes this Summon. An Attack that grants Summon applies a fresh charge after consuming this one.'}</span></div>` : '';
     const carianStanceIcon = player.character === 'merylin' && player.merylinSummonActive && (player.merylinSummonedDefenseBonus ?? 0) > 0 ? `<div class="status-icon merylin-summon-status" tabindex="0">${gameIcon('shield')}<b>+${player.merylinSummonedDefenseBonus}</b><span class="status-tooltip"><strong>Carian Stance · Summoned Guard</strong>Defend Cards gain +${player.merylinSummonedDefenseBonus} DEF while Summon remains active. Using an Attack consumes Summon and removes this bonus.</span></div>` : '';
     const carianReturnIcon = player.character === 'merylin' && player.carianReturnNextDefend ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shield')}<b>↩</b><span class="status-tooltip"><strong>Carian Stance · Returning Defense</strong>The next Defend Card Merylin plays returns to her Hand after combat. Blocking or cancelling combat effects cannot cancel this benefit.</span></div>` : '';
-    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Merylin can move directly from any Square to any unoccupied Square for 1 MOV, including Shallow Water, and ignores negative movement effects.' : ''}</span></div>` : '';
+    const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Each adjacent step costs 1 MOV, including entering or leaving Shallow Water. Merylin may pass through enemies and Objects, but not Wall Objects, must finish on an unoccupied Square, and ignores negative movement effects and Slide effects. A Slide Square that is also a Trench Square cannot be used to climb onto High Ground.' : ''}</span></div>` : '';
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianHeadacheIcon = player.character === 'merylin' && player.barbarianNextAttackHeadache ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('headache')}<span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>Merylin's next Attack adds Headache to the target's Hand after combat. Attacking an Object consumes this effect without applying Headache.</span></div>` : '';
     const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Kamelot or Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
@@ -2481,8 +2497,10 @@ function renderActionQuestPanel() {
     return;
   }
   if (!current) {
-    const nextRound = gameState.turn <= 1 ? 1 : Math.ceil((gameState.turn - 1) / 10) * 10 + 1;
-    panel.innerHTML = `${controls}<span>ACTION QUEST</span><strong>Next Quest: Round ${nextRound}</strong><small>${questState?.usedQuestIds.length ?? 0} of ${ACTION_QUEST_POOL.length} Quests completed</small>`;
+    const completed = questState?.usedQuestIds.length ?? 0;
+    const nextRound = gameState.turn <= 1 ? 1 : (Math.floor((gameState.turn - 1) / PHASE_LENGTH_ROUNDS) + 1) * PHASE_LENGTH_ROUNDS + 1;
+    const status = gameState.series?.catchupQueue ? 'Match 3 starts after catch-up rewards' : completed >= MAX_ACTION_QUESTS ? 'All Action Quests complete' : `Next Quest: Round ${nextRound}`;
+    panel.innerHTML = `${controls}<span>ACTION QUEST</span><strong>${status}</strong><small>${completed} of ${MAX_ACTION_QUESTS} Quests completed</small>`;
     bindActionQuestControls(panel);
     return;
   }
@@ -2497,7 +2515,7 @@ function renderActionQuestPanel() {
       ? `<button class="quest-reward-toggle" id="questRewardToggle">SHOW REWARD</button>`
       : `<div class="quest-reward-card ${rewardCard.kind}" data-quest-reward-preview="${rewardCard.id}" tabindex="0"><span>REWARD</span><strong>${escapeHtml(rewardCard.name)}</strong><small>${escapeHtml(rewardCard.effectText ?? '')}</small><button class="quest-reward-hide" id="questRewardHide" type="button">HIDE</button></div>`
     : `<small>Reward: ${escapeHtml(definition?.reward ?? 'None')}</small>`;
-  panel.innerHTML = `${controls}<span>ACTION QUEST · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = playerUiColor(player.id); return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
+  panel.innerHTML = `${controls}<span>ACTION QUEST ${questState!.usedQuestIds.length} OF ${MAX_ACTION_QUESTS} · ROUND ${gameState.turn}</span><strong>${escapeHtml(definition?.name ?? current.id)}</strong><small>${escapeHtml(condition)}</small>${rewardMarkup}<small>${remaining} Round${remaining === 1 ? '' : 's'} remaining</small><div>${Object.values(gameState.players).map((player) => { const score = current.progress[player.id] ?? 0; const color = playerUiColor(player.id); return `<p><i style="background:${color}"></i><span>${escapeHtml(player.name)}<u><em style="width:${score / highest * 100}%;background:${color}"></em></u></span><b>${score}</b></p>`; }).join('')}</div>`;
   bindActionQuestControls(panel);
   panel.querySelector<HTMLButtonElement>('#questRewardToggle, #questRewardHide')?.addEventListener('click', () => {
     hiddenQuestRewardId = rewardHidden ? null : current.id;
@@ -4071,6 +4089,7 @@ window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(boardEl);
 resize();
 const cameraKeys = new Set<string>();
+// Keep camera and visual-setting shortcuts documented in src/hotkeys.ts.
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
   if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyV' && !game.classList.contains('hidden')) {
@@ -9709,6 +9728,7 @@ function worldPosition(cell: Cell) {
 }
 
 function automaticSlideSegmentIndex(movement: NonNullable<GameState['players'][PlayerId]['visualMovement']>) {
+  if (movement.slideEffectsIgnored) return undefined;
   const route = [movement.from, ...movement.path];
   const arena = visualArena();
   for (let entryIndex = 1; entryIndex < route.length - 1; entryIndex++) {
@@ -10865,10 +10885,11 @@ function highlightCells() {
     const specialSteps = gameState.phase === 'double-jump' ? (gameState.doubleJump?.stepsRemaining ?? 0) : (gameState.danceThrough?.stepsRemaining ?? 0);
     const diagonalBlocked = diagonalMovementBlockedByObject(gameState, actor.position, cell);
     const forbiddenSlideAscent = isForbiddenSlideAscent(gameState, actor.position, cell);
+    const forbiddenTraversalAscent = isForbiddenSlideAscentForPlayer(gameState, actor, actor.position, cell);
     const yamatoMoveValid = (gameState.phase as string) === 'choosing-yamato-move' && distance(actor.position, cell) === 1 && !occupiedByEnemy && !diagonalBlocked && !forbiddenSlideAscent;
-    const danceValid = gameState.phase === 'dance-through' && distance(actor.position, cell) === 1 && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
-    const doubleJumpValid = gameState.phase === 'double-jump' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenSlideAscent && (!occupiedByEnemy || specialSteps > 1);
-    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
+    const danceValid = gameState.phase === 'dance-through' && distance(actor.position, cell) === 1 && !forbiddenTraversalAscent && (!occupiedByEnemy || specialSteps > 1);
+    const doubleJumpValid = gameState.phase === 'double-jump' && distance(actor.position, cell) === 1 && !diagonalBlocked && !forbiddenTraversalAscent && (!occupiedByEnemy || specialSteps > 1);
+    const shizzleStepValid = gameState.phase === 'shizzle-move' && distance(actor.position, cell) === 1 && !forbiddenTraversalAscent && (!occupiedByObject || (gameState.shizzle?.stepsRemaining ?? 0) > 1) && (!occupiedByPlayer || (gameState.shizzle?.stepsRemaining ?? 0) > 1);
     const regularPath = movementPath(gameState, actor, cell);
     const regularDistance = movementCost(gameState, actor, regularPath);
     const swiftformPassSquare = occupiedByPlayer && actor.swiftformCanPassEnemies && regularDistance < actor.movementRemaining;
@@ -10914,7 +10935,8 @@ function highlightCells() {
     const shizzleDx = cell.x - actor.position.x; const shizzleDy = cell.y - actor.position.y;
     const shizzleDistance = Math.max(Math.abs(shizzleDx), Math.abs(shizzleDy));
     const shizzleLinear = shizzleDx === 0 || shizzleDy === 0 || Math.abs(shizzleDx) === Math.abs(shizzleDy);
-    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !occupiedByPlayer && !occupiedByObject;
+    const shizzleAscentBlocked = gameState.phase === 'choosing-shizzle-destination' && shizzleLinear && Array.from({ length: shizzleDistance }, (_, index) => ({ x: actor.position.x + Math.sign(shizzleDx) * (index + 1), y: actor.position.y + Math.sign(shizzleDy) * (index + 1) })).some((position, index, path) => isForbiddenSlideAscentForPlayer(gameState, actor, index === 0 ? actor.position : path[index - 1], position));
+    const shizzleDestinationValid = gameState.phase === 'choosing-shizzle-destination' && shizzleDistance >= 1 && shizzleDistance <= (shizzle?.stepsRemaining ?? 0) && shizzleLinear && !shizzleAscentBlocked && !occupiedByPlayer && !occupiedByObject;
     const boxTeleportValid = Boolean(selectedTestObjectId) && !occupiedByPlayer && !occupiedByObject;
     const guardianPending = (gameState as GameState & { spiritGuardian?: { casterId: PlayerId; level: number } | null }).spiritGuardian;
     const spectrePlacement = (gameState as any).spectreReplicaPlacement as { casterId: PlayerId; range: number; origin?: Cell; source?: 'replicate' | 'split' } | undefined;

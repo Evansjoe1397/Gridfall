@@ -4,6 +4,10 @@
 
 Never perform in-browser checks or browser automation to verify changes. The user handles browser verification; these checks are too slow and token expensive. Use appropriate non-browser checks, such as type checking and production builds, and report their results. Do not open a browser or start a browser verification workflow unless the user explicitly overrides this instruction.
 
+## Hotkeys and shortcuts
+
+Whenever adding, changing, or removing a keyboard, mouse, or touch shortcut, update `src/hotkeys.ts` in the same change so **HINTS → Hotkeys** lists every current shortcut. Document the actual binding, action, and any availability restrictions, including character-specific, arena-specific, and test controls. Check both keyboard listeners and board/camera input handlers in `src/main.ts`; keep UI key labels consistent with the handlers. New shortcut documentation remains English-only while Russian localization is paused.
+
 ## Blender GLB import workflow
 
 When asked to import a GLB or a folder of character-animation GLBs into Blender, use the `gridfall-blender` skill and this workflow:
