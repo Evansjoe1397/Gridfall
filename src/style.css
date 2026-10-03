@@ -1058,6 +1058,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .match-results-window { width: min(1180px, 94vw); max-height: calc(100vh - 48px); overflow-y: auto; padding: 28px; border: 1px solid #4b776d; background: linear-gradient(145deg, rgba(7,28,23,.98), rgba(3,14,12,.99)); box-shadow: 0 24px 80px rgba(0,0,0,.65); }
 .match-results-window > p { margin: 0 0 5px; color: #67ceb8; font-size: 12px; letter-spacing: .24em; text-transform: uppercase; }
 .match-results-window h2 { margin: 0 0 24px; color: #f3faf7; font-size: clamp(28px, 4vw, 48px); text-transform: uppercase; }
+.match-results-window > .match-results-duration { margin: 0 0 20px; letter-spacing: .08em; line-height: 1.7; }
+.match-results-duration strong { color: #f3faf7; white-space: nowrap; }
 .match-results-scroll { overflow-x: auto; }
 .series-results-list { display: grid; gap: 20px; }
 .series-match-result { border: 1px solid rgba(91,139,127,.38); padding: 16px; background: rgba(8,35,29,.65); }

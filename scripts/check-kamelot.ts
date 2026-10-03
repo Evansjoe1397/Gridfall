@@ -42,24 +42,50 @@ for (const cardId of ['barbarian-stance', 'spellsinger-stance']) assert.ok(!open
 let painted = castAt(fresh(), 'B4');
 assert.equal(baseSquareAt(painted, 'B4')?.ownerId, 'P1');
 assert.equal(baseSquareAt(painted, 'B4')?.value, 1);
-assert.equal(baseSquareAt(painted, 'B4')?.ready, false);
+assert.equal(baseSquareAt(painted, 'B4')?.ready, true);
 painted.players.P2.position = cell('C4');
 painted.players.P1.hand = [{ instanceId: 'defend', cardId: 'defend-1' }];
 painted.players.P2.hand = [{ instanceId: 'attack', cardId: 'attack-2' }];
 painted = step(painted, { type: 'end-turn', playerId: 'P1' });
-assert.equal(baseSquareAt(painted, 'B4')?.ready, true, 'Ending the turn on the painted Base activates its defense.');
+assert.equal(baseSquareAt(painted, 'B4')?.ready, true, 'Ending the turn retains the active Base defense.');
 const attacked = step(painted, { type: 'attack', playerId: 'P2', cardInstanceId: 'attack', targetId: 'P1', targetKind: 'player' });
 const defended = step(attacked, { type: 'defend', playerId: 'P1', cardInstanceId: 'defend' });
 assert.equal(defended.combatReveal?.defendTotal, 2, 'A painted Base grants +1 DEF to cards.');
 
+// Force Pull onto a painted Base grants DEF immediately, including older saved tiles.
+for (const legacyUnready of [false, true]) {
+  for (const simultaneousCombatStack of [false, true]) {
+    let matchup = castAt(fresh(), 'B6');
+    (matchup as GameState & { simultaneousCombatStack: boolean }).simultaneousCombatStack = simultaneousCombatStack;
+    matchup.players.P2.character = 'shinobi';
+    matchup.players.P2.position = cell('C6');
+    matchup.players.P2.lightsaberBuff = true;
+    matchup.players.P1.hand = [{ instanceId: 'decisive', cardId: 'decisive-block' }];
+    matchup.players.P2.hand = [{ instanceId: 'saber', cardId: 'light-the-saber' }];
+    if (legacyUnready) (kamelotChanges(matchup)[0] as { ready: boolean }).ready = false;
+    matchup.players.P1.position = cell('A6');
+    matchup.activePlayerId = 'P2';
+    matchup.players.P2.actionsRemaining = 2;
+    matchup.players.P2.hand.push({ instanceId: 'pull', cardId: 'force-pull' });
+    matchup = step(matchup, { type: 'play-perk', playerId: 'P2', cardInstanceId: 'pull', destination: 'direct' });
+    matchup = step(matchup, { type: 'force-pull-target', playerId: 'P2', targetKind: 'player', targetId: 'P1' });
+    assert.deepEqual(matchup.players.P1.position, cell('B6'), 'Force Pull moves Merylin onto her Base.');
+    matchup = step(matchup, { type: 'attack', playerId: 'P2', cardInstanceId: 'saber', targetId: 'P1', targetKind: 'player' });
+    matchup = step(matchup, { type: 'defend', playerId: 'P1', cardInstanceId: 'decisive' });
+    assert.equal(matchup.combatReveal?.attackTotal, 3, 'Active Lightsaber adds +1 ATT.');
+    assert.equal(matchup.combatReveal?.defendTotal, 4, 'Decisive Block receives Base DEF immediately after Force Pull.');
+    assert.equal(matchup.combatReveal?.defendModifiers?.some((modifier) => modifier.source === 'own Base' && modifier.value === 1), true);
+  }
+}
+
 let leftBeforeTurnEnd = castAt(fresh(), 'B4');
 leftBeforeTurnEnd.players.P1.position = cell('B5');
 leftBeforeTurnEnd = step(leftBeforeTurnEnd, { type: 'end-turn', playerId: 'P1' });
-assert.equal(baseSquareAt(leftBeforeTurnEnd, 'B4')?.ready, false, 'Leaving a painted Square before turn end does not activate its defense.');
+assert.equal(baseSquareAt(leftBeforeTurnEnd, 'B4')?.ready, true, 'Leaving before turn end does not deactivate the painted Base.');
 
 let upgraded = castAt(fresh(), 'A4');
 assert.equal(baseSquareAt(upgraded, 'A4')?.value, 2, 'An existing friendly Base is upgraded.');
-assert.equal(baseSquareAt(upgraded, 'A4')?.ready, false);
+assert.equal(baseSquareAt(upgraded, 'A4')?.ready, true);
 upgraded = step(upgraded, { type: 'end-turn', playerId: 'P1' });
 assert.equal(baseSquareAt(upgraded, 'A4')?.ready, true);
 assert.equal(baseSquareAt(upgraded, 'A4')?.value, 2);
@@ -71,7 +97,7 @@ const upgradedDefense = step(upgradedAttack, { type: 'defend', playerId: 'P1', c
 assert.equal(upgradedDefense.combatReveal?.defendTotal, 3, 'An upgraded Base grants +2 DEF to cards.');
 upgraded = castAt(upgraded, 'A4');
 assert.equal(baseSquareAt(upgraded, 'A4')?.value, 3, 'A second upgrade raises the Base to +3 DEF.');
-assert.equal(baseSquareAt(upgraded, 'A4')?.ready, false);
+assert.equal(baseSquareAt(upgraded, 'A4')?.ready, true);
 upgraded = step(upgraded, { type: 'end-turn', playerId: 'P1' });
 assert.equal(baseSquareAt(upgraded, 'A4')?.ready, true);
 upgraded.players.P1.hand = [{ instanceId: 'perfected-defend', cardId: 'defend-1' }];

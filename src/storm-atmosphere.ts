@@ -12,6 +12,7 @@ export function createStormAtmosphere(time: { value: number }) {
     time,
     inverseProjection: { value: new THREE.Matrix4() },
     cameraWorld: { value: new THREE.Matrix4() },
+    lightningCenter: { value: new THREE.Vector3() },
   };
   const sky = new THREE.Mesh(
     skyGeometry,
@@ -32,11 +33,22 @@ export function createStormAtmosphere(time: { value: number }) {
         uniform float time;
         uniform mat4 inverseProjection;
         uniform mat4 cameraWorld;
+        uniform vec3 lightningCenter;
         varying vec2 skyNdc;
         float hash(vec3 p) {
-          p = fract(p * .1031);
-          p += dot(p, p.yzx + 33.33);
-          return fract((p.x + p.y) * p.z);
+          // Shared lattice corners must hash identically from either cell.
+          // A floating-point fract hash amplifies GPU rounding/reassociation
+          // differences into visible seams as the cloud field drifts.
+          uvec3 cell = uvec3(ivec3(p));
+          uint h = (cell.x * 1597334677u) ^ (cell.y * 3812015801u)
+            ^ (cell.z * 2798796415u);
+          h ^= h >> 16u;
+          h *= 2246822519u;
+          h ^= h >> 13u;
+          h *= 3266489917u;
+          h ^= h >> 16u;
+          // Keep only 24 bits so conversion to highp float is exact.
+          return float(h >> 8u) * (1.0 / 16777216.0);
         }
         float noise(vec3 p) {
           vec3 i = floor(p), f = fract(p);
@@ -74,25 +86,32 @@ export function createStormAtmosphere(time: { value: number }) {
           float rainVeil = noise(d * vec3(30.0, 2.0, 30.0) + drift * .4);
           color = mix(color, vec3(.065, .08, .095), rainVeil * .16 * exp(-abs(d.y + .4) * 2.0));
 
-          // Two gentle pulses within one occasional, localized lightning event.
-          // The rest of the sky and gameplay lighting remain steady.
-          float age = mod(time + 24.0, 29.0);
-          if (age < 1.45) {
+          // A double strike every seven seconds, alternating distant and
+          // nearby storm fronts. Nearby bolts have a finite world position.
+          float age = mod(time + 5.0, 7.0);
+          if (age < 1.65) {
             // GLSL pow is undefined for negative bases, even with exponent 2.
-            float firstPulse = (age - .32) / .19;
-            float secondPulse = (age - .93) / .27;
+            float firstPulse = (age - .32) / .22;
+            float secondPulse = (age - .93) / .30;
             float flash = exp(-firstPulse * firstPulse)
-              + .55 * exp(-secondPulse * secondPulse);
-            float eventIndex = floor((time + 24.0) / 29.0);
-            float angle = -2.5 + eventIndex * 2.39996;
-            // Put the distant storm front in the tactical camera's lower sky.
-            vec3 center = normalize(vec3(cos(angle), -.48, sin(angle)));
+              + .8 * exp(-secondPulse * secondPulse);
+            float eventIndex = floor((time + 5.0) / 7.0);
+            float nearby = mod(eventIndex, 3.0) < 1.0 ? 1.0 : 0.0;
+            vec3 toStrike = lightningCenter - cameraWorld[3].xyz;
+            vec3 center = normalize(toStrike);
             vec3 tangent = normalize(cross(center, vec3(0,1,0)));
             vec3 up = cross(tangent, center);
-            vec2 p = vec2(dot(d, tangent), dot(d, up));
-            float facing = smoothstep(.7, .95, dot(d, center));
+            // Project onto a world-space plane, so camera movement creates
+            // parallax instead of dragging a nearby bolt with the camera.
+            float alignment = dot(d, center);
+            vec2 p = vec2(dot(d, tangent), dot(d, up))
+              * length(toStrike) / max(alignment, .01)
+              / mix(190.0, 48.0, nearby);
+            p.x *= mod(eventIndex, 2.0) < 1.0 ? -1.0 : 1.0;
+            float facing = smoothstep(.05, .3, alignment);
             float halo = exp(-dot(p * vec2(2.8, 2.0), p * vec2(2.8, 2.0)));
-            color += vec3(.14, .19, .27) * halo * facing * flash * (.45 + mass * .55);
+            color += vec3(.28, .39, .58) * halo * facing * flash
+              * (.45 + mass * .55) * mix(1.0, 1.6, nearby);
             // Angular joints and a short fork read as lightning through cloud.
             float bolt = segment(p, vec2(-.035,.29), vec2(.012,.14));
             bolt = min(bolt, segment(p, vec2(.012,.14), vec2(-.023,.035)));
@@ -100,11 +119,14 @@ export function createStormAtmosphere(time: { value: number }) {
             bolt = min(bolt, segment(p, vec2(.034,-.10), vec2(.009,-.25)));
             float fork = segment(p, vec2(-.023,.035), vec2(-.11,-.015));
             fork = min(fork, segment(p, vec2(-.11,-.015), vec2(-.15,-.14)));
-            float aa = max(fwidth(p.x), .0006);
-            float core = 1.0 - smoothstep(.0008, .0008 + aa, bolt);
-            core += (1.0 - smoothstep(.0004, .0004 + aa, fork)) * .4;
-            color += vec3(.46, .58, .74) * (core + exp(-bolt * 130.0) * .14)
-              * flash * facing * (1.0 - shelf * .65);
+            fork = min(fork, segment(p, vec2(.012,.14), vec2(.11,.075)));
+            fork = min(fork, segment(p, vec2(.11,.075), vec2(.16,-.04)));
+            float aa = max(length(fwidth(p)), .0006);
+            float width = mix(.002, .0035, nearby);
+            float core = 1.0 - smoothstep(width, width + aa, bolt);
+            core += (1.0 - smoothstep(width * .55, width * .55 + aa, fork)) * .65;
+            color += vec3(1.4, 1.8, 2.5) * (core + exp(-bolt * 85.0) * .32)
+              * flash * facing * (1.0 - shelf * mix(.35, .12, nearby));
           }
           gl_FragColor = vec4(color, 1.0);
           #include <tonemapping_fragment>
@@ -117,9 +139,27 @@ export function createStormAtmosphere(time: { value: number }) {
   sky.renderOrder = -1000;
   sky.visible = false;
   sky.frustumCulled = false;
+  let lightningEvent = -1;
+  const strikeRay = new THREE.Vector3();
+  const strikeRight = new THREE.Vector3();
   sky.onBeforeRender = (_renderer, _scene, camera) => {
     skyUniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
     skyUniforms.cameraWorld.value.copy(camera.matrixWorld);
+    const event = Math.floor((time.value + 5) / 7);
+    if (event !== lightningEvent) {
+      lightningEvent = event;
+      const nearby = event % 3 === 0;
+      const side = event % 2 === 0 ? -1 : 1;
+      // Choose a visible storm front once per event, then leave it anchored
+      // in the world throughout both pulses, including while orbiting.
+      strikeRay.set(side * (nearby ? .55 : .35), .12, 1)
+        .applyMatrix4(camera.projectionMatrixInverse)
+        .transformDirection(camera.matrixWorld);
+      strikeRight.setFromMatrixColumn(camera.matrixWorld, 0);
+      skyUniforms.lightningCenter.value.setFromMatrixPosition(camera.matrixWorld)
+        .addScaledVector(strikeRay, nearby ? 38 : 210)
+        .addScaledVector(strikeRight, side * (nearby ? 7 : 25));
+    }
   };
 
   const count = 1800;

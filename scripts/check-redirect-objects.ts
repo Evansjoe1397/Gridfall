@@ -26,6 +26,22 @@ function setup(attackerCharacter: HotseatCharacterId, object: BoardObject, simul
 }
 
 for (const simultaneousCombatStack of [false, true]) {
+  for (const guardianLevel of [1, 2, 3]) {
+    const hp = guardianLevel >= 2 ? 999 : 1;
+    const initial = setup('orkk', { id: 'guardian', name: 'Spirit Guardian', kind: 'spirit-guardian', guardianLevel, hp, maxHp: hp, position: { x: 3, y: 1 } }, simultaneousCombatStack);
+    initial.objects = initial.objects.filter((object) => object.id === 'guardian');
+    const defenderHp = initial.players.P2.hp;
+    const attacked = step(initial, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' });
+    const result = step(attacked, { type: 'defend', playerId: 'P2', cardInstanceId: 'redirect' });
+    assert.equal(result.players.P2.hp, defenderHp, `Level ${guardianLevel} Guardian absorbs Redirect.`);
+    assert.equal(result.objects.some((object) => object.id === 'guardian'), guardianLevel >= 2);
+    if (guardianLevel >= 2) assert.equal(result.objects.find((object) => object.id === 'guardian')?.hp, hp);
+    const animation = result.objectPushAnimations.find((animation) => animation.objectId === 'guardian');
+    assert.equal(animation?.objectCallout?.text, 'Redirect (Spirit Guardian, 1 damage)');
+    assert.equal(Boolean(animation?.destroy), guardianLevel === 1);
+    assert.equal(result.log.some((line) => line.includes('the indestructible Object remained')), guardianLevel >= 2);
+  }
+
   for (const testCase of [
     {
       attackerCharacter: 'orkk' as const,
@@ -44,7 +60,19 @@ for (const simultaneousCombatStack of [false, true]) {
     assert.equal(redirected.objects.some((object) => object.id === 'permanent-wall'), true, 'An unselected permanent arena wall remains standing.');
     assert.equal(redirected.players.P2.hp, defenderHp, 'The redirected point of combat Damage does not reach Merylin.');
     assert.equal(redirected.objectPushAnimations.some((animation) => animation.objectId === testCase.object.id && animation.destroy), true, 'Redirect emits the destruction animation.');
+    assert.equal(redirected.objectPushAnimations.find((animation) => animation.objectId === testCase.object.id && animation.destroy)?.objectCallout?.text, `Redirect (${testCase.object.name}, 1 damage)`);
     assert.equal(redirected.log.some((line) => line.includes(`Redirect sent 1 combat Damage into ${testCase.object.name}`)), true);
+  }
+
+  for (const kind of ['spectre-replica', 'pipe-button'] as const) {
+    const initial = setup('orkk', { id: 'ineligible', name: 'Ineligible', kind, hp: 999, maxHp: 999, position: { x: 3, y: 1 } }, simultaneousCombatStack);
+    initial.objects = initial.objects.filter((object) => object.id !== 'permanent-wall');
+    const hp = initial.players.P2.hp;
+    const attacked = step(initial, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' });
+    const result = step(attacked, { type: 'defend', playerId: 'P2', cardInstanceId: 'redirect' });
+    assert.equal(result.players.P2.hp, hp - 1, `${kind} cannot absorb Redirect damage.`);
+    assert.equal(result.objects.some((object) => object.id === 'ineligible'), true);
+    assert.equal(result.objectPushAnimations.some((animation) => animation.objectCallout), false);
   }
 
   const columnOnly = setup('orkk', { id: 'unused-box', name: 'Unused Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 8, y: 8 } }, simultaneousCombatStack);
@@ -53,7 +81,7 @@ for (const simultaneousCombatStack of [false, true]) {
   const redirected = step(attacked, { type: 'defend', playerId: 'P2', cardInstanceId: 'redirect' });
   assert.equal(redirected.objects.some((object) => object.id === 'permanent-wall'), true, 'A permanent arena column remains after absorbing Redirect.');
   assert.equal(redirected.players.P2.hp, defenderHp, 'The arena column absorbs one point of combat Damage.');
-  assert.equal(redirected.objectPushAnimations.some((animation) => animation.objectId === 'permanent-wall' && animation.objectCallout?.text === 'Redirect (column)' && !animation.destroy), true, 'The surviving column emits the Redirect callout.');
+  assert.equal(redirected.objectPushAnimations.some((animation) => animation.objectId === 'permanent-wall' && animation.objectCallout?.text === 'Redirect (Column, 1 damage)' && !animation.destroy), true, 'The surviving column emits the Redirect callout.');
 }
 
 console.log("Redirect object checks passed: Shields and Tombs are destructible, while permanent columns absorb and remain standing in both combat-stack modes.");

@@ -76,6 +76,7 @@ class DuelRoom extends Room {
       if (!Array.isArray(cardInstanceIds) || cardInstanceIds.some((id) => typeof id !== 'string')) return client.send('error', 'Invalid Combat Stack selection.');
       if (new Set(cardInstanceIds).size > 1) return client.send('error', 'You may apply only one Combat Card per combat.');
       this.combatStackSelections.set(seat, [...new Set(cardInstanceIds)]);
+      this.broadcast('character-activity', { playerId: seat });
       const combatants = [this.game.pendingAttack.attackerId, this.game.pendingAttack.defenderId];
       this.broadcast('combat-stack-status', { submittedPlayerIds: combatants.filter((id) => this.combatStackSelections.has(id)) });
       if (combatants.every((id) => this.combatStackSelections.has(id))) {
@@ -105,6 +106,7 @@ class DuelRoom extends Room {
       return;
     }
     this.game = result.state;
+    this.broadcast('character-activity', { playerId: seat });
     const perkUseEvent = perkUseEventForTransition(previousGame, parsed.data, this.game);
     if (orkkActionEvent) this.broadcast('orkk-action', orkkActionEvent);
     if (wizardActionEvent) this.broadcast('wizard-action', wizardActionEvent);

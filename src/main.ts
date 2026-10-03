@@ -12,6 +12,7 @@ import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
 import { characterProfile } from './character-profiles.ts';
 import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
+import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
@@ -43,6 +44,7 @@ import { JOHN_BLESSED_BEAM_FPS, JOHN_BLESSED_BEAM_HOLD_SECONDS, JOHN_BLESSED_BEA
 import { JohnBlessedBeam } from './johnBlessedBeam.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import { updateJohnSpiritTransition } from './johnChristTransition.ts';
+import { interruptObiWanMeditation, resetObiWanMeditation, updateObiWanMeditation } from './obiWanMeditation.ts';
 import {
   createShadowDaggerProjectile,
   makeSpectreReplicaMaterialOpaque,
@@ -84,6 +86,7 @@ import {
   activeWrecknaPhylactery,
   attackCardTargetInRange,
   applicableCombatCardInstanceIds,
+  combatAttackBoostApplicable,
   applyCommand,
   baseSquareAt,
   armDaWizPath,
@@ -409,6 +412,7 @@ document.querySelector('#openCharacterBrowser')!.addEventListener('click', () =>
   browser?.classList.remove('hidden');
   characterPreviewJohnCycleStartedAt = performance.now();
   resetCharacterPreviewMerylinCycle();
+  if (characterPreviewModel?.userData.character === 'shinobi') resetObiWanMeditation(characterPreviewModel);
   browser?.scrollIntoView({ block: 'start' });
   // The preview renderer is created while this panel is display:none. Rebuild
   // its render targets after layout has a real size; ResizeObserver callbacks
@@ -603,6 +607,7 @@ window.addEventListener('keydown', (event) => {
     if (!event.repeat) requestEndTurn();
   }
   if (event.code === 'KeyF' && !game.classList.contains('hidden')) {
+    noteObiWanActivity(actingPlayer());
     const freeMoveButton = byId('freeMoveButton') as HTMLButtonElement;
     if (!freeMoveButton.disabled) {
       event.preventDefault();
@@ -973,6 +978,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
     room.reconnection.minUptime = 0;
     room.reconnection.maxRetries = 20;
     room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
+    room.onMessage('character-activity', (event: { playerId: PlayerId }) => noteObiWanActivity(event.playerId));
     room.onMessage('lobby-state', (state: OnlineLobbyState) => {
       const previousState = onlineLobbyState;
       onlineLobbyState = state;
@@ -1369,7 +1375,17 @@ function requestEndTurn() {
   byId('endTurnReminderYes').focus();
 }
 
+function noteObiWanActivity(playerId: PlayerId) {
+  const group = dummyGroups.get(playerId);
+  if (group?.userData.character === 'shinobi') interruptObiWanMeditation(group);
+}
+
+game.addEventListener('pointerdown', event => {
+  if (event.target instanceof Element && event.target.closest('button, .card')) noteObiWanActivity(actingPlayer());
+});
+
 function dispatch(command: GameCommand) {
+  noteObiWanActivity(command.playerId);
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
@@ -1672,7 +1688,7 @@ function matchStatsTable(players: Partial<Record<PlayerId, { name: string; match
 function seriesMatchResults(result: SeriesMatchResult) {
   const arenaName = result.arenaId === 'nagrand' ? 'Nagrand Arena' : result.arenaId === 'trench' ? 'The Trench' : 'The Pipe';
   const winner = result.players[result.winnerId];
-  return `<section class="series-match-result"><h3>Match ${result.match} · ${arenaName}</h3><p>Player ${result.winnerId.slice(1)} · ${escapeHtml(winner.name)} wins · Round ${result.round}</p>${matchStatsTable(result.players)}</section>`;
+  return `<section class="series-match-result"><h3>Match ${result.match} · ${arenaName}</h3><p>Player ${result.winnerId.slice(1)} · ${escapeHtml(winner.name)} wins · Round ${result.round} · Match duration: ${formatSummaryDuration(result.durationMs)}</p>${matchStatsTable(result.players)}</section>`;
 }
 
 function renderMatchResults() {
@@ -1700,10 +1716,12 @@ function renderMatchResults() {
       : `<button type="button" data-series-ready="${localSeat ?? ''}" ${!localSeat || series.ready.includes(localSeat) ? 'disabled' : ''}>${localSeat && series.ready.includes(localSeat) ? 'Waiting for other Player' : readyLabel}</button>`
     : '';
   const seriesHeading = series ? `<p>BEST-OF-THREE · MATCH ${series.match} · SERIES ${series.wins.P1}-${series.wins.P2}</p>` : '<p>MATCH COMPLETE</p>';
+  const matchDuration = formatSummaryDuration(elapsedSummaryDuration(gameState.matchStartedAt, gameState.matchEndedAt));
+  const durationSummary = `<p class="match-results-duration">Match duration: <strong>${matchDuration}</strong>${series ? ` · ${series.mode === 'tournament' ? 'Tournament' : 'Series'} total duration: <strong>${formatSummaryDuration(elapsedSummaryDuration(series.startedAt, series.endedAt ?? gameState.matchEndedAt))}</strong>` : ''}</p>`;
   const resultTables = series && !seriesContinuing
     ? `<div class="series-results-list">${series.results.map(seriesMatchResults).join('')}</div>`
     : matchStatsTable(gameState.players);
-  modal.innerHTML = `<section class="match-results-window">${seriesHeading}<h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins${series && !seriesContinuing ? ' the series' : ''}` : 'Match results'}</h2>${resultTables}<div class="match-results-actions">${readyControls}<button type="button" id="downloadCombatSummary">Download CSV summary</button>${seriesContinuing ? '' : '<button type="button" id="closeMatchResults">Review battlefield</button>'}</div></section>`;
+  modal.innerHTML = `<section class="match-results-window">${seriesHeading}<h2 id="matchResultsTitle">${winner ? `${escapeHtml(winner.name)} wins${series && !seriesContinuing ? ' the series' : ''}` : 'Match results'}</h2>${durationSummary}${resultTables}<div class="match-results-actions">${readyControls}<button type="button" id="downloadCombatSummary">Download CSV summary</button>${seriesContinuing ? '' : '<button type="button" id="closeMatchResults">Review battlefield</button>'}</div></section>`;
   modal.classList.remove('hidden');
   byId('downloadCombatSummary').addEventListener('click', downloadCombatSummary);
   modal.querySelectorAll<HTMLButtonElement>('[data-series-ready]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'ready-series-match', playerId: button.dataset.seriesReady as PlayerId })));
@@ -2595,6 +2613,7 @@ function renderCombatReveal() {
         spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
       }
       blockedCombatTargetId = null;
+      const combatForfeited = Boolean(forfeitedCombatTargetId);
       if (forfeitedCombatTargetId) spawnCharacterCalloutBubble(forfeitedCombatTargetId, 'Combat forfeited');
       forfeitedCombatTargetId = null;
       if (blinkCombatPresentation?.missed) missedCombatCallout = { defenderId: blinkCombatPresentation.defenderId, from: blinkCombatPresentation.from };
@@ -2614,7 +2633,7 @@ function renderCombatReveal() {
       }
       // Hold damage until the authored impact callback, or for characters
       // without one, until their short attack presentation has played.
-      genericCombatImpactAt = activeCombatVisualAttackId ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
+      genericCombatImpactAt = activeCombatVisualAttackId && !combatForfeited ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
       if (genericCombatImpactAt) {
         for (const event of gameState.objectPushAnimations) {
           if (event.damage && !event.afterBarrierAnimationId && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
@@ -2761,7 +2780,8 @@ function renderCombatReveal() {
   if (!combatRevealWasVisible) combatSummaryHidden = false;
   postCombatVisualNotBefore = Number.POSITIVE_INFINITY;
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
-  const pendingSwing = gameState.pendingAttack;
+  const combatForfeited = Boolean((reveal as typeof reveal & { forfeitReason?: string }).forfeitReason);
+  const pendingSwing = combatForfeited ? null : gameState.pendingAttack;
   pendingCounterspell = pendingSwing && reveal.counterspell
     ? { from: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position).add(new THREE.Vector3(0, 1.4, 0)),
       to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
@@ -2776,11 +2796,10 @@ function renderCombatReveal() {
     : null;
   blinkCombatPresentation = (reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport ?? null;
   const resolvedAttackDamage = (reveal.combatDamage ?? 0) + (reveal.afterCombatAttackDamage ?? 0);
-  const combatForfeited = Boolean((reveal as typeof reveal & { forfeitReason?: string }).forfeitReason);
-  forfeitedCombatTargetId = pendingSwing && combatForfeited ? pendingSwing.defenderId : null;
+  forfeitedCombatTargetId = combatForfeited ? gameState.pendingAttack?.defenderId ?? null : null;
   blockedCombatTargetId = pendingSwing && !combatForfeited && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
-  // The attack presentation always plays when the character has one. Damage
-  // only controls whether the defender receives the blocked callout.
+  // Forfeited combat queues no attack presentation. Resolved combat still
+  // plays its attack even when damage is blocked.
   merylinCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'merylin'
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, weapon: merylinWeaponForCard(pendingSwing.cardId) } : null;
   const obiWanClip = pendingSwing ? obiWanAttackClip(
@@ -2841,7 +2860,7 @@ function renderCombatReveal() {
     const attacker = combatSeat === pending.attackerId;
     const applicableIds = new Set(applicableCombatCardInstanceIds(gameState, combatSeat));
     const applicable = player.hand.filter((instance) => applicableIds.has(instance.instanceId));
-    const mightAvailable = combatSeat === pending.attackerId && player.character === 'wreckna' && player.movementRemaining > 0 && Boolean(activeWrecknaPhylactery(gameState, player.id, 'might'));
+    const mightAvailable = combatSeat === pending.attackerId && combatAttackBoostApplicable(gameState) && player.character === 'wreckna' && player.movementRemaining > 0 && Boolean(activeWrecknaPhylactery(gameState, player.id, 'might'));
     const submitted = submittedIds.includes(combatSeat);
     const opponentId = combatSeat === pending.attackerId ? pending.defenderId : pending.attackerId;
     const heldExhaust = player.hand.filter((card) => card.cardId === 'exhaust').length;
@@ -2972,9 +2991,10 @@ function renderCombatReveal() {
   const combatWinner = reveal.combatWinnerId ? gameState.players[reveal.combatWinnerId] : null;
   const combatDamage = reveal.combatDamage ?? Math.max(0, reveal.attackTotal - reveal.defendTotal);
   const forfeitReason = (reveal as typeof reveal & { forfeitReason?: string }).forfeitReason;
+  const forfeitDefenseReturned = (reveal as typeof reveal & { defendCardReturnedToHand?: boolean }).defendCardReturnedToHand;
   const blinkMissed = Boolean((reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport?.missed);
   const resultSummary = forfeitReason
-    ? `<div class="combat-result-summary"><strong>${escapeHtml(forfeitReason)}</strong><span>Both Cards are discarded.${reveal.defendCardId === 'yamato' ? " Only Yamato's Summon resolves." : ''}</span></div>`
+    ? `<div class="combat-result-summary"><strong>${escapeHtml(forfeitReason)}</strong><span>${forfeitDefenseReturned ? 'The Attack Card is discarded. Carian Stance returns Yamato to Hand.' : 'Both Cards are discarded.'}${reveal.defendCardId === 'yamato' ? ' Yamato grants Summon.' : ''}</span></div>`
     : blinkMissed
       ? '<div class="combat-result-summary"><strong>ATTACK MISSED</strong><span>Damage and negative effects on Logan were prevented. Other after-combat effects still resolve.</span></div>'
     : combatWinner
@@ -4622,7 +4642,7 @@ function updateCharacterCalloutBubbles(time: number) {
 
 const objectCalloutBounds = new THREE.Box3();
 const objectCalloutScreenPosition = new THREE.Vector3();
-function spawnObjectCalloutBubble(objectId: string, text: 'Redirect (box)' | 'Redirect (column)' | 'Redirect (Shield)', delay = 0) {
+function spawnObjectCalloutBubble(objectId: string, text: string, delay = 0) {
   const group = objectGroups.get(objectId);
   if (!group) return;
   group.updateWorldMatrix(true, true);
@@ -9086,6 +9106,13 @@ function applyObiWanPowerVisualIntent(intent: ObiWanPowerVisualIntent) {
 function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: boolean, deltaSeconds: number) {
   const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
   if (!state) return;
+  const combat = gameState.pendingAttack;
+  const busy = moving || movementAnimations.has(playerId) || state.deathEndsAt !== undefined
+    || Boolean(state.attack && !state.attack.finished) || Boolean(state.power || state.danceThrough)
+    || gameState.players[playerId]?.hp <= 0
+    || Boolean(combat && (combat.attackerId === playerId || combat.defenderId === playerId))
+    || (gameState.phase === 'dance-through' && (gameState.danceThrough?.playerId ?? gameState.activePlayerId) === playerId);
+  updateObiWanMeditation(group, deltaSeconds, busy);
   if (state.deathEndsAt !== undefined) {
     state.mixer.update(deltaSeconds);
     return;
@@ -11766,6 +11793,7 @@ function setupCharacterPreview() {
     const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
     const obiWanState = characterPreviewModel?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
     orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
+    if (characterPreviewModel?.userData.character === 'shinobi') updateObiWanMeditation(characterPreviewModel, delta, false, time);
     if (characterPreviewModel?.userData.merylinAnimation) {
       let previewWeapon: MerylinWeapon | undefined;
       if (characterPreviewModel.userData.character === 'merylin') {
@@ -11852,6 +11880,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
     characterPreviewModels.set(character, model);
   }
   characterPreviewModel = model;
+  if (character === 'shinobi') resetObiWanMeditation(model);
   if (character === 'john-christ') characterPreviewJohnCycleStartedAt = performance.now();
   if (character === 'merylin') resetCharacterPreviewMerylinCycle();
   model.position.set(0, 0, 0);

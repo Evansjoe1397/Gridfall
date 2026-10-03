@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { addForcedStatusCard, applyCommand, createHotseatTestState, dealDamage, type BoardObject, type Cell, type GameState } from '../shared/game.ts';
+import { addForcedStatusCard, applyCommand, createHotseatTestState, createTrenchTestState, dealDamage, type BoardObject, type Cell, type GameState } from '../shared/game.ts';
 
 const cell = (label: string): Cell => ({ x: label.charCodeAt(0) - 64, y: Number(label.slice(1)) - 1 });
 const step = (state: GameState, command: Parameters<typeof applyCommand>[1]): GameState => {
@@ -91,5 +91,22 @@ const repentHp = repent.players.P2.hp;
 const burned = step(repent, { type: 'attack', playerId: 'P1', cardInstanceId: 'repent-tomb-exception', targetId: 'thrown-box', targetKind: 'object' });
 assert.equal(burned.players.P2.hp, repentHp - 2, 'Repent AoE still burns Wreckna inside a Tomb.');
 assert.equal(burned.players.P2.wrecknaInsideTombId, 'occupied-tomb');
+
+for (const occupied of [true, false]) {
+  const slide = createTrenchTestState(true, 'magician', 'wreckna');
+  slide.players.P1.position = cell('D3');
+  slide.players.P1.movementRemaining = 1;
+  slide.players.P2.position = cell(occupied ? 'B5' : 'H8');
+  slide.players.P2.wrecknaInsideTombId = occupied ? 'occupied-tomb' : null;
+  slide.objects = [tomb('B5')];
+  const hp = slide.players.P2.hp;
+  const hit = step(slide, { type: 'move', playerId: 'P1', to: cell('C4') });
+  assert.equal(hit.objects.some((object) => object.id === 'occupied-tomb'), false, 'A Slide destroys a Tomb at its automatic destination.');
+  assert.equal(hit.players.P2.wrecknaInsideTombId, null, 'A destroyed Tomb releases its occupant.');
+  assert.equal(hit.players.P2.hp, hp, 'The Tomb absorbs the Slide collision without damaging Wreckna.');
+  assert.deepEqual(hit.players.P2.position, slide.players.P2.position, 'The collision leaves Wreckna on his Square.');
+  assert.deepEqual(hit.players.P1.position, cell('C4'), 'The Slide stops at the Tomb without entering its occupied Square.');
+  assert.equal(hit.objectPushAnimations.some((event) => event.objectId === 'occupied-tomb' && event.destroy), true, 'The collision emits the Tomb destruction animation.');
+}
 
 console.log('Tomb transit and protection checks passed.');
