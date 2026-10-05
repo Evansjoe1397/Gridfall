@@ -17,6 +17,7 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('press-pipe-button'), playerId: PlayerIdSchema, buttonId: z.string() }),
   z.object({ type: z.literal('ready-series-match'), playerId: PlayerIdSchema }),
   z.object({ type: z.literal('cancel-movement'), playerId: PlayerIdSchema }),
+  z.object({ type: z.literal('undo-last-action'), playerId: PlayerIdSchema }),
   z.object({ type: z.literal('combat-stack-choice'), playerId: PlayerIdSchema, cardInstanceId: z.string().nullable() }),
   z.object({ type: z.literal('attack'), playerId: PlayerIdSchema, cardInstanceId: z.string(), targetId: z.string(), targetKind: z.enum(['player', 'object']).optional(), swapBeforeCombat: z.boolean().optional() }),
   z.object({ type: z.literal('spectre-attack'), playerId: PlayerIdSchema, cardInstanceId: z.string(), origin: z.enum(['spectre', 'replica']), targetId: z.string(), targetKind: z.enum(['player', 'replica', 'object']) }),
@@ -366,7 +367,7 @@ export type GamePhase = 'active' | 'choosing-frostmourne' | 'choosing-spectre-pe
 export type CombatReveal = { counterspell?: { empowered: boolean }; attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number; dakkothRangeBonus?: number; spellsingerExtraPerkUses?: number };
-export type GameState = { matchStartedAt?: number; matchEndedAt?: number; boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; series?: BestOfThreeState; pipeTurnIndex?: number; pipeFloodUntil?: Partial<Record<1 | 2, number>>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
+export type GameState = { matchStartedAt?: number; matchEndedAt?: number; boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; series?: BestOfThreeState; pipeTurnIndex?: number; pipeFloodUntil?: Partial<Record<1 | 2, number>>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; perkUndo?: { playerId: PlayerId; stateJson: string } | null; perkUndoRevision?: number; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
 
 // Keep ready for saved-state compatibility; Base DEF depends only on ownership and position.
 export type KamelotChange = { label: string; ownerId: PlayerId; value: 1 | 2 | 3; ready: boolean };
@@ -504,7 +505,10 @@ let instanceSequence = 0;
 type CombatCardForecast = { damage: Partial<Record<PlayerId, number>>; statuses: Partial<Record<PlayerId, number>>; objectHp: Record<string, number>; winnerId?: PlayerId };
 const combatCardForecasts = new WeakMap<GameState, CombatCardForecast>();
 let combatForecastDepth = 0;
-function combatRandom(): number { return combatForecastDepth > 0 ? 0.5 : Math.random(); }
+let rulesRandomSequence = 0;
+let cardDrawSequence = 0;
+function rulesRandom(): number { rulesRandomSequence++; return Math.random(); }
+function combatRandom(): number { return combatForecastDepth > 0 ? 0.5 : rulesRandom(); }
 const discardBaselineByCommand = new WeakMap<GameState, Partial<Record<PlayerId, Set<string>>>>();
 function createInitialStateWithPlaceholder(lineup: 'orkk-vs-dummy' | 'shinobi-vs-orkk' = 'orkk-vs-dummy'): GameState {
   const legacy = lineup === 'shinobi-vs-orkk';
@@ -637,7 +641,7 @@ export function createMultiplayerState(characters: Record<PlayerId, CharacterId>
   if (arena.id === 'pipe') { state.pipeTurnIndex = 0; state.pipeFloodUntil = {}; }
   state.players.P1 = createPlayer('P1', characterName(characters.P1), characters.P1, cellFromLabel(arena.startingSquares.P1!));
   state.players.P2 = createPlayer('P2', characterName(characters.P2), characters.P2, cellFromLabel(arena.startingSquares.P2!));
-  state.activePlayerId = Math.random() < 0.5 ? 'P1' : 'P2';
+  state.activePlayerId = rulesRandom() < 0.5 ? 'P1' : 'P2';
   (state as GameState & { roundFirstPlayerId?: PlayerId }).roundFirstPlayerId = state.activePlayerId;
   state.log = [`${state.players.P1.name} and ${state.players.P2.name} enter ${arena.name}.`, `${state.players[state.activePlayerId].name} won the opening turn roll.`];
   beginOpeningSetup(state, ['P1', 'P2'], 'active');
@@ -1238,7 +1242,7 @@ function removeOwnedGuardian(state: GameState, playerId: PlayerId, reason: strin
 }
 
 function randomObjectRespawnDelay(): number {
-  return 2 + Math.floor(Math.random() * 4);
+  return 2 + Math.floor(rulesRandom() * 4);
 }
 
 function activateNextObjectRespawn(state: GameState): number | null {
@@ -1359,7 +1363,7 @@ function spawnReplacementBox(state: GameState): boolean {
   const ordinaryObjects = state.objects.filter((object) => !isWallObject(object));
   const emptyQuarters = [1, 2, 3, 4].filter((quarter) => !ordinaryObjects.some((object) => boardQuarter(state, object.position) === quarter));
   const quarterPool = emptyQuarters.length > 0 ? emptyQuarters : [1, 2, 3, 4];
-  const quarter = quarterPool[Math.floor(Math.random() * quarterPool.length)];
+  const quarter = quarterPool[Math.floor(rulesRandom() * quarterPool.length)];
   const typedGroups = [groups.highground, groups.highgroundProtected, groups.lowground];
   const counts = typedGroups.map((labels) => ordinaryObjects.filter((object) => labels.includes(cellLabel(object.position))).length);
   const least = Math.min(...counts);
@@ -1370,7 +1374,7 @@ function spawnReplacementBox(state: GameState): boolean {
     return !state.objects.some((object) => cellLabel(object.position) === label) && !Object.values(state.players).some((player) => player.position.x === cell.x && player.position.y === cell.y);
   });
   if (available.length === 0) return false;
-  const position = cellFromLabel(available[Math.floor(Math.random() * available.length)]);
+  const position = cellFromLabel(available[Math.floor(rulesRandom() * available.length)]);
   const objectId = `respawn-box-${state.turn}-${++instanceSequence}`;
   state.objects.push({ id: objectId, name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position, respawnEligible: true });
   state.objectPushAnimations.push({ id: `${objectId}-parachute`, objectId, from: position, to: position, dx: 0, dy: 0, collided: false, parachute: true });
@@ -1489,7 +1493,7 @@ function announceActionQuest(state: GameState, round: number): boolean {
   if (questState.usedQuestIds.length >= MAX_ACTION_QUESTS) return finishTimedMatch(state);
   const available = ACTION_QUEST_POOL.filter((quest) => !questState.usedQuestIds.includes(quest.id));
   if (available.length === 0) return finishTimedMatch(state);
-  const selected = available[Math.floor(Math.random() * available.length)];
+  const selected = available[Math.floor(rulesRandom() * available.length)];
   questState.usedQuestIds.push(selected.id);
   questState.currentQuest = { id: selected.id, announcedRound: round, endsAfterRound: round + selected.durationRounds - 1, winners: [], progress: {} };
   if (selected.id === 'provocateur') questState.turnStartedOnHighGround[state.activePlayerId] = isHighGround(state, state.players[state.activePlayerId].position);
@@ -1796,7 +1800,7 @@ function createPlayer(id: PlayerId, name: string, character: PlayerState['charac
   const uniqueCards = uniqueIds.map((cardId) => ({ instanceId: `${id}-${++instanceSequence}`, cardId }));
   const hand: CardInstance[] = [];
   const dummyPool = CARDS.filter((card) => card.kind === 'attack' && card.id !== 'chip-cast' && card.id !== 'drain-strength' && !JOHN_CHRIST_CARD_IDS.includes(card.id) && !DA_ORKK_CARD_IDS.includes(card.id) && !SPECTRE_CARD_IDS.includes(card.id) && !WRECKNA_CARD_IDS.includes(card.id) && !MERYLIN_CARD_IDS.includes(card.id));
-  const dummyDeck = shuffle(Array.from({ length: 10 }, () => ({ instanceId: `${id}-${++instanceSequence}`, cardId: dummyPool[Math.floor(Math.random() * dummyPool.length)].id })));
+  const dummyDeck = shuffle(Array.from({ length: 10 }, () => ({ instanceId: `${id}-${++instanceSequence}`, cardId: dummyPool[Math.floor(rulesRandom() * dummyPool.length)].id })));
   let deck = character === 'shinobi' ? shuffle(uniqueCards) : character === 'john-christ' ? uniqueCards.slice(0, -5) : character === 'dummy' ? dummyDeck : [];
   if (character === 'orkk') hand.push(...uniqueCards);
   if (character === 'magician') hand.push(...uniqueCards);
@@ -2992,6 +2996,7 @@ function hasCancelablePerkUse(state: GameState, playerId: PlayerId): boolean {
 }
 
 export function perkUseEventForTransition(before: GameState, command: GameCommand, after: GameState): PerkUseEvent | null {
+  if (command.type === 'undo-last-action') return null;
   const started = perkUseEventForCommand(before, command);
   if (started) {
     if (hasCancelablePerkUse(after, started.playerId)) {
@@ -3053,7 +3058,7 @@ function resolveSoulStrikeAfterDefenseChosen(state: GameState, pending: PendingA
     state.log.unshift(`Soul Strike found no Perk, Attack, or Block Card in ${defender.name}'s remaining Hand.`);
     return;
   }
-  const revealed = candidates[Math.floor(Math.random() * candidates.length)];
+  const revealed = candidates[Math.floor(rulesRandom() * candidates.length)];
   // A new Soul Strike result replaces the previous forced use, even when it reveals a Perk.
   for (const card of defender.hand) delete card.soulStrikeForcedUse;
   revealed.revealedToPlayerIds = [...new Set([...(revealed.revealedToPlayerIds ?? []), attacker.id])];
@@ -3285,12 +3290,147 @@ function cancelMovement(state: GameState, playerId: PlayerId): CommandResult {
   if (player.actionsRemaining !== undo.actionsRemaining || player.perkUsed !== undo.perkUsed) return fail(state, 'Movement cannot be cancelled after using an Action.');
   const restored = JSON.parse(undo.stateJson) as GameState;
   restored.movementUndo = null;
+  restored.perkUndoRevision = state.perkUndoRevision;
   restored.players[playerId].visualMovementCause = 'movement-cancelled';
   restored.log.unshift(`${restored.players[playerId].name} cancelled their movement and returned to the position before movement began.`);
   return ok(restored);
 }
 
+// A checkpoint contains at most one Perk, plus the movement segments around it.
+// Keeping the earlier movement in the Perk snapshot supports C -> Ctrl+Z -> C.
+const perkUndoPhases = new Set<string>([
+  'active', 'dance-through', 'double-jump', 'shizzle-move', 'choosing-mana-mode',
+  'choosing-force-throw-target', 'choosing-force-throw-direction', 'choosing-force-pull-target',
+  'choosing-arkane-arow-target', 'choosing-arm-da-wiz-choice', 'choosing-arm-da-wiz-create-payment', 'choosing-arm-da-wiz-target',
+  'choosing-kyk-target', 'choosing-kyk-direction', 'choosing-preparation-teleport', 'choosing-preparation-discard',
+  'choosing-arcane-missle-target', 'choosing-chain-lightning-target', 'choosing-magic-hand-target', 'choosing-magic-hand-direction',
+  'choosing-shizzle-destination', 'choosing-fireball-target', 'choosing-portal-target', 'choosing-spirit-guardian-square',
+  'choosing-spectre-perk-origin',
+  'choosing-test-phylactery-target', 'choosing-lichdom-target', 'choosing-lichdom-copy', 'choosing-dakkoth-tomb-square',
+  'choosing-dakkoth-tomb-sacrifice', 'choosing-dakkoth-phylactery-target', 'choosing-sap-target', 'choosing-necronomicon-tomb',
+  'choosing-decay-target', 'choosing-shadow-barter-discard', 'shadow-barter-tomb-offer', 'choosing-shadow-barter-tomb-square',
+  'choosing-sacrifice-tomb-square', 'choosing-immortality-phylactery', 'choosing-graveyard-tomb',
+  'choosing-mind-tricks-discard', 'choosing-sweet-potato',
+]);
+const perkUndoContinuations = new Set<GameCommand['type']>([
+  'move', 'end-dance', 'cancel-targeting', 'sweet-potato-choice', 'spirit-guardian-square', 'mana-choice', 'minimize-mana-choice',
+  'spectre-replica-square', 'spectre-perk-origin-select', 'spectre-perk-origin-confirm', 'spectre-shadow-direction', 'spectre-status-choice',
+  'force-throw-target', 'force-throw-direction', 'force-pull-target', 'arkane-arow-target',
+  'arm-da-wiz-choice', 'arm-da-wiz-create-payment', 'arm-da-wiz-target', 'kyk-target', 'kyk-direction',
+  'preparation-teleport', 'discard-card', 'arcane-missle-target', 'chain-lightning-target', 'magic-hand-target', 'magic-hand-direction',
+  'shizzle-destination', 'fireball-target', 'portal-teleport', 'immortality-phylactery-choice',
+  'test-phylactery-target', 'lichdom-target', 'lichdom-decline-phylactery', 'lichdom-copy-choice',
+  'dakkoth-tomb-square', 'sacrifice-tomb-square', 'dakkoth-tomb-sacrifice', 'dakkoth-phylactery-target',
+  'sap-target', 'necronomicon-tomb-target', 'decay-target', 'shadow-barter-discard', 'shadow-barter-tomb-square',
+  'mind-tricks-discard', 'mind-tricks-finish',
+]);
+
+export function canUndoMovement(state: GameState, playerId: PlayerId): boolean {
+  const undo = state.movementUndo;
+  const player = state.players[playerId];
+  return Boolean(undo && player && undo.playerId === playerId && playerId === state.activePlayerId
+    && ['active', 'dashing'].includes(state.phase)
+    && player.actionsRemaining === undo.actionsRemaining && player.perkUsed === undo.perkUsed);
+}
+
+export function canUndoLastAction(state: GameState, playerId: PlayerId): boolean {
+  return canUndoMovement(state, playerId) || Boolean(state.perkUndo?.playerId === playerId
+    && state.activePlayerId === playerId && perkUndoPhases.has(state.phase) && !state.pendingAttack);
+}
+
+function undoLastAction(state: GameState, playerId: PlayerId): CommandResult {
+  if (canUndoMovement(state, playerId)) return cancelMovement(state, playerId);
+  if (!canUndoLastAction(state, playerId) || !state.perkUndo) return fail(state, 'There is no movement or Perk available to undo.');
+  const restored = JSON.parse(state.perkUndo.stateJson) as GameState;
+  restored.perkUndo = null;
+  restored.perkUndoRevision = (state.perkUndoRevision ?? 0) + 1;
+  // Historical movement instructions must not replay when the board is restored.
+  for (const player of Object.values(restored.players)) delete player.visualMovement;
+  restored.log.unshift(`${restored.players[playerId].name} cancelled their last Perk.`);
+  return ok(restored);
+}
+
+function newlyRevealedInformation(before: GameState, after: GameState, actorId: PlayerId): boolean {
+  return Object.values(after.players).some((player) => {
+    const previous = before.players[player.id];
+    if (!previous) return true;
+    const cards = new Map([...previous.hand, ...previous.deck, ...previous.discard].map((card) => [card.instanceId, card]));
+    return player.hand.some((card) => cards.has(card.instanceId) && (
+      card.revealedToOpponent && !cards.get(card.instanceId)!.revealedToOpponent
+      || (card.revealedToPlayerIds ?? []).some((id) => !cards.get(card.instanceId)!.revealedToPlayerIds?.includes(id))))
+      || player.id !== actorId && player.discard.some((card) => previous.hand.some((old) => old.instanceId === card.instanceId && !isCardRevealedToOpponents(previous, old, actorId)))
+      || JSON.stringify(player.knownTopCardIds) !== JSON.stringify(previous.knownTopCardIds)
+      || player.knownTopCardId !== previous.knownTopCardId;
+  });
+}
+
+function updateActionUndo(before: GameState, command: GameCommand, after: GameState, learnedRandomResult: boolean) {
+  if (command.type === 'undo-last-action' || command.type === 'cancel-movement') return;
+  const startsPerk = command.type === 'play-perk' || command.type === 'use-echo-perk';
+  const continuesPerk = before.perkUndo?.playerId === command.playerId && perkUndoContinuations.has(command.type)
+    && (command.type !== 'discard-card' || before.phase === 'choosing-preparation-discard');
+  const walking = command.type === 'move' && ['active', 'dashing'].includes(before.phase);
+  const safe = before.activePlayerId === command.playerId && after.activePlayerId === command.playerId
+    && !after.pendingAttack && (walking && after.phase === 'dashing' || perkUndoPhases.has(after.phase))
+    && !learnedRandomResult && !newlyRevealedInformation(before, after, command.playerId);
+  if (!safe || (!startsPerk && !continuesPerk && !walking)) {
+    after.perkUndo = null;
+    after.movementUndo = null;
+    return;
+  }
+  if (startsPerk) {
+    const snapshot = structuredClone(before);
+    snapshot.perkUndo = null;
+    // Using another Perk commits all earlier history, including movement around it.
+    if (before.perkUndo) snapshot.movementUndo = null;
+    after.perkUndo = { playerId: command.playerId, stateJson: JSON.stringify(snapshot) };
+    after.movementUndo = null;
+  } else if (continuesPerk && !walking) {
+    // Card-granted movement is part of the Perk transaction, not ordinary walking.
+    after.movementUndo = null;
+    if (command.type === 'cancel-targeting' || command.type === 'sweet-potato-choice' && command.choice === 'cancel') {
+      const snapshot = JSON.parse(before.perkUndo!.stateJson) as GameState;
+      after.perkUndo = null;
+      after.movementUndo = snapshot.movementUndo;
+    }
+  }
+}
+
+export type MovementPreviewCommand = Extract<GameCommand, { type: 'move' | 'yamato-move' | 'shizzle-destination' }>;
+export function forecastMovement(source: GameState, command: MovementPreviewCommand) {
+  // Run the real rules on their cloned state, preserving event IDs and RNG behavior.
+  const sequence = instanceSequence;
+  combatForecastDepth++;
+  try {
+    const result = applyCommand(source, command);
+    if (!result.ok) return null;
+    const player = result.state.players[command.playerId];
+    const effects: { cell: Cell; destination?: Cell; label: string }[] = [];
+    for (const before of Object.values(source.players)) {
+      if (before.id === command.playerId) continue;
+      const after = result.state.players[before.id];
+      const moved = cellLabel(before.position) !== cellLabel(after.position);
+      const damage = before.hp - after.hp;
+      if (moved || damage > 0) effects.push({ cell: before.position, destination: moved ? after.position : undefined,
+        label: `${damage > 0 ? `−${damage} HP` : ''}${moved ? `${damage > 0 ? ' · ' : ''}Push` : ''}` });
+    }
+    for (const before of source.objects) {
+      const after = result.state.objects.find((object) => object.id === before.id);
+      if (!after) effects.push({ cell: before.position, label: 'Destroyed' });
+      else if (cellLabel(before.position) !== cellLabel(after.position)) effects.push({ cell: before.position, destination: after.position, label: 'Push' });
+    }
+    const collision = result.state.log.slice(0, Math.max(0, result.state.log.length - source.log.length))
+      .some((entry) => entry.includes('Slide stopped') || entry.includes('could not be pushed'));
+    return { path: player.visualMovement?.path ?? [player.position], effects, collision };
+  } finally {
+    instanceSequence = sequence;
+    combatForecastDepth--;
+  }
+}
+
 export function applyCommand(source: GameState, rawCommand: unknown): CommandResult {
+  const randomBefore = rulesRandomSequence;
+  const drawsBefore = cardDrawSequence;
   let result = applyCommandInternal(source, rawCommand);
   for (let automaticDiscard = automaticBannerDiscardCommand(result); automaticDiscard; automaticDiscard = automaticBannerDiscardCommand(result)) {
     const next = applyCommandInternal(result.state, automaticDiscard);
@@ -3307,6 +3447,10 @@ export function applyCommand(source: GameState, rawCommand: unknown): CommandRes
       result.state.phase = 'choosing-mana-mode';
       queue.queuedManaChoice = false;
     }
+  }
+  if (result.ok) {
+    const parsed = GameCommandSchema.safeParse(rawCommand);
+    if (parsed.success) updateActionUndo(source, parsed.data, result.state, randomBefore !== rulesRandomSequence || drawsBefore !== cardDrawSequence);
   }
   return result;
 }
@@ -3352,6 +3496,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'ready-series-match') return readySeriesMatch(state, command.playerId);
   discardBaselineByCommand.set(state, Object.fromEntries((Object.keys(state.players) as PlayerId[]).map((id) => [id, new Set(state.players[id].discard.map((card) => card.instanceId))])));
   if (command.type === 'cancel-movement') return cancelMovement(state, command.playerId);
+  if (command.type === 'undo-last-action') return undoLastAction(state, command.playerId);
   if (command.type === 'press-pipe-button') return pressPipeButton(state, command.playerId, command.buttonId);
   if (command.type === 'combat-stack-choice') return submitLocalCombatStackChoice(state, command.playerId, command.cardInstanceId);
   if (command.type === 'wreckna-might-choice') return resolveWrecknaMightChoice(state, command.playerId, command.use);
@@ -3522,6 +3667,8 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     const previousUnderfoot = player.swiftformEnemyUnderfoot;
     const movementOrigin = { ...player.position };
     captureMovementUndo(state, player);
+    // Walking and Dash can cross the pickup squares without stopping on them.
+    for (const cell of path) collectHotPotato(state, player.id, cell);
     recordQuestMovement(state, player.id, cost, false, command.to);
     player.visualMovement = { from: movementOrigin, path: path.map((cell) => ({ ...cell })), slideEffectsIgnored: path.some((cell) => ignoresSlideEffects(state, player, cell)), dash: state.phase === 'dashing', fastRun: state.phase === 'dashing' || (player.character === 'merylin' && Boolean(player.windwalkerActive)) };
     player.position = command.to;
@@ -3881,7 +4028,7 @@ function resolveFreeMove(state: GameState, player: PlayerState): CommandResult {
   const panicIds = player.hand.filter((card) => card.cardId === 'panic').map((card) => card.instanceId);
   if (panicIds.length > 0) {
     for (const instanceId of panicIds) removeCard(player, instanceId);
-    const path = spendMovementRandomly(state, player, 'Panic');
+    const path = spendMovementRandomly(state, player, 'Panic', 'voluntary');
     state.log.unshift(`${player.name} Removed ${panicIds.length} Panic Status Card${panicIds.length === 1 ? '' : 's'} with Free Move and spent ${path.length} movement randomly.`);
   }
   return ok(state);
@@ -4232,7 +4379,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     if (level >= 3) {
       let recovered = 0;
       if (player.discard.length > 0) {
-        const index = Math.floor(Math.random() * player.discard.length);
+        const index = Math.floor(rulesRandom() * player.discard.length);
         const [card] = player.discard.splice(index, 1);
         const definition = cardDefinition(card);
         card.revealedToOpponent = definition.kind === 'status';
@@ -4331,7 +4478,7 @@ function completeInnerPeace(state: GameState, player: PlayerState, level: number
     const preferredPile = piles.find((pile) => pile.cards.some(isNegativeStatusCard));
     const candidates = preferredPile?.cards.filter(isNegativeStatusCard) ?? [];
     if (preferredPile && candidates.length > 0) {
-      const removed = candidates[Math.floor(Math.random() * candidates.length)];
+      const removed = candidates[Math.floor(rulesRandom() * candidates.length)];
       removeCard(player, removed.instanceId);
       state.log.unshift(`Inner Peace level 2 randomly Removed ${cardDefinition(removed).name} from ${player.name}'s ${preferredPile.name}.`);
     } else state.log.unshift(`Inner Peace level 2 found no additional negative Status Card to Remove.`);
@@ -8003,10 +8150,9 @@ function resolveForceThrowDirection(state: GameState, playerId: PlayerId, to: Ce
   const awayX = target.position.x - caster.position.x; const awayY = target.position.y - caster.position.y;
   if (dx * awayX + dy * awayY < 0) return fail(state, 'Force Throw cannot pull a target toward its caster.');
   state.objectPushAnimations = [];
-  const collisionBonus = force.targetKind === 'object'
-    ? Number(caster.attackRange === 1 && isHighGround(state, caster.position) && isHighGround(state, target.position))
-    : meleeHighGroundDamageBonus(state, caster, target.position);
-  pushEntity(state, target, dx, dy, force.distance, force.level, playerId, true, 'perk', true, collisionBonus, force.targetKind === 'object');
+  // Collision Damage stays at 1 regardless of terrain. Only Level 3 can
+  // continue by pushing the enemy hit by an Object.
+  pushEntity(state, target, dx, dy, force.distance, force.level, playerId, true, 'perk', true, 0, force.targetKind === 'object', force.level >= 3);
   state.objects = state.objects.filter((object) => object.hp > 0);
   state.forceThrow = null; state.phase = 'active';
   state.log.unshift('Force Throw resolved.');
@@ -8029,7 +8175,7 @@ function entityAt(state: GameState, cell: Cell, excluding: PushEntity): PushEnti
   const object = state.objects.find((candidate) => !(excluding.kind === 'object' && candidate.id === excluding.id) && candidate.position.x === cell.x && candidate.position.y === cell.y);
   return object ? { kind: 'object', id: object.id, position: object.position } : null;
 }
-function pushEntity(state: GameState, entity: PushEntity, dx: number, dy: number, movement: number, level: number, casterId: PlayerId, dealCollisionDamage = true, sourceKind: 'attack' | 'perk' | 'other' = 'other', dealElevationDamage = true, collisionDamageBonus = 0, destroyObjectOnPlayerCollision = false): boolean {
+function pushEntity(state: GameState, entity: PushEntity, dx: number, dy: number, movement: number, level: number, casterId: PlayerId, dealCollisionDamage = true, sourceKind: 'attack' | 'perk' | 'other' = 'other', dealElevationDamage = true, collisionDamageBonus = 0, destroyObjectOnPlayerCollision = false, transferRemainingMovement = true): boolean {
   const pushedObject = entity.kind === 'object' ? state.objects.find((candidate) => candidate.id === entity.id) : null;
   if (pushedObject && isFixedWallObject(pushedObject)) return true;
   const start = { ...entity.position };
@@ -8068,7 +8214,7 @@ function pushEntity(state: GameState, entity: PushEntity, dx: number, dy: number
       if (dealCollisionDamage) { damageCollisionEntity(state, current, level, casterId, sourceKind, collisionDamageBonus); damageCollisionEntity(state, occupant, level, casterId, sourceKind, collisionDamageBonus); }
       state.log.unshift(`${entityName(state, current)} collided with ${entityName(state, occupant)}.`);
       const transferred = remaining - 1;
-      if (transferred > 0) pushEntity(state, occupant, dx, dy, transferred, level, casterId, dealCollisionDamage, sourceKind, dealElevationDamage, collisionDamageBonus);
+      if (transferRemainingMovement && transferred > 0) pushEntity(state, occupant, dx, dy, transferred, level, casterId, dealCollisionDamage, sourceKind, dealElevationDamage, collisionDamageBonus);
       finishObjectAnimation(true, destroyObjectOnPlayerCollision && current.kind === 'object' && occupant.kind === 'player');
       return true;
     }
@@ -8238,7 +8384,7 @@ function resolveSpectreHaunt(state: GameState, player: PlayerState, level: numbe
     else state.log.unshift(`Haunt could not create a replica behind ${enemy.name}.`);
     if (level >= 2) {
       const blocks = enemy.hand.filter((card) => cardDefinition(card).kind === 'defend');
-      const revealed = blocks.length > 0 ? blocks[Math.floor(Math.random() * blocks.length)] : null;
+      const revealed = blocks.length > 0 ? blocks[Math.floor(rulesRandom() * blocks.length)] : null;
       if (revealed) {
         revealed.revealedToPlayerIds = [...new Set([...(revealed.revealedToPlayerIds ?? []), player.id])];
         revealed.soulStrikeForcedUse = 'defend';
@@ -8579,7 +8725,7 @@ function resolveFinishingDiscard(state: GameState, playerId: PlayerId, cardInsta
   return ok(state);
 }
 
-function spendMovementRandomly(state: GameState, player: PlayerState, effectName: string): Cell[] {
+function spendMovementRandomly(state: GameState, player: PlayerState, effectName: string, movementCause: 'voluntary' | 'own-card' | 'enemy-ability'): Cell[] {
   const start = { ...player.position }; const path: Cell[] = [];
   while (player.movementRemaining > 0) {
     const candidates: Cell[] = [];
@@ -8598,7 +8744,7 @@ function spendMovementRandomly(state: GameState, player: PlayerState, effectName
       player.movementRemaining = 0;
       break;
     }
-    const destination = candidates[Math.floor(Math.random() * candidates.length)];
+    const destination = candidates[Math.floor(rulesRandom() * candidates.length)];
     const enteredFrom = { ...player.position };
     recordQuestMovement(state, player.id, 1, false, destination);
     player.position = { ...destination }; path.push({ ...destination }); player.movementRemaining -= 1;
@@ -8607,7 +8753,7 @@ function spendMovementRandomly(state: GameState, player: PlayerState, effectName
   }
   if (path.length > 0) {
     player.visualMovement = { from: start, path };
-    markCharacterMoved(player, 'own-card');
+    markCharacterMoved(player, movementCause);
   }
   return path;
 }
@@ -8623,7 +8769,7 @@ function resolveBurningDash(state: GameState, player: PlayerState): GameState {
   for (const instanceId of burningIds) removeCard(player, instanceId);
   state.log.unshift(`${player.name} received ${burningCards.length} Damage from Burning before Dash movement.`);
   if (player.hp <= 0 || state.winner) return state;
-  const path = spendMovementRandomly(state, player, 'Burning Dash');
+  const path = spendMovementRandomly(state, player, 'Burning Dash', 'voluntary');
   if (path.length > 0 && player.visualMovement) {
     player.visualMovement.fastRun = true;
     player.visualMovement.dash = true;
@@ -9044,6 +9190,7 @@ export function drawCards(player: PlayerState, count: number): number {
       player.pinnedGainedThisTurn = (player.pinnedGainedThisTurn ?? 0) + 1;
     }
     drawn += 1;
+    cardDrawSequence++;
   }
   adjustUnspentMovementForRangeChange(player, previousMoveRange);
   return drawn;
@@ -9146,7 +9293,7 @@ function removePinnedAtTurnEnd(state: GameState, player: PlayerState) {
   }
   const pinnedCards = player.hand.filter((card) => card.cardId === 'pinned');
   if (pinnedCards.length > 0) {
-    const removed = pinnedCards[Math.floor(Math.random() * pinnedCards.length)];
+    const removed = pinnedCards[Math.floor(rulesRandom() * pinnedCards.length)];
     removeCard(player, removed.instanceId);
   } else if (player.pinnedStacks > 0) player.pinnedStacks -= 1;
   else return;

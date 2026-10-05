@@ -15,6 +15,7 @@ import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport 
 import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import { HOTKEY_SECTIONS } from './hotkeys.ts';
+import { createDeveloperPanel } from './developerPanel.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
 import { createQuestFlag, flutterQuestFlag, disposeQuestFlag } from './questFlagVisuals.ts';
@@ -89,6 +90,8 @@ import {
   applicableCombatCardInstanceIds,
   combatAttackBoostApplicable,
   applyCommand,
+  forecastMovement,
+  type MovementPreviewCommand,
   baseSquareAt,
   armDaWizPath,
   arcaneMisslePath,
@@ -127,6 +130,8 @@ import {
   movementCost,
   orkkActionEventForCommand,
   perkUseEventForTransition,
+  canUndoLastAction,
+  canUndoMovement,
   phaseCardCandidates,
   kykDirectionAllowed,
   pinnedCount,
@@ -504,6 +509,31 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
 // Keep src/hotkeys.ts in sync when changing these shortcuts.
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+    event.preventDefault();
+    if (!event.repeat) {
+      cameraKeys.delete('KeyD');
+      developerPanel.toggle();
+    }
+    return;
+  }
+  if (event.code === 'KeyZ' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    if (!event.repeat && canLocalAct(actingPlayer())) {
+      if (canUndoLastAction(gameState, actingPlayer())) dispatch({ type: 'undo-last-action', playerId: actingPlayer() });
+      else notify('There is no movement or Perk available to undo.');
+    }
+    return;
+  }
+  if (event.code === 'KeyT' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    if (!event.repeat) {
+      movementPreviewEnabled = !movementPreviewEnabled;
+      updateMovementPathPreview();
+      notify(`Movement path preview ${movementPreviewEnabled ? 'enabled' : 'disabled'}.`);
+    }
+    return;
+  }
   if (!byId('endTurnReminder').classList.contains('hidden')) {
     if (event.code === 'Escape') { event.preventDefault(); closeEndTurnReminder(); }
     else if (event.code !== 'Tab' && event.code !== 'Enter' && event.code !== 'Space') event.preventDefault();
@@ -649,7 +679,7 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     toggleCompactHandMode();
   }
-  if (event.code === 'KeyC' && !game.classList.contains('hidden')) {
+  if (event.code === 'KeyC' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !game.classList.contains('hidden')) {
     const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
     if (!cancelMovementButton.classList.contains('hidden') && !cancelMovementButton.disabled) { event.preventDefault(); cancelMovementButton.click(); }
   }
@@ -1016,6 +1046,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const previousBoardSize = gameState.boardSize;
       const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
+      if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
       const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
       if (seriesMatchChanged) resetSeriesMatchVisuals();
       else startResolvedFireSpell(previousGameState, gameState);
@@ -1401,7 +1432,7 @@ function dispatch(command: GameCommand) {
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
   const orkkVisualIntent = orkkVisualIntentForCommand(gameState, command);
   const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
-  const movementCancellationTarget = command.type === 'cancel-movement' ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
+  const movementCancellationTarget = command.type === 'cancel-movement' || command.type === 'undo-last-action' && canUndoMovement(gameState, command.playerId) ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
   if (mode === 'online') {
     if (!room || !localSeat) return notify('Waiting for your seat assignment.');
     if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
@@ -1412,6 +1443,7 @@ function dispatch(command: GameCommand) {
   const result = applyCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
+  if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
   const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
   if (seriesMatchChanged) resetSeriesMatchVisuals();
   else startResolvedFireSpell(previousGameState, gameState);
@@ -1657,8 +1689,8 @@ function renderUI() {
   cancelDanceButton.disabled = (!choosingYamatoMove && !canDeclineLichdom && danceOccupied) || !canLocalAct(actingPlayer());
   cancelDanceButton.title = canDeclineLichdom ? 'Keep your HP, draw Lichdom\'s Card, and continue with its Level 3 effect if available.' : choosingYamatoMove ? 'Resolve Yamato without moving.' : danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
-  const movementUndo = gameState.movementUndo;
-  const canCancelMovement = Boolean(movementUndo && movementUndo.playerId === actor.id && movementUndo.actionsRemaining === actor.actionsRemaining && movementUndo.perkUsed === actor.perkUsed && ['active', 'dashing'].includes(gameState.phase) && canLocalAct(actor.id));
+  const canCancelMovement = canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
+  cancelMovementButton.textContent = 'Cancel movement (C / Ctrl+Z)';
   cancelMovementButton.classList.toggle('hidden', !canCancelMovement);
   cancelMovementButton.disabled = !canCancelMovement;
   (byId('freeMoveButton') as HTMLButtonElement).disabled = gameState.phase !== 'active' || actor.freeMoveUsed || !canLocalAct(actor.id);
@@ -1720,7 +1752,7 @@ function renderMatchResults() {
   const series = gameState.series;
   const seriesDraw = Boolean(series && series.results.length < series.match);
   const seriesContinuing = Boolean(series && (seriesDraw || series.match === 1 || series.match === 2 && series.wins.P1 === 1 && series.wins.P2 === 1));
-  const readyLabel = seriesDraw ? `Replay Match ${series!.match}` : `Ready for Match ${series!.match + 1}`;
+  const readyLabel = series ? seriesDraw ? `Replay Match ${series.match}` : `Ready for Match ${series.match + 1}` : '';
   const readyControls = seriesContinuing && series
     ? mode === 'hotseat'
       ? (['P1', 'P2'] as const).map((id) => `<button type="button" data-series-ready="${id}" ${series.ready.includes(id) ? 'disabled' : ''}>${series.ready.includes(id) ? `Player ${id.slice(1)} ready` : `${readyLabel} · Player ${id.slice(1)}`}</button>`).join('')
@@ -3918,6 +3950,17 @@ let trenchPerimeterAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = nu
 let lordaeronTombAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null;
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
+// Reuse the routes computed for green highlights instead of pathfinding on every frame.
+type MovementPreview = { points: THREE.Vector3[]; cost: number; command: MovementPreviewCommand; forecast?: ReturnType<typeof forecastMovement> };
+const movementPreviewRoutes = new Map<THREE.Mesh, MovementPreview>();
+let movementPreviewEnabled = true;
+const movementPreviewGroup = new THREE.Group();
+movementPreviewGroup.name = 'MovementPathPreview';
+scene.add(movementPreviewGroup);
+const movementPreviewMaterial = new THREE.MeshBasicMaterial({ color: 0xb4ffe7, depthTest: false, depthWrite: false, toneMapped: false });
+const movementCollisionMaterial = new THREE.MeshBasicMaterial({ color: 0xffb56a, depthTest: false, depthWrite: false, toneMapped: false });
+let movementPreviewRoute: MovementPreview | undefined;
+const movementPreviewLabels: { element: HTMLDivElement; position: THREE.Vector3 }[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
@@ -4089,9 +4132,75 @@ window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(boardEl);
 resize();
 const cameraKeys = new Set<string>();
+function boardHitsAt(clientX: number, clientY: number) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (!rect.width || !rect.height) return [];
+  pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(scene.children, true);
+  hits.forEach((hit) => {
+    const playerId = hitUserData<PlayerId>(hit, 'playerId');
+    const objectId = hitUserData<string>(hit, 'objectId');
+    if (playerId) hit.object.userData.playerId = playerId;
+    if (objectId) hit.object.userData.objectId = objectId;
+  });
+  return hits;
+}
+
+function attackPlayerFromHits(hits: THREE.Intersection[]) {
+  const directPlayerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+  const clickedCell = hits.find((hit) => hit.object.userData.cell)?.object.userData.cell as Cell | undefined;
+  const playerOnClickedCell = clickedCell
+    ? Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === clickedCell.x && player.position.y === clickedCell.y)
+    : undefined;
+  return directPlayerHit ?? playerOnClickedCell?.id;
+}
+
+function developerHoverTarget() {
+  if (!boardPointerPosition || cameraGrab || touchCameraPan || game.classList.contains('hidden')) return '—';
+  const { clientX, clientY } = boardPointerPosition;
+  if (document.elementFromPoint(clientX, clientY) !== renderer.domElement) return '—';
+  // Sample the same mesh picks as clicks only while diagnostics are visible,
+  // at the panel's 0.5-second cadence rather than raycasting every frame.
+  const hits = boardHitsAt(clientX, clientY);
+  const selected = selection.getSnapshot().context.selection;
+  const playerId = selected.kind === 'attack'
+    ? attackPlayerFromHits(hits)
+    : hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
+  const player = playerId ? gameState.players[playerId] : undefined;
+  if (player) return `${player.id} · ${player.name} · ${cellLabel(player.position)}`;
+  const objectId = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+  const object = gameState.objects.find((entry) => entry.id === objectId);
+  if (object) return `${object.name} · ${object.id} · ${cellLabel(object.position)}`;
+  const cell = hits.find((hit) => hit.object.userData.cell)?.object.userData.cell as Cell | undefined;
+  return cell ? `Square ${cellLabel(cell)}` : '—';
+}
+const developerPanel = createDeveloperPanel(() => {
+  const connection = byId('connection');
+  const onlineStatus = connection.classList.contains('reconnecting') ? 'Reconnecting'
+    : connection.classList.contains('disconnected') ? 'Disconnected' : room ? 'Connected' : 'Lobby';
+  const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+  const currentSelection = selection.getSnapshot().context.selection;
+  return [
+    ['Draw calls', renderer.info.render.calls.toLocaleString()],
+    ['Triangles', renderer.info.render.triangles.toLocaleString()],
+    ['Geometries / textures', `${renderer.info.memory.geometries} / ${renderer.info.memory.textures}`],
+    ['Render pixels / DPR', `${renderer.domElement.width} × ${renderer.domElement.height} / ${renderer.getPixelRatio().toFixed(2)}`],
+    ['JS heap', memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} / ${(memory.jsHeapSizeLimit / 1048576).toFixed(0)} MiB` : 'Unavailable'],
+    ['View / mode', `${game.classList.contains('hidden') ? 'Lobby' : 'Match'} / ${mode}`],
+    ['Arena', visualArena().id],
+    ['Turn / phase', game.classList.contains('hidden') ? '—' : `${gameState.turn} / ${gameState.phase}`],
+    ['Active / local seat', `${game.classList.contains('hidden') ? '—' : gameState.activePlayerId} / ${localSeat ?? (mode === 'hotseat' ? 'Shared' : '—')}`],
+    ['Connection', mode === 'online' ? onlineStatus : 'Local'],
+    ['Room', room?.roomId ?? '—'],
+    ['Selection', 'cardInstanceId' in currentSelection ? `${currentSelection.kind} · ${currentSelection.cardInstanceId}` : currentSelection.kind],
+    ['Hover target', developerHoverTarget()],
+  ];
+});
 // Keep camera and visual-setting shortcuts documented in src/hotkeys.ts.
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
+  if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) return;
   if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyV' && !game.classList.contains('hidden')) {
     event.preventDefault();
     if (!event.repeat) void toggleVisualPolish();
@@ -4161,6 +4270,7 @@ window.addEventListener('blur', () => {
 });
 let previousFrameTime = performance.now();
 renderer.setAnimationLoop((time) => {
+  const debugFrameStartedAt = developerPanel.visible ? performance.now() : undefined;
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   hologramShaderTime.value = time / 1000;
@@ -4169,6 +4279,7 @@ renderer.setAnimationLoop((time) => {
   if (!cameraGrab) controls.update();
   updateStormFillLight();
   updateTargetHighlights(time);
+  updateMovementPathPreview();
   updateCharacterMovement(time);
   updateReplicatePullTethers(time);
   updateWizardLiftedTargets(time);
@@ -4346,6 +4457,7 @@ renderer.setAnimationLoop((time) => {
   stormAtmosphere.sky.position.copy(camera.position);
   dawnStarField.position.copy(camera.position);
   renderer.render(scene, camera);
+  developerPanel.frame(time, debugFrameStartedAt === undefined ? 0 : performance.now() - debugFrameStartedAt);
 });
 
 function createCharacterHealthBar(playerId: PlayerId) {
@@ -5867,6 +5979,8 @@ function createDummy(color: number) {
 
 function createWoodenBox() {
   const root = new THREE.Group();
+  // Pick one quarter-turn once per box, retained through asset loading and movement.
+  root.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
   const fallback = new THREE.Group();
   fallback.name = 'WoodenBoxProceduralFallback';
   root.add(fallback);
@@ -6788,6 +6902,45 @@ function resetMatchEndPresentation() {
   pendingDeathAnimationIds.clear();
   proceduralDeathAnimations.clear();
   matchEndPresentation = null;
+}
+
+function resetPerkUndoVisuals() {
+  const removeEffect = (root: THREE.Object3D) => {
+    root.removeFromParent();
+    root.traverse((part) => {
+      if (part instanceof THREE.Mesh || part instanceof THREE.Line) part.geometry.dispose();
+      if (part instanceof THREE.Mesh || part instanceof THREE.Line || part instanceof THREE.Sprite) {
+        for (const material of Array.isArray(part.material) ? part.material : [part.material]) material.dispose();
+      }
+    });
+  };
+  const previousSummary = lastCombatSummaryHtml;
+  resetSeriesMatchVisuals();
+  lastCombatSummaryHtml = previousSummary;
+  clearPerkUseLabels();
+  for (const { visual } of fireboltAnimations.splice(0)) visual.dispose();
+  for (const { mesh } of spellProjectileAnimations.splice(0)) removeEffect(mesh);
+  for (const { mesh } of moonwaveAnimations.splice(0)) removeEffect(mesh);
+  for (const { group } of johnCastProjectiles.splice(0)) removeEffect(group);
+  for (const { group } of holyFireAnimations.splice(0)) removeEffect(group);
+  for (const { group } of stoicShellHealAnimations.splice(0)) removeEffect(group);
+  for (const { group } of manaConsumeAnimations.splice(0)) removeEffect(group);
+  for (const { line } of replicatePullAnimations.splice(0)) removeEffect(line);
+  for (const { line } of spectreRelocateTethers.splice(0)) removeEffect(line);
+  for (const portal of portalTeleports.values()) portal.visual.dispose();
+  portalTeleports.clear();
+  pendingDamageVisuals.clear();
+  impactTriggeredCharacterMovements.clear();
+  pendingMovementCancellationTargets.clear();
+  impactAnimations.clear();
+  moonwaveRouteProgress.clear();
+  blessingPresentationQueues.clear();
+  for (const { sprite } of damageNumbers.splice(0)) removeEffect(sprite);
+  for (const { element } of statEffectBubbles.splice(0)) element.remove();
+  // Restored events are history; they should not spawn effects a second time.
+  for (const event of gameState.objectPushAnimations) processedObjectPushAnimations.add(event.id);
+  for (const event of gameState.spellProjectiles ?? []) processedSpellProjectiles.add(event.id);
+  for (const event of gameState.blessingAnimations ?? []) processedBlessingAnimations.add(event.id);
 }
 
 function resetSeriesMatchVisuals() {
@@ -10863,6 +11016,7 @@ function selectedAttackCanReach(attacker: GameState['players'][PlayerId], select
 }
 
 function highlightCells() {
+  movementPreviewRoutes.clear();
   const selected = selection.getSnapshot().context.selection;
   const movementPlayerId = gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId
     : (gameState.phase as string) === 'choosing-yamato-move' ? (gameState as GameState & { yamato?: { defenderId: PlayerId } }).yamato?.defenderId ?? gameState.activePlayerId
@@ -11015,6 +11169,19 @@ function highlightCells() {
     const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
     const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    const regularMovementPhase = gameState.phase === 'active' || gameState.phase === 'dashing';
+    const stepMovementValid = danceValid || doubleJumpValid || shizzleStepValid || yamatoMoveValid;
+    if (highlightColor === 0x19d3a2 && canLocalAct(actor.id)
+      && (yamatoMoveValid || shizzleDestinationValid || (selected.kind === 'move' && (stepMovementValid || (regularMovementPhase && regularValid))))) {
+      const route = shizzleDestinationValid
+        ? Array.from({ length: shizzleDistance }, (_, index) => ({ x: actor.position.x + Math.sign(shizzleDx) * (index + 1), y: actor.position.y + Math.sign(shizzleDy) * (index + 1) }))
+        : stepMovementValid || freeTombTransfer ? [cell] : regularPath;
+      movementPreviewRoutes.set(mesh, {
+        points: [actor.position, ...route].map((position) => worldPosition(position).add(new THREE.Vector3(0, 0.16, 0))),
+        cost: regularMovementPhase ? freeTombTransfer ? 0 : wrecknaTombEntry ? 2 : regularDistance : 0,
+        command: { type: yamatoMoveValid ? 'yamato-move' : shizzleDestinationValid ? 'shizzle-destination' : 'move', playerId: actor.id, to: cell },
+      });
+    }
     material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
@@ -11040,6 +11207,82 @@ function highlightCells() {
     }
   });
   updateTargetHighlights(performance.now());
+  updateMovementPathPreview();
+}
+
+function updateMovementPathPreview() {
+  let preview: MovementPreview | undefined;
+  if (movementPreviewEnabled && boardPointerPosition && !cameraGrab && !touchCameraPan && !game.classList.contains('hidden') && movementPreviewRoutes.size > 0) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const { clientX, clientY } = boardPointerPosition;
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+      pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
+      raycaster.setFromCamera(pointer, camera);
+      // Only test tile surfaces: avoid CPU skinning character meshes during hover.
+      const tile = raycaster.intersectObjects(cellMeshes, false)[0]?.object as THREE.Mesh | undefined;
+      if (tile) preview = movementPreviewRoutes.get(tile);
+    }
+  }
+  movementPreviewGroup.visible = Boolean(preview);
+  const rect = renderer.domElement.getBoundingClientRect();
+  const updateLabels = () => {
+    for (const { element, position } of movementPreviewLabels) {
+      const projected = position.clone().project(camera);
+      element.hidden = !preview || projected.z < -1 || projected.z > 1;
+      element.style.left = `${(projected.x + 1) * 0.5 * rect.width}px`;
+      element.style.top = `${(1 - projected.y) * 0.5 * rect.height}px`;
+    }
+  };
+  if (preview === movementPreviewRoute) { updateLabels(); return; }
+  movementPreviewRoute = preview;
+  for (const label of movementPreviewLabels.splice(0)) label.element.remove();
+  for (const child of [...movementPreviewGroup.children]) {
+    if (child instanceof THREE.Mesh) child.geometry.dispose();
+    movementPreviewGroup.remove(child);
+  }
+  if (!preview) return;
+  preview.forecast ??= forecastMovement(gameState, preview.command);
+  if (!preview.forecast) { movementPreviewGroup.visible = false; return; }
+  const route = [preview.points[0], ...preview.forecast.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 0.16, 0)))];
+  if (route.length < 2) return;
+  const addLabel = (text: string, position: THREE.Vector3, warning = false) => {
+    const element = document.createElement('div');
+    element.className = `movement-preview-label${warning ? ' collision' : ''}`;
+    element.textContent = text;
+    overheadStatusLayer.appendChild(element);
+    movementPreviewLabels.push({ element, position: position.clone().add(new THREE.Vector3(0, 0.35, 0)) });
+  };
+  const addMesh = (geometry: THREE.BufferGeometry, warning = false) => {
+    const mesh = new THREE.Mesh(geometry, warning ? movementCollisionMaterial : movementPreviewMaterial);
+    mesh.renderOrder = 95;
+    mesh.raycast = () => {}; // The preview must never intercept board clicks.
+    movementPreviewGroup.add(mesh);
+    return mesh;
+  };
+  const curve = new THREE.CurvePath<THREE.Vector3>();
+  for (let index = 1; index < route.length; index++) curve.add(new THREE.LineCurve3(route[index - 1], route[index]));
+  addMesh(new THREE.TubeGeometry(curve, Math.max(16, route.length * 8), 0.035, 6, false));
+  for (const point of route.slice(1, -1)) {
+    const marker = addMesh(new THREE.SphereGeometry(0.075, 8, 6));
+    marker.position.copy(point);
+  }
+  const end = route[route.length - 1];
+  const direction = end.clone().sub(route[route.length - 2]).normalize();
+  const arrow = addMesh(new THREE.ConeGeometry(0.15, 0.38, 10));
+  arrow.position.copy(end).addScaledVector(direction, -0.19);
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+  addLabel(`${preview.cost} MOV${preview.forecast.collision ? ' · Blocked' : ''}`, end, preview.forecast.collision);
+  for (const effect of preview.forecast.effects) {
+    const from = worldPosition(effect.cell).add(new THREE.Vector3(0, 0.22, 0));
+    addLabel(effect.label, from, true);
+    const ring = addMesh(new THREE.RingGeometry(0.26, 0.34, 16), true);
+    ring.position.copy(from); ring.rotation.x = -Math.PI / 2;
+    if (effect.destination) {
+      const to = worldPosition(effect.destination).add(new THREE.Vector3(0, 0.22, 0));
+      addMesh(new THREE.TubeGeometry(new THREE.LineCurve3(from, to), 8, 0.025, 6, false), true);
+    }
+  }
+  updateLabels();
 }
 
 function updateTargetHighlights(time: number) {
@@ -11203,16 +11446,7 @@ function onBoardClick(event: MouseEvent) {
   if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(scene.children, true);
-  hits.forEach((hit) => {
-    const playerId = hitUserData<PlayerId>(hit, 'playerId');
-    const objectId = hitUserData<string>(hit, 'objectId');
-    if (playerId) hit.object.userData.playerId = playerId;
-    if (objectId) hit.object.userData.objectId = objectId;
-  });
+  const hits = boardHitsAt(event.clientX, event.clientY);
   const selected = selection.getSnapshot().context.selection;
   if (selected.kind === 'none' || selected.kind === 'move') {
     const quickAttackTarget = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
@@ -11398,13 +11632,7 @@ function onBoardClick(event: MouseEvent) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) dispatch({ type: 'move', playerId: gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId : gameState.phase === 'shizzle-move' ? gameState.shizzle!.casterId : gameState.activePlayerId, to: cellHit.object.userData.cell });
   } else if (selected.kind === 'attack') {
-    const directPlayerHit = hits.find((hit) => hit.object.userData.playerId)?.object.userData.playerId as PlayerId | undefined;
-    const cellHit = hits.find((hit) => hit.object.userData.cell);
-    const clickedCell = cellHit?.object.userData.cell as Cell | undefined;
-    const playerOnClickedCell = clickedCell
-      ? Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === clickedCell.x && player.position.y === clickedCell.y)
-      : undefined;
-    const playerHit = directPlayerHit ?? playerOnClickedCell?.id;
+    const playerHit = attackPlayerFromHits(hits);
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
     const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);
