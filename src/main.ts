@@ -1,5 +1,6 @@
 import { DashWindTrails } from './dashWindTrails.ts';
 import { CounterspellVisual } from './counterspellVisual.ts';
+import { SpellblockVisual } from './spellblockVisual.ts';
 import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
 import { isLoganSpell, LoganAttackVisual, startLoganBoltSequence, type LoganSpell } from './loganAttackVisuals.ts';
 import { SnowballEffectVisual } from './snowballEffectVisual.ts';
@@ -7,6 +8,10 @@ import { GrimoireCleanseVisual } from './grimoireCleanseVisual.ts';
 import { PreparationVisual } from './preparationVisual.ts';
 import { ManaShieldVisual } from './manaShieldVisuals.ts';
 import { clearFlurries, FLURRY_DURATION_MS, spawnFlurry, updateFlurries } from './flurryVisuals.ts';
+import { clearKamelot, spawnKamelot, updateKamelot } from './kamelotVisuals.ts';
+import { clearBarbarian, spawnBarbarian, updateBarbarian } from './barbarianVisuals.ts';
+import { clearWindwalker, spawnWindwalker, updateWindwalker } from './windwalkerVisuals.ts';
+import { clearCarian, spawnCarian, syncCarianGuard, updateCarian } from './carianVisuals.ts';
 import './style.css';
 import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
@@ -707,6 +712,8 @@ let combatRevealWasVisible = false;
 let pendingCounterspell: { from: THREE.Vector3; to: THREE.Vector3; empowered: boolean } | null = null;
 const counterspellVisuals: CounterspellVisual[] = [];
 let heldCounterspell: CounterspellVisual | null = null;
+let pendingSpellblock: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3; attacker: THREE.Vector3; blockedDamage: number } | null = null;
+let spellblockVisual: { effect: SpellblockVisual; defenderId: PlayerId; replicaId?: string } | null = null;
 let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
 let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
 let blockedCombatTargetId: PlayerId | null = null;
@@ -766,6 +773,9 @@ function resetCombatSummary() {
   pendingCounterspell = null;
   heldCounterspell = null;
   for (const visual of counterspellVisuals.splice(0)) visual.dispose();
+  pendingSpellblock = null;
+  spellblockVisual?.effect.dispose();
+  spellblockVisual = null;
   pendingManaShield = null;
   manaShieldVisual?.effect.dispose();
   manaShieldVisual = null;
@@ -800,6 +810,10 @@ function resetCombatSummary() {
   forfeitedCombatTargetId = null;
   flurryCombatPosition = null;
   clearFlurries();
+  clearKamelot();
+  clearBarbarian();
+  clearWindwalker();
+  clearCarian();
   johnCastWaits.clear();
   repentFireAnimations.forEach(({ fire }) => fire.dispose());
   repentFireAnimations.length = 0;
@@ -2653,6 +2667,14 @@ function renderCombatReveal() {
         manaShieldVisual = { effect: new ManaShieldVisual(scene, target?.position ?? position, performance.now(), height), defenderId, replicaId };
         pendingManaShield = null;
       }
+      if (pendingSpellblock) {
+        spellblockVisual?.effect.dispose();
+        const { defenderId, replicaId, position, attacker, blockedDamage } = pendingSpellblock;
+        const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
+        const height = target ? Math.max(2.2, visibleCharacterTop(target) - target.position.y + 0.2) : 2.8;
+        spellblockVisual = { effect: new SpellblockVisual(scene, target?.position ?? position, attacker, performance.now(), blockedDamage, height), defenderId, replicaId };
+        pendingSpellblock = null;
+      }
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
       if (flurryCombatPosition) {
         spawnFlurry(scene, flurryCombatPosition);
@@ -2840,6 +2862,12 @@ function renderCombatReveal() {
   pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield' && (pendingSwing.manaShieldManaBeforeCombat ?? 0) < 3
     ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
       position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
+    : null;
+  pendingSpellblock = pendingSwing && reveal.defendCardId === 'spellblock'
+    ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
+      position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position),
+      attacker: worldPosition(gameState.players[pendingSwing.attackerId].position),
+      blockedDamage: Math.max(0, Math.min(reveal.attackTotal, reveal.defendTotal)) }
     : null;
   flurryCombatPosition = pendingSwing && reveal.defendCardId === 'flurry-defensive-strikes'
     ? worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position)
@@ -4021,6 +4049,7 @@ const pendingCombatDamageVisuals: PendingDamageVisual[] = [];
 function releaseCombatDamageVisuals(timing?: 'mana-barrage-combat' | 'mana-barrage-bonus', deferFatal = false) {
   // This callback also runs for fully blocked hits, where there are no damage visuals.
   if (timing !== 'mana-barrage-bonus') manaShieldVisual?.effect.impact(performance.now());
+  if (timing !== 'mana-barrage-bonus') spellblockVisual?.effect.impact(performance.now());
   // Defensive after-combat effects wait for the final hit of multi-hit attacks.
   if (!timing && heldCounterspell) {
     heldCounterspell.impact(performance.now());
@@ -4317,6 +4346,10 @@ renderer.setAnimationLoop((time) => {
   updateArcaneImpacts(deltaSeconds);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
+  updateKamelot(time);
+  updateBarbarian(time);
+  updateWindwalker(time);
+  updateCarian(time);
   updateCharacterFacing(deltaSeconds);
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
@@ -4434,6 +4467,11 @@ renderer.setAnimationLoop((time) => {
     if (!effect.update(time, target?.position)) manaShieldVisual = null;
   }
   updateDamageVisuals(time);
+  if (spellblockVisual) {
+    const { effect, defenderId, replicaId } = spellblockVisual;
+    const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
+    if (!effect.update(time, target?.position)) spellblockVisual = null;
+  }
   for (let i = counterspellVisuals.length - 1; i >= 0; i--) {
     const visual = counterspellVisuals[i];
     if (!visual.update(time)) {
@@ -7629,6 +7667,25 @@ function spectreMovementDuration(travelSquares: number, fastRun = false) {
 
 const perkLabelScreenPosition = new THREE.Vector3();
 function spawnPerkUseLabel(event: PerkUseEvent) {
+  if (event.cardId === 'carian-stance') {
+    spawnCarian(scene, worldPosition(gameState.players[event.playerId].position), event.level ?? 1);
+  }
+  if (event.cardId === 'windwalker-stance') {
+    spawnWindwalker(scene, worldPosition(gameState.players[event.playerId].position), event.level ?? 1);
+  }
+  if (event.cardId === 'barbarian-stance') {
+    spawnBarbarian(scene, worldPosition(gameState.players[event.playerId].position), event.level ?? 1);
+  }
+  if (event.cardId === 'kamelot-stance') {
+    const player = gameState.players[event.playerId];
+    const base = baseSquareAt(gameState, cellLabel(player.position));
+    // The server broadcasts perk-used before its updated state; local play
+    // calls this after applying the command and already has the new value.
+    const defense = mode === 'online'
+      ? base?.ownerId === event.playerId ? Math.min(3, base.value + 1) : 1
+      : base?.value ?? 1;
+    spawnKamelot(scene, worldPosition(player.position), event.playerId === 'P1' ? 0x63d9ff : event.playerId === 'P2' ? 0xff8296 : 0xc49aff, defense);
+  }
   if (event.cardId === 'preparation') {
     const character = dummyGroups.get(event.playerId);
     if (character) loganAttackVisuals.push(new PreparationVisual(scene, character.position,
@@ -10282,6 +10339,7 @@ function syncBoard() {
     if (character === 'shinobi') updateSwiftformVisual(group, obiWanHologramActive(group, id));
     updateSpiritFormVisual(group, gameState.players[id].spiritForm);
     updateStoicShellAura(group, displayedStoicShell(id, gameState.players[id].stoicShell));
+    syncCarianGuard(scene, group, !defeated && character === 'merylin' && Boolean(gameState.players[id].merylinSummonActive) && (gameState.players[id].merylinSummonedDefenseBonus ?? 0) > 0);
     syncFearSigilVisual(group, (gameState.players[id].panicAnimationSourceIds?.length ?? 0) > 0);
     updateOrkkRageCoreGlow(group, gameState.players[id].rageStacks);
     syncManaOrbVisual(group, gameState.players[id]);
