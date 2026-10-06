@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { ArenaPolishLighting, filmicToneMapping, polishedNagrandTiles, polishedTileGeometry, visualPolish } from '../src/visual-polish.ts';
 
 // No browser/WebGL needed: verify reversible scene state and gameplay dimensions.
-assert.equal(visualPolish.enabled, false);
+assert.equal(visualPolish.enabled, true);
+assert.equal(polishedNagrandTiles('nagrand'), true, 'Nagrand must use polished tiles by default');
 assert.equal(filmicToneMapping.enabled, false);
 const renderer = { toneMapping: THREE.NoToneMapping, toneMappingExposure: 1 } as THREE.WebGLRenderer;
 const key = new THREE.DirectionalLight(0xffffff, 2.8);
@@ -21,8 +22,10 @@ const snapshot = () => ({
   shadow: [key.shadow.camera.left, key.shadow.camera.right, key.shadow.camera.top, key.shadow.camera.bottom, key.shadow.bias, key.shadow.normalBias],
 });
 const original = snapshot();
+visualPolish.enabled = false;
+assert.equal(polishedNagrandTiles('nagrand'), false, 'Disabling polish restores the older tile options');
 controller.apply(renderer, key, fill, ambient, context);
-assert.deepEqual(snapshot(), original, 'Off by default must be a no-op');
+assert.deepEqual(snapshot(), original, 'Disabled polish must be a no-op');
 visualPolish.enabled = true;
 assert.equal(polishedNagrandTiles('nagrand'), true);
 for (const arena of ['trench', 'lordaeron', 'pipe']) assert.equal(polishedNagrandTiles(arena), false);
@@ -95,4 +98,4 @@ for (const height of [0.16, 0.54]) {
   geometry.dispose(); mesh.material.dispose();
 }
 visualPolish.enabled = false;
-console.log('Visual polish: default off, arena scope, reversible lighting, independent Shift+B tone mapping, mode changes, tile dimensions and raycasting passed.');
+console.log('Visual polish: default on, arena scope, reversible lighting, independent Shift+B tone mapping, mode changes, tile dimensions and raycasting passed.');

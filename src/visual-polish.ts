@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { retryAssetLoad } from './retry-asset-load.ts';
 
 /** Independent session switches; arena entry applies its tone-mapping default. */
-export const visualPolish = { enabled: false, tiles: true, lighting: true };
+export const visualPolish = { enabled: true, tiles: true, lighting: true };
 export const filmicToneMapping = { enabled: false };
 export const polishedNagrandTiles = (arena: string) => visualPolish.enabled && visualPolish.tiles && arena === 'nagrand';
 

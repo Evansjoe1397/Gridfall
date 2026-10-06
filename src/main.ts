@@ -9491,8 +9491,8 @@ function addLabel(text: string, x: number, z: number) {
 
 function rebuildBoardGeometry(width: number, height: number) {
   nagrandTextureButton.classList.toggle('hidden', visualArena().id !== 'nagrand');
-  nagrandTextureButton.textContent = polishedNagrandTiles(visualArena().id) ? 'Textures: polish preview · Shift+V' : `Textures: ${nagrandNewTextures ? 'new' : 'original'} · Ctrl+L`;
-  nagrandTextureButton.setAttribute('aria-pressed', String(nagrandNewTextures));
+  nagrandTextureButton.textContent = polishedNagrandTiles(visualArena().id) ? 'Textures: polished · Shift+V' : `Textures: ${nagrandNewTextures ? 'new' : 'original'} · Ctrl+L`;
+  nagrandTextureButton.setAttribute('aria-pressed', String(polishedNagrandTiles(visualArena().id) || nagrandNewTextures));
   const mistCenter = boardCenterWorld(width, height);
   arenaMist.position.set(mistCenter.x, -1.4, mistCenter.z);
   desertAtmosphere.dust.position.x = mistCenter.x;

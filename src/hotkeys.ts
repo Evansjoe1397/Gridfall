@@ -49,7 +49,7 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
   {
     title: 'Visual settings',
     shortcuts: [
-      { keys: ['Shift', 'V'], action: 'Toggle visual polish.', detail: 'The Pipe remains unchanged.' },
+      { keys: ['Shift', 'V'], action: 'Toggle visual polish.', detail: 'Enabled by default, including polished Nagrand tiles. The Pipe remains unchanged.' },
       { keys: ['Shift', 'B'], action: 'Toggle filmic tone mapping.' },
       { keys: ['Ctrl', 'K'], action: 'Toggle dawn arena lighting.' },
       { keys: ['Alt', '+ / ='], action: 'Increase dawn light level.', detail: 'Requires dawn lighting. Numpad + also works.' },

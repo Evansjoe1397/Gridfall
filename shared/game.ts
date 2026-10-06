@@ -8109,7 +8109,7 @@ function resolveMagicHandDirection(state: GameState, playerId: PlayerId, to: Cel
   if (selectedDistance < 1 || !linear) return fail(state, 'Choose a linear push direction.');
   const dx = Math.sign(rawDx); const dy = Math.sign(rawDy);
   const caster = state.players[playerId];
-  pushEntity(state, target, dx, dy, hand.distance, hand.level, playerId, false, 'perk', false);
+  pushEntity(state, target, dx, dy, hand.distance, hand.level, playerId, false, 'perk');
   if (hand.consume) {
     caster.actionsRemaining += 1;
     state.log.unshift(`Magic Hand (Consume) granted ${caster.name} 1 Action (${caster.actionsRemaining} available).`);
