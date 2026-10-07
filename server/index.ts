@@ -1,13 +1,25 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { HistoryOutbox, buildIdentity } from './history-outbox.ts';
+import { finishedMatchRecord } from './match-record.ts';
+import { DEFAULT_STATS_URL } from '../shared/stats-config.ts';
 import { applyCommand, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
 type GameFormat = 'duel' | 'ffa' | 'bo3';
 type JoinOptions = { password?: string; format?: GameFormat; arena?: ArenaId; seriesMode?: BestOfThreeMode };
 
+if (existsSync('.env')) process.loadEnvFile('.env');
+const historyOutbox = new HistoryOutbox(process.env.GRIDFALL_STATS_OUTBOX || '.gridfall-history', process.env.GRIDFALL_STATS_URL || DEFAULT_STATS_URL, process.env.GRIDFALL_STATS_WRITE_KEY ?? '');
+const identity = buildIdentity();
+historyOutbox.start();
+
 class DuelRoom extends Room {
+  private historySessionId = randomUUID();
+  private savedMatches = new Set<string>();
   maxClients = 3;
   private game: GameState | null = null;
   private password = '';
@@ -126,6 +138,17 @@ class DuelRoom extends Room {
   }
 
   private broadcastState() {
+    if (this.game?.phase === 'finished') {
+      try {
+        const record = finishedMatchRecord(this.game, { sessionId: this.historySessionId, hostId: historyOutbox.hostId,
+          ...identity, arena: this.arena, mode: this.format === 'bo3' ? this.seriesMode === 'tournament' ? 'tournament' : 'series' : this.format });
+        if (record && !this.savedMatches.has(record.id)) {
+          historyOutbox.enqueue(record);
+          this.savedMatches.add(record.id);
+          void historyOutbox.flush();
+        }
+      } catch (error) { console.error('Could not queue the completed match history.', error instanceof Error ? error.message : 'Unknown error'); }
+    }
     if (this.game) this.broadcast('state', this.game);
   }
 
@@ -191,6 +214,7 @@ class DuelRoom extends Room {
 
 const transport = new WebSocketTransport();
 const app = transport.getExpressApp();
+app.get('/api/stats-config', (_request, response) => response.json({ url: process.env.GRIDFALL_STATS_URL || DEFAULT_STATS_URL }));
 app.use(express.static('dist'));
 app.get(/.*/, (_request, response) => response.sendFile('index.html', { root: 'dist' }));
 const gameServer = new Server({ transport });

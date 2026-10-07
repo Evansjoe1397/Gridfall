@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:match-history": "tsx scripts/check-match-history.ts",
+    "stats:dev": "wrangler dev --config cloudflare/wrangler.jsonc",
+    "stats:deploy": "wrangler deploy --config cloudflare/wrangler.jsonc",
+    "stats:migrate": "wrangler d1 migrations apply gridfall-statistics --remote --config cloudflare/wrangler.jsonc",
     "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
@@ -68,6 +72,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/three": "^0.185.1",
@@ -75,12 +80,14 @@
     "fast-check": "^4.9.0",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "wrangler": "^4.148.0"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.17.43",
     "@colyseus/ws-transport": "^0.17.13",
     "colyseus": "^0.17.10",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "three": "^0.183.2",
     "xstate": "^5.32.4",

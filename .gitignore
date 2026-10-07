@@ -15,3 +15,7 @@ tmp/
 .vscode/
 .idea/
 .DS_Store
+.gridfall-history/
+.wrangler/
+.dev.vars
+.dev.vars.*

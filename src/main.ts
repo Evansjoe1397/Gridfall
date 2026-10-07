@@ -13,6 +13,7 @@ import { clearBarbarian, spawnBarbarian, updateBarbarian } from './barbarianVisu
 import { clearWindwalker, spawnWindwalker, updateWindwalker } from './windwalkerVisuals.ts';
 import { clearCarian, spawnCarian, syncCarianGuard, updateCarian } from './carianVisuals.ts';
 import './style.css';
+import { mountStatisticsPanel } from './statistics-panel.ts';
 import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
 import { characterProfile } from './character-profiles.ts';
@@ -205,7 +206,7 @@ app.innerHTML = `
   <main class="shell">
     <header class="masthead">
       <div><p class="eyebrow">NAGRAND ARENA · 8x8 TEST BUILD</p><h1>GRIDFALL</h1></div>
-      <div class="connection" id="connection"><span></span> Hotseat ready</div>
+      <div class="masthead-actions"><button id="openStatistics" type="button">Statistics</button><div class="connection" id="connection"><span></span> Hotseat ready</div></div>
     </header>
     <section class="lobby" id="lobby">
       <div class="lobby-copy"><p class="eyebrow">CHOOSE SESSION</p><h2>Enter the Arena</h2><p>Test Long Hat Logan locally on the 4x4 Test Board, or enter an online duel in Nagrand Arena.</p></div>
@@ -447,6 +448,8 @@ document.querySelector('#closeCharacterBrowser')!.addEventListener('click', () =
   document.querySelector('.mode-grid')?.classList.remove('hidden');
   lobby.scrollIntoView({ block: 'start' });
 });
+mountStatisticsPanel(document.querySelector<HTMLElement>('#openStatistics')!);
+document.querySelector('#openStatistics')!.addEventListener('click', () => { cameraKeys.clear(); });
 document.querySelector('#freeMoveButton')!.addEventListener('click', () => dispatch({ type: 'free-move', playerId: actingPlayer() }));
 document.querySelector('#activateConsumeButton')!.addEventListener('click', () => {
   const playerId = gameState.pendingManaChoice;
@@ -513,6 +516,7 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
 });
 // Keep src/hotkeys.ts in sync when changing these shortcuts.
 window.addEventListener('keydown', (event) => {
+  if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
   if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
     event.preventDefault();
@@ -4228,6 +4232,7 @@ const developerPanel = createDeveloperPanel(() => {
 });
 // Keep camera and visual-setting shortcuts documented in src/hotkeys.ts.
 window.addEventListener('keydown', (event) => {
+  if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
   if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) return;
   if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyV' && !game.classList.contains('hidden')) {
