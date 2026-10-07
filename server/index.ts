@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { HistoryOutbox, buildIdentity } from './history-outbox.ts';
 import { finishedMatchRecord } from './match-record.ts';
 import { DEFAULT_STATS_URL } from '../shared/stats-config.ts';
+import { managementCapabilities, statsManagementRouter } from './stats-management.ts';
 import { applyCommand, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
@@ -214,7 +215,10 @@ class DuelRoom extends Room {
 
 const transport = new WebSocketTransport();
 const app = transport.getExpressApp();
-app.get('/api/stats-config', (_request, response) => response.json({ url: process.env.GRIDFALL_STATS_URL || DEFAULT_STATS_URL }));
+const statsManagement = { url: process.env.GRIDFALL_STATS_URL || DEFAULT_STATS_URL,
+  importKey: process.env.GRIDFALL_STATS_IMPORT_KEY, adminKey: process.env.GRIDFALL_STATS_ADMIN_KEY };
+app.get('/api/stats-config', (request, response) => response.set('Cache-Control', 'no-store').json({ url: statsManagement.url, ...managementCapabilities(request, statsManagement) }));
+app.use('/api/stats-management', statsManagementRouter(statsManagement));
 app.use(express.static('dist'));
 app.get(/.*/, (_request, response) => response.sendFile('index.html', { root: 'dist' }));
 const gameServer = new Server({ transport });

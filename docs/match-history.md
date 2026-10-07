@@ -10,9 +10,9 @@ Only `DuelRoom` saves results. Hotseat never calls the history collector. When a
 
 The server retries uploads immediately and every 30 seconds, resumes after restart, and deletes a queued file only after a matching API receipt. Cloudflare stores immutable match IDs; identical retries return success and conflicting records return HTTP 409. Queue failures log a warning and preserve files. Keep `.gridfall-history` on a persistent disk on cloud hosts: ephemeral disks cannot preserve unsent records when an instance is destroyed.
 
-The repository includes the public default API URL in `shared/stats-config.ts`. Hosts only need a `.env` with `GRIDFALL_STATS_WRITE_KEY`. `GRIDFALL_STATS_URL` can override the default; `GRIDFALL_STATS_OUTBOX` can select a persistent folder. Secrets never use `VITE_*`, are never included in the client bundle, and `/api/stats-config` returns only the public URL. Node must support `process.loadEnvFile` (Node 22+ recommended).
+The repository includes the public default API URL in `shared/stats-config.ts`. Hosts only need a `.env` with `GRIDFALL_STATS_WRITE_KEY`. `GRIDFALL_STATS_URL` can override the default; `GRIDFALL_STATS_OUTBOX` can select a persistent folder. Secrets never use `VITE_*`, are never included in the client bundle, and `/api/stats-config` returns the public URL and management capability booleans only. Node must support `process.loadEnvFile` (Node 22+ recommended).
 
-The Statistics button opens history, server-side aggregates and two-player matchups. Filters cover dates, arena, mode, characters/opponent, commit and imported/live source. Date filters exclude unknown dates. Winrate counts character appearances; mirror matches count both seats. Two-player matchup reports exclude FFA. Metric averages show coverage and exclude unknown values.
+Statistics separates Overview, Matchups and History into tabs. History uses cursor pagination with 20 battles per page; aggregates cover all matching battles, regardless of the current page. Filters cover dates, arena, mode, characters/opponent, commit and imported/live source. Date filters exclude unknown dates. Winrate counts character appearances; mirror matches count both seats. Two-player matchup reports exclude FFA. Metric averages exclude unknown values and include measured zeroes. Overview groups columns into Damage dealt, Damage received and Misc. The broader credited-damage counter is retained in storage but hidden in the UI.
 
 ## Data and future metrics
 
@@ -26,11 +26,19 @@ New columns that could be useful later include attack/defense card counts, indiv
 
 ## Legacy import
 
-Statistics → Import old summaries accepts current Gridfall CSV exports and XLSX files with the same exported rows on individual worksheets. ExcelJS loads on demand only for XLSX. First select files and preview; then enter `GRIDFALL_STATS_IMPORT_KEY` from your local `.env` and upload. The browser keeps the key in memory and clears the input on close/success. Do not share the import key with ordinary players.
+Open the game through localhost, then Statistics → Import accepts current Gridfall CSV exports and XLSX files with the same exported rows on individual worksheets. ExcelJS loads on demand only for XLSX. Select files, preview, then import. The game server reads `GRIDFALL_STATS_IMPORT_KEY` from `.env` and forwards the request; the browser never receives the key.
 
 Imported records have `source=import`, file/sheet provenance, and **null start/end dates, duration, commit, arena, and series information**. Known character names map to stable IDs. Three participants imply FFA; two-player legacy mode remains unknown because a CSV cannot distinguish a duel from a series battle. Present metrics and rounds are preserved; absent fields are not fabricated. Additional numeric CSV columns remain available in match details as `legacy.*` metrics.
 
-Import IDs are SHA-256 hashes of normalized exported content. Reimporting the same file, renamed copies, and duplicate worksheets are safe. Two genuinely separate matches with exactly identical old summaries are indistinguishable because legacy CSV contains no match ID; the preview explains this limitation. Old CSV also does not identify hotseat versus multiplayer: select only known completed multiplayer summaries. Formula cells are rejected: import exported values, not calculated worksheets. An old summary only recovers the battles actually present in that file.
+Import IDs are SHA-256 hashes of normalized exported content. Reimporting the same file, renamed copies, and duplicate worksheets are safe. Two genuinely separate matches with exactly identical old summaries are indistinguishable because legacy CSV contains no match ID. Old CSV also does not identify hotseat versus multiplayer: select only known completed multiplayer summaries. Formula cells are rejected: import exported values, not calculated worksheets. An old summary only recovers the battles actually present in that file.
+
+## Deleting individual battles
+
+Through localhost, Statistics → History shows a small × action on each battle when `GRIDFALL_STATS_ADMIN_KEY` is configured in the server's `.env`. Select it and confirm deletion. The server forwards its admin key without exposing it to the browser. Host and import keys cannot delete matches. Successful deletion reloads history and aggregates, and updates available filter options.
+
+Management endpoints require a loopback connection, a localhost Host header, and no proxy/Cloudflare forwarding headers. Mutations also require an exact same-origin Origin and a management request header. Public Tunnel requests remain read-only even though cloudflared connects to the server over loopback. Vite proxies these endpoints to port 2567 while preserving Host and Origin; restart the game server after changing `.env` or server code.
+
+`DELETE /matches/:id` requires the separate Cloudflare `ADMIN_KEY`. It marks that single record with `deleted_at`; history, winrates, metric averages, matchups and filter options exclude it. Other battles in the same series are retained. The underlying record/ID is retained to prevent a delayed host retry or repeated import from restoring the deleted battle. Repeated deletion is idempotent; an unknown ID returns 404. There is no restore button; administrative recovery can clear `deleted_at` in D1 if needed.
 
 ## Cloudflare administration
 
@@ -38,8 +46,8 @@ Import IDs are SHA-256 hashes of normalized exported content. Reimporting the sa
 2. If configuring another account, create a D1 database and update `cloudflare/wrangler.jsonc` with its ID.
 3. `npm run stats:migrate`
 4. `npm run stats:deploy`
-5. `npx tsx scripts/configure-stats-secrets.ts` sets separate keys and stores them in local `.env` without printing them.
+5. `npx tsx scripts/configure-stats-secrets.ts` sets separate host, import and admin keys and stores them in local `.env` without printing them. Existing keys are preserved.
 
-For local Worker development: apply the migration with `npx wrangler d1 migrations apply gridfall-statistics --local --config cloudflare/wrangler.jsonc`, put local `WRITE_KEY` and `IMPORT_KEY` in `cloudflare/.dev.vars`, and run `npm run stats:dev`. Point `GRIDFALL_STATS_URL` at the local Worker and restart the game server. Keep credentials, `.env`, `.dev.vars`, `.wrangler` and the outbox out of Git.
+For local Worker development: apply the migration with `npx wrangler d1 migrations apply gridfall-statistics --local --config cloudflare/wrangler.jsonc`, put local `WRITE_KEY`, `IMPORT_KEY` and `ADMIN_KEY` in `cloudflare/.dev.vars`, and run `npm run stats:dev`. Point `GRIDFALL_STATS_URL` at the local Worker and restart the game server. Keep credentials, `.env`, `.dev.vars`, `.wrangler` and the outbox out of Git.
 
-Validation: `npm run check:match-history`, `npm run typecheck`, `npm run build`, `npx wrangler deploy --dry-run --config cloudflare/wrangler.jsonc`. The history check exercises the actual Worker against SQLite, including imports, SQL reports, auth, schema compatibility and queue recovery. No browser automation is used.
+Validation: `npm run check:match-history`, `npm run check:statistics-management`, `npm run typecheck`, `npm run build`, `npx wrangler deploy --dry-run --config cloudflare/wrangler.jsonc`. The history check exercises the actual Worker against SQLite, including imports, SQL reports, auth, schema compatibility, queue recovery and pagination across more than 100 battles. The management check covers local proxy authorization, credential isolation and paging state. No browser automation is used.

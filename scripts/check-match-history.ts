@@ -70,6 +70,7 @@ assert.equal(sheets[0].importFile, 'old.xlsx / Match 1');
 
 const database = new DatabaseSync(':memory:');
 database.exec(readFileSync(new URL('../cloudflare/migrations/0001_history.sql', import.meta.url), 'utf8'));
+database.exec(readFileSync(new URL('../cloudflare/migrations/0002_match_deletion.sql', import.meta.url), 'utf8'));
 class Statement {
   private values: (string | number | null)[] = [];
   constructor(private sql: string) {}
@@ -80,13 +81,14 @@ class Statement {
     return { success: true, results, meta: {} };
   }
   async first() { return (await this.all()).results[0] ?? null; }
+  async run() { return this.all(); }
 }
 const db = { prepare: (sql: string) => new Statement(sql), async batch(statements: Statement[]) {
   database.exec('BEGIN');
   try { const results = []; for (const statement of statements) results.push(await statement.all()); database.exec('COMMIT'); return results; }
   catch (error) { database.exec('ROLLBACK'); throw error; }
 } } as unknown as D1Database;
-const env = { DB: db, WRITE_KEY: 'w'.repeat(64), IMPORT_KEY: 'i'.repeat(64) };
+const env = { DB: db, WRITE_KEY: 'w'.repeat(64), IMPORT_KEY: 'i'.repeat(64), ADMIN_KEY: 'a'.repeat(64) };
 async function request(path: string, body?: unknown, token?: string) {
   return worker.fetch(new Request(`https://stats.example${path}`, { method: body === undefined ? 'GET' : 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }), env);
@@ -124,6 +126,44 @@ assert.equal((await request('/stats?from=oops')).status, 400);
 assert.equal((await request('/history?cursor=oops')).status, 400);
 const options = await (await request('/options')).json() as { characters: unknown[] };
 assert.equal(options.characters.length, 4);
+const remove = (id: string, key?: string) => worker.fetch(new Request(`https://stats.example/matches/${encodeURIComponent(id)}`, {
+  method: 'DELETE', headers: key ? { Authorization: `Bearer ${key}` } : {},
+}), env);
+assert.equal((await remove(imported.id)).status, 401);
+assert.equal((await remove(imported.id, env.WRITE_KEY)).status, 401);
+assert.equal((await remove(imported.id, env.IMPORT_KEY)).status, 401);
+assert.equal((await remove(imported.id, env.ADMIN_KEY)).status, 200);
+assert.equal((await remove(imported.id, env.ADMIN_KEY)).status, 200, 'Deleting twice is safe');
+assert.equal((await remove('missing-match', env.ADMIN_KEY)).status, 404);
+const afterDeletion = await (await request('/stats')).json() as typeof report;
+assert.equal(afterDeletion.matches, 3);
+assert.ok(!afterDeletion.aggregates.some(row => row.character === 'magician'), 'Deleted match excluded from winrates');
+assert.ok(!afterDeletion.matchups.some(row => row.opponent === 'magician'), 'Deleted match excluded from matchups');
+assert.equal(afterDeletion.aggregates.find(row => row.character === 'shinobi')!.metrics.totalDamage.sum, 26);
+assert.equal((await (await request('/history')).json() as { records: StoredMatchRecord[] }).records.some(row => row.id === imported.id), false);
+assert.equal((await (await request('/options')).json() as { characters: { character: string }[] }).characters.some(row => row.character === 'magician'), false);
+const reimport = await request('/imports', imported, env.IMPORT_KEY);
+assert.equal(reimport.status, 200);
+assert.equal((await reimport.json() as { deleted: boolean }).deleted, true, 'Reimport cannot resurrect a deleted ID');
+assert.equal((await (await request('/stats')).json() as typeof report).matches, 3);
+await request('/matches', firstBattle, env.WRITE_KEY);
+const nextBattle = { ...firstBattle, id: 'tournament:2', matchNumber: 2 };
+await request('/matches', nextBattle, env.WRITE_KEY);
+await remove(firstBattle.id, env.ADMIN_KEY);
+assert.ok((await (await request('/history')).json() as { records: StoredMatchRecord[] }).records.some(row => row.id === nextBattle.id), 'Deleting one battle must keep the rest of the series');
+// Exercise cursor pagination with more than one hundred matches and a new arrival between pages.
+for (let index = 0; index < 101; index++) await request('/matches', { ...live, id: `pagination:${index}` }, env.WRITE_KEY);
+const firstPage = await (await request('/history?limit=20')).json() as { records: StoredMatchRecord[]; nextCursor: string | null };
+await request('/matches', { ...live, id: 'pagination:new-arrival' }, env.WRITE_KEY);
+const ids = new Set(firstPage.records.map(row => row.id)); let nextCursor = firstPage.nextCursor;
+while (nextCursor) {
+  const page = await (await request(`/history?limit=20&cursor=${nextCursor}`)).json() as { records: StoredMatchRecord[]; nextCursor: string | null };
+  assert.ok(page.records.length <= 20);
+  for (const row of page.records) { assert.ok(!ids.has(row.id), 'No duplicates between history pages'); ids.add(row.id); }
+  nextCursor = page.nextCursor;
+}
+for (let index = 0; index < 101; index++) assert.ok(ids.has(`pagination:${index}`), 'Every preexisting match remains reachable');
+assert.ok(!ids.has('pagination:new-arrival'), 'New matches do not disturb the cursor of an existing browsing session');
 
 const temporary = mkdtempSync(join(tmpdir(), 'gridfall-history-check-'));
 try {
@@ -137,5 +177,9 @@ try {
   assert.equal(restored.hostId, unavailable.hostId, 'Host identity survives restart');
   await restored.flush();
   assert.equal(readdirSync(temporary).filter(name => name.endsWith('.json')).length, 0, 'Retry acknowledgement removes queue entry');
+  await remove(live.id, env.ADMIN_KEY);
+  restored.enqueue(live); await restored.flush();
+  assert.equal(readdirSync(temporary).filter(name => name.endsWith('.json')).length, 0, 'Late retry for a deleted match is acknowledged');
+  assert.equal((await (await request('/history')).json() as { records: StoredMatchRecord[] }).records.some(row => row.id === live.id), false, 'Late host retry cannot resurrect a deleted match');
 } finally { rmSync(temporary, { recursive: true, force: true }); database.close(); }
-console.log('Match history checks passed: completion, interrupted tournament, import CSV/XLSX, schema evolution, SQL filters/aggregates, authorization, deduplication and durable retries.');
+console.log('Match history checks passed: completion, imports, schema evolution, reports, admin-only deletion, series isolation and retries without resurrecting deleted matches.');

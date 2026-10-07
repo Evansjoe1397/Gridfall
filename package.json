@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check:match-history": "tsx scripts/check-match-history.ts",
+    "check:statistics-management": "tsx scripts/check-statistics-management.ts",
     "stats:dev": "wrangler dev --config cloudflare/wrangler.jsonc",
     "stats:deploy": "wrangler deploy --config cloudflare/wrangler.jsonc",
     "stats:migrate": "wrangler d1 migrations apply gridfall-statistics --remote --config cloudflare/wrangler.jsonc",

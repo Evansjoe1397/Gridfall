@@ -14,6 +14,7 @@ import { clearWindwalker, spawnWindwalker, updateWindwalker } from './windwalker
 import { clearCarian, spawnCarian, syncCarianGuard, updateCarian } from './carianVisuals.ts';
 import './style.css';
 import { mountStatisticsPanel } from './statistics-panel.ts';
+import { mainMenuMarkup } from './main-menu.ts';
 import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
 import { characterProfile } from './character-profiles.ts';
@@ -204,17 +205,9 @@ const selectionMachine = setup({
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <main class="shell">
-    <header class="masthead">
-      <div><p class="eyebrow">NAGRAND ARENA · 8x8 TEST BUILD</p><h1>GRIDFALL</h1></div>
-      <div class="masthead-actions"><button id="openStatistics" type="button">Statistics</button><div class="connection" id="connection"><span></span> Hotseat ready</div></div>
-    </header>
+    <div class="connection" id="connection" role="status"></div>
     <section class="lobby" id="lobby">
-      <div class="lobby-copy"><p class="eyebrow">CHOOSE SESSION</p><h2>Enter the Arena</h2><p>Test Long Hat Logan locally on the 4x4 Test Board, or enter an online duel in Nagrand Arena.</p></div>
-      <div class="mode-grid">
-        <button class="mode-card primary" id="hotseat"><span>LOCAL / INSTANT</span><strong>Hotseat duel</strong><small>Share this keyboard and pass control each turn.</small></button>
-        <div class="mode-card online"><span>PRIVATE ROOM</span><strong>Multiplayer</strong><label>Room password<input id="password" maxlength="24" placeholder="optional secret" /></label><div><button id="createRoom">Create room</button><button id="joinRoom">Join by ID</button></div><input id="roomId" maxlength="24" placeholder="ROOM ID" /></div>
-        <button class="mode-card primary character-archive-card" id="openCharacterBrowser"><span>CHARACTER ARCHIVE</span><strong>Characters</strong><small>Browse every fighter, inspect their model, and read their Perks.</small></button>
-      </div>
+      ${mainMenuMarkup()}
       <section class="character-browser hidden" aria-labelledby="characterBrowserTitle">
         <header class="character-browser-heading">
           <h2 id="characterBrowserTitle">Character Archive</h2>
@@ -943,7 +936,7 @@ function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
 
 function startHotseatSeries(seriesMode: BestOfThreeMode, characters: Record<'P1' | 'P2', readonly [HotseatCharacter, HotseatCharacter]>) {
   const state = createBestOfThreeState(seriesMode, characters, true);
-  startHotseatState(state, `BEST-OF-THREE · ${seriesMode === 'tournament' ? 'THE TOURNAMENT' : '1 VERSUS 1'} · ${state.series!.arenaOrder[0].toUpperCase()}`);
+  startHotseatState(state);
 }
 
 function startHotseat(character: HotseatCharacter, format: GameFormat, opponentCharacter: HotseatOpponent = 'dummy', arena: HotseatArena = 'nagrand') {
@@ -952,18 +945,15 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
     : format === 'duel' && arena === 'trench'
     ? createTrenchTestState(false, character, opponentCharacter)
     : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
-  const arenaTitle = format === 'ffa' ? 'LORDAERON ARENA · 8x11 TEST BUILD' : arena === 'trench' ? 'THE TRENCH · 8x8 TEST BUILD' : arena === 'pipe' ? 'THE PIPE · 8x8 TEST BUILD' : 'NAGRAND ARENA · 8x8 TEST BUILD';
-  startHotseatState(state, arenaTitle);
+  startHotseatState(state);
 }
 
-function startHotseatState(state: GameState, arenaTitle: string) {
+function startHotseatState(state: GameState) {
   resetCombatSummary();
   mode = 'hotseat';
   localSeat = null;
   gameState = state;
   (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
-  const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
-  if (mastheadArena) mastheadArena.textContent = arenaTitle;
   const startedArenaId = visualArena().id;
   lightingArenaId = startedArenaId;
   setArenaLightingDefaults();
@@ -971,7 +961,8 @@ function startHotseatState(state: GameState, arenaTitle: string) {
   fittedArenaKey = '';
   lobby.classList.add('hidden');
   game.classList.remove('hidden');
-  byId('connection').innerHTML = '<span></span> Hotseat match';
+  byId('connection').classList.remove('reconnecting', 'disconnected');
+  byId('connection').textContent = '';
   renderAll();
   requestAnimationFrame(() => {
     resize();
@@ -1072,8 +1063,6 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const shouldFitCamera = enteringBattle || arenaChanged;
       if (gameState.phase !== 'choosing-combat-stack') { combatStackSelectionKey = ''; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
       const onlineArena = visualArena();
-      const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
-      if (mastheadArena) mastheadArena.textContent = `${onlineArena.name.toUpperCase()} · ${onlineArena.width}x${onlineArena.height} ONLINE BUILD`;
       if (enteringBattle || arenaChanged) {
         lightingArenaId = onlineArena.id;
         setArenaLightingDefaults();
@@ -6989,8 +6978,6 @@ function resetPerkUndoVisuals() {
 function resetSeriesMatchVisuals() {
   resetMatchEndPresentation();
   resetCombatSummary();
-  const mastheadArena = document.querySelector<HTMLElement>('.masthead .eyebrow');
-  if (mastheadArena && mode === 'hotseat' && gameState.series) mastheadArena.textContent = `BEST-OF-THREE · ${gameState.series.mode === 'tournament' ? 'THE TOURNAMENT' : '1 VERSUS 1'} · ${gameState.series.arenaOrder[gameState.series.match - 1].toUpperCase()}`;
   boardVisualKey = '';
   lastVisualCells.clear();
   lastObjectVisualCells.clear();

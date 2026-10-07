@@ -1,8 +1,8 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { MatchRecordSchema, type MatchRecord } from '../shared/match-history.ts';
 
-type Env = { DB: D1Database; WRITE_KEY: string; IMPORT_KEY: string };
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+type Env = { DB: D1Database; WRITE_KEY: string; IMPORT_KEY: string; ADMIN_KEY?: string };
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400' };
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { ...cors, 'Cache-Control': 'no-store' } });
@@ -16,7 +16,7 @@ async function authorized(request: Request, key: string | undefined): Promise<bo
   return difference === 0;
 }
 function where(url: URL): { sql: string; values: (string | number)[]; participant: string; participantValues: string[] } {
-  const clauses: string[] = []; const values: (string | number)[] = [];
+  const clauses: string[] = ['m.deleted_at IS NULL']; const values: (string | number)[] = [];
   for (const [param, column] of [['arena', 'arena'], ['mode', 'mode'], ['source', 'source']] as const) {
     const value = url.searchParams.get(param); if (value) {
       if (value === 'unknown' && param !== 'source') clauses.push(`m.${column} IS NULL`);
@@ -87,6 +87,16 @@ export default {
         await env.DB.prepare('SELECT 1 FROM matches LIMIT 1').all();
         return json({ ok: true, schemaVersion: 1 });
       }
+      if (request.method === 'DELETE' && url.pathname.startsWith('/matches/')) {
+        if (!await authorized(request, env.ADMIN_KEY)) return json({ error: 'Unauthorized' }, 401);
+        let id: string;
+        try { id = decodeURIComponent(url.pathname.slice('/matches/'.length)); } catch { return json({ error: 'Invalid match ID' }, 400); }
+        if (!/^[a-zA-Z0-9:_-]{1,160}$/.test(id)) return json({ error: 'Invalid match ID' }, 400);
+        const record = await env.DB.prepare('SELECT id FROM matches WHERE id = ?').bind(id).first();
+        if (!record) return json({ error: 'Match not found' }, 404);
+        await env.DB.prepare('UPDATE matches SET deleted_at = COALESCE(deleted_at, ?) WHERE id = ?').bind(Date.now(), id).run();
+        return json({ id, deleted: true });
+      }
       if (request.method === 'POST' && (url.pathname === '/matches' || url.pathname === '/imports')) {
         const importing = url.pathname === '/imports';
         if (!await authorized(request, importing ? env.IMPORT_KEY : env.WRITE_KEY)) return json({ error: 'Unauthorized' }, 401);
@@ -96,13 +106,13 @@ export default {
           if (record.source !== (importing ? 'import' : 'multiplayer')) throw new Error('Wrong record source');
         } catch { return json({ error: 'Invalid match record. Check schema, source and dates.' }, 400); }
         // Reject reuse of an ID with different data, while accepting safe retries.
-        const prior = await env.DB.prepare('SELECT record_json FROM matches WHERE id = ?').bind(record.id).first<{ record_json: string }>();
+        const prior = await env.DB.prepare('SELECT record_json, deleted_at FROM matches WHERE id = ?').bind(record.id).first<{ record_json: string; deleted_at: number | null }>();
         if (prior && !sameRecord(prior.record_json, record)) return json({ error: 'Match ID already contains different data' }, 409);
         if (!prior) await env.DB.batch(insertStatements(env.DB, record, Date.now()));
         // The unique constraint also protects races between retries from multiple clients.
-        const stored = await env.DB.prepare('SELECT record_json FROM matches WHERE id = ?').bind(record.id).first<{ record_json: string }>();
+        const stored = await env.DB.prepare('SELECT record_json, deleted_at FROM matches WHERE id = ?').bind(record.id).first<{ record_json: string; deleted_at: number | null }>();
         if (!stored || !sameRecord(stored.record_json, record)) return json({ error: 'Match ID conflict' }, 409);
-        return json({ id: record.id, duplicate: Boolean(prior) }, prior ? 200 : 201);
+        return json({ id: record.id, duplicate: Boolean(prior), deleted: stored.deleted_at != null }, prior ? 200 : 201);
       }
       if (request.method === 'GET' && url.pathname === '/history') {
         let filter: ReturnType<typeof where>;
@@ -143,9 +153,9 @@ export default {
       }
       if (request.method === 'GET' && url.pathname === '/options') {
         const results = await env.DB.batch([
-          env.DB.prepare('SELECT DISTINCT character, character_name AS name FROM participants ORDER BY character'),
-          env.DB.prepare('SELECT DISTINCT arena FROM matches WHERE arena IS NOT NULL ORDER BY arena'),
-          env.DB.prepare('SELECT DISTINCT commit_sha AS sha, json_extract(record_json, \'$.dirty\') AS dirty FROM matches WHERE commit_sha IS NOT NULL ORDER BY sequence DESC LIMIT 100'),
+          env.DB.prepare('SELECT DISTINCT p.character, p.character_name AS name FROM participants p JOIN matches m ON m.id=p.match_id WHERE m.deleted_at IS NULL ORDER BY p.character'),
+          env.DB.prepare('SELECT DISTINCT arena FROM matches WHERE deleted_at IS NULL AND arena IS NOT NULL ORDER BY arena'),
+          env.DB.prepare('SELECT DISTINCT commit_sha AS sha, json_extract(record_json, \'$.dirty\') AS dirty FROM matches WHERE deleted_at IS NULL AND commit_sha IS NOT NULL ORDER BY sequence DESC LIMIT 100'),
         ]);
         return json({ characters: results[0].results, arenas: results[1].results, commits: results[2].results });
       }

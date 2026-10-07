@@ -7,8 +7,7 @@ button, input { font: inherit; }
 button { color: inherit; }
 .hidden { display: none !important; }
 .shell { width: min(1500px, 100%); min-height: 100vh; margin: auto; padding: 22px 30px 28px; }
-.masthead { height: 62px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #25443c; }
-.eyebrow, .masthead p { margin: 0; color: #6fa497; letter-spacing: .2em; font-size: 10px; font-weight: 700; }
+.eyebrow { margin: 0; color: #6fa497; letter-spacing: .2em; font-size: 10px; font-weight: 700; }
 h1, h2, strong, .turn-core, .card b { font-family: 'Barlow Condensed', sans-serif; text-transform: uppercase; }
 h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .connection { color: #94b3aa; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
@@ -20,7 +19,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .lobby-copy { text-align: center; }
 .lobby h2 { font-size: clamp(42px, 6vw, 74px); margin: 8px 0; line-height: .95; }
 .lobby-copy > p:last-child { color: #91aaa3; }
-.mode-grid { width: min(1180px, 100%); margin: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.mode-grid { width: min(1180px, 100%); margin: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .mode-card { min-height: 240px; padding: 28px; border: 1px solid #294c43; border-radius: 3px; background: linear-gradient(145deg, rgba(19,44,37,.88), rgba(7,16,14,.95)); text-align: left; display: flex; flex-direction: column; gap: 12px; position: relative; overflow: hidden; }
 .mode-card.primary { cursor: pointer; }
 .mode-card.primary:hover { border-color: var(--cyan); transform: translateY(-2px); }
@@ -779,7 +778,6 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 /* Full-viewport game layout */
 .shell { width: 100%; max-width: none; min-height: 100vh; margin: 0; padding: 18px clamp(16px, 2vw, 38px) 16px; }
 .shell:has(.game:not(.hidden)) { padding: 0; }
-.shell:has(.game:not(.hidden)) .masthead { display: none; }
 .game:not(.hidden) { height: calc(100vh - 34px); min-height: 680px; display: grid; grid-template-rows: auto minmax(390px, 1fr) auto auto; gap: 0; }
 .arena-frame { width: 100%; height: auto; min-height: 0; }
 .command-deck { width: 100%; }
@@ -866,7 +864,6 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 
 @media (max-width: 1080px) and (min-width: 801px) {
   .mode-grid { grid-template-columns: 1fr 1fr; }
-  .character-archive-card { grid-column: 1 / -1; min-height: 150px; }
   .character-browser-layout { grid-template-columns: minmax(260px, .9fr) minmax(220px, .7fr); }
   .perk-browser { grid-column: 1 / -1; border-top: 1px solid #294c43; }
   .character-browser-profile { border-right: 0; }
@@ -875,7 +872,6 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 /* Fixed layouts for common desktop and laptop viewports. */
 @media (max-width: 1440px), (max-height: 900px) {
   .shell { padding: 12px 18px 10px; }
-  .masthead { height: 54px; }
   h1 { font-size: 30px; }
   .game:not(.hidden) { height: calc(100vh - 22px); min-height: 620px; grid-template-rows: auto minmax(310px, 1fr) auto auto; }
   .hud { gap: 8px; margin-bottom: 6px; }
@@ -937,8 +933,6 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
    sharp layout jump at a single viewport height. */
 @media (max-height: 900px) and (min-width: 801px) {
   .shell { width: 100%; min-height: 100vh; padding: 6px 10px 5px; zoom: 1; }
-  .masthead { height: clamp(36px, 5.4vh, 42px); }
-  .masthead .eyebrow { font-size: 7px; }
   h1 { font-size: 24px; }
   .connection { font-size: 9px; }
   .game:not(.hidden) {
@@ -1538,5 +1532,3 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .developer-panel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin: 10px 0 0; }
 .developer-panel dt { color: #86a79b; }
 .developer-panel dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.masthead-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; }
-.masthead-actions > button { padding: 10px 16px; border: 1px solid #55a68f; background: #153e32; color: #e7f7f2; cursor: pointer; }

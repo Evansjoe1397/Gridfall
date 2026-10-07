@@ -27,4 +27,12 @@ if (process.env.GRIDFALL_STATS_IMPORT_KEY) {
 const preflight = await fetch(`${base}/imports`, { method: 'OPTIONS', headers: { Origin: 'https://example.trycloudflare.com', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' }, signal: AbortSignal.timeout(15_000) });
 assert.equal(preflight.status, 204);
 assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), '*');
+assert.ok(preflight.headers.get('Access-Control-Allow-Methods')?.includes('DELETE'));
+const deleteMissing = (key?: string) => fetch(`${base}/matches/verification-missing-${crypto.randomUUID()}`, {
+  method: 'DELETE', headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(15_000),
+});
+assert.equal((await deleteMissing()).status, 401);
+if (process.env.GRIDFALL_STATS_WRITE_KEY) assert.equal((await deleteMissing(process.env.GRIDFALL_STATS_WRITE_KEY)).status, 401);
+if (process.env.GRIDFALL_STATS_IMPORT_KEY) assert.equal((await deleteMissing(process.env.GRIDFALL_STATS_IMPORT_KEY)).status, 401);
+if (process.env.GRIDFALL_STATS_ADMIN_KEY) assert.equal((await deleteMissing(process.env.GRIDFALL_STATS_ADMIN_KEY)).status, 404, 'Admin key authorizes deletion lookup; no real match is deleted');
 console.log(`Central statistics API verified: health, public reports/history, authentication and cross-origin requests. ${report.matches} stored matches. No test records were inserted.`);
