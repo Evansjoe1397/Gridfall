@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "gridfall-statistics",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-06",
+  "workers_dev": true,
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "gridfall-statistics",
+    "database_id": "3adbeb43-53e1-4a01-8c7e-7e362d0ab6ce",
+    "migrations_dir": "migrations"
+  }]
+}
