@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+// Last tile: two column delays + three row delays + its assembly time.
+export const SPELLBLOCK_ASSEMBLY_MS = 2 * 35 + 3 * 25 + 220;
+
 /** A tiled spell screen catches the hit, then breaks down into absorbed energy. */
 export class SpellblockVisual {
   readonly root = new THREE.Group();
@@ -12,7 +15,7 @@ export class SpellblockVisual {
   private disposed = false;
 
   constructor(scene: THREE.Scene, position: THREE.Vector3, attacker: THREE.Vector3,
-    private readonly startedAt: number, private readonly blockedDamage: number, height = 2.8) {
+    readonly startedAt: number, private readonly blockedDamage: number, height = 2.8) {
     this.root.name = 'Spellblock';
     this.root.position.copy(position);
     const forward = attacker.clone().sub(position).setY(0);

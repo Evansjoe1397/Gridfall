@@ -1,8 +1,12 @@
 import { DashWindTrails } from './dashWindTrails.ts';
 import { CounterspellVisual } from './counterspellVisual.ts';
-import { SpellblockVisual } from './spellblockVisual.ts';
+import { SpellblockVisual, SPELLBLOCK_ASSEMBLY_MS } from './spellblockVisual.ts';
+import { ArchmageAnimation, ARCHMAGE_SCALE, ARCHMAGE_RAISE_SECONDS, archmageMovementDuration, type ArchmagePower } from './archmageAnimation.ts';
+import { OracleVisual } from './oracleVisual.ts';
 import { spawnArcaneBarrier, updateArcaneBarriers } from './arcaneBarrierVisuals.ts';
 import { isLoganSpell, LoganAttackVisual, startLoganBoltSequence, type LoganSpell } from './loganAttackVisuals.ts';
+import { ShizzleVisual, shizzleMovementDuration } from './shizzleVisual.ts';
+import { applyCharacterHologram } from './characterHologram.ts';
 import { SnowballEffectVisual } from './snowballEffectVisual.ts';
 import { GrimoireCleanseVisual } from './grimoireCleanseVisual.ts';
 import { PreparationVisual } from './preparationVisual.ts';
@@ -25,6 +29,7 @@ import { HOTKEY_SECTIONS } from './hotkeys.ts';
 import { createDeveloperPanel } from './developerPanel.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
+import { installOrkkRageEyes } from './orkkRageEyes.ts';
 import { createQuestFlag, flutterQuestFlag, disposeQuestFlag } from './questFlagVisuals.ts';
 import { PortalTeleport, PORTAL_TELEPORT_MS } from './portalTeleport.ts';
 import { FireboltVisual } from './fireboltVisuals.ts';
@@ -36,12 +41,12 @@ import { fillRampGeometry } from './solid-ramp-geometry.ts';
 import { surfaceTileHighlight } from './surface-tile-highlight.ts';
 import { retryAssetLoad } from './retry-asset-load.ts';
 import { stabilizeOrkkHeldProps } from './orkkHeldProps.ts';
-import { orientOrkkShieldUpright } from './orkk-shield-rest.ts';
+import { placeOrkkShieldAtRest } from './orkk-shield-rest.ts';
 import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS, JOHN_MIND_BLAST_IMPACT_SECONDS, JOHN_MODEL_SCALE, JOHN_SCEPTER_HEAD_LOCAL, JOHN_SPIRIT_ATTACK_CLIP, JOHN_SPIRIT_ATTACK_DAMAGE_SECONDS, johnAnimationAvailableInForm, johnAttackAnimation, johnAttackReleaseSeconds, johnAttackUsesProjectile, johnCastProjectileDurationMs, johnMovementClip, johnMovementDuration, johnPlaybackRate, johnUsesCastOverhead, type JohnAnimationName, type JohnAttackAnimationName } from './johnChristLocomotion.ts';
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { groundJohnBlessingClip } from './johnChristGrounding.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
-import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LEG_KICK_CLIP, OBI_WAN_LEG_KICK_DURATION_SECONDS, obiWanAttackClip, shouldDelayObiWanSaberDraw, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
+import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LOW_CUT_CLIP, OBI_WAN_LOW_CUT_PREPARE_SECONDS, OBI_WAN_LOW_CUT_RETRACT_SECONDS, obiWanAttackPreparationSeconds, OBI_WAN_LEG_KICK_CLIP, OBI_WAN_LEG_KICK_DURATION_SECONDS, obiWanAttackClip, shouldDelayObiWanSaberDraw, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
 import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
 import { FrostmourneEffects } from './frostmourneEffects.ts';
 import { StingEffects } from './stingEffects.ts';
@@ -53,7 +58,7 @@ import { JOHN_BLESSED_BEAM_FPS, JOHN_BLESSED_BEAM_HOLD_SECONDS, JOHN_BLESSED_BEA
 import { JohnBlessedBeam } from './johnBlessedBeam.ts';
 import { createJohnSpiritIdle, setJohnSpiritTransparency, advanceSpiritBlend, applySpiritBlend, resolveSpiritVisualTarget, spiritVisualDesired } from './johnChristSpirit.ts';
 import { updateJohnSpiritTransition } from './johnChristTransition.ts';
-import { interruptObiWanMeditation, resetObiWanMeditation, updateObiWanMeditation } from './obiWanMeditation.ts';
+import { OBI_WAN_MODEL_SCALE, interruptObiWanMeditation, resetObiWanMeditation, updateObiWanMeditation } from './obiWanMeditation.ts';
 import {
   createShadowDaggerProjectile,
   makeSpectreReplicaMaterialOpaque,
@@ -100,7 +105,7 @@ import {
   forecastMovement,
   type MovementPreviewCommand,
   baseSquareAt,
-  armDaWizPath,
+  armDaWizPreview,
   arcaneMisslePath,
   chainLightningCanTarget,
   mindBlastCanTarget,
@@ -142,7 +147,6 @@ import {
   phaseCardCandidates,
   kykDirectionAllowed,
   pinnedCount,
-  shieldRecallEnemyCount,
   spectreActionEventForCommand,
   spectreReplica,
   spectreReplicas,
@@ -511,6 +515,12 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
 window.addEventListener('keydown', (event) => {
   if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  if ((event.code === 'AltLeft' || event.code === 'AltRight') && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    movementPreviewAltKeys.add(event.code);
+    updateMovementPathPreview();
+    return;
+  }
   if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
     event.preventDefault();
     if (!event.repeat) {
@@ -711,6 +721,42 @@ const counterspellVisuals: CounterspellVisual[] = [];
 let heldCounterspell: CounterspellVisual | null = null;
 let pendingSpellblock: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3; attacker: THREE.Vector3; blockedDamage: number } | null = null;
 let spellblockVisual: { effect: SpellblockVisual; defenderId: PlayerId; replicaId?: string } | null = null;
+let pendingOracle: { defenderId: PlayerId; attacker: THREE.Vector3 } | null = null;
+let oracleBlockVisual: OracleVisual | null = null;
+const oracleRevealVisuals: OracleVisual[] = [];
+const oracleCardPulses = new Map<string, { startsAt: number; order: number }>();
+let oracleRevealPulseAt = -Infinity;
+
+function syncOraclePresentation(previous: GameState, current: GameState) {
+  const before = previous.pendingAttack as (NonNullable<GameState['pendingAttack']> & { oracleRevealedThisCombat?: boolean }) | null;
+  const after = current.pendingAttack as typeof before;
+  if (after?.oracleRevealedThisCombat && (!before?.oracleRevealedThisCombat || before.cardInstanceId !== after.cardInstanceId)) {
+    const character = dummyGroups.get(after.defenderId);
+    oracleRevealPulseAt = performance.now();
+    if (character) oracleRevealVisuals.push(new OracleVisual(scene, character, oracleRevealPulseAt));
+    const oracle = current.players[after.defenderId].hand.find(card => card.cardId === 'oracle');
+    if (oracle) oracleCardPulses.set(oracle.instanceId, { startsAt: oracleRevealPulseAt, order: 0 });
+  }
+  if (previous.combatReveal?.defendCardId !== 'oracle' && current.combatReveal?.defendCardId !== 'oracle' && !pendingOracle && !oracleBlockVisual) return;
+  let order = 0;
+  for (const player of Object.values(current.players)) {
+    const oldPlayer = previous.players[player.id];
+    if (!oldPlayer) continue;
+    for (const card of player.hand) {
+      const oldCard = oldPlayer.hand.find(entry => entry.instanceId === card.instanceId);
+      if (oldCard && !oldCard.revealedToOpponent && card.revealedToOpponent) {
+        oracleCardPulses.set(card.instanceId, { startsAt: Infinity, order: order++ });
+      }
+    }
+  }
+}
+
+function oraclePulseAttributes(instanceId: string) {
+  const pulse = oracleCardPulses.get(instanceId);
+  const now = performance.now();
+  if (!pulse || !Number.isFinite(pulse.startsAt) || now > pulse.startsAt + pulse.order * 120 + 850) return '';
+  return ` data-oracle-pulse="true" style="--oracle-delay:${pulse.startsAt + pulse.order * 120 - now}ms"`;
+}
 let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
 let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
 let blockedCombatTargetId: PlayerId | null = null;
@@ -742,6 +788,7 @@ let loganCombatImpactPending = false;
 const loganAttackVisuals: (LoganAttackVisual | GrimoireCleanseVisual | SnowballEffectVisual | PreparationVisual)[] = [];
 const loganPowerWaits = new Map<PlayerId, { launch: () => void; fallbackAt: number }>();
 const loganCastingPlayers = new Set<PlayerId>();
+const shizzleVisuals = new Map<THREE.Group, ShizzleVisual>();
 let genericCombatImpactAt = 0;
 let pendingFlurryAttack: { startsAt: number; start: () => void } | null = null;
 type BlinkCombatPresentation = { defenderId: PlayerId; from: Cell; to: Cell; missed: boolean };
@@ -771,6 +818,12 @@ function resetCombatSummary() {
   heldCounterspell = null;
   for (const visual of counterspellVisuals.splice(0)) visual.dispose();
   pendingSpellblock = null;
+  pendingOracle = null;
+  oracleBlockVisual?.dispose();
+  oracleBlockVisual = null;
+  for (const visual of oracleRevealVisuals.splice(0)) visual.dispose();
+  oracleCardPulses.clear();
+  oracleRevealPulseAt = -Infinity;
   spellblockVisual?.effect.dispose();
   spellblockVisual = null;
   pendingManaShield = null;
@@ -857,7 +910,7 @@ type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench' | 'pipe';
 const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
-  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
+  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 17, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
@@ -1055,6 +1108,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const previousBoardSize = gameState.boardSize;
       const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
+      if (!enteringBattle) syncOraclePresentation(previousGameState, gameState);
       if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
       const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
       if (seriesMatchChanged) resetSeriesMatchVisuals();
@@ -1450,6 +1504,7 @@ function dispatch(command: GameCommand) {
   const result = applyCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
+  syncOraclePresentation(previousGameState, gameState);
   if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
   const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
   if (seriesMatchChanged) resetSeriesMatchVisuals();
@@ -1628,7 +1683,7 @@ function renderUI() {
   }
   if (gameState.phase === 'choosing-arm-da-wiz-choice') prompt.textContent = 'Arm da Wiz: choose Recall or Create Shield · Escape to cancel';
   if (gameState.phase === 'choosing-arm-da-wiz-create-payment') prompt.textContent = 'Arm da Wiz: spend 1 HP or 1 Rage Stack to create Shield · Escape to cancel';
-  if (gameState.phase === 'choosing-arm-da-wiz-target') prompt.textContent = 'Arm da Wiz: select your Shield anywhere on the Board · Escape to cancel';
+  if (gameState.phase === 'choosing-arm-da-wiz-target') prompt.textContent = 'Arm da Wiz: hover a highlighted Shield to preview its path · click to recall · Escape to cancel';
   if (gameState.phase === 'choosing-test-phylactery-target') {
     prompt.textContent = 'Test Phylactery: select any Object except a Column · Escape to cancel';
   }
@@ -2045,7 +2100,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
       ['ritual', 'ritual', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
     ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${gameIcon(icon)}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
     const orkkShieldIcon = player.character === 'orkk' ? `<div class="status-icon orkk-shield-status ${player.shieldEquipped ? 'highground-active' : 'inactive'}" tabindex="0" aria-label="Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}">${gameIcon('shield')}<span class="status-tooltip"><strong>Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}</strong>${player.shieldEquipped ? 'Defend Cards gain +1 Defence Value.' : 'The Shield is currently on the Board as an obstacle.'}</span></div>` : '';
-    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0" aria-label="Rage · ${player.rageStacks} stacks">${gameIcon('rage')}<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. Remove 1 stack at turn end.</span></div>` : '';
+    const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0" aria-label="Rage · ${player.rageStacks} stacks">${gameIcon('rage')}<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Remove 1 stack at turn end.</span></div>` : '';
     const doubleRageIcon = player.doubleRageUntilEnemyTurnEnd ? `<div class="status-icon double-rage-status" tabindex="0">${gameIcon('double')}<b>×2</b><span class="status-tooltip"><strong>Double! · Rage</strong>Da Orkk receives doubled Rage Stacks until the end of the attacking Player's turn.</span></div>` : '';
     const pinnedIcon = stacks > 0 ? `<div class="status-icon pinned-status" tabindex="0">${gameIcon('pinned')}<b>${stacks}</b><span class="status-tooltip"><strong>Pinned</strong>Movement decreased by 1 per Pinned Card (current: ${stacks}). Remove 1 Pinned Card from Hand at the end of turn.</span></div>` : '';
     const handHeadacheIcon = headacheInHand > 0 ? `<div class="status-icon headache-status in-hand" tabindex="0">${gameIcon('headache')}${headacheInHand > 1 ? `<b>${headacheInHand}</b>` : ''}<span class="status-tooltip"><strong>Headache · Hand</strong>${headacheInHand} Headache Card${headacheInHand === 1 ? '' : 's'} currently filling this player's Hand. Filled red while active in Hand.</span></div>` : '';
@@ -2136,12 +2191,12 @@ function renderHand() {
     const attack = gameState.pendingAttack ? cardDefinition({ instanceId: '', cardId: gameState.pendingAttack.cardId }) : null;
     const oracleControl = oracle && !oracleForced
       ? oracleRevealed && attack
-        ? `<article class="card attack oracle-revealed-card"><span>ORACLE · ATTACK REVEALED</span><strong>${escapeHtml(attack.name.toUpperCase())}</strong><div><b>${gameState.pendingAttack!.attackValue}</b> ATTACK VALUE</div><small>${escapeHtml(attack.effectText ?? '')}</small></article>`
+        ? `<article class="card attack oracle-revealed-card" ${performance.now() - oracleRevealPulseAt < 850 ? `data-oracle-pulse="true" style="--oracle-delay:${oracleRevealPulseAt - performance.now()}ms"` : ''}><span>ORACLE · ATTACK REVEALED</span><strong>${escapeHtml(attack.name.toUpperCase())}</strong><div><b>${gameState.pendingAttack!.attackValue}</b> ATTACK VALUE</div><small>${escapeHtml(attack.effectText ?? '')}</small></article>`
         : `<button class="card attack" id="oracleReveal" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>ORACLE · WHILE IN HAND</span><strong>REVEAL ATTACK CARD</strong><div><b>${cardBaseValue(oracle)} → ${Math.max(1, cardBaseValue(oracle) - 1)}</b> ORACLE VALUE</div><small>Reveal the played Attack Card. Oracle cannot Defend this combat.</small></button>`
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}" ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}"${oraclePulseAttributes(instance.instanceId)} ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -2415,7 +2470,7 @@ function renderArmDaWizModal() {
     return;
   }
   const arm = gameState.armDaWiz;
-  const visible = (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(arm) && canLocalAct(arm!.casterId);
+  const visible = (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment') && Boolean(arm) && canLocalAct(arm!.casterId);
   modal.classList.toggle('hidden', !visible);
   if (!visible || !arm) { modal.innerHTML = ''; return; }
   if (gameState.phase === 'choosing-arm-da-wiz-create-payment') {
@@ -2423,17 +2478,6 @@ function renderArmDaWizModal() {
     modal.innerHTML = `<div class="choice-dialog"><span>SHIELD CREATION</span><h2>Choose Payment</h2><p>Spend 1 HP or 1 Rage Stack to create and instantly equip a new Iron Shield.</p><div class="choice-cards"><button id="armWizPayHp" ${player.hp < 1 ? 'disabled' : ''}><strong>Use 1 HP</strong><small>${player.hp} HP available</small></button><button id="armWizPayRage" ${player.rageStacks < 1 ? 'disabled' : ''}><strong>Use 1 Rage Stack</strong><small>${player.rageStacks} Rage Stack${player.rageStacks === 1 ? '' : 's'} available</small></button></div><button class="choice-decline" id="armWizCancel">Cancel Perk</button></div>`;
     modal.querySelector<HTMLButtonElement>('#armWizPayHp')?.addEventListener('click', () => dispatch({ type: 'arm-da-wiz-create-payment', playerId: arm.casterId, payment: 'hp' }));
     modal.querySelector<HTMLButtonElement>('#armWizPayRage')?.addEventListener('click', () => dispatch({ type: 'arm-da-wiz-create-payment', playerId: arm.casterId, payment: 'rage' }));
-    modal.querySelector<HTMLButtonElement>('#armWizCancel')!.addEventListener('click', () => dispatch({ type: 'cancel-targeting', playerId: arm.casterId }));
-    return;
-  }
-  if (gameState.phase === 'choosing-arm-da-wiz-target') {
-    const shields = gameState.objects.filter((object) => object.kind === 'orkk-shield' && object.ownerId === arm.casterId);
-    modal.innerHTML = `<div class="choice-dialog"><span>PERK TARGETING</span><h2>Recall a Shield</h2><p>Select an Iron Shield anywhere on the Board to recall and equip. Enemy-occupied Squares do not block its route.</p><div class="choice-cards">${shields.map((shield) => {
-      const path = armDaWizPath(gameState, shield, gameState.players[arm.casterId].position, arm.range);
-      const enemiesCrossed = shieldRecallEnemyCount(gameState, arm.casterId, path);
-      return `<button data-arm-shield="${escapeHtml(shield.id)}"><strong>Iron Shield · ${cellLabel(shield.position)}</strong><small>Recall toward ${escapeHtml(gameState.players[arm.casterId].name)} (cross ${enemiesCrossed} enemies)</small></button>`;
-    }).join('')}</div><button class="choice-decline" id="armWizCancel">Cancel Perk</button></div>`;
-    modal.querySelectorAll<HTMLButtonElement>('[data-arm-shield]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'arm-da-wiz-target', playerId: arm.casterId, objectId: button.dataset.armShield! })));
     modal.querySelector<HTMLButtonElement>('#armWizCancel')!.addEventListener('click', () => dispatch({ type: 'cancel-targeting', playerId: arm.casterId }));
     return;
   }
@@ -2646,6 +2690,12 @@ function renderCombatReveal() {
     modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
     let flurryAttackNotBefore = 0;
     if (combatRevealWasVisible) {
+      if (pendingOracle) {
+        oracleBlockVisual?.dispose();
+        const target = dummyGroups.get(pendingOracle.defenderId);
+        oracleBlockVisual = target ? new OracleVisual(scene, target, performance.now(), pendingOracle.attacker) : null;
+        pendingOracle = null;
+      }
       if (pendingCounterspell) {
         const { from, to, empowered } = pendingCounterspell;
         heldCounterspell = new CounterspellVisual(scene, from, to, empowered, performance.now());
@@ -2666,6 +2716,10 @@ function renderCombatReveal() {
         const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
         const height = target ? Math.max(2.2, visibleCharacterTop(target) - target.position.y + 0.2) : 2.8;
         spellblockVisual = { effect: new SpellblockVisual(scene, target?.position ?? position, attacker, performance.now(), blockedDamage, height), defenderId, replicaId };
+        if (target?.userData.character === 'magician') {
+          const direction = attacker.clone().sub(target.position);
+          if (direction.lengthSq() > .0001) target.rotation.y = Math.atan2(direction.x, direction.z);
+        }
         pendingSpellblock = null;
       }
       postCombatVisualNotBefore = performance.now() + POST_COMBAT_VISUAL_DELAY_MS;
@@ -2674,10 +2728,6 @@ function renderCombatReveal() {
         flurryAttackNotBefore = performance.now() + FLURRY_DURATION_MS;
       }
       flurryCombatPosition = null;
-      if (blockedCombatTargetId && !blinkCombatPresentation?.missed) {
-        spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
-      }
-      blockedCombatTargetId = null;
       const combatForfeited = Boolean(forfeitedCombatTargetId);
       if (forfeitedCombatTargetId) spawnCharacterCalloutBubble(forfeitedCombatTargetId, 'Combat forfeited');
       forfeitedCombatTargetId = null;
@@ -2847,6 +2897,9 @@ function renderCombatReveal() {
   activeCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
   const combatForfeited = Boolean((reveal as typeof reveal & { forfeitReason?: string }).forfeitReason);
   const pendingSwing = combatForfeited ? null : gameState.pendingAttack;
+  pendingOracle = pendingSwing && reveal.defendCardId === 'oracle'
+    ? { defenderId: pendingSwing.defenderId, attacker: worldPosition(gameState.players[pendingSwing.attackerId].position) }
+    : null;
   pendingCounterspell = pendingSwing && reveal.counterspell
     ? { from: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position).add(new THREE.Vector3(0, 1.4, 0)),
       to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
@@ -2868,7 +2921,7 @@ function renderCombatReveal() {
   blinkCombatPresentation = (reveal as typeof reveal & { blinkTeleport?: BlinkCombatPresentation }).blinkTeleport ?? null;
   const resolvedAttackDamage = (reveal.combatDamage ?? 0) + (reveal.afterCombatAttackDamage ?? 0);
   forfeitedCombatTargetId = combatForfeited ? gameState.pendingAttack?.defenderId ?? null : null;
-  blockedCombatTargetId = pendingSwing && !combatForfeited && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
+  blockedCombatTargetId = pendingSwing && !combatForfeited && !blinkCombatPresentation?.missed && resolvedAttackDamage === 0 ? pendingSwing.defenderId : null;
   // Forfeited combat queues no attack presentation. Resolved combat still
   // plays its attack even when damage is blocked.
   merylinCombatAttacker = pendingSwing && gameState.players[pendingSwing.attackerId].character === 'merylin'
@@ -2876,6 +2929,7 @@ function renderCombatReveal() {
   const obiWanClip = pendingSwing ? obiWanAttackClip(
     gameState.players[pendingSwing.attackerId].character,
     gameState.players[pendingSwing.attackerId].lightsaberBuff,
+    pendingSwing.cardId,
   ) : null;
   obiWanCombatAttacker = pendingSwing && obiWanClip
     ? { attackerId: pendingSwing.attackerId, defenderId: pendingSwing.defenderId, clip: obiWanClip } : null;
@@ -3120,6 +3174,7 @@ function acknowledgeCombatReveal() {
   if (!first.ok) return notify(first.error);
   const second = applyCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1], combatExpiresAt });
   if (!second.ok) return notify(second.error);
+  syncOraclePresentation(gameState, second.state);
   gameState = second.state;
   renderAll();
 }
@@ -3183,7 +3238,7 @@ function renderOpponentHand() {
       const forcedUse = instance.soulStrikeForcedUse;
       const forcedLabel = forcedUse === 'attack' ? 'MUST ATTACK' : forcedUse === 'defend' ? 'MUST BLOCK' : '';
       const title = forcedLabel ? `Soul Strike: ${forcedLabel.toLowerCase()} with ${card.name} next` : `Revealed: ${card.name} — value ${card.value}`;
-      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}" data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
+      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}"${oraclePulseAttributes(instance.instanceId)} data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${visibleHand.length} CARD${visibleHand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
@@ -3852,7 +3907,7 @@ let dawnLightLevel = 1;
 function setArenaLightingDefaults() {
   const trench = visualArena().id === 'trench';
   filmicToneMapping.enabled = trench;
-  dawnLightLevel = trench ? 1.5 : 1;
+  dawnLightLevel = trench ? 1.5 : visualArena().id === 'nagrand' ? 1.3 : 1;
   setDawnArenaMode(true);
 }
 
@@ -3972,9 +4027,12 @@ let lordaeronTombAssetPromise: ReturnType<GLTFLoader['loadAsync']> | null = null
 let orkkRageGlowTexture: THREE.CanvasTexture | null = null;
 const cellMeshes: THREE.Mesh[] = [];
 // Reuse the routes computed for green highlights instead of pathfinding on every frame.
-type MovementPreview = { points: THREE.Vector3[]; cost: number; command: MovementPreviewCommand; forecast?: ReturnType<typeof forecastMovement> };
+type MovementPreview = { kind?: 'movement'; points: THREE.Vector3[]; cost: number; command: MovementPreviewCommand; forecast?: ReturnType<typeof forecastMovement> }
+  | { kind: 'shield'; points: THREE.Vector3[]; recall: NonNullable<ReturnType<typeof armDaWizPreview>> };
 const movementPreviewRoutes = new Map<THREE.Mesh, MovementPreview>();
-let movementPreviewEnabled = true;
+const shieldPreviewRoutes = new Map<string, MovementPreview>();
+let movementPreviewEnabled = false;
+const movementPreviewAltKeys = new Set<string>();
 const movementPreviewGroup = new THREE.Group();
 movementPreviewGroup.name = 'MovementPathPreview';
 scene.add(movementPreviewGroup);
@@ -4040,6 +4098,20 @@ const pendingDamageVisuals = new Map<string, PendingDamageVisual[]>();
 const combatDamageEventIds = new Set<string>();
 const pendingCombatDamageVisuals: PendingDamageVisual[] = [];
 function releaseCombatDamageVisuals(timing?: 'mana-barrage-combat' | 'mana-barrage-bonus', deferFatal = false) {
+  // Fully blocked attacks still reach the hit callback, even without damage visuals.
+  if (timing !== 'mana-barrage-bonus' && blockedCombatTargetId) {
+    spawnCharacterCalloutBubble(blockedCombatTargetId, 'Attack blocked');
+    blockedCombatTargetId = null;
+  }
+  if (timing !== 'mana-barrage-bonus') oracleBlockVisual?.impact(performance.now());
+  if (!timing || !deferFatal) {
+    let revealed = false;
+    for (const [id, pulse] of oracleCardPulses) {
+      if (pulse.startsAt === Infinity) { pulse.startsAt = performance.now(); revealed = true; }
+      else if (performance.now() > pulse.startsAt + 1500) oracleCardPulses.delete(id);
+    }
+    if (revealed) renderOpponentHand();
+  }
   // This callback also runs for fully blocked hits, where there are no damage visuals.
   if (timing !== 'mana-barrage-bonus') manaShieldVisual?.effect.impact(performance.now());
   if (timing !== 'mana-barrage-bonus') spellblockVisual?.effect.impact(performance.now());
@@ -4275,9 +4347,17 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
   }
 });
-window.addEventListener('keyup', (event) => cameraKeys.delete(event.code));
+window.addEventListener('keyup', (event) => {
+  cameraKeys.delete(event.code);
+  if (movementPreviewAltKeys.delete(event.code)) {
+    event.preventDefault();
+    updateMovementPathPreview();
+  }
+});
 window.addEventListener('blur', () => {
   cameraKeys.clear();
+  movementPreviewAltKeys.clear();
+  updateMovementPathPreview();
   const touchIds = [...cameraTouches.keys()];
   cameraTouches.clear();
   touchCameraPan = false;
@@ -4312,7 +4392,7 @@ renderer.setAnimationLoop((time) => {
   for (const [playerId, wait] of loganPowerWaits) {
     const group = dummyGroups.get(playerId);
     const state = group?.userData.wizardAnimation as WizardAnimationState | undefined;
-    const raised = state?.current === 'Power' && state.actions.Power.time >= state.actions.Power.getClip().duration * 0.9;
+    const raised = state?.powerRaised === true;
     // A valid clip must reach its raised pose even if playback is unusually slow.
     if (!raised && state?.current === 'Power' && state.deathEndsAt === undefined) continue;
     if (!raised && time < wait.fallbackAt && (state || group?.userData.characterModelLoadSettled === false)) continue;
@@ -4349,7 +4429,7 @@ renderer.setAnimationLoop((time) => {
     const body = group.children[0];
     const defeated = gameState.players[id]?.hp <= 0;
     if (group.userData.character === 'magician') {
-      updateSwiftformVisual(group, !defeated && (gameState.shizzle?.casterId === id || movementAnimations.get(id)?.shizzle === true));
+      updateSwiftformVisual(group, !defeated && (isShizzleGliding(id) || shizzleVisuals.has(group)));
     }
     if (group.userData.character === 'spectre') {
       updateSpectreShadowCloak(group, !defeated && Boolean(gameState.players[id]?.spectreShadowCloakActive), deltaSeconds);
@@ -4422,6 +4502,7 @@ renderer.setAnimationLoop((time) => {
     updateManaOrbAnimation(group, time);
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
   });
+  updateShizzleVisuals(time, deltaSeconds);
   objectGroups.forEach((group, objectId) => {
     if (group.userData.objectKind === 'spirit-guardian') updateSpiritGuardianVisuals(group, deltaSeconds);
     if (group.userData.spectreReplica) updateSpectreAnimation(group, undefined, deltaSeconds);
@@ -4451,6 +4532,10 @@ renderer.setAnimationLoop((time) => {
   });
   updateShadowTrail(spectreShadowTrailGroup, time / 1000);
   updateMerylinSwingImpacts(time);
+  if (oracleBlockVisual && !oracleBlockVisual.update(time)) oracleBlockVisual = null;
+  for (let index = oracleRevealVisuals.length - 1; index >= 0; index--) {
+    if (!oracleRevealVisuals[index].update(time)) oracleRevealVisuals.splice(index, 1);
+  }
   updateObiWanAttackImpacts(time);
   updateOrkkAttackImpacts(time);
   updateBlessingPresentationQueues(time);
@@ -5322,8 +5407,10 @@ function updateCharacterMovement(time: number) {
       || (group.userData.character === 'john-christ' && !animation.forced)
       || (group.userData.character === 'spectre' && !animation.forced)
       || (group.userData.character === 'merylin' && !animation.forced)
+      || (group.userData.character === 'magician' && !animation.forced)
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     let eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    if (animation.shizzle) eased = THREE.MathUtils.smoothstep(progress, .1, 1);
     if (animation.slideSegmentIndex !== undefined && animation.slideStartsAtMs !== undefined) {
       const segmentCount = Math.max(1, animation.path?.length ?? animation.travelSquares ?? 1);
       const slideRouteStart = animation.slideStartsAtMs === 0
@@ -5353,7 +5440,7 @@ function updateCharacterMovement(time: number) {
     }
     if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation && !group.userData.merylinAnimation) group.position.y += Math.sin(progress * Math.PI) * 0.1;
     const body = group.children[0];
-    if (!animation.verticalOnly && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation && !group.userData.merylinAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
+    if (!animation.verticalOnly && group.userData.character !== 'magician' && group.userData.character !== 'shinobi' && !group.userData.orkkAnimation && !group.userData.spectreAnimation && !group.userData.johnAnimation && !group.userData.merylinAnimation) body.rotation.z = Math.sin(progress * Math.PI) * 0.055;
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
@@ -5413,7 +5500,7 @@ function updateCharacterFacing(deltaSeconds: number) {
     if (movementAnimations.has(playerId)) return;
     const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
     if (group.userData.character === 'magician' &&
-      (loganCastingPlayers.has(playerId) || wizard?.power || group.userData.pendingWizardPowerVisualIntent)) return;
+      (loganCastingPlayers.has(playerId) || wizard?.power || wizard?.wall || group.userData.pendingWizardPowerVisualIntent)) return;
     const merylinAnimation = group.userData.merylinAnimation as MerylinAnimation | undefined;
     if (merylinAnimation?.isAttacking || merylinImpactWaits.has(playerId)) {
       const yaw=group.userData.merylinAttackYaw as number | undefined;
@@ -6291,6 +6378,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     });
     disposeTemporaryCharacterBody(body);
     body.add(model);
+    root.userData.orkkRageEyes = installOrkkRageEyes(model);
     installOrkkRageCoreGlow(root, model);
     const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, clip]));
     const required = ['DaOrkh_Idle_With_Shield', 'DaOrkh_Idle_No_Shield', 'DaOrkh_Casual_Walk', 'DaOrkh_Walking', 'DaOrkh_Running', 'DaOrkh_Skill_01', 'DaOrkh_Skill_03', 'DaOrkh_Shield_Throw', 'DaOrkh_Base_UUID', 'DaOrkh_Dead'];
@@ -6412,14 +6500,14 @@ function playObiWanAttack(playerId: PlayerId, clip: ObiWanAttackClip, impact: ()
   if (!player || player.character !== 'shinobi') { impact(); return; }
   const group = dummyGroups.get(playerId);
   const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-  if (state) startObiWanAttack(state, clip);
+  if (state) startObiWanAttack(state, clip, group);
   else if (group) {
     group.userData.pendingObiWanAttack = clip;
     group.userData.obiWanAttackEndsAt = performance.now() + OBI_WAN_LEG_KICK_DURATION_SECONDS * 1000;
   }
   obiWanAttackImpactWaits.set(playerId, {
     callbacks: [impact],
-    fallbackAt: performance.now() + OBI_WAN_ATTACK_HIT_SECONDS[clip] * 1000,
+    fallbackAt: performance.now() + (obiWanAttackPreparationSeconds(clip) + OBI_WAN_ATTACK_HIT_SECONDS[clip]) * 1000,
   });
 }
 
@@ -6741,7 +6829,7 @@ function playLoganSpell(playerId: PlayerId, cardId: LoganSpell, target: THREE.Ve
   applyWizardPowerVisualIntent({ kind: 'cast', playerId, target: to, hold: true });
   loganPowerWaits.set(playerId, { fallbackAt: performance.now() + 8000, launch: () => {
     startLoganBoltSequence(secondBolt, hit => {
-      const hand = group?.getObjectByName('Wizard_Power_LeftHand_Controller');
+      const hand = group?.getObjectByName('mixamorigLeftHand');
       group?.updateWorldMatrix(true, true);
       const from = hand?.getWorldPosition(new THREE.Vector3())
         ?? (group?.position ?? worldPosition(gameState.players[playerId].position)).clone().add(new THREE.Vector3(0, 1.35, 0));
@@ -6768,14 +6856,14 @@ function playBoxAttack(playerId: PlayerId, impact: () => void = () => {}, cardId
   if (group?.userData.character === 'magician' && target) {
     applyWizardPowerVisualIntent({ kind: 'cast', playerId, target: target.clone().add(new THREE.Vector3(0, 1.05, 0)), hold: false });
     const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
-    return wizard ? Math.max(500, wizard.actions.Power.getClip().duration * 900) : 650;
+    return wizard ? ARCHMAGE_RAISE_SECONDS * 1000 : 650;
   }
   if (group?.userData.character === 'merylin') {
     playMerylinSwing(playerId, impact, merylinWeaponForCard(cardId), target);
     return Number.POSITIVE_INFINITY;
   }
   const player = gameState.players[playerId];
-  const obiWanClip = player ? obiWanAttackClip(player.character, player.lightsaberBuff) : null;
+  const obiWanClip = player ? obiWanAttackClip(player.character, player.lightsaberBuff, cardId) : null;
   if (obiWanClip) {
     playObiWanAttack(playerId, obiWanClip, impact);
     return Number.POSITIVE_INFINITY;
@@ -6925,10 +7013,7 @@ function resetMatchEndPresentation() {
     }
     const wizard = group.userData.wizardAnimation as WizardAnimationState | undefined;
     if (wizard?.deathEndsAt !== undefined) {
-      wizard.actions.Death.stop();
-      wizard.actions.Idle.reset().play();
-      wizard.current = 'Idle';
-      wizard.deathEndsAt = undefined;
+      wizard.reset();
     }
   });
   pendingDeathAnimationIds.clear();
@@ -7223,6 +7308,7 @@ function installOrkkRageCoreGlow(root: THREE.Group, model: THREE.Group) {
 }
 
 function updateOrkkRageCoreGlow(root: THREE.Group, rageStacks: number) {
+  (root.userData.orkkRageEyes as ReturnType<typeof installOrkkRageEyes> | undefined)?.setRage(rageStacks);
   const cappedRage = THREE.MathUtils.clamp(rageStacks, 0, 8);
   const strength = cappedRage / 8;
   const effect = root.getObjectByName('OrkkRageCoreEffect') as THREE.Group | undefined;
@@ -7242,6 +7328,7 @@ function updateOrkkRageCoreGlow(root: THREE.Group, rageStacks: number) {
 }
 
 function updateOrkkRageCoreAnimation(root: THREE.Group, time: number) {
+  (root.userData.orkkRageEyes as ReturnType<typeof installOrkkRageEyes> | undefined)?.update(time);
   const effect = root.getObjectByName('OrkkRageCoreEffect') as THREE.Group | undefined;
   if (!effect?.visible) return;
   const strength = effect.userData.strength as number;
@@ -7295,7 +7382,12 @@ function characterFacingRotation(group: THREE.Group, dx: number, dz: number) {
 }
 
 function obiWanAttackFacingRotation(group: THREE.Group, dx: number, dz: number, clip: ObiWanAttackClip) {
-  return characterFacingRotation(group, dx, dz) + OBI_WAN_ATTACK_FACING_OFFSET_RADIANS[clip];
+  const target = characterFacingRotation(group, dx, dz) + OBI_WAN_ATTACK_FACING_OFFSET_RADIANS[clip];
+  if (clip === OBI_WAN_LOW_CUT_CLIP) {
+    group.userData.obiWanAttackTurn = { from: group.rotation.y, to: target };
+    return group.rotation.y;
+  }
+  return target;
 }
 
 function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) {
@@ -7315,6 +7407,7 @@ function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTF
   socket.getWorldScale(root.scale);
   root.scale.multiplyScalar(1.6);
   root.userData.importedOrkkShield = true;
+  delete root.userData.shieldRestQuaternion;
   settleOrkkShieldAtRest(root);
 }
 
@@ -7322,22 +7415,8 @@ function settleOrkkShieldAtRest(root: THREE.Group, ownerId?: PlayerId, target?: 
   if (ownerId) root.userData.ownerId = ownerId;
   if (target) root.userData.restingTarget = target.clone();
   const restingTarget = root.userData.restingTarget as THREE.Vector3 | undefined;
-  const shieldOwnerId = root.userData.ownerId as PlayerId | undefined;
-  const owner = shieldOwnerId ? dummyGroups.get(shieldOwnerId) : undefined;
-  const state = owner?.userData.orkkAnimation as OrkkAnimationState | undefined;
   if (!restingTarget) return;
-  owner?.updateWorldMatrix(true, true);
-  const idleWorldQuaternion = owner && state
-    ? owner.getWorldQuaternion(new THREE.Quaternion()).multiply(state.shieldIdleSocketLocalQuaternion)
-    : new THREE.Quaternion();
-  root.position.copy(restingTarget);
-  const bounds = orientOrkkShieldUpright(root, idleWorldQuaternion);
-  const visibleCenter = bounds.getCenter(new THREE.Vector3());
-  if (Number.isFinite(visibleCenter.x) && Number.isFinite(visibleCenter.z)) {
-    root.position.x += restingTarget.x - visibleCenter.x;
-    root.position.z += restingTarget.z - visibleCenter.z;
-  }
-  if (Number.isFinite(bounds.min.y)) root.position.y += restingTarget.y - bounds.min.y + 0.025;
+  placeOrkkShieldAtRest(root, restingTarget);
 }
 
 function createOrkkShieldObject() {
@@ -7348,40 +7427,12 @@ function createOrkkShieldObject() {
   return root;
 }
 
-type WizardAnimationName = 'Idle' | 'Walk' | 'Power' | 'Death';
-const WIZARD_ORB_ORBIT_SCALE = 0.72;
-type WizardPowerRuntime = {
-  phase: 'playing' | 'holding' | 'resolving';
-  holdAtEnd: boolean;
-  liftStarted?: boolean;
-  targetKind?: 'player' | 'object';
-  targetId?: string;
-  resolvedAt?: number;
-};
-type WizardOrbitalState = {
-  controller: THREE.Object3D;
-  basePosition: THREE.Vector3;
-  baseRotation: THREE.Euler;
-  elapsed: number;
-};
-type WizardAnimationState = {
-  mixer: THREE.AnimationMixer;
-  actions: Record<WizardAnimationName, THREE.AnimationAction>;
-  current: WizardAnimationName;
-  orbital?: WizardOrbitalState;
-  power?: WizardPowerRuntime;
-  deathEndsAt?: number;
-};
-
+type WizardAnimationState = ArchmageAnimation;
+type WizardPowerRuntime = ArchmagePower;
 let longHatLoganAsset: ReturnType<GLTFLoader['loadAsync']> | null = null;
-let longHatLoganDeathAsset: ReturnType<GLTFLoader['loadAsync']> | null = null;
 
 function loadLongHatLoganAsset() {
-  return longHatLoganAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/long-hat-logan.glb?v=20260811-4`);
-}
-
-function loadLongHatLoganDeathAsset() {
-  return longHatLoganDeathAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/long-hat-logan-death.glb?v=20260823-1`);
+  return longHatLoganAsset ??= new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/celestial-archmage.glb?v=20261008-1`);
 }
 
 function disposeTemporaryCharacterBody(body: THREE.Group) {
@@ -7400,11 +7451,11 @@ function disposeTemporaryCharacterBody(body: THREE.Group) {
 
 async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
   try {
-    const [asset, deathAsset] = await Promise.all([loadLongHatLoganAsset(), loadLongHatLoganDeathAsset()]);
+    const asset = await loadLongHatLoganAsset();
     if (body.parent !== root) return;
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'LongHatLoganImportedModel';
-    model.scale.setScalar(1.32);
+    model.scale.setScalar(ARCHMAGE_SCALE);
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
@@ -7417,52 +7468,9 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     });
     disposeTemporaryCharacterBody(body);
     body.add(model);
-    root.getObjectByName('ManaOrbAura')?.removeFromParent();
-
-    // The GLB embeds an orb-controller track in each body clip. Excluding it
-    // gives the orbs one continuous timeline, independent of Idle/Walk/Power.
-    const clips = Object.fromEntries(asset.animations.map((clip) => [clip.name, new THREE.AnimationClip(
-      clip.name,
-      clip.duration,
-      clip.tracks.filter((track) => !track.name.startsWith('Wizard_Orbital_Controller.')),
-    )])) as Partial<Record<WizardAnimationName, THREE.AnimationClip>>;
-    const deathClip = deathAsset.animations.find((clip) => clip.name === 'Death');
-    if (!clips.Idle || !clips.Walk || !clips.Power || !deathClip) throw new Error('Wizard assets must contain Idle, Walk, Power, and Death clips.');
-    const mixer = new THREE.AnimationMixer(model);
-    const actions = {
-      Idle: mixer.clipAction(clips.Idle),
-      Walk: mixer.clipAction(clips.Walk),
-      Power: mixer.clipAction(clips.Power),
-      Death: mixer.clipAction(deathClip),
-    };
-    actions.Walk.timeScale = 1.8;
-    actions.Power.setLoop(THREE.LoopOnce, 1);
-    actions.Power.clampWhenFinished = true;
-    actions.Death.setLoop(THREE.LoopOnce, 1);
-    actions.Death.clampWhenFinished = true;
-    actions.Idle.play();
-    const orbitalController = model.getObjectByName('Wizard_Orbital_Controller');
-    root.userData.wizardAnimation = {
-      mixer,
-      actions,
-      current: 'Idle',
-      orbital: orbitalController && {
-        controller: orbitalController,
-        basePosition: orbitalController.position.clone(),
-        baseRotation: orbitalController.rotation.clone(),
-        elapsed: 0,
-      },
-    } satisfies WizardAnimationState;
+    root.userData.wizardAnimation = new ArchmageAnimation(model, asset.animations, SPELLBLOCK_ASSEMBLY_MS / 1000);
     root.userData.deathAnimationAvailable = true;
-    model.getObjectByName('Wizard_Native_LeftHand')!.visible = true;
-    model.getObjectByName('Wizard_Power_LeftHand_Controller')!.visible = false;
 
-    for (let index = 1; index <= 3; index++) {
-      const orbRoot = model.getObjectByName(`Wizard_Orb_0${index}_Root`)!;
-      orbRoot.position.x *= WIZARD_ORB_ORBIT_SCALE;
-      orbRoot.position.z *= WIZARD_ORB_ORBIT_SCALE;
-      orbRoot.visible = false;
-    }
     const playerId = root.userData.playerId as PlayerId | undefined;
     if (playerId && gameState.players[playerId]) syncManaOrbVisual(root, gameState.players[playerId]);
     root.traverse((child) => { if (playerId) child.userData.playerId = playerId; });
@@ -7479,36 +7487,18 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
   }
 }
 
-function setWizardPowerHand(group: THREE.Group, powerVisible: boolean) {
-  const nativeHand = group.getObjectByName('Wizard_Native_LeftHand');
-  const powerHand = group.getObjectByName('Wizard_Power_LeftHand_Controller');
-  if (nativeHand) nativeHand.visible = !powerVisible;
-  if (powerHand) powerHand.visible = powerVisible;
-}
-
 function finishWizardPowerAnimation(group: THREE.Group, state: WizardAnimationState) {
   const playerId = group.userData.playerId as PlayerId | undefined;
   if (playerId) releaseWizardPowerTarget(playerId);
-  state.actions.Power.paused = false;
-  state.actions.Power.fadeOut(0.14);
-  state.actions.Idle.reset().fadeIn(0.14).play();
-  setWizardPowerHand(group, false);
-  state.current = 'Idle';
-  state.power = undefined;
+  state.cancelPower();
 }
 
 function playWizardDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
   const group = dummyGroups.get(playerId);
   const state = group?.userData.wizardAnimation as WizardAnimationState | undefined;
   if (!group || !state || !group.userData.deathAnimationAvailable) return null;
-  if (state.deathEndsAt !== undefined) return state.deathEndsAt;
-  if (state.power) finishWizardPowerAnimation(group, state);
-  state.actions[state.current].fadeOut(0.14);
-  state.actions.Death.reset().fadeIn(0.14).play();
-  setWizardPowerHand(group, false);
-  state.current = 'Death';
-  state.deathEndsAt = startedAt + state.actions.Death.getClip().duration * 1000;
-  return state.deathEndsAt;
+  releaseWizardPowerTarget(playerId);
+  return state.startDeath(startedAt);
 }
 
 function wizardPowerEffectFinished(power: WizardPowerRuntime, playerId: PlayerId) {
@@ -7528,16 +7518,12 @@ function applyWizardPowerVisualIntent(intent: WizardPowerVisualIntent) {
   if (intent.kind === 'cancel') {
     delete group.userData.pendingWizardPowerVisualIntent;
     releaseWizardPowerTarget(intent.playerId);
-    setWizardPowerHand(group, false);
     if (state?.power) finishWizardPowerAnimation(group, state);
     return;
   }
   if (intent.kind === 'resolve') {
     releaseWizardPowerTarget(intent.playerId);
-    if (state?.power) {
-      state.power.phase = 'resolving';
-      state.power.resolvedAt = performance.now();
-    }
+    state?.resolvePower(performance.now());
     return;
   }
   const dx = intent.target.x - group.position.x;
@@ -7548,75 +7534,82 @@ function applyWizardPowerVisualIntent(intent: WizardPowerVisualIntent) {
     return;
   }
   if (state.power) finishWizardPowerAnimation(group, state);
-  state.actions[state.current].fadeOut(0.14);
-  state.actions.Power.paused = false;
-  state.actions.Power.reset().fadeIn(0.14).play();
-  setWizardPowerHand(group, true);
-  state.current = 'Power';
-  state.power = {
+  state.startPower({
     phase: intent.hold ? 'playing' : 'resolving',
     holdAtEnd: intent.hold,
     targetKind: intent.targetKind,
     targetId: intent.targetId,
     resolvedAt: intent.hold ? undefined : performance.now(),
-  };
+  });
+}
+
+function isShizzleGliding(playerId: PlayerId) {
+  const movement = movementAnimations.get(playerId);
+  return gameState.players[playerId]?.hp > 0 && !movement?.forced
+    && Boolean(movement?.shizzle || (gameState.shizzle?.casterId === playerId && gameState.shizzle.started));
+}
+
+function updateShizzleVisuals(now: number, delta: number) {
+  for (const [id, group] of dummyGroups) {
+    if (group.userData.character !== 'magician' || !isShizzleGliding(id)) continue;
+    if (!shizzleVisuals.has(group)) shizzleVisuals.set(group, new ShizzleVisual(scene, group));
+  }
+  for (const [group, effect] of shizzleVisuals) {
+    const id = group.userData.playerId as PlayerId;
+    const valid = dummyGroups.get(id) === group && group.parent && gameState.players[id]?.hp > 0;
+    const movement = movementAnimations.get(id);
+    if (!valid || movement?.forced || (movement && !movement.shizzle)) {
+      effect.dispose(); shizzleVisuals.delete(group); continue;
+    }
+    const enemies = [...dummyGroups].filter(([otherId]) => otherId !== id && gameState.players[otherId]?.hp > 0).map(([, other]) => other);
+    if (!effect.update(now, delta, isShizzleGliding(id), movement?.shizzle ? movement : undefined, enemies)) {
+      effect.dispose(); shizzleVisuals.delete(group);
+    }
+  }
 }
 
 function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds: number) {
   const state = group.userData.wizardAnimation as WizardAnimationState | undefined;
   if (!state) return;
-  if (state.deathEndsAt !== undefined) {
-    state.mixer.update(deltaSeconds);
-    return;
-  }
-  if (state.power) {
-    if (state.power.targetKind && state.power.targetId) {
-      const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
-      if (target) {
-        const dx = target.position.x - group.position.x;
-        const dz = target.position.z - group.position.z;
-        if (Math.abs(dx) + Math.abs(dz) > 0.0001) group.rotation.y = Math.atan2(dx, dz);
+  const playerId = group.userData.playerId as PlayerId | undefined;
+  const movement = playerId ? movementAnimations.get(playerId) : undefined;
+  let powerFacingSettled = true;
+  if (state.power?.targetKind && state.power.targetId && state.power.phase !== 'lowering') {
+    const target = wizardTargetGroup(state.power.targetKind, state.power.targetId);
+    if (target) {
+      const dx = target.position.x - group.position.x;
+      const dz = target.position.z - group.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.0001) {
+        const desired = Math.atan2(dx, dz);
+        const angle = Math.atan2(Math.sin(desired - group.rotation.y), Math.cos(desired - group.rotation.y));
+        group.rotation.y += angle * Math.min(1, deltaSeconds * 14);
+        powerFacingSettled = Math.abs(angle) < .025;
       }
     }
-    state.mixer.update(deltaSeconds);
-    updateWizardOrbitalAnimation(state, deltaSeconds);
-    const powerDuration = state.actions.Power.getClip().duration;
-    if (state.power.holdAtEnd && !state.power.liftStarted && state.actions.Power.time >= powerDuration * 0.9) {
-      const playerId = group.userData.playerId as PlayerId | undefined;
-      if (playerId && state.power.targetKind && state.power.targetId) {
-        liftWizardPowerTarget(playerId, state.power.targetKind, state.power.targetId);
-        state.power.liftStarted = true;
-      }
-    }
-    const reachedFinalFrame = state.actions.Power.time >= powerDuration - 1 / 60;
-    const playerId = group.userData.playerId as PlayerId | undefined;
-    if (reachedFinalFrame) {
-      if (state.power.phase === 'playing' && state.power.holdAtEnd) state.power.phase = 'holding';
-      else if (state.power.phase === 'playing' || (state.power.phase === 'resolving' && playerId && wizardPowerEffectFinished(state.power, playerId))) finishWizardPowerAnimation(group, state);
-    }
-    return;
   }
-  const next: WizardAnimationName = moving ? 'Walk' : 'Idle';
-  if (state.current !== next) {
-    state.actions[state.current].fadeOut(0.14);
-    state.actions[next].reset().fadeIn(0.14).play();
-    state.current = next;
+  const wallActive = Boolean(playerId && spellblockVisual?.defenderId === playerId && !spellblockVisual.replicaId);
+  if (wallActive && state.power && playerId) releaseWizardPowerTarget(playerId);
+  let motion;
+  if (moving && movement && !movement.forced && !movement.verticalOnly) {
+    const progress = THREE.MathUtils.clamp((performance.now() - movement.startedAt) / movement.duration, 0, 1);
+    const segmentCount = Math.max(1, movement.path?.length ?? movement.travelSquares ?? 1);
+    const approach = movement.slideStartsAtMs === undefined ? progress
+      : progress * movement.duration / Math.max(1, movement.slideStartsAtMs) * (movement.slideSegmentIndex ?? segmentCount) / segmentCount;
+    const route = merylinRouteMotion([movement.from, ...(movement.path?.length ? movement.path : [movement.to])], approach);
+    motion = { squares: movement.travelSquares ?? segmentCount, travelledDistance: route.travelledDistance, bodyScale: group.children[0].scale.x };
   }
-  state.mixer.update(deltaSeconds);
-  updateWizardOrbitalAnimation(state, deltaSeconds);
-}
-
-function updateWizardOrbitalAnimation(state: WizardAnimationState, deltaSeconds: number) {
-  const orbital = state.orbital;
-  if (!orbital) return;
-  orbital.elapsed += deltaSeconds;
-  const { controller, basePosition, baseRotation, elapsed } = orbital;
-  controller.position.set(basePosition.x, basePosition.y + Math.sin(elapsed * 1.35) * 0.035, basePosition.z);
-  controller.rotation.set(
-    baseRotation.x + Math.sin(elapsed * 0.85) * 0.045,
-    baseRotation.y + elapsed * 0.72,
-    baseRotation.z + Math.cos(elapsed * 1.1) * 0.035,
-  );
+  const power = state.power;
+  const effectsFinished = Boolean(power && playerId && powerFacingSettled && wizardPowerEffectFinished(power, playerId));
+  state.update(deltaSeconds, motion, wallActive, effectsFinished,
+    wallActive ? (performance.now() - spellblockVisual!.effect.startedAt) / 1000 : undefined,
+    Boolean(playerId && isShizzleGliding(playerId)));
+  if (state.powerRaised && state.power?.holdAtEnd && !state.power.liftStarted && state.power.phase !== 'resolving') {
+    if (playerId && state.power.targetKind && state.power.targetId) {
+      liftWizardPowerTarget(playerId, state.power.targetKind, state.power.targetId);
+      state.power.liftStarted = true;
+    }
+  }
+  if (power && !state.power && playerId) releaseWizardPowerTarget(playerId);
 }
 
 function loadSpectreAsset() {
@@ -8816,7 +8809,7 @@ type ObiWanAnimationState = {
   actions: Record<string, THREE.AnimationAction>;
   current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead' | ObiWanAttackClip | typeof OBI_WAN_DANCE_THROUGH_CLIP;
   power?: ObiWanPowerRuntime;
-  attack?: { clip: ObiWanAttackClip; impactReached: boolean; finished?: boolean };
+  attack?: { clip: ObiWanAttackClip; impactReached: boolean; finished?: boolean; preparation?: { elapsed: number; from: number; to: number } };
   danceThrough?: { holding: boolean; stepStartFrame: number; stepEndFrame: number };
   deathEndsAt?: number;
 };
@@ -9003,9 +8996,11 @@ function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: numbe
   const delayDraw = animation
     ? shouldDelayObiWanSaberDraw(animation.attack?.clip, Boolean(animation.attack?.finished))
     : shouldDelayObiWanSaberDraw(fallbackClip, performance.now() >= Number(group.userData.obiWanAttackEndsAt ?? 0));
-  const target = delayDraw ? 0 : Number(group.userData.obiWanLightsaberTarget ?? 0);
+  const lowCutActive = animation?.attack?.clip === OBI_WAN_LOW_CUT_CLIP && !animation.attack.finished;
+  const target = delayDraw ? 0 : lowCutActive ? 1 : Number(group.userData.obiWanLightsaberTarget ?? 0);
   const previous = Number(group.userData.obiWanLightsaberProgress ?? target);
-  const step = deltaSeconds / 0.5;
+  const retractingLowCut = performance.now() < Number(group.userData.obiWanLowCutRetractUntil ?? 0);
+  const step = deltaSeconds / (lowCutActive ? OBI_WAN_LOW_CUT_PREPARE_SECONDS : retractingLowCut ? OBI_WAN_LOW_CUT_RETRACT_SECONDS : 0.5);
   const progress = THREE.MathUtils.clamp(previous + Math.sign(target - previous) * Math.min(Math.abs(target - previous), step), 0, 1);
   group.userData.obiWanLightsaberProgress = progress;
   const hiltVisible = target > 0 || progress > 0;
@@ -9077,7 +9072,7 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
 }
 
 function loadObiWanAsset() {
-  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20260915-3`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
+  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20261008-low-cut-sword`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
     obiWanAssetPromise = null;
     throw error;
   });
@@ -9090,7 +9085,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const model = cloneSkeleton(asset.scene) as THREE.Group;
     model.name = 'ObiWanImportedModel';
     model.position.y = 0;
-    model.scale.setScalar(1.36);
+    model.scale.setScalar(OBI_WAN_MODEL_SCALE);
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       child.castShadow = true;
@@ -9112,8 +9107,9 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const deadClip = asset.animations.find((clip) => clip.name === 'Dead');
     const legKickClip = asset.animations.find((clip) => clip.name === OBI_WAN_LEG_KICK_CLIP);
     const doubleSwingClip = asset.animations.find((clip) => clip.name === OBI_WAN_DOUBLE_SWING_CLIP);
+    const lowCutClip = asset.animations.find((clip) => clip.name === OBI_WAN_LOW_CUT_CLIP)?.clone();
     const danceThroughClip = asset.animations.find((clip) => clip.name === OBI_WAN_DANCE_THROUGH_CLIP);
-    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip || !legKickClip || !doubleSwingClip || !danceThroughClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, Dead, Leg_Kick, Double_Swing, and Dance_Through clips.');
+    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip || !legKickClip || !doubleSwingClip || !lowCutClip || !danceThroughClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, Dead, Leg_Kick, Double_Swing, Low_Cut, and Dance_Through clips.');
     const alignedCasualWalk = alignObiWanLocomotionRoot(casualWalkClip, idleClip);
     const alignedWalking = alignObiWanLocomotionRoot(walkingClip, idleClip);
     const alignedRunning = alignObiWanLocomotionRoot(runningClip, idleClip);
@@ -9122,7 +9118,13 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const preparedDanceThrough = prepareObiWanInPlaceClip(danceThroughClip, idleClip);
     const oneCellWalk = THREE.AnimationUtils.subclip(alignedCasualWalk, 'CasualWalkOneCell', 0, 35, OBI_WAN_WALK_FPS);
     const mixer = new THREE.AnimationMixer(model);
-    const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
+    // The saber mesh is renamed when splitting its hilt/blade. Bind the
+    // clip-specific authored pose to the actual hilt, including each clone.
+    const saberHilt = model.getObjectByName('ObiWanImportedLightsaberHilt');
+    if (saberHilt) for (const track of lowCutClip.tracks) {
+      if (track.name.startsWith('Lightsaber.')) track.name = track.name.replace('Lightsaber.', `${saberHilt.uuid}.`);
+    }
+    const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip.name === OBI_WAN_LOW_CUT_CLIP ? lowCutClip : clip)]));
     actions.CasualWalkOneCell = mixer.clipAction(oneCellWalk);
     actions.Walking = mixer.clipAction(alignedWalking);
     actions.Running = mixer.clipAction(alignedRunning);
@@ -9141,6 +9143,8 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     actions[OBI_WAN_LEG_KICK_CLIP].clampWhenFinished = true;
     actions[OBI_WAN_DOUBLE_SWING_CLIP].setLoop(THREE.LoopOnce, 1);
     actions[OBI_WAN_DOUBLE_SWING_CLIP].clampWhenFinished = true;
+    actions[OBI_WAN_LOW_CUT_CLIP].setLoop(THREE.LoopOnce, 1);
+    actions[OBI_WAN_LOW_CUT_CLIP].clampWhenFinished = true;
     actions[OBI_WAN_DANCE_THROUGH_CLIP].setLoop(THREE.LoopRepeat, Infinity);
     actions[OBI_WAN_DANCE_THROUGH_CLIP].clampWhenFinished = false;
     actions.Idle.play();
@@ -9149,7 +9153,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const pendingObiWanAttack = root.userData.pendingObiWanAttack as ObiWanAttackClip | undefined;
     if (pendingObiWanAttack) {
       delete root.userData.pendingObiWanAttack;
-      startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack);
+      startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack, root);
     }
     root.userData.deathAnimationAvailable = true;
     const playerId = root.userData.playerId as PlayerId | undefined;
@@ -9245,7 +9249,7 @@ function finishObiWanDanceThrough(group: THREE.Group, playerId: PlayerId, state:
   group.userData.obiWanLightsaberTarget = lightsaberVisible ? 1 : 0;
 }
 
-function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip) {
+function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip, group?: THREE.Group) {
   if (state.deathEndsAt !== undefined) return;
   if (state.power) finishObiWanPowerAnimation(state);
   state.actions[state.current].fadeOut(0.08);
@@ -9254,6 +9258,12 @@ function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip) 
   action.reset().setEffectiveTimeScale(1).fadeIn(0.08).play();
   state.current = clip;
   state.attack = { clip, impactReached: false };
+  if (clip === OBI_WAN_LOW_CUT_CLIP) {
+    const turn = group?.userData.obiWanAttackTurn as { from: number; to: number } | undefined;
+    state.attack.preparation = { elapsed: 0, from: turn?.from ?? group?.rotation.y ?? 0, to: turn?.to ?? group?.rotation.y ?? 0 };
+    action.paused = true;
+  }
+  if (group) delete group.userData.obiWanAttackTurn;
 }
 
 function playObiWanDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
@@ -9346,6 +9356,20 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
       state.attack = undefined;
     } else {
       const action = state.actions[state.attack.clip];
+      const preparation = state.attack.preparation;
+      if (preparation) {
+        preparation.elapsed += deltaSeconds;
+        const t = Math.min(1, preparation.elapsed / OBI_WAN_LOW_CUT_PREPARE_SECONDS);
+        const eased = t * t * (3 - 2 * t);
+        const turn = Math.atan2(Math.sin(preparation.to - preparation.from), Math.cos(preparation.to - preparation.from));
+        group.rotation.y = preparation.from + turn * eased;
+        state.mixer.update(deltaSeconds);
+        if (t >= 1) {
+          action.paused = false;
+          state.attack.preparation = undefined;
+        }
+        return;
+      }
       state.mixer.update(deltaSeconds);
       state.attack.impactReached ||= action.time >= OBI_WAN_ATTACK_HIT_SECONDS[state.attack.clip];
       if (!action.isRunning()) {
@@ -9353,6 +9377,9 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
         state.actions.Idle.reset().fadeIn(0.1).play();
         state.current = 'Idle';
         state.attack.finished = true;
+        if (state.attack.clip === OBI_WAN_LOW_CUT_CLIP) {
+          group.userData.obiWanLowCutRetractUntil = performance.now() + OBI_WAN_LOW_CUT_RETRACT_SECONDS * 1000;
+        }
       }
       return;
     }
@@ -10249,7 +10276,8 @@ function syncBoard() {
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
         const portalTeleport = Boolean(recordedPathMatches && recordedMovement?.sourceCardId && portalStyleTeleportCards.has(recordedMovement.sourceCardId));
         const danceThrough = character === 'shinobi' && Boolean(recordedPathMatches) && isObiWanDanceThroughMovement(recordedMovement?.sourceCardId);
-        const fullRouteLocomotionDuration = portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
+        const shizzle = character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle';
+        const fullRouteLocomotionDuration = shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
@@ -10257,6 +10285,8 @@ function syncBoard() {
             ? obiWanMovementDuration(travelSquares, fastRun)
           : !forced && character === 'merylin'
             ? merylinMovementDuration(travelSquares, fastRun)
+          : !forced && character === 'magician'
+            ? archmageMovementDuration(travelSquares)
           : !forced && character === 'orkk'
               ? orkkMovementDuration(travelSquares, fastRun)
               : !forced && character === 'spectre'
@@ -10273,7 +10303,7 @@ function syncBoard() {
         const duration = slideStartsAtMs === undefined ? locomotionDuration
           : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS + Math.max(0, slideSteps - 1) * SLIDE_GLIDE_DURATION_MS
             : slideStartsAtMs + slideSteps * SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle: character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle', slideSegmentIndex, slideStartsAtMs };
+        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle, slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -10434,7 +10464,7 @@ function syncBoard() {
       if (gameState.combatReveal || combatAnimationImpactPending()) return;
       processedObjectPushAnimations.add(event.id);
       const attackPlayer = event.attackAnimationPlayerId ? gameState.players[event.attackAnimationPlayerId] : undefined;
-      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff, event.attackCardId) : null;
       if (event.attackAnimationPlayerId && obiWanClip) {
         const target = worldPosition(event.from);
         const attacker = dummyGroups.get(event.attackAnimationPlayerId);
@@ -10533,7 +10563,7 @@ function syncBoard() {
         const dx = logicalFrom.x - attacker.position.x;
         const dz = logicalFrom.z - attacker.position.z;
         const attackPlayer = gameState.players[event.attackAnimationPlayerId];
-        const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+        const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff, event.attackCardId) : null;
         if (Math.abs(dx) + Math.abs(dz) > 0.0001) attacker.rotation.y = obiWanClip
           ? obiWanAttackFacingRotation(attacker, dx, dz, obiWanClip)
           : characterFacingRotation(attacker, dx, dz);
@@ -10580,8 +10610,8 @@ function syncBoard() {
     const orkkState = ownerId ? dummyGroups.get(ownerId)?.userData.orkkAnimation as OrkkAnimationState | undefined : undefined;
     const orkkGroup = ownerId ? dummyGroups.get(ownerId) : undefined;
     const shieldThrow = event.id.includes('-arkane-arow-') ? orkkGroup?.getObjectByName('Shield_Release_Socket') : undefined;
-    const idleWorldQuaternion = shieldThrow && orkkState && orkkGroup
-      ? orkkGroup.getWorldQuaternion(new THREE.Quaternion()).multiply(orkkState.shieldIdleSocketLocalQuaternion)
+    const idleWorldQuaternion = shieldThrow
+      ? ((group.userData.shieldRestQuaternion as THREE.Quaternion | undefined) ?? group.quaternion).clone()
       : undefined;
     const boxAttacker = event.attackAnimationPlayerId ? dummyGroups.get(event.attackAnimationPlayerId) : undefined;
     let boxAttackDelay = 0;
@@ -10589,7 +10619,7 @@ function syncBoard() {
       const dx = logicalFrom.x - boxAttacker.position.x;
       const dz = logicalFrom.z - boxAttacker.position.z;
       const attackPlayer = gameState.players[event.attackAnimationPlayerId];
-      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff) : null;
+      const obiWanClip = attackPlayer ? obiWanAttackClip(attackPlayer.character, attackPlayer.lightsaberBuff, event.attackCardId) : null;
       if (Math.abs(dx) + Math.abs(dz) > 0.0001) boxAttacker.rotation.y = obiWanClip
         ? obiWanAttackFacingRotation(boxAttacker, dx, dz, obiWanClip)
         : characterFacingRotation(boxAttacker, dx, dz);
@@ -10871,34 +10901,13 @@ function animateQuestFlags(time: number) {
   }
 }
 
-type SwiftformHologramMaterialSet = {
-  original: THREE.Material | THREE.Material[];
-  hologram: THREE.Material | THREE.Material[];
-  castShadow: boolean;
-};
-const swiftformHologramMaterials = new WeakMap<THREE.Mesh, SwiftformHologramMaterialSet>();
-
 function updateSwiftformVisual(group: THREE.Group, active: boolean) {
   const wasActive = group.userData.swiftformHologramActive === true;
   if (!active && !wasActive) return;
   const model = group.userData.character === 'magician'
     ? group.getObjectByName('LongHatLoganImportedModel') ?? group.getObjectByName('LongHatLoganBody')
     : group.getObjectByName('ObiWanImportedModel') ?? group.getObjectByName('ObiWanBody');
-  model?.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return;
-    let materials = swiftformHologramMaterials.get(child);
-    if (!materials) {
-      if (!active) return;
-      materials = {
-        original: child.material,
-        hologram: characterHologramMaterials(child.material),
-        castShadow: child.castShadow,
-      };
-      swiftformHologramMaterials.set(child, materials);
-    }
-    child.material = active ? materials.hologram : materials.original;
-    child.castShadow = active ? false : materials.castShadow;
-  });
+  if (model) applyCharacterHologram(model, active, characterHologramMaterials);
   group.userData.swiftformHologramActive = active;
   const oldGlow = group.getObjectByName('SwiftformGlow') as THREE.PointLight | undefined;
   if (oldGlow) oldGlow.intensity = 0;
@@ -11067,6 +11076,14 @@ function selectedAttackCanReach(attacker: GameState['players'][PlayerId], select
 
 function highlightCells() {
   movementPreviewRoutes.clear();
+  shieldPreviewRoutes.clear();
+  if (gameState.phase === 'choosing-arm-da-wiz-target' && gameState.armDaWiz && canLocalAct(gameState.armDaWiz.casterId)) {
+    for (const shield of gameState.objects.filter((object) => object.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId)) {
+      const recall = armDaWizPreview(gameState, shield.id);
+      if (recall) shieldPreviewRoutes.set(shield.id, { kind: 'shield', recall,
+        points: [shield.position, ...recall.path].map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 0.16, 0))) });
+    }
+  }
   const selected = selection.getSnapshot().context.selection;
   const movementPlayerId = gameState.phase === 'double-jump' ? gameState.doubleJump!.playerId
     : (gameState.phase as string) === 'choosing-yamato-move' ? (gameState as GameState & { yamato?: { defenderId: PlayerId } }).yamato?.defenderId ?? gameState.activePlayerId
@@ -11193,7 +11210,9 @@ function highlightCells() {
       && distance(gameState.players[fireball!.casterId].position, cell) <= fireballRange && hasLineOfSight(gameState, gameState.players[fireball!.casterId].position, cell);
     const boomerangTargetValid = gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== gameState.boomerang!.casterId
       && distance(gameState.players[gameState.boomerang!.casterId].position, cell) <= 3;
-    const armTargetValid = gameState.phase === 'choosing-arm-da-wiz-target' && Boolean(gameState.armDaWiz) && objectOnCell?.kind === 'orkk-shield' && objectOnCell.ownerId === gameState.armDaWiz!.casterId;
+    const armTargetValid = objectsOnCell.some((object) => shieldPreviewRoutes.has(object.id));
+    const shieldPreview = objectsOnCell.map((object) => shieldPreviewRoutes.get(object.id)).find(Boolean);
+    if (shieldPreview) movementPreviewRoutes.set(mesh, shieldPreview);
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
     const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield'
@@ -11262,7 +11281,8 @@ function highlightCells() {
 
 function updateMovementPathPreview() {
   let preview: MovementPreview | undefined;
-  if (movementPreviewEnabled && boardPointerPosition && !cameraGrab && !touchCameraPan && !game.classList.contains('hidden') && movementPreviewRoutes.size > 0) {
+  const showMovement = movementPreviewEnabled || movementPreviewAltKeys.size > 0;
+  if ((showMovement || shieldPreviewRoutes.size > 0) && boardPointerPosition && !cameraGrab && !touchCameraPan && !game.classList.contains('hidden') && movementPreviewRoutes.size > 0) {
     const rect = renderer.domElement.getBoundingClientRect();
     const { clientX, clientY } = boardPointerPosition;
     if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
@@ -11271,8 +11291,15 @@ function updateMovementPathPreview() {
       // Only test tile surfaces: avoid CPU skinning character meshes during hover.
       const tile = raycaster.intersectObjects(cellMeshes, false)[0]?.object as THREE.Mesh | undefined;
       if (tile) preview = movementPreviewRoutes.get(tile);
+      if (shieldPreviewRoutes.size) {
+        const shields = [...shieldPreviewRoutes.keys()].flatMap((id) => objectGroups.get(id) ? [objectGroups.get(id)!] : []);
+        const hit = raycaster.intersectObjects(shields, true)[0];
+        const id = hit ? hitUserData<string>(hit, 'objectId') : undefined;
+        if (id) preview = shieldPreviewRoutes.get(id);
+      }
     }
   }
+  if (preview?.kind !== 'shield' && !showMovement) preview = undefined;
   movementPreviewGroup.visible = Boolean(preview);
   const rect = renderer.domElement.getBoundingClientRect();
   const updateLabels = () => {
@@ -11291,9 +11318,12 @@ function updateMovementPathPreview() {
     movementPreviewGroup.remove(child);
   }
   if (!preview) return;
-  preview.forecast ??= forecastMovement(gameState, preview.command);
-  if (!preview.forecast) { movementPreviewGroup.visible = false; return; }
-  const route = [preview.points[0], ...preview.forecast.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 0.16, 0)))];
+  if (preview.kind !== 'shield') {
+    preview.forecast ??= forecastMovement(gameState, preview.command);
+    if (!preview.forecast) { movementPreviewGroup.visible = false; return; }
+  }
+  const route = preview.kind === 'shield' ? preview.points
+    : [preview.points[0], ...preview.forecast!.path.map((cell) => worldPosition(cell).add(new THREE.Vector3(0, 0.16, 0)))];
   if (route.length < 2) return;
   const addLabel = (text: string, position: THREE.Vector3, warning = false) => {
     const element = document.createElement('div');
@@ -11309,9 +11339,25 @@ function updateMovementPathPreview() {
     movementPreviewGroup.add(mesh);
     return mesh;
   };
-  const curve = new THREE.CurvePath<THREE.Vector3>();
-  for (let index = 1; index < route.length; index++) curve.add(new THREE.LineCurve3(route[index - 1], route[index]));
-  addMesh(new THREE.TubeGeometry(curve, Math.max(16, route.length * 8), 0.035, 6, false));
+  if (preview.kind === 'shield') {
+    for (let index = 1; index < route.length; index++) {
+      const from = route[index - 1]; const to = route[index];
+      const startHit = preview.recall.hits.some((hit) => hit.pathIndex + 1 === index - 1);
+      const endHit = preview.recall.hits.some((hit) => hit.pathIndex + 1 === index);
+      // Clip the orange portion to the tile footprint (1.72 wide), including diagonals.
+      const tileFraction = Math.min(0.5, 0.86 / Math.max(Math.abs(to.x - from.x), Math.abs(to.z - from.z)));
+      const cuts = [0, ...(startHit ? [tileFraction] : []), ...(endHit ? [1 - tileFraction] : []), 1];
+      for (let part = 1; part < cuts.length; part++) {
+        const midpoint = (cuts[part - 1] + cuts[part]) / 2;
+        const damagingSection = (startHit && midpoint < tileFraction) || (endHit && midpoint > 1 - tileFraction);
+        addMesh(new THREE.TubeGeometry(new THREE.LineCurve3(from.clone().lerp(to, cuts[part - 1]), from.clone().lerp(to, cuts[part])), 4, 0.035, 6, false), damagingSection);
+      }
+    }
+  } else {
+    const curve = new THREE.CurvePath<THREE.Vector3>();
+    for (let index = 1; index < route.length; index++) curve.add(new THREE.LineCurve3(route[index - 1], route[index]));
+    addMesh(new THREE.TubeGeometry(curve, Math.max(16, route.length * 8), 0.035, 6, false));
+  }
   for (const point of route.slice(1, -1)) {
     const marker = addMesh(new THREE.SphereGeometry(0.075, 8, 6));
     marker.position.copy(point);
@@ -11321,8 +11367,18 @@ function updateMovementPathPreview() {
   const arrow = addMesh(new THREE.ConeGeometry(0.15, 0.38, 10));
   arrow.position.copy(end).addScaledVector(direction, -0.19);
   arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-  addLabel(`${preview.cost} MOV${preview.forecast.collision ? ' · Blocked' : ''}`, end, preview.forecast.collision);
-  for (const effect of preview.forecast.effects) {
+  if (preview.kind === 'shield') {
+    for (const hit of preview.recall.hits) {
+      const point = route[hit.pathIndex + 1];
+      addLabel(hit.damage > 0 ? `−${hit.damage} HP · Pull` : 'Pull', point, true);
+      const ring = addMesh(new THREE.RingGeometry(0.26, 0.34, 16), true);
+      ring.position.copy(point); ring.rotation.x = -Math.PI / 2;
+    }
+    updateLabels();
+    return;
+  }
+  addLabel(`${preview.cost} MOV${preview.forecast!.collision ? ' · Blocked' : ''}`, end, preview.forecast!.collision);
+  for (const effect of preview.forecast!.effects) {
     const from = worldPosition(effect.cell).add(new THREE.Vector3(0, 0.22, 0));
     addLabel(effect.label, from, true);
     const ring = addMesh(new THREE.RingGeometry(0.26, 0.34, 16), true);
@@ -11416,7 +11472,7 @@ function updateTargetHighlights(time: number) {
     const attackObjectReachable = object && selectedAttackCanReach(attacker, selectedAttack, object.position);
     const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || object!.kind !== 'wall-pillar')
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
-    const validShield = canArmTarget && object?.kind === 'orkk-shield' && object.ownerId === gameState.armDaWiz!.casterId;
+    const validShield = canArmTarget && shieldPreviewRoutes.has(objectId);
     const testPhylacteryCaster = testPhylactery ? gameState.players[testPhylactery.casterId] : null;
     const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian' && object!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
     const wrecknaObjectCaster = wrecknaObjectTargeting ? gameState.players[wrecknaObjectTargeting.casterId] : null;
@@ -11625,8 +11681,13 @@ function onBoardClick(event: MouseEvent) {
     if (cellHit && shadow) dispatch({ type: 'spectre-shadow-direction', playerId: shadow.casterId, to: cellHit.object.userData.cell });
     else if (cellHit) dispatch({ type: 'arkane-arow-target', playerId: gameState.arkaneArow!.casterId, to: cellHit.object.userData.cell });
   } else if (gameState.phase === 'choosing-arm-da-wiz-target') {
-    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
-    if (objectHit) dispatch({ type: 'arm-da-wiz-target', playerId: gameState.armDaWiz!.casterId, objectId: objectHit });
+    const arm = gameState.armDaWiz;
+    if (!arm || !canLocalAct(arm.casterId)) return;
+    const objectHit = hits.map((hit) => hitUserData<string>(hit, 'objectId')).find((id) => id && shieldPreviewRoutes.has(id));
+    const cellHit = hits.find((hit) => hit.object.userData.cell)?.object.userData.cell as Cell | undefined;
+    const shieldId = objectHit ?? (cellHit ? gameState.objects.find((object) => shieldPreviewRoutes.has(object.id)
+      && object.position.x === cellHit.x && object.position.y === cellHit.y)?.id : undefined);
+    if (shieldId) dispatch({ type: 'arm-da-wiz-target', playerId: arm.casterId, objectId: shieldId });
   } else if (gameState.phase === 'choosing-test-phylactery-target') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const pending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId } | null }).testPhylactery;
@@ -12092,7 +12153,7 @@ function setupCharacterPreview() {
     const orkkState = characterPreviewModel?.userData.orkkAnimation as OrkkAnimationState | undefined;
     const wizardState = characterPreviewModel?.userData.wizardAnimation as WizardAnimationState | undefined;
     const obiWanState = characterPreviewModel?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-    orkkState?.mixer.update(delta); wizardState?.mixer.update(delta); obiWanState?.mixer.update(delta);
+    orkkState?.mixer.update(delta); wizardState?.update(delta); obiWanState?.mixer.update(delta);
     if (characterPreviewModel?.userData.character === 'shinobi') updateObiWanMeditation(characterPreviewModel, delta, false, time);
     if (characterPreviewModel?.userData.merylinAnimation) {
       let previewWeapon: MerylinWeapon | undefined;
@@ -12259,7 +12320,7 @@ function renderLobbyModelPreviews() {
         const model = entry.current;
         if (model) {
           (model.userData.orkkAnimation as OrkkAnimationState | undefined)?.mixer.update(delta);
-          (model.userData.wizardAnimation as WizardAnimationState | undefined)?.mixer.update(delta);
+          (model.userData.wizardAnimation as WizardAnimationState | undefined)?.update(delta);
           (model.userData.obiWanAnimation as ObiWanAnimationState | undefined)?.mixer.update(delta);
           if (model.userData.merylinAnimation) updateMerylinAnimation(model, undefined, delta);
           if (model.userData.spectreAnimation) updateSpectreAnimation(model, undefined, delta);

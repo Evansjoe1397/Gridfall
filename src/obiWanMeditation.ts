@@ -5,6 +5,7 @@ import { updateJohnSpiritTransition } from './johnChristTransition.ts';
 
 export const MEDITATION_IDLE_MS = 20_000;
 export const MEDITATION_SWITCH_SECONDS = 0.65;
+export const OBI_WAN_MODEL_SCALE = 1.36;
 export type MeditationTiming = { lastActivity: number; blend: number };
 
 export function advanceMeditation(state: MeditationTiming, now: number, delta: number, busy: boolean, ready: boolean) {
@@ -51,11 +52,11 @@ async function loadMeditation(root: THREE.Group, state: MeditationState, normal:
     if (!normal.parent) return;
     const model = asset.scene.clone(true);
     model.name = 'ObiWanMeditation';
-    // Normalize the supplied centered static pose to board scale and ground its feet.
+    // Match the regular model's 1.7-unit height and shared display scale.
     const bounds = new THREE.Box3().setFromObject(model);
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
-    const scale = 1.7 / size.y;
+    const scale = (1.7 * OBI_WAN_MODEL_SCALE) / size.y;
     model.scale.setScalar(scale);
     model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
     model.userData.groundY = model.position.y;

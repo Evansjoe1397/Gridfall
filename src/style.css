@@ -1359,6 +1359,71 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .game:not(.hidden) .action-quest-panel { bottom: calc(clamp(240px, 28vh, 260px) + 28px); }
 }
 
+/* Keep enemy hands readable in laptop viewports, including display scaling.
+   Size the type with the cards instead of shrinking only their outer boxes. */
+@media (min-width: 801px) and (max-width: 1440px), (min-width: 801px) and (max-height: 900px) {
+  .game:not(.hidden) {
+    --enemy-card-width: clamp(35.2px, calc(48.4px - .88vw), 39.6px);
+    --enemy-card-height: calc(var(--enemy-card-width) * 1.5);
+    --enemy-hand-row-height: calc(var(--enemy-card-height) + 30px);
+  }
+
+  .game:not(.hidden) .opponent-hand-panel { padding: 5px; }
+  .game:not(.hidden) .opponent-hand-panel > span { font-size: 8px; }
+  .game:not(.hidden) .opponent-hand {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    gap: 4px;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+  }
+  .game:not(.hidden) .opponent-card {
+    width: var(--enemy-card-width);
+    height: var(--enemy-card-height);
+  }
+  .game:not(.hidden) .opponent-card.revealed { padding: 3px; }
+  .game:not(.hidden) .opponent-card.revealed span { font-size: 5.5px; }
+  .game:not(.hidden) .opponent-card.revealed strong {
+    font-size: calc(var(--enemy-card-width) * .23);
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+  }
+  .game:not(.hidden) .opponent-card.revealed b { font-size: 17.6px; }
+  .game:not(.hidden) .opponent-card.soul-strike-marked { width: calc(var(--enemy-card-width) + 20px); }
+  .game:not(.hidden) .opponent-card.soul-strike-marked em { font-size: 7.7px; }
+  .game:not(.hidden) .opponent-card.soul-strike-marked b { margin-bottom: 13px; }
+
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel {
+    right: 190px;
+  }
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 {
+    top: calc(118px + var(--enemy-hand-row-height));
+  }
+  .game:not(.hidden) .spell-echo-bars:not(.three-player) .spell-echo.opponent-echo {
+    top: calc(118px + var(--enemy-hand-row-height));
+    transform: none;
+  }
+}
+
+/* The owner caption must not stretch the card frame when a hand is short. */
+.game:not(.hidden) .opponent-hand-panels .opponent-hand-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.game:not(.hidden) .opponent-hand-panels .opponent-hand {
+  width: max-content;
+  max-width: 100%;
+  margin-left: auto;
+  padding: 5px;
+  border: 1px solid rgba(55, 91, 81, .65);
+  background: var(--hud-surface);
+  backdrop-filter: blur(5px);
+}
+.game:not(.hidden) .opponent-hand-panels .opponent-hand:empty { display: none; }
+
 /* Windows display scaling can leave desktop-width layouts with very little
    CSS height. Give the control deck enough room to keep every identity action
    visible above the fixed Combat Feed. */
@@ -1397,7 +1462,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   }
 
   .game:not(.hidden) .spell-echo-bars:not(.three-player) .spell-echo.opponent-echo {
-    top: 187px;
+    top: calc(118px + var(--enemy-hand-row-height));
     bottom: auto;
     transform: none;
   }
@@ -1407,7 +1472,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   }
 
   .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 {
-    top: calc(var(--ffa-hand-start) + 67px);
+    top: calc(var(--ffa-hand-start) + var(--enemy-hand-row-height));
   }
 
   .game:not(.hidden) .spell-echo-bars.three-player .spell-echo.opponent-echo {
@@ -1532,3 +1597,40 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .developer-panel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin: 10px 0 0; }
 .developer-panel dt { color: #86a79b; }
 .developer-panel dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+/* Oracle's foresight echoes on the attack and newly exposed hand cards. */
+[data-oracle-pulse="true"] {
+  position: relative;
+  animation: oracle-card-reveal 850ms ease-out both;
+  animation-delay: var(--oracle-delay, 0ms);
+}
+[data-oracle-pulse="true"]::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+  left: calc(50% - 22px);
+  top: calc(50% - 11px);
+  width: 44px;
+  height: 22px;
+  border: 2px solid #a6edff;
+  border-radius: 85% 15% / 85% 15%;
+  transform: rotate(45deg);
+  background: radial-gradient(circle, #e6fbff 0 12%, #53bcff 14% 23%, transparent 25%);
+  box-shadow: 0 0 16px #44afff, inset 0 0 12px #319aff;
+  animation: oracle-eye-echo 850ms ease-out both;
+  animation-delay: var(--oracle-delay, 0ms);
+}
+@keyframes oracle-card-reveal {
+  0% { filter: brightness(1); }
+  18% { filter: brightness(1.55); box-shadow: 0 0 24px #359dff; }
+  100% { filter: brightness(1); }
+}
+@keyframes oracle-eye-echo {
+  0% { opacity: 0; scale: 0.55; }
+  18% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-oracle-pulse="true"] { animation-name: none; outline: 1px solid #65cfff; }
+  [data-oracle-pulse="true"]::after { display: none; }
+}

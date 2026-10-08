@@ -7655,6 +7655,33 @@ export function shieldRecallEnemyCount(state: GameState, ownerId: PlayerId, path
   return enemyBodies(state, ownerId).filter((body) => path.some((cell) => cell.x === body.position.x && cell.y === body.position.y)).length;
 }
 
+export function armDaWizPreview(state: GameState, shieldId: string) {
+  const arm = state.armDaWiz;
+  const shield = state.objects.find((object) => object.id === shieldId && object.kind === 'orkk-shield' && object.ownerId === arm?.casterId);
+  if (state.phase !== 'choosing-arm-da-wiz-target' || !arm || !shield) return null;
+  const path = armDaWizPath(state, shield, state.players[arm.casterId].position, arm.range);
+  if (!path.length) return null;
+  const copy = structuredClone(state);
+  const hits: { cell: Cell; pathIndex: number; damage: number; pulls: boolean }[] = [];
+  const seen = new Set<string>();
+  const sequence = instanceSequence;
+  combatForecastDepth++;
+  try {
+    for (const [pathIndex, cell] of path.entries()) {
+      const enemy = enemyBodyAt(copy, arm.casterId, cell);
+      if (!enemy || seen.has(`${enemy.kind}:${enemy.id}`)) continue;
+      seen.add(`${enemy.kind}:${enemy.id}`);
+      const amount = 1 + meleeHighGroundDamageBonus(copy, copy.players[arm.casterId], enemy.position, shield.position);
+      const damage = arm.level >= 2 ? damageCharacterBody(copy, enemy, amount, true, arm.casterId, 'perk') : 0;
+      hits.push({ cell: { ...cell }, pathIndex, damage, pulls: true });
+    }
+    return { path, hits };
+  } finally {
+    instanceSequence = sequence;
+    combatForecastDepth--;
+  }
+}
+
 export function armDaWizPath(state: GameState, shield: BoardObject, orkkCell: Cell, range: number): Cell[] {
   const key = (cell: Cell) => `${cell.x},${cell.y}`;
   type RecallRoute = { cell: Cell; path: Cell[]; diagonalSteps: number; enemiesCrossed: number; turns: number; lineDeviation: number };

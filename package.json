@@ -46,6 +46,7 @@
     "check:stoic-shell": "tsx scripts/check-stoic-shell.ts",
     "check:lightsaber-duration": "tsx scripts/check-lightsaber-duration.ts",
     "check:obi-wan": "tsx scripts/check-obi-wan.ts",
+    "check:archmage": "tsx scripts/check-archmage.ts",
     "check:chain-lightning": "tsx scripts/check-chain-lightning.ts",
     "check:shizzle-highground": "tsx scripts/check-shizzle-highground.ts",
     "check:snowball-effect": "tsx scripts/check-snowball-effect.ts",

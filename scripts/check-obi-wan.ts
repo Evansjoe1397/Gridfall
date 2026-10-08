@@ -7,6 +7,11 @@ import {
   OBI_WAN_ATTACK_FACING_OFFSET_RADIANS,
   OBI_WAN_DOUBLE_SWING_CLIP,
   OBI_WAN_DOUBLE_SWING_HIT_SECONDS,
+  OBI_WAN_LOW_CUT_CLIP,
+  OBI_WAN_LOW_CUT_HIT_SECONDS,
+  OBI_WAN_LOW_CUT_FACING_OFFSET_RADIANS,
+  OBI_WAN_LOW_CUT_PREPARE_SECONDS,
+  obiWanAttackPreparationSeconds,
   OBI_WAN_LEG_KICK_CLIP,
   OBI_WAN_LEG_KICK_DURATION_SECONDS,
   OBI_WAN_LEG_KICK_HIT_SECONDS,
@@ -38,6 +43,39 @@ for (const name of ['Idle', 'Casual_Walk', 'Walking', 'Running', 'RunFast', 'Pow
 }
 const kick = asset.animations.find((clip) => clip.name === OBI_WAN_LEG_KICK_CLIP)!;
 const doubleSwing = asset.animations.find((clip) => clip.name === OBI_WAN_DOUBLE_SWING_CLIP)!;
+const lowCut = asset.animations.find((clip) => clip.name === OBI_WAN_LOW_CUT_CLIP);
+assert.ok(lowCut, 'Obi-Wan GLB missing Low_Cut');
+assert.ok(lowCut.duration > OBI_WAN_LOW_CUT_HIT_SECONDS);
+assert.equal(OBI_WAN_LOW_CUT_HIT_SECONDS, 20 / 24);
+assert.equal(obiWanAttackClip('shinobi', false, 'cut-them-legs'), OBI_WAN_LOW_CUT_CLIP);
+assert.equal(obiWanAttackClip('shinobi', true, 'cut-them-legs'), OBI_WAN_LOW_CUT_CLIP);
+assert.equal(obiWanAttackClip('shinobi', false, 'hello-there'), OBI_WAN_LEG_KICK_CLIP);
+assert.equal(obiWanAttackClip('shinobi', true, 'hello-there'), OBI_WAN_DOUBLE_SWING_CLIP);
+assert.equal(obiWanAttackClip('merylin', true, 'cut-them-legs'), null);
+assert.equal(obiWanAttackPreparationSeconds(OBI_WAN_LOW_CUT_CLIP), 0.18);
+assert.equal(obiWanAttackPreparationSeconds(OBI_WAN_LEG_KICK_CLIP), 0);
+assert.equal(obiWanAttackPreparationSeconds(OBI_WAN_DOUBLE_SWING_CLIP), 0);
+const saber = asset.scene.getObjectByName('Lightsaber')!;
+assert.ok(saber);
+const saberRestPosition = saber.position.clone();
+const saberRestRotation = saber.quaternion.clone();
+const lowCutMixer = new THREE.AnimationMixer(asset.scene);
+const lowCutAction = lowCutMixer.clipAction(lowCut).setLoop(THREE.LoopOnce, 1);
+lowCutAction.clampWhenFinished = true;
+lowCutAction.play();
+lowCutAction.paused = true;
+lowCutMixer.update(OBI_WAN_LOW_CUT_PREPARE_SECONDS);
+assert.equal(lowCutAction.time, 0, 'Preparation must not advance the hit clock');
+lowCutAction.paused = false;
+lowCutMixer.update(OBI_WAN_LOW_CUT_HIT_SECONDS);
+asset.scene.updateMatrixWorld(true);
+const bladeDirection = new THREE.Vector3(0, 1, 0).transformDirection(saber.matrixWorld)
+  .applyAxisAngle(new THREE.Vector3(0, 1, 0), OBI_WAN_LOW_CUT_FACING_OFFSET_RADIANS);
+assert.ok(Math.abs(bladeDirection.x) < 1e-5 && bladeDirection.z > 0, 'Frame-20 blade must face frame-zero forward after the turn');
+lowCutAction.stop();
+lowCutMixer.update(0);
+assert.ok(saber.position.distanceTo(saberRestPosition) < 1e-6, 'Low cut must restore the normal saber position');
+assert.ok(saber.quaternion.clone().normalize().angleTo(saberRestRotation.clone().normalize()) < 1e-6, 'Low cut must restore the normal saber rotation');
 const danceThrough = asset.animations.find((clip) => clip.name === OBI_WAN_DANCE_THROUGH_CLIP)!;
 assert.ok(Math.abs(kick.duration - OBI_WAN_LEG_KICK_DURATION_SECONDS) < 1 / 1_000, 'Leg_Kick must end on frame 70');
 assert.ok(doubleSwing.duration > OBI_WAN_DOUBLE_SWING_HIT_SECONDS, 'Double_Swing must continue after its frame-21 hit');
