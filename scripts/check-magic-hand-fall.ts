@@ -19,7 +19,7 @@ for (const targetKind of ['object', 'player'] as const) {
     const resolved = applyCommand(targeted.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 5, y: 0 } });
     assert.equal(resolved.ok, true);
     if (!resolved.ok) throw new Error(resolved.error);
-    assert.deepEqual(resolved.state.players.P2.position, { x: targetKind === 'player' ? 8 : 5, y: 0 });
+    assert.deepEqual(resolved.state.players.P2.position, { x: 5, y: 0 });
     assert.equal(resolved.state.players.P2.hp, hp - (highGround ? 1 : 0), `${targetKind} Magic Hand push applies exactly 1 Fall Damage from High Ground and no collision Damage.`);
     assert.equal(resolved.state.objectPushAnimations.some((event) => event.callout?.playerId === 'P2' && event.callout.text === 'Fall'), highGround);
   }

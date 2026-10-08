@@ -116,6 +116,7 @@ import {
   canDefendInsideTomb,
   cellLabel,
   BOARD_SIZE,
+  magicHandDestinationValid,
   PHASE_LENGTH_ROUNDS,
   MAX_ACTION_QUESTS,
   createHotseatTestState,
@@ -134,6 +135,7 @@ import {
   isShadowCloakedPerkTarget,
   isForbiddenSlideAscent,
   isForbiddenSlideAscentForPlayer,
+  isFixedWallObject,
   isShallowWater,
   isSpectreShadowTrailCell,
   isCardRevealedToOpponents,
@@ -479,6 +481,7 @@ document.querySelector('#directPerkButton')!.addEventListener('click', () => {
 document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
   if ((gameState.phase as string) === 'choosing-yamato-move') dispatch({ type: 'yamato-move', playerId: actingPlayer(), to: null });
   else if (gameState.phase === 'choosing-lichdom-target') dispatch({ type: 'lichdom-decline-phylactery', playerId: actingPlayer() });
+  else if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace') dispatch({ type: 'wreckna-phylactery-decline', playerId: actingPlayer() });
   else dispatch({ type: 'end-dance', playerId: actingPlayer() });
 });
 document.querySelector('#cancelMovementButton')!.addEventListener('click', () => dispatch({ type: 'cancel-movement', playerId: actingPlayer() }));
@@ -641,6 +644,10 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'Escape' && isWaitingForResolvedCardTarget()) {
     event.preventDefault();
+    if (gameState.phase === 'choosing-wreckna-phylactery' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace' || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && (gameState as GameState & { dakkoth?: { replacementTombCost?: boolean } }).dakkoth?.replacementTombCost !== undefined)) {
+      dispatch({ type: 'wreckna-phylactery-decline', playerId: actingPlayer() });
+      return;
+    }
     dispatch({ type: 'cancel-targeting', playerId: actingPlayer() });
     return;
   }
@@ -704,7 +711,7 @@ function isWaitingForResolvedCardTarget() {
   if (gameState.phase === 'choosing-boomerang-target' && Boolean(gameState.boomerang)) return true;
   if (gameState.phase === 'choosing-fireball-target' && Boolean((gameState as any).fireball)) return true;
   if (gameState.phase === 'choosing-portal-target' && Boolean((gameState as any).portal)) return true;
-  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'choosing-shadow-barter-tomb-square' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-sacrifice-tomb-square' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
+  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'choosing-shadow-barter-discard' || gameState.phase === 'choosing-shadow-barter-tomb-square' || gameState.phase === 'choosing-test-phylactery-target' || gameState.phase === 'choosing-sacrifice-tomb-square' || gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-wreckna-phylactery' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace' || gameState.phase === 'choosing-immortality-phylactery' || (gameState.phase as string).startsWith('choosing-dakkoth-') || (gameState.phase as string) === 'choosing-sap-target' || (gameState.phase as string).startsWith('choosing-necronomicon-') || (gameState.phase as string).startsWith('choosing-decay-')) return true;
   return ((gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction' || gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') && Boolean(gameState.forceThrow)) || ((gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') && Boolean(gameState.magicHand)) || ((gameState.phase === 'choosing-shizzle-destination' || (gameState.phase === 'shizzle-move' && gameState.shizzle?.started === false)) && Boolean(gameState.shizzle)) || (gameState.phase === 'choosing-force-pull-target' && Boolean(gameState.forcePull)) || (gameState.phase === 'choosing-arkane-arow-target' && Boolean(gameState.arkaneArow)) || ((gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') && Boolean(gameState.armDaWiz)) || (gameState.phase === 'choosing-preparation-teleport' && Boolean(gameState.preparation)) || (gameState.phase === 'choosing-arcane-missle-target' && Boolean(gameState.arcaneMissle)) || (gameState.phase === 'choosing-chain-lightning-target' && Boolean(gameState.chainLightning)) || (gameState.phase === 'choosing-mind-tricks-discard' && gameState.mindTricks?.discarded === 0);
 }
 
@@ -1349,7 +1356,7 @@ function actingPlayer(): PlayerId {
   if (gameState.phase === 'choosing-arkane-arow-target') return (gameState as any).spectreShadow?.casterId ?? gameState.arkaneArow!.casterId;
   if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
   if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-wreckna-phylactery') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-wreckna-phylactery' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-immortality-phylactery') return (gameState as GameState & { immortality?: { playerId: PlayerId } }).immortality?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-sap-defend') return (gameState as GameState & { sap?: { targetId?: PlayerId } }).sap?.targetId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
@@ -1693,7 +1700,8 @@ function renderUI() {
   if (gameState.phase === 'choosing-lichdom-copy') prompt.textContent = 'Lichdom: choose a Card in Hand to create a one-time copy';
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-square') prompt.textContent = `Dakkoth: create a Tomb within Range ${effectiveAttackRange(gameState, actor)}`;
   if ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice') prompt.textContent = `Dakkoth: select one of your Tombs within Range ${effectiveAttackRange(gameState, actor)} to sacrifice`;
-  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `${activeWrecknaPhylactery(gameState, actor.id, 'ritual') ? 'Dakkoth: Phylactery of Ritual waived the Tomb sacrifice. ' : 'Dakkoth: Tomb sacrificed. '}Select another Object within Range ${effectiveAttackRange(gameState, actor)} except a Column`;
+  if ((gameState.phase as string) === 'choosing-wreckna-phylactery-replace') prompt.textContent = 'Select one of your active Phylacteries anywhere on the board to destroy, or cancel';
+  if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target') prompt.textContent = `Dakkoth: select an uninfused Object within Range ${effectiveAttackRange(gameState, actor)} except a Column${(gameState as GameState & { dakkoth?: { replacementTombCost?: boolean } }).dakkoth?.replacementTombCost !== undefined ? ', or cancel creation' : ''}`;
   if ((gameState.phase as string) === 'choosing-sap-target') prompt.textContent = `Sap: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-necronomicon-tomb') prompt.textContent = `Necronomicon: select a Tomb within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
   if ((gameState.phase as string) === 'choosing-decay-target') prompt.textContent = `Curse: select an enemy within Range ${effectiveAttackRange(gameState, actor)} · Escape to cancel`;
@@ -1723,9 +1731,11 @@ function renderUI() {
   if (gameState.phase === 'choosing-boomerang-target') prompt.textContent = 'Boomerang: select an enemy within Range 3 · Range 1 automatically uses an Action for 2 Damage · Range 2-3 is a Free Action for 1 Damage · Escape to cancel';
   if (gameState.phase === 'choosing-portal-target') prompt.textContent = 'Portal: select a visible empty Square · Escape to cancel';
   if (gameState.phase === 'choosing-spirit-guardian-square') prompt.textContent = 'Spirit Guardian: select an empty highlighted Square within Range · Escape to cancel';
-  if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy or Object in range and line of sight. Columns remain intact · Escape to cancel';
-  if (gameState.phase === 'choosing-magic-hand-target') prompt.textContent = 'Magic Hand: select any visible Object · Escape to cancel';
-  if (gameState.phase === 'choosing-magic-hand-direction') prompt.textContent = 'Magic Hand: select any linear push direction · Escape to cancel';
+  if (gameState.phase === 'choosing-chain-lightning-target') prompt.textContent = 'Chain Lightning: select an enemy or Object in range and line of sight. Columns and Flood Buttons remain intact · Escape to cancel';
+  if (gameState.phase === 'choosing-magic-hand-target') prompt.textContent = `Magic Hand: select any visible Object${gameState.magicHand?.level === 3 ? ' or enemy' : ''} · Escape to cancel`;
+  if (gameState.phase === 'choosing-magic-hand-direction') prompt.textContent = gameState.magicHand?.targetKind === 'object' || gameState.players[gameState.magicHand!.targetId as PlayerId]?.wrecknaInsideTombId
+    ? 'Magic Hand: click the destination Square in a straight line within the movement limit · Heavy Objects move up to 1 Square · Escape to cancel'
+    : 'Magic Hand: click the destination Square in a straight line · Escape to cancel';
   if (gameState.phase === 'choosing-shizzle-destination') prompt.textContent = `Shizzle: select an empty Square in a direct line up to ${gameState.shizzle!.stepsRemaining} Squares away · Escape to cancel`;
   if (gameState.phase === 'shizzle-move') prompt.textContent = `Shizzle Consume: ${gameState.shizzle!.stepsRemaining} one-Square moves remain${gameState.shizzle!.started ? '' : ' · Escape to cancel before moving'}`;
   if (selectedTestObjectId) prompt.textContent = 'WOODEN BOX SELECTED · click an empty highlighted Square · Escape to cancel';
@@ -1745,10 +1755,16 @@ function renderUI() {
   const cancelDanceButton = byId('finishDanceButton') as HTMLButtonElement;
   const choosingYamatoMove = (gameState.phase as string) === 'choosing-yamato-move';
   const canDeclineLichdom = gameState.phase === 'choosing-lichdom-target';
+  const canDeclineReplacement = (gameState.phase as string) === 'choosing-wreckna-phylactery-replace' || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && (gameState as GameState & { dakkoth?: { replacementTombCost?: boolean } }).dakkoth?.replacementTombCost !== undefined);
   cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through' && !choosingYamatoMove && !canDeclineLichdom);
   cancelDanceButton.textContent = canDeclineLichdom ? 'Skip Phylactery · Keep HP' : choosingYamatoMove ? 'Stay in Place' : 'Cancel Dance Through';
   const danceOccupied = Boolean(gameState.danceThrough?.enemyUnderfoot || (gameState.danceThrough as typeof gameState.danceThrough & { objectUnderfoot?: string | null } | null)?.objectUnderfoot);
   cancelDanceButton.disabled = (!choosingYamatoMove && !canDeclineLichdom && danceOccupied) || !canLocalAct(actingPlayer());
+  if (canDeclineReplacement) {
+    cancelDanceButton.classList.remove('hidden');
+    cancelDanceButton.textContent = 'Cancel Phylactery creation';
+    cancelDanceButton.disabled = !canLocalAct(actingPlayer());
+  }
   cancelDanceButton.title = canDeclineLichdom ? 'Keep your HP, draw Lichdom\'s Card, and continue with its Level 3 effect if available.' : choosingYamatoMove ? 'Resolve Yamato without moving.' : danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
   const canCancelMovement = canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
@@ -2097,7 +2113,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const phylacteryIcons = player.character === 'wreckna' ? ([
       ['might', 'might', 'Phylactery of Might', 'Spend 1 MOV during Combat Stack selection for +1 Attack Value instead of using a Combat Card.'],
       ['wisdom', 'wisdom', 'Phylactery of Wisdom', 'Before choosing a Defend Card, draw 1 Card and then discard 1 Card.'],
-      ['ritual', 'ritual', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice.'],
+      ['ritual', 'ritual', 'Phylactery of Ritual', 'Creating a Phylactery ignores its HP or Tomb sacrifice. Replacing one still destroys an active Phylactery.'],
     ] as const).map(([type, icon, name, description]) => `<div class="status-icon phylactery-status ${activeWrecknaPhylactery(gameState, player.id, type) ? 'active' : 'inactive'}" tabindex="0">${gameIcon(icon)}<span class="status-tooltip"><strong>${name} · ${activeWrecknaPhylactery(gameState, player.id, type) ? 'ACTIVE' : 'INACTIVE'}</strong>${description}</span></div>`).join('') : '';
     const orkkShieldIcon = player.character === 'orkk' ? `<div class="status-icon orkk-shield-status ${player.shieldEquipped ? 'highground-active' : 'inactive'}" tabindex="0" aria-label="Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}">${gameIcon('shield')}<span class="status-tooltip"><strong>Iron Shield · ${player.shieldEquipped ? 'Equipped' : 'Unequipped'}</strong>${player.shieldEquipped ? 'Defend Cards gain +1 Defence Value.' : 'The Shield is currently on the Board as an obstacle.'}</span></div>` : '';
     const rageIcon = player.character === 'orkk' && player.rageStacks > 0 ? `<div class="status-icon rage-status" tabindex="0" aria-label="Rage · ${player.rageStacks} stacks">${gameIcon('rage')}<b>${player.rageStacks}</b><span class="status-tooltip"><strong>Rage Stacks</strong>Attack Cards gain +1 Attack Value from every stack, then consume every applied stack unless the target was an Object. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Remove 1 stack at turn end.</span></div>` : '';
@@ -2118,7 +2134,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
     const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
-    const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<span class="status-tooltip"><strong>MOV Annulled · Blessed Swiftness</strong>This Player's unspent movement was reduced to 0 by Blessed Swiftness. The marker expires when their end-turn process begins.</span></div>` : '';
+    const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<span class="status-tooltip"><strong>MOV Annulled</strong>This Player's unspent movement was reduced to 0 by a Defend Card effect. The marker expires when their end-turn process begins.</span></div>` : '';
     const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
     const hexBonus = (player.hexMovementBonus ?? 0) + (player.decayMovementBonus ?? 0);
     const hexPenalty = player.hexMovementPenalty ?? 0;
@@ -2452,7 +2468,7 @@ function renderArmDaWizModal() {
     modal.querySelectorAll<HTMLButtonElement>('[data-immortality-phylactery]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'immortality-phylactery-choice', playerId: immortality.playerId, objectId: button.dataset.immortalityPhylactery! })));
     return;
   }
-  const wrecknaState = gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; availableTypes: ('might' | 'wisdom' | 'ritual')[] } | null };
+  const wrecknaState = gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } | null; wrecknaPhylacteryChoice?: { casterId: PlayerId; availableTypes: ('might' | 'wisdom' | 'ritual')[]; replacementRequired?: boolean } | null };
   if (gameState.phase === 'wreckna-wisdom-offer' && wrecknaState.wrecknaWisdom && canLocalAct(wrecknaState.wrecknaWisdom.playerId)) {
     const player = gameState.players[wrecknaState.wrecknaWisdom.playerId];
     modal.classList.remove('hidden');
@@ -2463,10 +2479,17 @@ function renderArmDaWizModal() {
   }
   if (gameState.phase === 'choosing-wreckna-phylactery' && wrecknaState.wrecknaPhylacteryChoice && canLocalAct(wrecknaState.wrecknaPhylacteryChoice.casterId)) {
     const choice = wrecknaState.wrecknaPhylacteryChoice;
-    const copy = { might: ['Of Might', 'Spend 1 MOV for +1 Attack Value as a Combat Power.'], wisdom: ['Of Wisdom', 'Draw 1 Card and discard 1 before choosing a Defend Card.'], ritual: ['Of Ritual', 'Ignore HP or Tomb sacrifices when creating future Phylacteries.'] } as const;
+    const copy = { might: ['Of Might', 'Spend 1 MOV for +1 Attack Value as a Combat Power.'], wisdom: ['Of Wisdom', 'Draw 1 Card and discard 1 before choosing a Defend Card.'], ritual: ['Of Ritual', 'Ignore HP or Tomb sacrifices when creating future Phylacteries. Replacing one still destroys an active Phylactery.'] } as const;
     modal.classList.remove('hidden');
-    modal.innerHTML = `<div class="choice-dialog"><span>INFUSE OBJECT</span><h2>Choose Phylactery Type</h2><p>Only currently inactive types are available. Wreckna can maintain no more than 2 active Phylacteries.</p><div class="choice-cards">${choice.availableTypes.map((type) => `<button data-phylactery-type="${type}"><strong>${copy[type][0]}</strong><small>${copy[type][1]}</small></button>`).join('')}</div></div>`;
+    modal.innerHTML = `<div class="choice-dialog"><span>INFUSE OBJECT</span><h2>Choose Phylactery Type</h2><p>${choice.replacementRequired ? 'Choose an inactive type, then destroy one of your active Phylacteries anywhere on the board. The original creation cost is paid afterward.' : 'Only currently inactive types are available. Wreckna can maintain no more than 2 active Phylacteries.'}</p><div class="choice-cards">${choice.availableTypes.map((type) => `<button data-phylactery-type="${type}"><strong>${choice.replacementRequired ? 'Create ' : ''}${copy[type][0]}</strong><small>${copy[type][1]}</small></button>`).join('')}</div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-phylactery-type]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-phylactery-choice', playerId: choice.casterId, phylacteryType: button.dataset.phylacteryType as 'might' | 'wisdom' | 'ritual' })));
+    if (choice.replacementRequired) {
+      const cancel = document.createElement('button');
+      cancel.className = 'choice-decline';
+      cancel.textContent = 'Cancel Phylactery creation';
+      cancel.addEventListener('click', () => dispatch({ type: 'wreckna-phylactery-decline', playerId: choice.casterId }));
+      modal.querySelector('.choice-dialog')?.append(cancel);
+    }
     return;
   }
   const arm = gameState.armDaWiz;
@@ -11096,7 +11119,7 @@ function highlightCells() {
     const playerOnCell = Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y);
     const objectsOnCell = gameState.objects.filter((object) => object.position.x === cell.x && object.position.y === cell.y);
     const objectOnCell = objectsOnCell[0];
-    const movableObjectOnCell = Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar';
+    const movableObjectOnCell = Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!);
     const replicaOnCell = objectOnCell?.kind === 'spectre-replica' ? objectOnCell : null;
     const replicaOwnerOnCell = replicaOnCell?.ownerId ? gameState.players[replicaOnCell.ownerId] : null;
     const enemyBodyOwnerOnCell = playerOnCell ?? replicaOwnerOnCell;
@@ -11129,10 +11152,7 @@ function highlightCells() {
     const forceDirectionLinear = forceDx === 0 || forceDy === 0 || Math.abs(forceDx) === Math.abs(forceDy);
     const forceDirectionValid = gameState.phase === 'choosing-force-throw-direction' && forceDirectionDistance >= 1 && forceDirectionDistance <= (force?.distance ?? 0) && forceDirectionLinear && forceDx * awayX + forceDy * awayY >= 0;
     const magic = gameState.magicHand;
-    const magicTarget = magic?.targetKind === 'player' ? gameState.players[magic.targetId as PlayerId] : gameState.objects.find((object) => object.id === magic?.targetId);
-    const magicDx = magicTarget ? cell.x - magicTarget.position.x : 0; const magicDy = magicTarget ? cell.y - magicTarget.position.y : 0;
-    const magicLinear = magicDx === 0 || magicDy === 0 || Math.abs(magicDx) === Math.abs(magicDy);
-    const magicDirectionValid = gameState.phase === 'choosing-magic-hand-direction' && Math.max(Math.abs(magicDx), Math.abs(magicDy)) >= 1 && magicLinear;
+    const magicDirectionValid = magicHandDestinationValid(gameState, cell);
     const forceCollisionWarning = forceDirectionValid && Object.values(gameState.players).some((player) => player.position.x === cell.x && player.position.y === cell.y);
     const kykTarget = gameState.phase === 'choosing-kyk-direction' && gameState.forceThrow?.targetKind && gameState.forceThrow.targetId
       ? (gameState.forceThrow.targetKind === 'object' ? gameState.objects.find((object) => object.id === gameState.forceThrow!.targetId) : gameState.players[gameState.forceThrow.targetId as PlayerId])
@@ -11149,7 +11169,7 @@ function highlightCells() {
       : gameState.phase === 'choosing-blink-teleport' ? gameState.players[gameState.pendingAttack!.defenderId]
       : gameState.phase === 'choosing-portal-target' ? gameState.players[(gameState as any).portal.casterId as PlayerId]
       : null;
-    const preparationValid = gameState.phase === 'choosing-preparation-teleport' && Boolean(teleportCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && hasLineOfSight(gameState, teleportCaster!.position, cell);
+    const preparationValid = gameState.phase === 'choosing-preparation-teleport' && Boolean(teleportCaster) && Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!) && hasLineOfSight(gameState, teleportCaster!.position, cell);
     const teleportDestinationValid = (gameState.phase === 'choosing-portal-target' || gameState.phase === 'choosing-blink-teleport') && Boolean(teleportCaster) && !playerOnCell && !occupiedByObject
       && hasLineOfSight(gameState, teleportCaster!.position, cell);
     const shizzle = gameState.shizzle;
@@ -11179,7 +11199,7 @@ function highlightCells() {
     const shadowBarterCaster = shadowBarter ? gameState.players[shadowBarter.attackerId] : null;
     const shadowBarterTombSquareValid = gameState.phase === 'choosing-shadow-barter-tomb-square' && Boolean(shadowBarterCaster) && !occupiedByPlayer && !occupiedByObject
       && wrecknaPerkTargetInRange(gameState, shadowBarterCaster!, cell);
-    const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || objectOnCell!.kind !== 'wall-pillar');
+    const attackableObject = Boolean(objectOnCell) && (selectedCard?.cardId === 'moonlight' || !isFixedWallObject(objectOnCell!));
     const playerOnCellIsEntombed = Boolean(playerOnCell?.wrecknaInsideTombId && gameState.objects.some((object) => object.id === playerOnCell.wrecknaInsideTombId && object.kind === 'tomb'));
     const attackTargetReachable = selectedAttackCanReach(activePlayer, selectedCard, cell);
     const attackTargetValid = selected.kind === 'attack' && gameState.phase === 'active' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && !playerOnCellIsEntombed) || (attackableObject && !(objectOnCell!.kind === 'spectre-replica' && objectOnCell!.ownerId === activePlayer.id)))
@@ -11188,7 +11208,7 @@ function highlightCells() {
       (selectedCard?.cardId === 'force-throw' && movableObjectOnCell && distance(activePlayer.position, cell) <= 4)
       || (selectedCard?.cardId === 'force-pull' && ((Boolean(playerOnCell) && playerOnCell!.id !== activePlayer.id && hasLineOfSight(gameState, activePlayer.position, cell)) || movableObjectOnCell) && distance(activePlayer.position, cell) <= 3)
       || (selectedCard?.cardId === 'arkane-arow' && arkaneArowPath(gameState, activePlayer, cell, 3).length > 0)
-      || (selectedCard?.cardId === 'kyk' && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && distance(activePlayer.position, cell) === 1)
+      || (selectedCard?.cardId === 'kyk' && Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!) && distance(activePlayer.position, cell) === 1)
     );
     const forceTargetValid = gameState.phase === 'choosing-force-throw-target' && Boolean(force) && distance(gameState.players[force!.casterId].position, cell) <= force!.targetRange
       && (movableObjectOnCell || (force!.level >= 3 && Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId && hasLineOfSight(gameState, gameState.players[force!.casterId].position, cell)));
@@ -11215,13 +11235,15 @@ function highlightCells() {
     if (shieldPreview) movementPreviewRoutes.set(mesh, shieldPreview);
     const testPhylacteryPending = (gameState as GameState & { testPhylactery?: { casterId: PlayerId; sacrificeEnemyId?: PlayerId } | null }).testPhylactery;
     const testPhylacteryCaster = testPhylacteryPending ? gameState.players[testPhylacteryPending.casterId] : null;
-    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield'
+    const testPhylacteryTargetValid = gameState.phase === 'choosing-test-phylactery-target' && Boolean(testPhylacteryCaster) && Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!) && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield'
       && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, cell);
     const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
     const lichdomCaster = lichdom ? gameState.players[lichdom.casterId] : null;
-    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(lichdomCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, lichdomCaster!, cell);
+    const lichdomTargetValid = gameState.phase === 'choosing-lichdom-target' && Boolean(lichdomCaster) && Boolean(objectOnCell) && !objectOnCell!.phylacteryType && !isFixedWallObject(objectOnCell!) && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, lichdomCaster!, cell);
+    const phylacteryReplacement = (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } | null }).wrecknaPhylacteryChoice;
+    const phylacteryReplacementValid = (gameState.phase as string) === 'choosing-wreckna-phylactery-replace' && Boolean(phylacteryReplacement) && objectOnCell?.phylacteryOwnerId === phylacteryReplacement?.casterId && Boolean(objectOnCell?.phylacteryType);
     const dakkothTombSacrificeValid = (gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && Boolean(dakkothCaster) && objectOnCell?.kind === 'tomb' && objectOnCell.ownerId === dakkoth?.casterId && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
-    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(dakkothCaster) && Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar' && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
+    const dakkothPhylacteryTargetValid = (gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && Boolean(dakkothCaster) && Boolean(objectOnCell) && !objectOnCell!.phylacteryType && !isFixedWallObject(objectOnCell!) && objectOnCell!.kind !== 'spirit-guardian' && objectOnCell!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, dakkothCaster!, cell);
     const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
     const necronomiconCaster = necronomicon ? gameState.players[necronomicon.casterId] : null;
     const necronomiconTombTargetValid = (gameState.phase as string) === 'choosing-necronomicon-tomb' && Boolean(necronomiconCaster) && objectOnCell?.kind === 'tomb' && !objectOnCell.phylacteryType && wrecknaPerkTargetInRange(gameState, necronomiconCaster!, cell);
@@ -11233,8 +11255,8 @@ function highlightCells() {
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const decayTargetValid = (gameState.phase as string) === 'choosing-decay-target' && Boolean(decayCaster) && Boolean(positionalEnemyBody) && positionalEnemyBody!.id !== decay!.casterId
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
-    const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && objectOnCell!.kind !== 'wall-pillar') || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
-    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
+    const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!)) || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
+    const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || phylacteryReplacementValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
     const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
     const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
@@ -11470,20 +11492,21 @@ function updateTargetHighlights(time: number) {
   objectGroups.forEach((group, objectId) => {
     const object = gameState.objects.find((entry) => entry.id === objectId);
     const attackObjectReachable = object && selectedAttackCanReach(attacker, selectedAttack, object.position);
-    const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || object!.kind !== 'wall-pillar')
+    const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || !isFixedWallObject(object!))
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
     const validShield = canArmTarget && shieldPreviewRoutes.has(objectId);
     const testPhylacteryCaster = testPhylactery ? gameState.players[testPhylactery.casterId] : null;
-    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && object!.kind !== 'wall-pillar' && object!.kind !== 'spirit-guardian' && object!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
+    const validTestPhylacteryObject = canTestPhylacteryTarget && Boolean(testPhylacteryCaster) && Boolean(object) && !object!.phylacteryType && !isFixedWallObject(object!) && object!.kind !== 'spirit-guardian' && object!.kind !== 'orkk-shield' && wrecknaPerkTargetInRange(gameState, testPhylacteryCaster!, object!.position);
     const wrecknaObjectCaster = wrecknaObjectTargeting ? gameState.players[wrecknaObjectTargeting.casterId] : null;
     const validWrecknaObject = Boolean(object && wrecknaObjectCaster && canLocalAct(wrecknaObjectCaster.id) && wrecknaPerkTargetInRange(gameState, wrecknaObjectCaster, object.position) && (
-      (gameState.phase === 'choosing-lichdom-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
+      (gameState.phase === 'choosing-lichdom-target' && !object.phylacteryType && !isFixedWallObject(object) && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
       || ((gameState.phase as string) === 'choosing-dakkoth-tomb-sacrifice' && object.kind === 'tomb' && object.ownerId === wrecknaObjectCaster.id)
-      || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && object.kind !== 'wall-pillar' && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
+      || ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' && !object.phylacteryType && !isFixedWallObject(object) && object.kind !== 'spirit-guardian' && object.kind !== 'orkk-shield')
       || ((gameState.phase as string) === 'choosing-necronomicon-tomb' && object.kind === 'tomb' && !object.phylacteryType)
     ));
-    const validKykObject = canKykTarget && Boolean(object) && object!.kind !== 'wall-pillar' && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
-    const validMagicObject = canMagicTarget && Boolean(object) && object!.kind !== 'wall-pillar' && (magic!.level >= 2 || distance(object!.position, gameState.players[magic!.casterId].position) <= 5);
+    const validReplacementPhylactery = (gameState.phase as string) === 'choosing-wreckna-phylactery-replace' && object?.phylacteryOwnerId === (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } | null }).wrecknaPhylacteryChoice?.casterId && Boolean(object?.phylacteryType);
+    const validKykObject = canKykTarget && Boolean(object) && !isFixedWallObject(object!) && distance(object!.position, gameState.players[gameState.forceThrow!.casterId].position) === 1;
+    const validMagicObject = canMagicTarget && Boolean(object) && !isFixedWallObject(object!) && (magic!.level >= 2 || distance(object!.position, gameState.players[magic!.casterId].position) <= 5);
     const replicaOwner = object?.kind === 'spectre-replica' && object.ownerId ? gameState.players[object.ownerId] : null;
     const replicaPerkProtected = Boolean(object && isShadowCloakedPerkTarget(gameState, 'object', object.id));
     const positionalReplicaOwner = replicaOwner && object ? { ...replicaOwner, position: object.position } : null;
@@ -11507,8 +11530,8 @@ function updateTargetHighlights(time: number) {
     }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0.55 : 0;
     });
   });
   const quickAttackShortcutAvailable = selected.kind === 'none' || selected.kind === 'move';
@@ -11607,6 +11630,10 @@ function onBoardClick(event: MouseEvent) {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const dakkoth = (gameState as GameState & { dakkoth?: { casterId: PlayerId } | null }).dakkoth;
     if (objectHit && dakkoth) dispatch({ type: 'dakkoth-phylactery-target', playerId: dakkoth.casterId, objectId: objectHit });
+  } else if ((gameState.phase as string) === 'choosing-wreckna-phylactery-replace') {
+    const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
+    const choice = (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } | null }).wrecknaPhylacteryChoice;
+    if (objectHit && choice) dispatch({ type: 'wreckna-phylactery-replace', playerId: choice.casterId, objectId: objectHit });
   } else if ((gameState.phase as string) === 'choosing-necronomicon-tomb') {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const necronomicon = (gameState as GameState & { necronomicon?: { casterId: PlayerId } | null }).necronomicon;
@@ -11777,9 +11804,9 @@ function onBoardClick(event: MouseEvent) {
     else if (objectHit) {
       const object = hitObject;
       const moonlightCanTargetWall = selectedAttackCard?.cardId === 'moonlight';
-      const normallyAttackable = object?.kind !== 'wall-pillar';
+      const normallyAttackable = Boolean(object && !isFixedWallObject(object));
       if (object && (normallyAttackable || moonlightCanTargetWall) && selectedAttackCanReach(attacker, selectedAttackCard, object.position)) {
-        const targetsWall = moonlightCanTargetWall && (object.kind === 'wall-pillar' || object.kind === 'orkk-shield');
+        const targetsWall = moonlightCanTargetWall && (isFixedWallObject(object) || object.kind === 'orkk-shield');
         const message = object.kind === 'pipe-button' ? 'The button remains intact and floods or drains a Trench zone. Attack Card effects still resolve.' : targetsWall
           ? 'Moonlight leaves this Wall Object standing and creates the moonwave behind it.'
           : 'This destructible Object will be destroyed by the Attack Card.';

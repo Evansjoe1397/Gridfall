@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { THE_PIPE_ARENA, randomPipeBoxSpawns } from '../shared/arenas.ts';
-import { applyCommand, canAttackTargetSquare, createMultiplayerState, createPipeTestState, hasLineOfSight, isShallowWater, movementCost, movementPath, type Cell, type GameState } from '../shared/game.ts';
+import { applyCommand, beginWrecknaPhylacteryChoice, canAttackTargetSquare, chainLightningCanTarget, createMultiplayerState, createPipeTestState, hasLineOfSight, isShallowWater, movementCost, movementPath, type Cell, type GameState } from '../shared/game.ts';
 
 const cell = (label: string): Cell => ({ x: label.charCodeAt(0) - 64, y: Number(label.slice(1)) - 1 });
 const step = (state: GameState, command: Parameters<typeof applyCommand>[1]): GameState => {
@@ -53,14 +53,62 @@ assert.deepEqual(throughButton.players.P1.position, cell('D3'));
 assert.equal(throughButton.players.P1.spiritObjectUnderfoot, null);
 assert.ok(throughButton.objects.some((object) => object.id === 'pipe-button-1'), 'Spirit traversal leaves the Button intact.');
 
-const attackState = withoutBoxes(createPipeTestState(true, 'shinobi', 'dummy'));
+const attackState = withoutBoxes(createPipeTestState(true, 'merylin', 'dummy'));
 attackState.players.P1.position = cell('B3');
 attackState.players.P2.position = cell('B7');
 attackState.players.P1.hand = [{ instanceId: 'pipe-attack', cardId: 'attack-2' }];
-const afterAttack = step(attackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'pipe-attack', targetId: 'pipe-button-1', targetKind: 'object' });
+attackState.players.P1.merylinSummonActive = true;
+assert.equal(applyCommand(attackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'pipe-attack', targetId: 'pipe-button-1', targetKind: 'object' }).ok, false, 'Ordinary Attack Cards cannot target a Button, as with a Column.');
+assert.equal(isShallowWater(attackState, cell('B8')), false, 'A rejected Attack does not press the Button.');
+attackState.players.P1.hand = [{ instanceId: 'pipe-moonlight', cardId: 'moonlight' }];
+const afterAttack = step(attackState, { type: 'attack', playerId: 'P1', cardInstanceId: 'pipe-moonlight', targetId: 'pipe-button-1', targetKind: 'object' });
 assert.ok(afterAttack.objects.some((object) => object.id === 'pipe-button-1'), 'Attacking a Button never destroys it.');
-assert.equal(isShallowWater(afterAttack, cell('B8')), true, 'An Attack Card activates the Button.');
-assert.equal(afterAttack.players.P1.actionsRemaining, attackState.players.P1.actionsRemaining - 1, 'Attacking spends the Attack Card Action only.');
+assert.equal(isShallowWater(afterAttack, cell('B8')), true, 'Moonlight can target the Button, as with a Column, and activates it.');
+assert.equal(afterAttack.players.P1.actionsRemaining, attackState.players.P1.actionsRemaining - 1, 'Moonlight spends the Attack Card Action only.');
+
+const fixedButton = withoutBoxes(createPipeTestState(true, 'wreckna', 'dummy')) as GameState & Record<string, any>;
+fixedButton.players.P1.position = cell('B3');
+fixedButton.players.P2.position = cell('B7');
+const buttonPosition = { ...fixedButton.objects.find((object) => object.id === 'pipe-button-1')!.position };
+const startingHp = fixedButton.players.P1.hp;
+assert.equal(beginWrecknaPhylacteryChoice(fixedButton, 'P1', 'pipe-button-1', { hp: 1 }).ok, false, 'Shared Phylactery creation rejects a Button.');
+assert.equal(fixedButton.players.P1.hp, startingHp, 'Rejected infusion does not charge HP.');
+const staleInfusion = structuredClone(fixedButton);
+staleInfusion.phase = 'choosing-wreckna-phylactery';
+staleInfusion.wrecknaPhylacteryChoice = { casterId: 'P1', objectId: 'pipe-button-1', availableTypes: ['might'], sacrificeHp: 0 };
+assert.equal(applyCommand(staleInfusion, { type: 'wreckna-phylactery-choice', playerId: 'P1', phylacteryType: 'might' }).ok, false, 'A stale pending choice cannot infuse a Button.');
+for (const [phase, pendingKey, commandType] of [
+  ['choosing-test-phylactery-target', 'testPhylactery', 'test-phylactery-target'],
+  ['choosing-lichdom-target', 'lichdom', 'lichdom-target'],
+  ['choosing-dakkoth-phylactery-target', 'dakkoth', 'dakkoth-phylactery-target'],
+] as const) {
+  const pending = structuredClone(fixedButton);
+  pending.phase = phase;
+  pending[pendingKey] = { casterId: 'P1', level: 2, stage: 'target', undo: null };
+  assert.equal(applyCommand(pending, { type: commandType, playerId: 'P1', objectId: 'pipe-button-1' }).ok, false, `${commandType} cannot infuse a Button.`);
+}
+const chainState = withoutBoxes(createPipeTestState(true, 'magician', 'dummy'));
+chainState.players.P1.position = cell('B3');
+chainState.players.P2.position = cell('H7');
+chainState.phase = 'choosing-chain-lightning-target';
+chainState.chainLightning = { casterId: 'P1', level: 1, bounces: 0, bounceRange: 1, undo: null };
+assert.equal(chainLightningCanTarget(chainState, 'P1', 'pipe-button-1', 'object'), true, 'Chain Lightning can initially target a Button, as with a Column.');
+const chained = step(chainState, { type: 'chain-lightning-target', playerId: 'P1', targetId: 'pipe-button-1', targetKind: 'object' });
+assert.deepEqual(chained.objects.find((object) => object.id === 'pipe-button-1')?.position, buttonPosition, 'Chain Lightning leaves the Button in place.');
+
+for (const [phase, pendingKey, command] of [
+  ['choosing-force-pull-target', 'forcePull', { type: 'force-pull-target', playerId: 'P1', targetKind: 'object', targetId: 'pipe-button-1' }],
+  ['choosing-force-throw-target', 'forceThrow', { type: 'force-throw-target', playerId: 'P1', targetKind: 'object', targetId: 'pipe-button-1' }],
+  ['choosing-magic-hand-target', 'magicHand', { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'pipe-button-1' }],
+  ['choosing-kyk-target', 'forceThrow', { type: 'kyk-target', playerId: 'P1', objectId: 'pipe-button-1' }],
+  ['choosing-preparation-teleport', 'preparation', { type: 'preparation-teleport', playerId: 'P1', objectId: 'pipe-button-1' }],
+] as const) {
+  const pending = structuredClone(fixedButton);
+  pending.phase = phase;
+  pending[pendingKey] = { casterId: 'P1', level: 3, targetRange: 4, undo: null };
+  assert.equal(applyCommand(pending, command as Parameters<typeof applyCommand>[1]).ok, false, `${command.type} cannot move a Button.`);
+  assert.deepEqual(pending.objects.find((object) => object.id === 'pipe-button-1')?.position, buttonPosition);
+}
 
 state.players.P1.position = cell('B3');
 state.players.P2.position = cell('B7');

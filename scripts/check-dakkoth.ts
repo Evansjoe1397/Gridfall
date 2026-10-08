@@ -6,7 +6,7 @@ assert.equal(
   'Gain 1 Attack, +1 Attack Range and 1 Movement.',
   'Dakkoth Level 3 describes its additional Attack Range bonus.',
 );
-assert.equal(cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[1], 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the sacrifice');
+assert.equal(cardDefinition({ instanceId: 'dakkoth-definition', cardId: 'dakkoth' }).levelEffects?.[1], 'Sacrifice one of your Tombs, then infuse another Object as a Phylactery. Phylactery of Ritual waives the Tomb sacrifice, but not the sacrifice of an existing Phylactery when replacing it');
 
 const state = createHotseatTestState(true, 'wreckna', 2);
 state.objects = [{ id: 'dakkoth-box', name: 'Wooden Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: { x: 5, y: 2 } }];
