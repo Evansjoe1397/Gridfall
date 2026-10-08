@@ -86,6 +86,16 @@ export const LORDAERON_ARENA: ArenaDefinition = {
   startingSquares: { P1: 'B7', P2: 'F2', P3: 'G7' },
 };
 
+export function randomLordaeronHighgroundBoxSpawn(random: () => number = Math.random): string {
+  const available = LORDAERON_ARENA.highground.filter((label) =>
+    !LORDAERON_ARENA.boxes.includes(label)
+    && !LORDAERON_ARENA.pillars.includes(label)
+    && !Object.values(LORDAERON_ARENA.bases).some((base) => base.includes(label))
+    && !Object.values(LORDAERON_ARENA.startingSquares).includes(label));
+  if (available.length === 0) throw new Error('Lordaeron has no clear High Ground Square for the Free For All Box.');
+  return available[Math.min(available.length - 1, Math.floor(random() * available.length))];
+}
+
 export const THE_TRENCH_ARENA: ArenaDefinition = {
   id: 'trench', name: 'The Trench', playerCount: 2, width: 8, height: 8,
   pillars: ['A3', 'A6', 'H3', 'H6'],

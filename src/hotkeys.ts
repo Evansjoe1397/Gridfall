@@ -26,7 +26,7 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
       { keys: ['J'], action: 'Enable or disable Perk-use labels.' },
       { keys: ['T'], action: 'Toggle movement path previews and MOV-cost labels.', detail: 'Enabled by default. Available in the game with no modifier keys, while not typing in a text field. Includes automatic Slides and collision outcomes.' },
       { keys: ['K'], action: 'Toggle Compact Hand.' },
-      { keys: ['Esc'], action: 'Close the current popup or cancel an available choice.', detail: 'Closes Statistics, HINTS, the Discard Deck, the end-turn reminder, Quick Attack, or Object Attack confirmation. Gameplay shortcuts are suspended while Statistics is open. Cancels Wooden Box relocation, Card targeting, or Dash; ends Dance Through; declines Feed Spirit or Anguish status removal. Gameplay choices cannot be cancelled during the combat reveal.' },
+      { keys: ['Esc'], action: 'Close the current popup or cancel an available choice.', detail: 'Closes Statistics, HINTS, the Discard Deck, the end-turn reminder, Quick Attack, or Object Attack confirmation. Gameplay shortcuts are suspended while Statistics is open. Cancels Wooden Box relocation, Card targeting, Phylactery replacement, or Dash; ends Dance Through; declines Feed Spirit or Anguish status removal. Gameplay choices cannot be cancelled during the combat reveal.' },
       { keys: ['←', '→'], action: 'Cycle Spectre’s Perk origin.', detail: 'While choosing an origin, cycle between eligible Replicas and Spectre where allowed.' },
       { keys: ['Enter'], action: 'Confirm Spectre’s selected Perk origin.' },
       { keys: ['Ctrl', 'C'], action: 'Copy the selected Room ID.', detail: 'In the online lobby, click the Room ID to select it first.' },

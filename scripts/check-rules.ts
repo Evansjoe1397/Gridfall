@@ -1072,7 +1072,9 @@ if (independentFfaFocus.ok) {
   assert.equal((independentFfaFocus.state as any).openingSetup.pendingPlayerIds.includes('P1'), true, 'Other FFA Players remain free to complete their own Focus choices.');
 }
 const lordOpeningOrder = lordMultiplayer.lordaeronPlacement!.order;
-assert.deepEqual(lordMultiplayer.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position)).sort(), ['B3', 'D10', 'F5'], 'Three-player multiplayer loads every Lordaeron box.');
+const lordOpeningBoxes = lordMultiplayer.objects.filter((object) => object.kind === 'wooden-box').map((object) => cellLabel(object.position));
+assert.deepEqual(['B3', 'D10', 'F5'].filter((square) => lordOpeningBoxes.includes(square)), ['B3', 'D10', 'F5'], 'Three-player multiplayer loads every fixed Lordaeron box.');
+assert.equal(lordOpeningBoxes.length, 4, 'Three-player multiplayer also starts with one Highground Box.');
 let lordReady = lordMultiplayer as any;
 for (const [playerId, cardId] of [['P1', 'mana-barrage'], ['P2', 'shield-bash'], ['P3', 'cut-them-legs']] as const) {
   const focusResult = applyCommand(lordReady, { type: 'choose-focus', playerId, focus: 'attack' });
@@ -2230,13 +2232,25 @@ const cappedHp = phylacteryCapState.players.P1.hp;
 const cappedInfusion = beginWrecknaPhylacteryChoice(phylacteryCapState, 'P1', 'cap-target', { hp: 1 });
 assert.equal(cappedInfusion.ok, true);
 if (cappedInfusion.ok) {
-  assert.equal((cappedInfusion.state as any).wrecknaPhylacteryChoice, undefined, 'A third active Phylactery does not open a type choice.');
-  assert.equal(cappedInfusion.state.players.P1.hp, cappedHp, 'A blocked third Phylactery does not consume its sacrifice.');
-  assert.equal(cappedInfusion.state.objects.find((object) => object.id === 'cap-target')?.phylacteryType, undefined);
-  cappedInfusion.state.objects = cappedInfusion.state.objects.filter((object) => object.id !== 'cap-wisdom');
-  const replacementInfusion = beginWrecknaPhylacteryChoice(cappedInfusion.state, 'P1', 'cap-target');
-  assert.equal(replacementInfusion.ok, true);
-  if (replacementInfusion.ok) assert.deepEqual((replacementInfusion.state as any).wrecknaPhylacteryChoice.availableTypes, ['wisdom', 'ritual'], 'Destroying one of two Phylacteries permits a replacement of an inactive type.');
+  assert.deepEqual((cappedInfusion.state as any).wrecknaPhylacteryChoice.availableTypes, ['ritual'], 'A third type is offered as a replacement.');
+  assert.equal(cappedInfusion.state.players.P1.hp, cappedHp, 'The original cost waits until the old Phylactery is destroyed.');
+  const chooseReplacement = applyGameCommand(cappedInfusion.state, { type: 'wreckna-phylactery-choice', playerId: 'P1', phylacteryType: 'ritual' });
+  assert.equal(chooseReplacement.ok, true);
+  if (chooseReplacement.ok) {
+    assert.equal(chooseReplacement.state.phase, 'choosing-wreckna-phylactery-replace');
+    assert.equal(applyGameCommand(chooseReplacement.state, { type: 'wreckna-phylactery-replace', playerId: 'P1', objectId: 'cap-target' }).ok, false, 'The new target cannot pay the replacement cost.');
+    const cancelReplacement = applyGameCommand(chooseReplacement.state, { type: 'wreckna-phylactery-decline', playerId: 'P1' });
+    assert.equal(cancelReplacement.ok, true);
+    if (cancelReplacement.ok) assert.equal(cancelReplacement.state.objects.filter((object) => object.phylacteryOwnerId === 'P1').length, 2, 'Cancelling keeps both existing Phylacteries.');
+    const replaced = applyGameCommand(chooseReplacement.state, { type: 'wreckna-phylactery-replace', playerId: 'P1', objectId: 'cap-might' });
+    assert.equal(replaced.ok, true);
+    if (replaced.ok) {
+      assert.equal(replaced.state.objects.some((object) => object.id === 'cap-might'), false, 'The selected old Object is destroyed.');
+      assert.equal(replaced.state.objects.find((object) => object.id === 'cap-target')?.phylacteryType, 'ritual');
+      assert.equal(replaced.state.objects.filter((object) => object.phylacteryOwnerId === 'P1' && object.phylacteryType).length, 2);
+      assert.equal(replaced.state.players.P1.hp, cappedHp - 1, 'The original HP cost is paid after replacement.');
+    }
+  }
 }
 
 const testPhylacteryState = createHotseatTestState(true, 'wreckna', 2);
@@ -2838,7 +2852,7 @@ if (startMagic.ok) {
     const resolveMagic = applyCommand(targetMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 0 } });
     assert.equal(resolveMagic.ok, true);
     if (resolveMagic.ok) {
-      assert.deepEqual(resolveMagic.state.objects.find((object) => object.id === 'magic-box')?.position, { x: 5, y: 0 }, 'Level 1 Magic Hand throws an Object exactly 3 Squares.');
+      assert.deepEqual(resolveMagic.state.objects.find((object) => object.id === 'magic-box')?.position, { x: 3, y: 0 }, 'Level 1 Magic Hand moves an Object to the clicked Square within 3 Squares.');
       assert.equal(resolveMagic.state.players.P1.actionsRemaining, 2, 'Magic Hand Consume refunds the Action spent to use it.');
     }
   }
@@ -2857,7 +2871,7 @@ if (startGlobalMagic.ok) {
   if (targetGlobalMagic.ok) {
     const resolveGlobalMagic = applyCommand(targetGlobalMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 7, y: 0 } });
     assert.equal(resolveGlobalMagic.ok, true);
-    if (resolveGlobalMagic.ok) assert.deepEqual(resolveGlobalMagic.state.objects.find((object) => object.id === 'global-magic-box')?.position, { x: 8, y: 0 }, 'Level 2 Magic Hand has global targeting Range and throws 3 Squares until the board edge.');
+    if (resolveGlobalMagic.ok) assert.deepEqual(resolveGlobalMagic.state.objects.find((object) => object.id === 'global-magic-box')?.position, { x: 7, y: 0 }, 'Level 2 Magic Hand has global targeting Range and stops on the clicked Square.');
   }
 }
 const collisionMagicHandTest = createHotseatTestState(true);
@@ -2873,7 +2887,7 @@ if (startCollisionMagic.ok && startCollisionMagic.state.magicHand) {
   const targetCollisionMagic = applyCommand(startCollisionMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'collision-magic-box' });
   assert.equal(targetCollisionMagic.ok, true);
   if (targetCollisionMagic.ok) {
-    const resolveCollisionMagic = applyCommand(targetCollisionMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 0 } });
+    const resolveCollisionMagic = applyCommand(targetCollisionMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 8, y: 0 } });
     assert.equal(resolveCollisionMagic.ok, true);
     if (resolveCollisionMagic.ok) {
       assert.deepEqual(resolveCollisionMagic.state.objects.find((object) => object.id === 'collision-magic-box')?.position, { x: 3, y: 0 });
@@ -2898,7 +2912,7 @@ if (startKineticMagic.ok) {
   const targetKineticMagic = applyCommand(startKineticMagic.state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'object', targetId: 'kinetic-source-box' });
   assert.equal(targetKineticMagic.ok, true);
   if (targetKineticMagic.ok) {
-    const resolveKineticMagic = applyCommand(targetKineticMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 3, y: 1 } });
+    const resolveKineticMagic = applyCommand(targetKineticMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 5, y: 1 } });
     assert.equal(resolveKineticMagic.ok, true);
     if (resolveKineticMagic.ok) {
       assert.deepEqual(resolveKineticMagic.state.objects.find((object) => object.id === 'kinetic-source-box')?.position, { x: 3, y: 1 });
@@ -2925,7 +2939,7 @@ if (startEnemyMagic.ok && startEnemyMagic.state.magicHand) {
     const resolveEnemyMagic = applyCommand(targetEnemyMagic.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 5, y: 2 } });
     assert.equal(resolveEnemyMagic.ok, true);
     if (resolveEnemyMagic.ok) {
-      assert.deepEqual(resolveEnemyMagic.state.players.P2.position, { x: 8, y: 2 }, 'A Level 3 enemy target is pushed globally until the board edge.');
+      assert.deepEqual(resolveEnemyMagic.state.players.P2.position, { x: 5, y: 2 }, 'A Level 3 enemy target stops at the selected Square.');
       assert.equal(resolveEnemyMagic.state.players.P2.hp, 20, 'Direct Magic Hand pushes deal no Damage.');
     }
   }
@@ -3374,7 +3388,7 @@ encourageThree.players.P1.spellEcho[2] = { instanceId: 'encourage-three', cardId
 const resolvedEncourageThree = applyCommand(encourageThree, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
 assert.equal(resolvedEncourageThree.ok, true);
 if (resolvedEncourageThree.ok) {
-  assert.equal(resolvedEncourageThree.state.players.P1.rageStacks, 1);
+  assert.equal(resolvedEncourageThree.state.players.P1.rageStacks, 3, 'EncouRAGE Level 3 raises Rage to 3 when below.');
   assert.equal(resolvedEncourageThree.state.players.P1.hand.some((card) => card.instanceId === 'encourage-three-deck'), true);
   assert.equal(resolvedEncourageThree.state.players.P1.hand.some((card) => card.instanceId === 'encourage-three-discard'), true);
   assert.equal(resolvedEncourageThree.state.players.P1.discard.length, 0);
@@ -6495,6 +6509,7 @@ thornsState.pendingManaChoice = null;
 thornsState.players.P1.position = { x: 2, y: 2 };
 thornsState.players.P2.position = { x: 3, y: 2 };
 thornsState.players.P1.hand = [{ instanceId: 'attack-vs-thorns', cardId: 'grimoire-cleanse' }];
+thornsState.players.P1.movementRemaining = 2;
 thornsState.players.P2.hand = [{ instanceId: 'thorns-test', cardId: 'thorns' }];
 const attackerHpBeforeThorns = thornsState.players.P1.hp;
 const thornsAttack = applyGameCommand(thornsState, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack-vs-thorns', targetId: 'P2' });
@@ -6510,7 +6525,8 @@ if (thornsAttack.ok) {
     if (thornsAckTwo.ok) {
       assert.equal(thornsAckTwo.state.players.P1.hp, attackerHpBeforeThorns - 1, 'Thorns deals 1 Damage to the Attacker before combat.');
       assert.equal(thornsAckTwo.state.players.P2.spiritForm, true, 'Combat Damage causes John to enter Spirit Form.');
-      assert.equal(thornsAckTwo.state.players.P1.hand.some((card) => card.cardId === 'burning'), true, 'Thorns applies Burning to the Attacker after John enters Spirit Form.');
+      assert.equal(thornsAckTwo.state.players.P1.hand.some((card) => card.cardId === 'burning'), false, 'Thorns no longer applies Burning.');
+      assert.equal(thornsAckTwo.state.players.P1.movementRemaining, 0, 'Thorns annuls the Attacker\'s unspent movement after John enters Spirit Form.');
     }
   }
 }
@@ -6580,6 +6596,7 @@ if (resurrectionAttack.ok) {
     assert.equal(resurrectionAckTwo.ok, true);
     if (resurrectionAckTwo.ok) {
       assert.equal(['H4', 'H5'].includes(cellLabel(resurrectionAckTwo.state.players.P2.position)), true, 'Resurrection teleports John to an available own Base Square.');
+      assert.equal(resurrectionAckTwo.state.players.P2.hp, 13, 'Resurrection costs 1 HP after teleporting without Stoic Shell.');
       assert.equal(resurrectionAckTwo.state.players.P2.hand.some((card) => card.instanceId === 'resurrection-draw'), true, 'Resurrection draws 1 Card.');
     }
   }

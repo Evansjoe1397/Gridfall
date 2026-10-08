@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CARDS, STARTING_DECKS, applyCommand, createHotseatTestState, type CardTypeId, type GameCommand, type GameState, type HotseatCharacterId } from '../shared/game.ts';
+import { CARDS, STARTING_DECKS, applyCommand, cardDefinition, createHotseatTestState, type CardTypeId, type GameCommand, type GameState, type HotseatCharacterId } from '../shared/game.ts';
 
 function step(state: GameState, command: GameCommand): GameState {
   const result = applyCommand(state, command);
@@ -75,6 +75,57 @@ assert.equal(frozenWithoutMovement.players.P2.brainFreezeMovementBonus ?? 0, 0);
 assert.equal(frozenWithoutMovement.players.P1.brainFreezeCombatBlocked, true, 'Brain Freeze still blocks Combat Cards and Effects with no MOV to steal.');
 const immortalityDefense = defend(attack(setup('attack-3', 'immortality')));
 assert.equal(immortalityDefense.combatReveal?.defendBase, 2, 'Immortality has base Defend Value 2.');
+
+assert.equal(cardDefinition({ instanceId: '', cardId: 'thorns' }).effectText, "Deal 1 Damage to the Attacker before combat. After combat: if John entered Spirit Form, annul the Attacker's unspent movement.");
+for (const stack of [false, true]) {
+  const initial = setup('attack-3', 'thorns', stack);
+  initial.players.P1.movementRemaining = 3;
+  initial.players.P1.freeMoveUsed = true;
+  const revealed = defend(attack(initial));
+  assert.equal(revealed.players.P1.hp, 19, 'Thorns still deals its 1 Damage before combat.');
+  assert.equal(revealed.players.P1.movementRemaining, 3, 'Thorns does not annul MOV before the combat reveal finishes.');
+  const resolved = final(revealed);
+  assert.equal(resolved.players.P2.spiritForm, true);
+  assert.equal(resolved.players.P1.movementRemaining, 0, 'Entering Spirit Form in this combat annuls the attacker\'s unspent MOV.');
+  assert.equal(resolved.players.P1.movementAnnulledByBlessedSwiftness, true);
+  assert.equal(resolved.players.P1.hand.some((card) => card.cardId === 'burning'), false);
+  let acknowledged = step(revealed, { type: 'ack-combat', playerId: 'P1' });
+  acknowledged = step(acknowledged, { type: 'ack-combat', playerId: 'P2' });
+  assert.equal(acknowledged.players.P1.movementRemaining, 0);
+  assert.equal(applyCommand(acknowledged, { type: 'move', playerId: 'P1', to: { x: 2, y: 3 } }).ok, false, 'The attacker cannot spend annulled MOV.');
+  const ended = step(acknowledged, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(ended.players.P1.movementAnnulledByBlessedSwiftness, false, 'The annulment marker expires at the affected turn end.');
+
+  for (const scenario of ['blocked-damage', 'already-spirit', 'blocked-trait', 'cancelled-effect', 'windwalker', 'zero-movement'] as const) {
+    const candidate = setup(scenario === 'blocked-damage' ? 'attack-2' : scenario === 'cancelled-effect' ? 'blessed-might' : 'attack-3', 'thorns', stack);
+    candidate.players.P1.character = 'shinobi';
+    candidate.players.P1.movementRemaining = scenario === 'zero-movement' ? 0 : 3;
+    if (scenario === 'already-spirit') candidate.players.P2.spiritForm = true;
+    if (scenario === 'blocked-trait') candidate.players.P2.traitBlocked = true;
+    if (scenario === 'windwalker') {
+      candidate.players.P1.character = 'merylin';
+      candidate.players.P1.windwalkerUnrestrictedMovement = true;
+    }
+    const result = final(defend(attack(candidate)));
+    assert.equal(result.players.P1.movementRemaining, scenario === 'zero-movement' ? 0 : 3, `${scenario}: Thorns respects the Spirit Form entry condition, effect cancellation, and MOV immunity.`);
+    assert.equal(result.players.P1.movementAnnulledByBlessedSwiftness, scenario === 'zero-movement');
+    assert.equal(result.players.P1.hand.some((card) => card.cardId === 'burning'), false);
+    assert.equal(result.players.P1.hp, 19, 'Thorns pre-combat Damage remains independent of its after-combat effect.');
+  }
+
+  const spiritAttacker = setup('attack-3', 'thorns', stack);
+  spiritAttacker.players.P1.character = 'john-christ';
+  spiritAttacker.players.P1.spiritForm = true;
+  spiritAttacker.players.P1.freeMoveUsed = true;
+  spiritAttacker.players.P1.movementRemaining = 1;
+  spiritAttacker.players.P1.johnCumulativeMovementRemaining = 4;
+  let finishedSpiritAttack = defend(attack(spiritAttacker));
+  finishedSpiritAttack = step(finishedSpiritAttack, { type: 'ack-combat', playerId: 'P1' });
+  finishedSpiritAttack = step(finishedSpiritAttack, { type: 'ack-combat', playerId: 'P2' });
+  assert.equal(finishedSpiritAttack.players.P1.spiritForm, false);
+  assert.equal(finishedSpiritAttack.players.P1.johnCumulativeMovementRemaining, 0, 'Thorns also annuls John\'s stored cumulative MOV.');
+  assert.equal(finishedSpiritAttack.players.P1.movementRemaining, 0, 'Leaving Spirit Form cannot restore annulled MOV.');
+}
 
 for (const stack of [false, true]) {
   let undefended = attack(setup('lightbringer', 'defend-1', stack));

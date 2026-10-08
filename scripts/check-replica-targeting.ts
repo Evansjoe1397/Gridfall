@@ -202,7 +202,7 @@ if (!magicHandReplicaTarget.ok) throw new Error(magicHandReplicaTarget.error);
 const magicHandReplicaMoved = applyCommand(magicHandReplicaTarget.state, { type: 'magic-hand-direction', playerId: 'P1', to: { x: 4, y: 1 } });
 assert.equal(magicHandReplicaMoved.ok, true);
 if (!magicHandReplicaMoved.ok) throw new Error(magicHandReplicaMoved.error);
-assert.deepEqual(magicHandReplicaMoved.state.objects.find((object) => object.id === 'magic-hand-replica')?.position, { x: 6, y: 1 }, 'Magic Hand moves a replica as a board body.');
+assert.deepEqual(magicHandReplicaMoved.state.objects.find((object) => object.id === 'magic-hand-replica')?.position, { x: 4, y: 1 }, 'Magic Hand moves a replica to the selected Square.');
 
 const forcePullReplicaState = createHotseatTestState(true, 'shinobi', 'spectre') as any;
 forcePullReplicaState.phase = 'choosing-force-pull-target'; forcePullReplicaState.activePlayerId = 'P1';

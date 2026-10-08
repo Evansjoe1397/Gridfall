@@ -6,7 +6,7 @@ export const CHARACTER_STATUS_CARD_IDS: Record<CharacterId, readonly CardTypeId[
   shinobi: ['pinned', 'headache', 'exhaust'], // Movement effects, Hello There / Mind Tricks, Force Disarm.
   orkk: ['headache', 'exhaust'], // Knee Blast / CountaSpell, Teef Strike / Consume Rage.
   magician: ['headache'], // Counterspell.
-  'john-christ': ['headache', 'exhaust', 'burning', 'panic'], // Enforce / Mind Blast, Blessed Light, Cleanse / Thorns, Fear the Justice.
+  'john-christ': ['headache', 'exhaust', 'burning', 'panic'], // Enforce / Mind Blast, Blessed Light, Cleanse, Fear the Justice.
   spectre: ['headache', 'panic'], // Consume Replica / Devour, Replicate.
   wreckna: ['headache', 'exhaust'], // Sap / Curse, Enfeeble / Finger of Death.
   merylin: ['headache', 'exhaust'], // Excalibur; Tactician / Frostmourne.

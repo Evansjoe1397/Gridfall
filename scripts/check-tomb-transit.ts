@@ -22,7 +22,7 @@ const setup = (character: 'magician' | 'orkk' | 'shinobi' | 'john-christ' = 'mag
 const magic = setup();
 magic.phase = 'choosing-magic-hand-direction';
 magic.magicHand = { casterId: 'P1', level: 1, distance: 2, consume: false, targetKind: 'object', targetId: 'occupied-tomb', undo: null };
-const pushed = step(magic, { type: 'magic-hand-direction', playerId: 'P1', to: cell('F2') });
+const pushed = step(magic, { type: 'magic-hand-direction', playerId: 'P1', to: cell('E2') });
 assert.deepEqual(pushed.objects.find((object) => object.id === 'occupied-tomb')?.position, cell('E2'), 'A Heavy Tomb moves one Square.');
 assert.deepEqual(pushed.players.P2.position, cell('E2'), 'Wreckna moves with his Tomb.');
 assert.equal(pushed.players.P2.wrecknaInsideTombId, 'occupied-tomb');
