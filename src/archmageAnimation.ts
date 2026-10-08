@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ArchmageConjure } from './archmageConjure.ts';
 
-export const ARCHMAGE_SCALE = 2.5 / 1.7;
+export const ARCHMAGE_SCALE = 2.75 / 1.7;
 export const ARCHMAGE_CLIPS = ['Idle', 'Walk', 'Running', 'Summon', 'Conjure', 'Power', 'Wall', 'Dead'] as const;
 export const ARCHMAGE_RAISE_SECONDS = .35;
 export const ARCHMAGE_LOWER_SECONDS = .25;
