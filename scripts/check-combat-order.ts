@@ -86,6 +86,10 @@ for (const stack of [false, true]) {
   assert.equal(revealed.players.P1.movementRemaining, 3, 'Thorns does not annul MOV before the combat reveal finishes.');
   const resolved = final(revealed);
   assert.equal(resolved.players.P2.spiritForm, true);
+  const holyThorns = resolved.objectPushAnimations.filter(event => event.thorns);
+  assert.equal(holyThorns.length, 1, 'One Thorns presentation survives combat resolution.');
+  assert.equal(holyThorns[0].thorns?.spirit, false, 'Later combat damage must not recolor normal-form Thorns.');
+  assert.equal(holyThorns[0].damage?.amount, 1, 'Retaliation damage travels with its impact presentation.');
   assert.equal(resolved.players.P1.movementRemaining, 0, 'Entering Spirit Form in this combat annuls the attacker\'s unspent MOV.');
   assert.equal(resolved.players.P1.movementAnnulledByBlessedSwiftness, true);
   assert.equal(resolved.players.P1.hand.some((card) => card.cardId === 'burning'), false);
@@ -111,6 +115,7 @@ for (const stack of [false, true]) {
     assert.equal(result.players.P1.movementAnnulledByBlessedSwiftness, scenario === 'zero-movement');
     assert.equal(result.players.P1.hand.some((card) => card.cardId === 'burning'), false);
     assert.equal(result.players.P1.hp, 19, 'Thorns pre-combat Damage remains independent of its after-combat effect.');
+    assert.equal(result.objectPushAnimations.find(event => event.thorns)?.thorns?.spirit, scenario === 'already-spirit', 'Thorns preserves the defending form across deferred combat state.');
   }
 
   const spiritAttacker = setup('attack-3', 'thorns', stack);

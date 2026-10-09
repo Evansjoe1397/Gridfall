@@ -1,3 +1,5 @@
+import { clearSwiftness, spawnSwiftness, updateSwiftness } from './swiftnessVisuals.ts';
+import { clearThorns, spawnThorns, THORNS_STRIKE_MS, updateThorns } from './thornsVisuals.ts';
 import { DashWindTrails } from './dashWindTrails.ts';
 import { CounterspellVisual } from './counterspellVisual.ts';
 import { SpellblockVisual, SPELLBLOCK_ASSEMBLY_MS } from './spellblockVisual.ts';
@@ -2751,6 +2753,8 @@ function renderCombatReveal() {
         flurryAttackNotBefore = performance.now() + FLURRY_DURATION_MS;
       }
       flurryCombatPosition = null;
+      playPendingSwiftness();
+      if (playPendingThorns()) flurryAttackNotBefore = Math.max(flurryAttackNotBefore, performance.now() + THORNS_STRIKE_MS);
       const combatForfeited = Boolean(forfeitedCombatTargetId);
       if (forfeitedCombatTargetId) spawnCharacterCalloutBubble(forfeitedCombatTargetId, 'Combat forfeited');
       forfeitedCombatTargetId = null;
@@ -2774,7 +2778,7 @@ function renderCombatReveal() {
       genericCombatImpactAt = activeCombatVisualAttackId && !combatForfeited ? Math.max(performance.now(), flurryAttackNotBefore) + 420 : 0;
       if (genericCombatImpactAt) {
         for (const event of gameState.objectPushAnimations) {
-          if (event.damage && !event.afterBarrierAnimationId && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
+          if (event.damage && !event.thorns && !event.afterBarrierAnimationId && event.damage.presentationTiming !== 'flurry' && !event.damage.triggerAnimationId && !processedObjectPushAnimations.has(event.id)) combatDamageEventIds.add(event.id);
         }
       }
       completedCombatVisualAttackId = gameState.pendingAttack?.cardInstanceId ?? activeCombatVisualAttackId;
@@ -4178,7 +4182,7 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
 const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: number; startedAt: number }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; dashCalloutShown?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
 const dashWindTrails = new DashWindTrails(scene);
 const dashPreviousPosition = new THREE.Vector3();
@@ -4583,6 +4587,8 @@ renderer.setAnimationLoop((time) => {
   }
   updateArcaneBarriers(time);
   updateFlurries(time);
+  updateThorns(time);
+  updateSwiftness(time, camera);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
@@ -4857,7 +4863,7 @@ function spawnStatEffectVisual(playerId: PlayerId, amount: number, stat: 'MOV' |
 }
 
 const characterCalloutScreenPosition = new THREE.Vector3();
-function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Slide' | 'Fall' | 'Attack blocked' | 'Combat forfeited' | '+1 Range' | 'Missed', worldPosition?: THREE.Vector3) {
+function spawnCharacterCalloutBubble(playerId: PlayerId, text: 'Dash' | 'Slide' | 'Fall' | 'Attack blocked' | 'Combat forfeited' | '+1 Range' | 'Missed', worldPosition?: THREE.Vector3) {
   const element = document.createElement('div');
   element.className = `character-callout-bubble ${text.toLowerCase()}`;
   element.style.setProperty('--player-color', playerUiColor(playerId));
@@ -5452,6 +5458,10 @@ function updateCharacterMovement(time: number) {
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
     if (animation.dash && !animation.forced && !animation.teleport && !animation.verticalOnly
       && group.visible && !group.userData.defeated && group.position.distanceToSquared(dashPreviousPosition) > 0.000001) {
+      if (!animation.dashCalloutShown) {
+        spawnCharacterCalloutBubble(playerId, 'Dash');
+        animation.dashCalloutShown = true;
+      }
       dashWindTrails.emit(playerId, group.position, characterMovementDirection, time);
     }
     if (animation.danceThrough) group.position.y = THREE.MathUtils.lerp(animation.from.y, animation.to.y, eased);
@@ -6797,7 +6807,12 @@ function releaseBlessingPresentation(presentation: BlessingPresentation) {
   presentation.released = true;
   completedAttackEffectAnimations.add(presentation.id);
   spawnEffectMessage(presentation.playerId, cardDefinition({ instanceId: presentation.cardInstanceId, cardId: presentation.cardId }).name, 'blessing');
-  if (presentation.cardId === 'blessing-swiftness') spawnStatEffectVisual(presentation.playerId, 1, 'MOV');
+  if (presentation.cardId === 'blessing-swiftness') {
+    spawnStatEffectVisual(presentation.playerId, 1, 'MOV');
+    const player = gameState.players[presentation.playerId];
+    const character = dummyGroups.get(presentation.playerId);
+    if (player) spawnSwiftness(scene, character?.position ?? worldPosition(player.position), player.spiritForm, true, character);
+  }
   const group = dummyGroups.get(presentation.playerId);
   const player = gameState.players[presentation.playerId];
   if (group && player) updateStoicShellAura(group, displayedStoicShell(presentation.playerId, player.stoicShell));
@@ -7084,6 +7099,8 @@ function resetPerkUndoVisuals() {
 }
 
 function resetSeriesMatchVisuals() {
+  clearThorns();
+  clearSwiftness();
   resetMatchEndPresentation();
   resetCombatSummary();
   boardVisualKey = '';
@@ -10192,6 +10209,37 @@ function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPi
   return pieces;
 }
 
+// Consume authoritative events once, including lethal/fully absorbed retaliation.
+function playPendingSwiftness() {
+  for (const event of gameState.objectPushAnimations) {
+    if (!event.swiftness || processedObjectPushAnimations.has(event.id)) continue;
+    processedObjectPushAnimations.add(event.id);
+    const targetId = event.swiftness.targetId;
+    spawnSwiftness(scene, worldPosition(event.from), false, false, dummyGroups.get(targetId), () => {
+      const player = gameState.players[targetId];
+      return gameState.phase !== 'finished' && player.hp > 0
+        && player.movementAnnulledByBlessedSwiftness && player.movementRemaining <= 0
+        && !player.windwalkerUnrestrictedMovement;
+    });
+    if (event.swiftness.annulledMovement > 0) spawnStatEffectVisual(event.swiftness.targetId, -event.swiftness.annulledMovement, 'MOV');
+  }
+}
+
+function playPendingThorns(): boolean {
+  let played = false;
+  for (const event of gameState.objectPushAnimations) {
+    if (!event.thorns || processedObjectPushAnimations.has(event.id)) continue;
+    processedObjectPushAnimations.add(event.id);
+    combatDamageEventIds.delete(event.id);
+    const damage = event.damage;
+    spawnThorns(scene, worldPosition(event.thorns.source), worldPosition(event.from), event.thorns.spirit, () => {
+      if (damage) spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
+    });
+    played = true;
+  }
+  return played;
+}
+
 function arcaneBarrierWaiting(event: GameState['objectPushAnimations'][number]): boolean {
   return Boolean(event.arcaneBarrier && (
     gameState.combatReveal
@@ -10463,6 +10511,14 @@ function syncBoard() {
   gameState.objectPushAnimations.forEach((event) => {
     if (processedObjectPushAnimations.has(event.id)) return;
     if (event.waitForAnimationId && !completedObjectMovementAnimationIds.has(event.waitForAnimationId)) return;
+    if (event.swiftness) {
+      if (!gameState.combatReveal) playPendingSwiftness();
+      return;
+    }
+    if (event.thorns) {
+      if (!gameState.combatReveal) playPendingThorns();
+      return;
+    }
     if (event.attackCardId === 'knee-blast' && combatImpactUiDeferred()) return;
     const shieldBashRecall = event.id.includes('-shield-bash-') && Boolean(event.removeOnComplete && event.equipPlayerId);
     if (shieldBashRecall && gameState.combatReveal) return;

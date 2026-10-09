@@ -361,7 +361,7 @@ export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId
 type PendingAttackWithCalmness = PendingAttack & { calmnessNegatesDamage?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb' | 'pipe-button'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: string } };
+export type ObjectPushAnimation = { swiftness?: { spirit: boolean; targetId: PlayerId; annulledMovement: number }; thorns?: { spirit: boolean; source: Cell }; id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: string } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
@@ -5152,6 +5152,13 @@ function resolveOrderedPreCombat(state: GameState, command: Extract<GameCommand,
     if (!defenseEffectsCancelled && (defenseCardId === 'thorns' || (defenseCardId === 'flurry-defensive-strikes' && distance(defenderCombatPosition, attackerCombatPosition) === 1))) {
       const damageEventStart = state.objectPushAnimations.length;
       const dealt = dealCombatCardEffectDamage(state, attacker, 1, defender.id, 'defense');
+      if (defenseCardId === 'thorns') {
+        // Snapshot the defending form and origin before subsequent combat effects.
+        const thorns = { spirit: Boolean(pending.defenderWasInSpiritForm ?? defender.spiritForm), source: { ...defenderCombatPosition } };
+        const damageEvent = state.objectPushAnimations.slice(damageEventStart).find(event => event.damage?.playerId === attacker.id);
+        if (damageEvent) damageEvent.thorns = thorns;
+        else state.objectPushAnimations.push({ id: state.turn + '-thorns-' + state.objectPushAnimations.length + '-' + state.log.length, objectId: '', from: { ...attackerCombatPosition }, to: { ...attackerCombatPosition }, dx: 0, dy: 0, collided: false, thorns });
+      }
       if (defenseCardId === 'flurry-defensive-strikes') {
         for (const event of state.objectPushAnimations.slice(damageEventStart)) {
           if (event.damage?.playerId === attacker.id) event.damage.presentationTiming = 'flurry';
@@ -5643,6 +5650,12 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
         attacker.movementRemaining = 0;
         attacker.movementAnnulledByBlessedSwiftness = true;
       }
+      state.objectPushAnimations.push({
+        id: `${state.turn}-swiftness-${state.objectPushAnimations.length}-${state.log.length}`,
+        objectId: '', from: { ...(pending.attackerPosition ?? attacker.position) }, to: { ...attacker.position },
+        dx: 0, dy: 0, collided: false,
+        swiftness: { spirit: defender.spiritForm, targetId: attacker.id, annulledMovement: attacker.windwalkerUnrestrictedMovement ? 0 : annulledMovement },
+      });
       queueBlessingCard(defender, 'blessing-swiftness');
       pending.blessedSwiftnessResolved = true;
       state.log.unshift(attacker.windwalkerUnrestrictedMovement ? `Windwalker Stance ignored Blessed Swiftness's MOV annulment; Blessing: Swiftness was still queued for ${defender.name}.` : `Blessed Swiftness annulled ${annulledMovement} unspent MOV from ${attacker.name} and queued Blessing: Swiftness for the beginning of ${defender.name}'s next eligible turn.`);
