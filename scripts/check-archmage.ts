@@ -78,6 +78,14 @@ for (const squares of [1, 2, 3, 5]) {
   state.cancelPower();
 }
 const diagonal = merylinRouteMotion([{ x: 0, z: 0 }, { x: 1.92, z: 1.92 }, { x: 3.84, z: 1.92 }], .5);
+for (const squares of [1, 2, 3, 5]) {
+  const durationMs = archmageMovementDuration(squares, true);
+  state.update(.02, { squares, fastRun: true, travelledDistance: 1.92 * squares * .4, bodyScale: 1 });
+  assert.equal(state.current, 'Running', 'Dash uses Running even for short moves.');
+  assert.ok(Math.abs(state.actions.Running.time - ((durationMs * .4 / 1000) % state.actions.Running.getClip().duration)) < 1e-5);
+  assert.ok(durationMs <= archmageMovementDuration(squares), 'Dash timing matches the running gait.');
+  state.cancelPower();
+}
 state.update(.02, { squares: 2, travelledDistance: diagonal.travelledDistance, bodyScale: 1 });
 const diagonalTime = state.actions.Walk.time;
 state.update(.02, { squares: 2, travelledDistance: diagonal.travelledDistance, bodyScale: 1 });

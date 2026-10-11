@@ -7,9 +7,9 @@ export const ARCHMAGE_RAISE_SECONDS = .35;
 export const ARCHMAGE_LOWER_SECONDS = .25;
 // Walk's authored root displacement and Running's grounded backward foot speed (24 fps).
 const stanceSpeed = { Walk: 1.1705102496227253, Running: 5.13802033290267 };
-export const archmageGait = (squares: number) => squares <= 2 ? 'Walk' : 'Running';
-export function archmageMovementDuration(squares: number) {
-  return Math.max(1, squares) * 1.92 / (stanceSpeed[archmageGait(squares)] * ARCHMAGE_SCALE) * 1000;
+export const archmageGait = (squares: number, fastRun = false) => !fastRun && squares <= 2 ? 'Walk' : 'Running';
+export function archmageMovementDuration(squares: number, fastRun = false) {
+  return Math.max(1, squares) * 1.92 / (stanceSpeed[archmageGait(squares, fastRun)] * ARCHMAGE_SCALE) * 1000;
 }
 
 export type ArchmagePower = {
@@ -21,6 +21,7 @@ export type ArchmagePower = {
   resolvedAt?: number;
 };
 export interface ArchmageMotion {
+  fastRun?: boolean;
   squares: number;
   travelledDistance: number;
   bodyScale: number;
@@ -175,7 +176,7 @@ export class ArchmageAnimation {
       this.actions.Glide.time = 0;
     } else if (motion) {
       this.idleSeconds = 0;
-      const gait = archmageGait(motion.squares);
+      const gait = archmageGait(motion.squares, motion.fastRun);
       this.play(gait);
       const action = this.actions[gait];
       action.paused = true;

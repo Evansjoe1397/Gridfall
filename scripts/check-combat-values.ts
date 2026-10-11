@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applicableCombatCardInstanceIds, applyCommand, createHotseatTestState, type CardTypeId, type GameCommand, type GameState } from '../shared/game.ts';
+import { applicableCombatCardInstanceIds, applyCommand, cellLabel, createHotseatTestState, resolveMultiplayerCombatStack, type CardTypeId, type GameCommand, type GameState } from '../shared/game.ts';
 
 function step(state: GameState, command: GameCommand): GameState {
   const result = applyCommand(state, command);
@@ -66,4 +66,29 @@ for (const cardId of ['banner', 'helmet', 'vicious-mockery', 'vicious-mockery-1'
   assert.ok(applicableCombatCardInstanceIds(reveal(hit), 'P2').includes('bonus'), `${cardId}: meaningful Defense bonus remains selectable`);
 }
 
-console.log('Combat Value checks passed: excessive Defense, useful reductions, zero Values, partial prevention, negation, and undecided Attack boosts.');
+for (const stack of [true, false]) {
+  for (const terrain of ['column', 'high-ground', 'both', 'diagonal', 'on-high-ground', 'none'] as const) {
+    const initial = setup('attack-3', 'tactician', stack);
+    initial.players.P1.character = 'dummy';
+    initial.players.P2.character = 'merylin';
+    if (terrain === 'column' || terrain === 'both' || terrain === 'diagonal') {
+      initial.objects = [{ id: 'column', name: 'Column', kind: 'wall-pillar', position: { x: 3, y: terrain === 'diagonal' ? 3 : 1 }, hp: 999, maxHp: 999 }];
+      if (terrain === 'diagonal') initial.objects[0].position.x = 4;
+    }
+    if (terrain === 'high-ground' || terrain === 'both' || terrain === 'on-high-ground') initial.elevations[cellLabel({ x: 3, y: 3 })] = 1;
+    if (terrain === 'on-high-ground') initial.elevations[cellLabel({ x: 3, y: 2 })] = 1;
+    const empowered = ['column', 'high-ground', 'both'].includes(terrain);
+    const expected = empowered ? [{ value: 2, source: `Tactician · adjacent ${terrain === 'both' ? 'Column and High Ground' : terrain === 'column' ? 'Column' : 'High Ground'}` }] : [];
+    let state = reveal(initial);
+    if (stack && state.phase === 'choosing-combat-stack') {
+      assert.deepEqual(state.combatReveal?.defendModifiers, expected, `${terrain}: preview identifies the terrain bonus`);
+      const result = resolveMultiplayerCombatStack(state, { P1: [], P2: [] });
+      assert.ok(result.ok, result.error);
+      state = result.state;
+    }
+    assert.equal(state.combatReveal?.defendTotal, empowered ? 3 : 1, `${terrain}: Tactician gets at most one +2 bonus`);
+    assert.deepEqual(state.combatReveal?.defendModifiers, expected, `${terrain}: Defend Value sources identify the terrain bonus`);
+  }
+}
+
+console.log('Combat Value checks passed: excessive Defense, useful reductions, zero Values, partial prevention, negation, undecided Attack boosts, and Tactician terrain sources.');

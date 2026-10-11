@@ -1,3 +1,4 @@
+import { clearSweetPotatoEffects, spawnSweetPotatoEffect, updateSweetPotatoEffects } from './sweetPotatoVisuals.ts';
 import { clearSwiftness, spawnSwiftness, updateSwiftness } from './swiftnessVisuals.ts';
 import { clearThorns, spawnThorns, THORNS_STRIKE_MS, updateThorns } from './thornsVisuals.ts';
 import { DashWindTrails } from './dashWindTrails.ts';
@@ -4634,6 +4635,7 @@ renderer.setAnimationLoop((time) => {
     }
   }
   updateArcaneImpacts(deltaSeconds);
+  updateSweetPotatoEffects(time);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
   updateKamelot(time);
@@ -7302,6 +7304,7 @@ function resetPerkUndoVisuals() {
 function resetSeriesMatchVisuals() {
   clearThorns();
   clearSwiftness();
+  clearSweetPotatoEffects();
   resetMatchEndPresentation();
   resetCombatSummary();
   boardVisualKey = '';
@@ -7838,7 +7841,7 @@ function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds
     const approach = movement.slideStartsAtMs === undefined ? progress
       : progress * movement.duration / Math.max(1, movement.slideStartsAtMs) * (movement.slideSegmentIndex ?? segmentCount) / segmentCount;
     const route = merylinRouteMotion([movement.from, ...(movement.path?.length ? movement.path : [movement.to])], approach);
-    motion = { squares: movement.travelSquares ?? segmentCount, travelledDistance: route.travelledDistance, bodyScale: group.children[0].scale.x };
+    motion = { squares: movement.travelSquares ?? segmentCount, fastRun: movement.fastRun, travelledDistance: route.travelledDistance, bodyScale: group.children[0].scale.x };
   }
   const power = state.power;
   const effectsFinished = Boolean(power && playerId && powerFacingSettled && wizardPowerEffectFinished(power, playerId));
@@ -10561,7 +10564,7 @@ function syncBoard() {
           : !forced && character === 'merylin'
             ? merylinMovementDuration(travelSquares, fastRun)
           : !forced && character === 'magician'
-            ? archmageMovementDuration(travelSquares)
+            ? archmageMovementDuration(travelSquares, fastRun)
           : !forced && character === 'orkk'
               ? orkkMovementDuration(travelSquares, fastRun)
               : !forced && character === 'spectre'
@@ -10756,6 +10759,13 @@ function syncBoard() {
         return;
       }
       spawnObjectCalloutBubble(event.objectId, event.objectCallout.text);
+      return;
+    }
+    if (event.sweetPotato) {
+      processedObjectPushAnimations.add(event.id);
+      const { playerId, choice } = event.sweetPotato;
+      spawnSweetPotatoEffect(scene, worldPosition(event.from), choice, dummyGroups.get(playerId));
+      if (choice === 'cleanse') spawnEffectMessage(playerId, 'Dispel', 'positive');
       return;
     }
     if (event.healing) {

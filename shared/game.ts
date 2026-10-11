@@ -361,7 +361,7 @@ export type PendingAttack = { attackerId: PlayerId; defenderId: PlayerId; cardId
 type PendingAttackWithCalmness = PendingAttack & { calmnessNegatesDamage?: boolean };
 export type PhylacteryType = 'might' | 'wisdom' | 'ritual';
 export type BoardObject = { id: string; name: string; hp: number; maxHp: number; position: Cell; kind?: 'wooden-box' | 'orkk-shield' | 'wall-pillar' | 'spirit-guardian' | 'spectre-replica' | 'tomb' | 'pipe-button'; ownerId?: PlayerId; guardianLevel?: number; heavy?: boolean; phylacteryType?: PhylacteryType; phylacteryOwnerId?: PlayerId; spectreOnBoxId?: string | null; respawnEligible?: boolean };
-export type ObjectPushAnimation = { swiftness?: { spirit: boolean; targetId: PlayerId; annulledMovement: number }; thorns?: { spirit: boolean; source: Cell }; id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: string } };
+export type ObjectPushAnimation = { sweetPotato?: { playerId: PlayerId; choice: 'heal' | 'cleanse' }; swiftness?: { spirit: boolean; targetId: PlayerId; annulledMovement: number }; thorns?: { spirit: boolean; source: Cell }; id: string; objectId: string; from: Cell; to: Cell; dx: number; dy: number; collided: boolean; path?: Cell[]; afterBarrierAnimationId?: string; arcaneBarrier?: { defenderPosition: Cell; targetPlayerId?: PlayerId; targetObjectId?: string; waitForAttackEffectIds: string[] }; collisionAt?: Cell; collisionTargetKind?: 'player' | 'object'; collisionTargetId?: string; removeOnComplete?: boolean; destroy?: boolean; shadowDissolve?: boolean; attackAnimationPlayerId?: PlayerId; attackCardId?: CardTypeId; attackerWasInSpiritForm?: boolean; waitForAnimationId?: string; triggerAnimationId?: string; triggerRouteProgress?: number; equipPlayerId?: PlayerId; teleport?: boolean; instantSwap?: boolean; fastSwap?: boolean; parachute?: boolean; damage?: { playerId: PlayerId; amount: number; collision: boolean; fatal?: boolean; effect?: boolean; presentationTiming?: 'flurry' | 'mana-barrage-combat' | 'mana-barrage-bonus'; triggerAnimationId?: string; triggerRouteProgress?: number }; healing?: { playerId: PlayerId; amount: number }; statEffect?: { playerId: PlayerId; amount: number; stat: 'MOV' | 'ATT' | 'DEF' }; callout?: { playerId: PlayerId; text: 'Slide' | 'Fall' }; objectCallout?: { text: string } };
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
@@ -2578,6 +2578,11 @@ function tacticianTerrainEligible(state: GameState, position: Cell): boolean {
 }
 function tacticianDefenseBonus(state: GameState, defender: PlayerState, cardId: CardTypeId, position: Cell, effectsCancelled = false): number {
   return cardId === 'tactician' && defender.character === 'merylin' && !effectsCancelled && tacticianTerrainEligible(state, position) ? 2 : 0;
+}
+function tacticianDefenseModifier(state: GameState, position: Cell): CombatModifier {
+  const adjacentColumn = state.objects.some((object) => object.kind === 'wall-pillar' && Math.abs(object.position.x - position.x) + Math.abs(object.position.y - position.y) === 1);
+  const adjacentHighGround = !isHighGround(state, position) && [{ x: position.x + 1, y: position.y }, { x: position.x - 1, y: position.y }, { x: position.x, y: position.y + 1 }, { x: position.x, y: position.y - 1 }].some((cell) => isHighGround(state, cell));
+  return { value: 2, source: `Tactician · adjacent ${adjacentColumn && adjacentHighGround ? 'Column and High Ground' : adjacentColumn ? 'Column' : 'High Ground'}` };
 }
 function meleeHighGroundDamageBonus(_state: GameState, _caster: PlayerState, _target: Cell, _objectOrigin?: Cell): number {
   return 0;
@@ -4999,6 +5004,8 @@ function beginMultiplayerCombatStack(state: GameState, command: Extract<GameComm
     attackTotal: pending.attackValue,
     defendBase: defendDefinition?.value ?? 0,
     defendTotal: Math.max(0, revealedDefendTotal),
+    defendModifiers: defendDefinition && tacticianDefenseBonus(state, defender, defendDefinition.id, defender.position, blessedMightCancelsDefenseCard(pending, defendDefinition.id))
+      ? [tacticianDefenseModifier(state, defender.position)] : [],
     expiresAt: Date.now() + 86_400_000,
     acknowledged: [],
   };
@@ -5861,7 +5868,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       bannerDefenseBonus && { value: bannerDefenseBonus, source: 'The Banner' },
       helmetDefenseBonus && { value: helmetDefenseBonus, source: 'Helmet' },
       carianStanceDefenseBonus && { value: carianStanceDefenseBonus, source: 'Carian Stance while Summoned' },
-      tacticianBonus && { value: tacticianBonus, source: 'Tactician terrain adjacency' },
+      tacticianBonus && tacticianDefenseModifier(state, defenderCombatPosition),
       defenderMockery && { value: defenderMockery, source: `Vicious Mockery +${defenderMockery}` },
       heldExhaustPenalty && { value: -1, source: 'one or more Exhaust Cards in Hand' },
       shadowDaggerDefensePenalty && { value: -shadowDaggerDefensePenalty, source: 'Shadow Dagger' },
@@ -7195,6 +7202,9 @@ function resolveSweetPotatoChoice(state: GameState, playerId: PlayerId, choice: 
     const removed = sweetPotatoStatusCount(player);
     player.deck = player.deck.filter((card) => !SWEET_POTATO_NEGATIVE_STATUSES.includes(card.cardId));
     state.log.unshift(`Sweet Potato Removed ${removed} negative Status Card${removed === 1 ? '' : 's'} from ${player.name}'s Deck.`);
+  }
+  if (choice !== 'cancel') {
+    state.objectPushAnimations.push({ id: `${state.turn}-sweet-potato-${playerId}-${++instanceSequence}`, objectId: '', from: { ...player.position }, to: { ...player.position }, dx: 0, dy: 0, collided: false, sweetPotato: { playerId, choice } });
   }
   extended.sweetPotato = null;
   state.phase = 'active';
