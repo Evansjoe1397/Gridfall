@@ -29,6 +29,7 @@ import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duratio
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import { HOTKEY_SECTIONS } from './hotkeys.ts';
 import { createDeveloperPanel } from './developerPanel.ts';
+import { debugRecorder } from './debug-recorder.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
 import { installOrkkRageEyes } from './orkkRageEyes.ts';
@@ -314,7 +315,14 @@ type OrkkVisualIntent = { playerId: PlayerId; animation: 'Encourage' | 'ShieldTh
 let pendingOnlineOrkkVisualIntent: OrkkVisualIntent | null = null;
 type SpectreVisualIntent = { playerId: PlayerId; animation: 'Fear' };
 let pendingOnlineSpectreVisualIntent: SpectreVisualIntent | null = null;
-selection.subscribe(() => {
+let diagnosticSelectionKey = '';
+selection.subscribe((snapshot) => {
+  const selected = snapshot.context.selection;
+  const key = `${selected.kind}:${'cardInstanceId' in selected ? selected.cardInstanceId : ''}`;
+  if (key !== diagnosticSelectionKey) {
+    diagnosticSelectionKey = key;
+    debugRecorder.event('selection', selected);
+  }
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
   if (pendingQuickAttackTargetId) closeQuickAttackPopup();
   renderUI();
@@ -379,7 +387,7 @@ async function toggleVisualPolish() {
     try {
       await loadPolishStone(renderer.capabilities.getMaxAnisotropy());
     } catch (error) {
-      console.error('Visual polish texture failed to load.', error);
+      reportDiagnosticError('Visual polish texture failed to load.', error);
       notify('Stone preview could not load. Press Shift+V to retry.');
       return;
     } finally { visualPolishLoading = false; }
@@ -520,6 +528,8 @@ handPreviewRegion.addEventListener('pointerout', (event) => {
 window.addEventListener('keydown', (event) => {
   if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+  // The diagnostics handler below owns these combinations; do not also Dash.
+  if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === 'KeyR' || event.code === 'KeyD')) return;
   if ((event.code === 'AltLeft' || event.code === 'AltRight') && !game.classList.contains('hidden')) {
     event.preventDefault();
     movementPreviewAltKeys.add(event.code);
@@ -1016,6 +1026,9 @@ function startHotseatState(state: GameState) {
   localSeat = null;
   gameState = state;
   (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
+  debugRecorder.start({ mode, build: __GRIDFALL_BUILD__ });
+  resetDiagnosticObservations();
+  debugRecorder.state(gameState);
   const startedArenaId = visualArena().id;
   lightingArenaId = startedArenaId;
   setArenaLightingDefaults();
@@ -1050,6 +1063,8 @@ function reconnectionTokenKey(roomId: string) {
 }
 
 async function leaveMatch() {
+  debugRecorder.event('match.leave-requested', { mode });
+  debugRecorder.state(gameState);
   if (room) {
     sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
     updateRoomUrl(null);
@@ -1059,6 +1074,9 @@ async function leaveMatch() {
 }
 
 async function connectOnline(action: 'create' | 'join', format: GameFormat = 'duel', arena: HotseatArena = 'nagrand', preferSavedSession = false, seriesMode: BestOfThreeMode = 'duel') {
+  debugRecorder.start({ mode: 'online', action, format, arena, seriesMode, build: __GRIDFALL_BUILD__ });
+  resetDiagnosticObservations();
+  debugRecorder.event('network.connect-requested', { action, preferSavedSession });
   try {
     roomIdAutoSelected = false;
     tournamentFirstChoice = null;
@@ -1075,7 +1093,8 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       if (savedToken) {
         try {
           room = await client.reconnect(savedToken);
-        } catch {
+        } catch (error) {
+          debugRecorder.event('network.saved-session-rejected', { error: error instanceof Error ? error.message : String(error) });
           sessionStorage.removeItem(reconnectionTokenKey(roomId));
           room = await client.joinById(roomId, { password });
         }
@@ -1084,39 +1103,47 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       }
     }
     mode = 'online';
+    debugRecorder.event('network.connected', { roomId: room.roomId, sessionId: room.sessionId });
+    debugRecorder.attachRoom(room);
     resetCombatSummary();
     updateRoomUrl(room.roomId);
     sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
     room.reconnection.minUptime = 0;
     room.reconnection.maxRetries = 20;
-    room.onMessage('seat', (seat: PlayerId) => { localSeat = seat; renderAll(); });
-    room.onMessage('character-activity', (event: { playerId: PlayerId }) => noteObiWanActivity(event.playerId));
+    room.onMessage('seat', (seat: PlayerId) => { debugRecorder.event('network.seat', seat); localSeat = seat; renderAll(); });
+    room.onMessage('character-activity', (event: { playerId: PlayerId }) => { debugRecorder.event('network.character-activity', event); noteObiWanActivity(event.playerId); });
     room.onMessage('lobby-state', (state: OnlineLobbyState) => {
+      debugRecorder.event('network.lobby-state', state);
       const previousState = onlineLobbyState;
       onlineLobbyState = state;
       if (previousState && sameLobbyExceptSelections(previousState, state)) renderOnlineSelectionFrames();
       else renderOnlineLobby();
     });
-    room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
+    room.onMessage('combat-stack-status', (state: { submittedPlayerIds: PlayerId[] }) => { debugRecorder.event('network.combat-stack-status', state); combatStackSubmittedPlayerIds = state.submittedPlayerIds; renderCombatReveal(); });
     room.onMessage('orkk-action', (event: OrkkActionEvent) => {
+      debugRecorder.event('network.orkk-action', event);
       pendingOnlineOrkkVisualIntent = orkkVisualIntentForAction(event);
     });
     room.onMessage('wizard-action', (event: WizardActionEvent) => {
+      debugRecorder.event('network.wizard-action', event);
       pendingOnlineWizardPowerVisualIntent = wizardPowerVisualIntentForAction(event);
     });
     room.onMessage('force-power-action', (event: ForcePowerActionEvent) => {
+      debugRecorder.event('network.force-power-action', event);
       pendingOnlineObiWanPowerVisualIntents.push(obiWanPowerVisualIntentForAction(event));
     });
     room.onMessage('spectre-action', (event: SpectreActionEvent) => {
+      debugRecorder.event('network.spectre-action', event);
       pendingOnlineSpectreVisualIntent = spectreVisualIntentForAction(event);
     });
-    room.onMessage('perk-used', (event: PerkUseEvent) => spawnPerkUseLabel(event));
+    room.onMessage('perk-used', (event: PerkUseEvent) => { debugRecorder.event('network.perk-used', event); spawnPerkUseLabel(event); });
     room.onMessage('state', (state: GameState) => {
       const enteringBattle = game.classList.contains('hidden');
       const previousArenaId = visualArena().id;
       const previousBoardSize = gameState.boardSize;
       const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
+      debugRecorder.state(gameState);
       if (!enteringBattle) syncOraclePresentation(previousGameState, gameState);
       if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
       const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
@@ -1152,6 +1179,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       });
     });
     room.onMessage('error', (message: string) => {
+      debugRecorder.event('network.command-rejected', { message });
       pendingOnlineWizardPowerVisualIntent = null;
       pendingOnlineObiWanPowerVisualIntents = [];
       pendingOnlineOrkkVisualIntent = null;
@@ -1159,21 +1187,25 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       if (localSeat) pendingMovementCancellationTargets.delete(localSeat);
       notify(message);
     });
-    room.onMessage('notice', (message: string) => notify(message));
-    room.onDrop(() => {
+    room.onMessage('notice', (message: string) => { debugRecorder.event('network.notice', message); notify(message); });
+    room.onError((code, message) => debugRecorder.event('network.error', { code, message }));
+    room.onDrop((code, reason) => {
+      debugRecorder.event('network.drop', { code, reason });
       byId('connection').classList.add('reconnecting');
       byId('connection').innerHTML = `<span></span> Reconnecting to room ${room?.roomId ?? ''}`;
       notify('Connection lost. Reconnecting automatically…');
     });
     room.onReconnect(() => {
+      debugRecorder.event('network.reconnected');
       if (!room) return;
       sessionStorage.setItem(reconnectionTokenKey(room.roomId), room.reconnectionToken);
       byId('connection').classList.remove('reconnecting', 'disconnected');
       byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
-      room.send('ready');
+      sendRoomMessage('ready');
       notify('Reconnected to the room.');
     });
-    room.onLeave(() => {
+    room.onLeave((code, reason) => {
+      debugRecorder.event('network.left', { code, reason });
       if (!room) return;
       sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
       byId('connection').classList.remove('reconnecting');
@@ -1181,14 +1213,34 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       byId('connection').innerHTML = '<span></span> Disconnected';
       notify('Could not reconnect to the room. Use the room link to try again.');
     });
-    room.send('ready');
+    sendRoomMessage('ready');
     document.querySelector('.mode-grid')?.classList.add('hidden');
     byId('connection').classList.remove('reconnecting', 'disconnected');
     byId('connection').innerHTML = `<span></span> Room ${room.roomId}`;
     renderOnlineLobby();
   } catch (error) {
+    debugRecorder.event('network.connect-failed', { error: error instanceof Error ? error.message : String(error) });
     notify(error instanceof Error ? error.message : 'Could not connect to the room.');
   }
+}
+
+function sendRoomMessage(type: string, data?: unknown) {
+  if (!room) {
+    debugRecorder.event('network.send-unavailable', { type });
+    return;
+  }
+  debugRecorder.event('network.send', { type, data });
+  try {
+    room.send(type, data);
+  } catch (error) {
+    debugRecorder.event('network.send-failed', { type, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+}
+
+function reportDiagnosticError(message: string, error: unknown) {
+  debugRecorder.event('client.handled-error', { message, error: error instanceof Error ? error.message : String(error) });
+  console.error(message, error);
 }
 
 function joinRoomFromUrl() {
@@ -1283,7 +1335,7 @@ function renderOnlineLobby() {
       onlineLobbyState.selections ??= {};
       onlineLobbyState.selections[localSeat] = character;
       renderOnlineSelectionFrames();
-      room?.send('hover-character', character);
+      sendRoomMessage('hover-character', character);
     };
     button.addEventListener('pointerenter', highlight);
     button.addEventListener('focus', highlight);
@@ -1292,11 +1344,11 @@ function renderOnlineLobby() {
         if (!joined) return;
         const character = button.dataset.character as OnlineCharacter;
         if (!tournamentFirstChoice) { tournamentFirstChoice = character; renderOnlineLobby(); }
-        else room?.send('select-character', [tournamentFirstChoice, character]);
+        else sendRoomMessage('select-character', [tournamentFirstChoice, character]);
         return;
       }
       highlight();
-      if (joined) room?.send('select-character', button.dataset.character);
+      if (joined) sendRoomMessage('select-character', button.dataset.character);
     });
   });
   renderLobbyModelPreviews();
@@ -1504,15 +1556,19 @@ function dispatch(command: GameCommand) {
   const spectreVisualIntent = spectreVisualIntentForCommand(gameState, command);
   const movementCancellationTarget = command.type === 'cancel-movement' || command.type === 'undo-last-action' && canUndoMovement(gameState, command.playerId) ? obiWanMovementCancellationTarget(gameState, command.playerId) : null;
   if (mode === 'online') {
-    if (!room || !localSeat) return notify('Waiting for your seat assignment.');
+    if (!room || !localSeat) {
+      debugRecorder.event('command.rejected', { command, error: 'Waiting for seat assignment' });
+      return notify('Waiting for your seat assignment.');
+    }
     if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
-    room.send('command', command);
+    sendRoomMessage('command', command);
     return;
   }
   const previousGameState = gameState;
-  const result = applyCommand(gameState, command);
+  const result = applyRecordedCommand(gameState, command);
   if (!result.ok) return notify(result.error);
   gameState = result.state;
+  debugRecorder.state(gameState);
   syncOraclePresentation(previousGameState, gameState);
   if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
   const seriesMatchChanged = Boolean(previousGameState.series && previousGameState.phase === 'finished' && gameState.phase !== 'finished');
@@ -1528,6 +1584,19 @@ function dispatch(command: GameCommand) {
   if (powerVisualIntent) applyWizardPowerVisualIntent(powerVisualIntent);
   if (obiWanPowerVisualIntent && (obiWanPowerVisualIntent.kind !== 'start' || gameState.forceThrow || gameState.forcePull)) {
     applyObiWanPowerVisualIntent(obiWanPowerVisualIntent);
+  }
+}
+
+function applyRecordedCommand(state: GameState, command: GameCommand) {
+  debugRecorder.event('command.submitted', command);
+  const startedAt = performance.now();
+  try {
+    const result = applyCommand(state, command);
+    debugRecorder.event('command.result', { type: command.type, ok: result.ok, error: result.ok ? undefined : result.error, workMs: Math.round((performance.now() - startedAt) * 100) / 100 });
+    return result;
+  } catch (error) {
+    debugRecorder.event('command.exception', { command, error: error instanceof Error ? error.message : String(error) });
+    throw error;
   }
 }
 
@@ -1892,7 +1961,7 @@ async function downloadCombatSummary() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     button.textContent = 'CSV summary downloaded';
   } catch (error) {
-    console.error('Could not export the combat summary.', error);
+    reportDiagnosticError('Could not export the combat summary.', error);
     button.textContent = 'CSV export failed — retry';
   } finally {
     button.disabled = false;
@@ -3055,7 +3124,7 @@ function renderCombatReveal() {
     modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Use one extra card, or none</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : ''}${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>None</strong><small>Keep all Combat Cards. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
     modal.querySelector<HTMLButtonElement>('#usePhylacteryMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'wreckna-might-choice', playerId: combatSeat, use: true }));
     modal.querySelectorAll<HTMLButtonElement>('[data-combat-stack-card]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
-      if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
+      if (mode === 'online') sendRoomMessage('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
       else dispatch({ type: 'combat-stack-choice', playerId: combatSeat, cardInstanceId: button.dataset.combatStackCard! });
     }));
     modal.querySelectorAll<HTMLElement>('[data-combat-preview]').forEach((button) => {
@@ -3064,7 +3133,7 @@ function renderCombatReveal() {
       button.addEventListener('pointerleave', hideCardPreview);
     });
     modal.querySelector<HTMLButtonElement>('#refuseCombatStack:not(:disabled)')?.addEventListener('click', () => {
-      if (mode === 'online') room?.send('command', { type: 'combat-stack-submit', cardInstanceIds: [] });
+      if (mode === 'online') sendRoomMessage('command', { type: 'combat-stack-submit', cardInstanceIds: [] });
       else dispatch({ type: 'combat-stack-choice', playerId: combatSeat, cardInstanceId: null });
     });
     return;
@@ -3197,10 +3266,16 @@ function acknowledgeCombatReveal() {
   }
   const combatPlayers = gameState.pendingAttack ? [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId] : (Object.keys(gameState.players) as PlayerId[]).slice(0, 2);
   const combatExpiresAt = gameState.combatReveal.expiresAt;
-  const first = applyCommand(gameState, { type: 'ack-combat', playerId: combatPlayers[0], combatExpiresAt });
+  const first = applyRecordedCommand(gameState, { type: 'ack-combat', playerId: combatPlayers[0], combatExpiresAt });
   if (!first.ok) return notify(first.error);
-  const second = applyCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1], combatExpiresAt });
-  if (!second.ok) return notify(second.error);
+  debugRecorder.state(first.state);
+  const second = applyRecordedCommand(first.state, { type: 'ack-combat', playerId: combatPlayers[1], combatExpiresAt });
+  if (!second.ok) {
+    debugRecorder.event('command.transaction-discarded', { reason: second.error });
+    debugRecorder.state(gameState);
+    return notify(second.error);
+  }
+  debugRecorder.state(second.state);
   syncOraclePresentation(gameState, second.state);
   gameState = second.state;
   renderAll();
@@ -4296,6 +4371,100 @@ function developerHoverTarget() {
   const cell = hits.find((hit) => hit.object.userData.cell)?.object.userData.cell as Cell | undefined;
   return cell ? `Square ${cellLabel(cell)}` : '—';
 }
+
+// This provider runs at the recorder's five-second cadence, never for every frame.
+// Only scalar diagnostics are retained; THREE scenes, meshes and callbacks stay out.
+const diagnosticClipObservations = new Map<string, { clip: string; time: number; mixerTime: number; observedAt: number; visible: boolean }>();
+let diagnosticAnomalyKey = '';
+function resetDiagnosticObservations() {
+  diagnosticClipObservations.clear();
+  diagnosticAnomalyKey = '';
+}
+document.addEventListener('visibilitychange', resetDiagnosticObservations);
+type DiagnosticAnimation = {
+  current: string;
+  mixer: THREE.AnimationMixer;
+  actions: Record<string, THREE.AnimationAction>;
+  attack?: { animation?: string; clip?: string; releaseReached?: boolean; impactReached?: boolean; finished?: boolean };
+  characterAttack?: { impactReached: boolean; finished?: boolean };
+  isAttacking?: boolean;
+  hasSwingImpact?: boolean;
+  power?: { phase: string; targetId?: string };
+  deathEndsAt?: number;
+  oneShotUntil?: number;
+  idlePauseUntil?: number;
+};
+function collectDiagnosticSample() {
+  const now = performance.now();
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  const vector = (value: THREE.Vector3) => [round(value.x), round(value.y), round(value.z)];
+  const characters = [...dummyGroups].map(([id, group]) => {
+    const animations = ['wizardAnimation', 'orkkAnimation', 'spectreAnimation', 'merylinAnimation', 'obiWanAnimation', 'johnNormalAnimation', 'johnSpiritAnimation'].flatMap((slot) => {
+      const state = group.userData[slot] as DiagnosticAnimation | undefined;
+      if (!state) return [];
+      const action = state.actions[state.current];
+      const key = `${id}:${slot}`;
+      const previous = diagnosticClipObservations.get(key);
+      const running = Boolean(action?.isRunning());
+      const activeForm = !slot.startsWith('john') || group.userData.johnAnimation === state;
+      const visible = activeForm && group.visible && document.visibilityState === 'visible';
+      const elapsed = previous ? now - previous.observedAt : 0;
+      const clockNotAdvancing = Boolean(action && visible && previous?.visible && elapsed >= 4000 && elapsed <= 10000 && running && !action.paused && action.getEffectiveTimeScale() !== 0
+        && previous?.clip === state.current && previous.time === action.time && previous.mixerTime === state.mixer.time);
+      diagnosticClipObservations.set(key, { clip: state.current, time: action?.time ?? 0, mixerTime: state.mixer.time, observedAt: now, visible });
+      return [{
+        slot, current: state.current, activeForm: slot.startsWith('john') ? activeForm : undefined,
+        mixerTime: round(state.mixer.time), mixerScale: state.mixer.timeScale,
+        // Include faded/overlapping actions: these often explain a stuck pose.
+        actions: Object.entries(state.actions).filter(([name, active]) => name === state.current || active.isRunning() && active.getEffectiveWeight() > .001).map(([name, active]) => ({
+          name, time: round(active.time), duration: round(active.getClip().duration), scale: round(active.getEffectiveTimeScale()),
+          weight: round(active.getEffectiveWeight()), enabled: active.enabled, paused: active.paused, running: active.isRunning(),
+        })),
+        attack: typeof state.attack === 'object' ? { clip: state.attack.clip ?? state.attack.animation, releaseReached: state.attack.releaseReached, impactReached: state.attack.impactReached, finished: state.attack.finished } : state.characterAttack ?? (state.isAttacking === undefined ? undefined : { active: state.isAttacking, impactReached: state.hasSwingImpact }),
+        power: state.power ? { phase: state.power.phase, targetId: state.power.targetId } : undefined,
+        deathRemainingMs: state.deathEndsAt === undefined ? undefined : Math.round(state.deathEndsAt - now),
+        clockNotAdvancing: clockNotAdvancing || undefined,
+      }];
+    });
+    return {
+      id, character: group.userData.character, position: vector(group.position), visible: group.visible,
+      modelLoadSettled: group.userData.characterModelLoadSettled,
+      pendingClip: group.userData.pendingOrkkAnimation ?? group.userData.pendingSpectreAnimation ?? group.userData.pendingObiWanAttack ?? group.userData.pendingMerylinBoxAttack,
+      pendingJohnCast: Boolean(group.userData.pendingJohnCast), pendingSpiritAttack: Boolean(group.userData.pendingJohnSpiritAttack),
+      animations,
+    };
+  });
+  const impactWaits = (kind: string, waits: Map<PlayerId, { callbacks: Array<() => void>; fallbackAt: number }>) => [...waits].map(([id, wait]) => ({ kind, id, callbacks: wait.callbacks.length, remainingMs: Math.round(wait.fallbackAt - now), overdue: now > wait.fallbackAt + 1000 || undefined }));
+  const waits = [
+    ...impactWaits('merylin-impact', merylinImpactWaits), ...impactWaits('obiwan-impact', obiWanAttackImpactWaits), ...impactWaits('orkk-impact', orkkAttackImpactWaits),
+    ...[...johnCastWaits].map(([id, wait]) => ({ kind: 'john-cast', id, callbacks: wait.callbacks.length, released: wait.released, spirit: wait.spirit, remainingMs: Math.round(wait.fallbackReleaseAt - now), overdue: !wait.released && now > wait.fallbackReleaseAt + 1000 || undefined })),
+    ...[...loganPowerWaits].map(([id, wait]) => ({ kind: 'logan-power', id, remainingMs: Math.round(wait.fallbackAt - now), overdue: now > wait.fallbackAt + 1000 || undefined })),
+  ];
+  const movement = [...movementAnimations].map(([id, motion]) => ({ id, ageMs: Math.round(now - motion.startedAt), durationMs: motion.duration, from: vector(motion.from), to: vector(motion.to), completed: motion.completed, overdue: !motion.completed && now > motion.startedAt + motion.duration + 1000 || undefined }));
+  const signals = [
+    ...characters.flatMap(character => character.animations.filter(animation => animation.clockNotAdvancing).map(animation => `${character.id}:${animation.slot}:clock-not-advancing`)),
+    ...waits.filter(wait => wait.overdue).map(wait => `${wait.id}:${wait.kind}:overdue`),
+    ...movement.filter(motion => motion.overdue).map(motion => `${motion.id}:movement:overdue`),
+  ];
+  const anomalyKey = signals.join('|');
+  if (anomalyKey !== diagnosticAnomalyKey) {
+    diagnosticAnomalyKey = anomalyKey;
+    if (signals.length) debugRecorder.event('animation.anomaly', { signals, sampled: true });
+  }
+  const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+  return {
+    view: game.classList.contains('hidden') ? 'lobby' : 'match', mode, phase: gameState.phase, turn: gameState.turn, seat: localSeat,
+    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, width: renderer.domElement.width, height: renderer.domElement.height, dpr: renderer.getPixelRatio() },
+    heapBytes: memory?.usedJSHeapSize,
+    characters,
+    waits,
+    movement,
+    objectMovement: [...objectMovementAnimations].map(([id, movement]) => ({ id, animationId: movement.animationId, ageMs: Math.round(now - movement.startedAt), durationMs: movement.duration, delayMs: movement.delay, collided: movement.collided, released: movement.released })),
+    effects: { projectiles: spellProjectileAnimations.length, firebolts: fireboltAnimations.length, moonwaves: moonwaveAnimations.length, repentFire: repentFireAnimations.length, logan: loganAttackVisuals.length, pendingDamage: [...pendingDamageVisuals].map(([id, damage]) => ({ id, count: damage.length })), queuedMovement: [...impactTriggeredCharacterMovements].map(([id, movements]) => ({ id, count: movements.length })), pendingDeaths: [...pendingDeathAnimationIds] },
+    combat: { visualAttackId: activeCombatVisualAttackId, completedAttackId: completedCombatVisualAttackId, merylinImpact: merylinCombatImpactPending, obiwanImpact: obiWanCombatImpactPending, orkkImpact: orkkCombatImpactPending, johnImpact: johnCombatImpactPending, loganImpact: loganCombatImpactPending, deferredOrkk: deferredOrkkCombatAttack?.recallAnimationId, genericImpactRemainingMs: genericCombatImpactAt ? Math.round(genericCombatImpactAt - now) : undefined, postCombatRemainingMs: Math.max(0, Math.round(postCombatVisualNotBefore - now)) },
+    pendingVisualIntents: { wizard: pendingOnlineWizardPowerVisualIntent?.kind, obiwan: pendingOnlineObiWanPowerVisualIntents.length, orkk: pendingOnlineOrkkVisualIntent?.animation, spectre: pendingOnlineSpectreVisualIntent?.animation },
+  };
+}
 const developerPanel = createDeveloperPanel(() => {
   const connection = byId('connection');
   const onlineStatus = connection.classList.contains('reconnecting') ? 'Reconnecting'
@@ -4317,11 +4486,31 @@ const developerPanel = createDeveloperPanel(() => {
     ['Selection', 'cardInstanceId' in currentSelection ? `${currentSelection.kind} · ${currentSelection.cardInstanceId}` : currentSelection.kind],
     ['Hover target', developerHoverTarget()],
   ];
+}, {
+  exportDump: () => { debugRecorder.sample(collectDiagnosticSample, true); void debugRecorder.exportDump(gameState); },
+  markIssue: () => { debugRecorder.sample(collectDiagnosticSample, true); debugRecorder.markIssue(gameState); },
+  toggleRecording: () => { debugRecorder.toggleRecording(); resetDiagnosticObservations(); debugRecorder.state(gameState); },
+  status: () => debugRecorder.status(),
 });
 // Keep camera and visual-setting shortcuts documented in src/hotkeys.ts.
 window.addEventListener('keydown', (event) => {
-  if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
+  if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === 'KeyR' || event.code === 'KeyD')) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (event.code === 'KeyR') {
+        debugRecorder.toggleRecording();
+        resetDiagnosticObservations();
+        debugRecorder.state(gameState);
+        notify(debugRecorder.status());
+      } else {
+        debugRecorder.sample(collectDiagnosticSample, true);
+        void debugRecorder.exportDump(gameState);
+      }
+    }
+    return;
+  }
+  if (document.querySelector<HTMLDialogElement>('#statisticsDialog')?.open) return;
   if (event.code === 'KeyD' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) return;
   if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'KeyV' && !game.classList.contains('hidden')) {
     event.preventDefault();
@@ -4400,7 +4589,7 @@ window.addEventListener('blur', () => {
 });
 let previousFrameTime = performance.now();
 renderer.setAnimationLoop((time) => {
-  const debugFrameStartedAt = developerPanel.visible ? performance.now() : undefined;
+  const debugFrameStartedAt = developerPanel.visible || debugRecorder.recordingEnabled ? performance.now() : undefined;
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   hologramShaderTime.value = time / 1000;
@@ -4603,7 +4792,10 @@ renderer.setAnimationLoop((time) => {
   stormAtmosphere.sky.position.copy(camera.position);
   dawnStarField.position.copy(camera.position);
   renderer.render(scene, camera);
-  developerPanel.frame(time, debugFrameStartedAt === undefined ? 0 : performance.now() - debugFrameStartedAt);
+  const workMs = debugFrameStartedAt === undefined ? 0 : performance.now() - debugFrameStartedAt;
+  developerPanel.frame(time, workMs);
+  debugRecorder.frame(time, workMs);
+  debugRecorder.sample(collectDiagnosticSample);
 });
 
 function createCharacterHealthBar(playerId: PlayerId) {
@@ -6149,7 +6341,7 @@ function createWoodenBox() {
   const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.2), darkWood);
   top.position.y = 1.17; top.castShadow = true; fallback.add(top);
   void loadArenaCrateAsset().then((asset) => installArenaProp(root, fallback, asset, 'ArenaCrateImportedModel', new THREE.Vector3(1.38, 1.38, 1.38))).catch((error) => {
-    console.error('Failed to load arena crate; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load arena crate; keeping procedural fallback.', error);
   });
   return root;
 }
@@ -6197,7 +6389,7 @@ function createArenaPillar() {
   const assetPromise = trenchModel !== null ? loadTrenchPillarAsset(trenchModel) : variant === 'nagrand' ? loadArenaPillarAsset() : loadLordaeronPillarAsset();
   const targetSize = variant === 'nagrand' ? new THREE.Vector3(1.564, 3.5535, 1.564) : new THREE.Vector3(1.6456, 4.2108, 1.6456);
   void assetPromise.then((asset) => installArenaProp(root, fallback, asset, `${variant}PillarImportedModel${trenchModel ?? ''}`, targetSize)).catch((error) => {
-    console.error(`Failed to load the ${variant} arena pillar; keeping procedural fallback.`, error);
+    reportDiagnosticError(`Failed to load the ${variant} arena pillar; keeping procedural fallback.`, error);
   });
   return root;
 }
@@ -6475,7 +6667,7 @@ async function attachDaOrkhModel(root: THREE.Group, body: THREE.Group) {
     const pendingAnimation = root.userData.pendingOrkkAnimation as 'Encourage' | 'ShieldThrow' | 'CharacterAttack' | 'BoxAttack' | undefined;
     if (pendingAnimation) { delete root.userData.pendingOrkkAnimation; playOrkkOneShot(playerId!, pendingAnimation); }
   } catch (error) {
-    console.error('Failed to load Da Orkk model; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load Da Orkk model; keeping procedural fallback.', error);
     root.userData.deathAnimationAvailable = false;
   } finally {
     root.userData.characterModelLoadSettled = true;
@@ -6503,6 +6695,7 @@ function aimMerylinAttack(group:THREE.Group,weapon:MerylinWeapon,target:THREE.Ve
 function playMerylinSwing(playerId: PlayerId, impact: () => void, weapon: MerylinWeapon='frostmourne', target?:THREE.Vector3) {
   const waiting = merylinImpactWaits.get(playerId);
   if (waiting) { waiting.callbacks.push(impact); return; }
+  debugRecorder.event('animation.attack-requested', { playerId, character: 'merylin', weapon });
   const group = dummyGroups.get(playerId);
   if(group && target) aimMerylinAttack(group,weapon,target);
   const state = group?.userData.merylinAnimation as MerylinAnimation | undefined;
@@ -6522,6 +6715,7 @@ function updateMerylinSwingImpacts(time: number) {
     if (state ? !state.hasSwingImpact && state.deathEndsAt === undefined
       : group && !group.userData.characterModelLoadSettled || time < wait.fallbackAt) continue;
     merylinImpactWaits.delete(id);
+    debugRecorder.event('animation.impact', { playerId: id, character: 'merylin' });
     for (const callback of wait.callbacks) callback();
   }
 }
@@ -6529,6 +6723,7 @@ function updateMerylinSwingImpacts(time: number) {
 function playObiWanAttack(playerId: PlayerId, clip: ObiWanAttackClip, impact: () => void = () => {}) {
   const waiting = obiWanAttackImpactWaits.get(playerId);
   if (waiting) { waiting.callbacks.push(impact); return; }
+  debugRecorder.event('animation.attack-requested', { playerId, character: 'shinobi', clip });
   const player = gameState.players[playerId];
   if (!player || player.character !== 'shinobi') { impact(); return; }
   const group = dummyGroups.get(playerId);
@@ -6553,6 +6748,7 @@ function updateObiWanAttackImpacts(time: number) {
     if (state ? !state.attack?.impactReached && state.deathEndsAt === undefined
       : (group && !group.userData.characterModelLoadSettled) || time < wait.fallbackAt) continue;
     obiWanAttackImpactWaits.delete(id);
+    debugRecorder.event('animation.impact', { playerId: id, character: 'shinobi' });
     for (const callback of wait.callbacks) callback();
   }
 }
@@ -6585,6 +6781,7 @@ function playJohnCast(
   }
   const waiting = johnCastWaits.get(playerId);
   if (waiting) { waiting.callbacks.push(impact); return; }
+  debugRecorder.event('animation.attack-requested', { playerId, character: 'john-christ', cardId, spirit: attackerWasInSpiritForm });
   const player = gameState.players[playerId];
   if (!player || player.character !== 'john-christ') { impact(); return; }
   const spirit = Boolean(attackerWasInSpiritForm ?? player.spiritForm);
@@ -6630,6 +6827,7 @@ function playJohnCast(
 }
 
 function launchJohnCastProjectile(playerId: PlayerId, wait: JohnCastWait, time: number) {
+  debugRecorder.event('animation.projectile-released', { playerId, character: 'john-christ', spirit: wait.spirit });
   const character = dummyGroups.get(playerId);
   const state = character?.userData.johnNormalAnimation as JohnAnimationState | undefined;
   character?.updateWorldMatrix(true, true);
@@ -6936,6 +7134,7 @@ function playOrkkOneShot(playerId: PlayerId, name: 'Encourage' | 'ShieldThrow' |
 function playOrkkCharacterAttack(playerId: PlayerId, impact: () => void = () => {}) {
   const waiting = orkkAttackImpactWaits.get(playerId);
   if (waiting) { waiting.callbacks.push(impact); return; }
+  debugRecorder.event('animation.attack-requested', { playerId, character: 'orkk', clip: 'CharacterAttack' });
   const player = gameState.players[playerId];
   if (!player || player.character !== 'orkk') { impact(); return; }
   playOrkkOneShot(playerId, 'CharacterAttack');
@@ -6952,6 +7151,7 @@ function updateOrkkAttackImpacts(time: number) {
     if (state ? !state.characterAttack?.impactReached && state.deathEndsAt === undefined
       : (group && !group.userData.characterModelLoadSettled) || time < wait.fallbackAt) continue;
     orkkAttackImpactWaits.delete(id);
+    debugRecorder.event('animation.impact', { playerId: id, character: 'orkk' });
     for (const callback of wait.callbacks) callback();
   }
 }
@@ -6971,6 +7171,7 @@ function playOrkkDeathAnimation(playerId: PlayerId, startedAt: number): number |
 }
 
 function applyOrkkVisualIntent(intent: OrkkVisualIntent) {
+  debugRecorder.event('animation.visual-intent', { playerId: intent.playerId, character: 'orkk', animation: intent.animation });
   const group = dummyGroups.get(intent.playerId);
   if (!group) return;
   if (intent.target) {
@@ -7463,7 +7664,7 @@ function createOrkkShieldObject() {
   const root = createProceduralOrkkShieldObject();
   const install = (asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) => installImportedShield(root, asset);
   if (daOrkhAsset) install(daOrkhAsset);
-  else loadDaOrkhAsset().then(install).catch((error) => console.error('Failed to load Da Orkk shield model.', error));
+  else loadDaOrkhAsset().then(install).catch((error) => reportDiagnosticError('Failed to load Da Orkk shield model.', error));
   return root;
 }
 
@@ -7521,7 +7722,7 @@ async function attachLongHatLoganModel(root: THREE.Group, body: THREE.Group) {
     }
   } catch (error) {
     root.userData.deathAnimationAvailable = false;
-    console.error('Failed to load Long Hat Logan model; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load Long Hat Logan model; keeping procedural fallback.', error);
   } finally {
     root.userData.characterModelLoadSettled = true;
   }
@@ -7552,6 +7753,7 @@ function wizardPowerEffectFinished(power: WizardPowerRuntime, playerId: PlayerId
 }
 
 function applyWizardPowerVisualIntent(intent: WizardPowerVisualIntent) {
+  debugRecorder.event('animation.visual-intent', { playerId: intent.playerId, character: 'magician', kind: intent.kind, targetId: 'targetId' in intent ? intent.targetId : undefined });
   const group = dummyGroups.get(intent.playerId);
   if (!group) return;
   const state = group.userData.wizardAnimation as WizardAnimationState | undefined;
@@ -7790,6 +7992,7 @@ function playSpectreAnimation(group: THREE.Group, name: SpectreAnimationName, fa
 }
 
 function applySpectreVisualIntent(intent: SpectreVisualIntent) {
+  debugRecorder.event('animation.visual-intent', { playerId: intent.playerId, character: 'spectre', animation: intent.animation });
   const group = dummyGroups.get(intent.playerId);
   if (!group) return;
   const state = group.userData.spectreAnimation as SpectreAnimationState | undefined;
@@ -7895,7 +8098,7 @@ async function attachSpectreModel(root: THREE.Group, body: THREE.Group, replica:
     playSpectreAnimation(root, pending ?? (replica ? 'Arise' : 'Idle'), 0);
     mixer.update(0);
   } catch (error) {
-    console.error('Failed to load Spectre model; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load Spectre model; keeping procedural fallback.', error);
   }
 }
 
@@ -8076,7 +8279,7 @@ async function attachMerylinModel(root: THREE.Group, body: THREE.Group) {
       }
     }
   } catch (error) {
-    console.error('Failed to load Merylin model; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load Merylin model; keeping procedural fallback.', error);
   } finally {
     root.userData.characterModelLoadSettled = true;
   }
@@ -8490,7 +8693,7 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
         applyJohnScepterPose(staff, 'Idle');
         hand.add(staff);
       } catch (error) {
-        console.error('Failed to load John Christ scepter; continuing without staff.', error);
+        reportDiagnosticError('Failed to load John Christ scepter; continuing without staff.', error);
       }
     }
     const mixer = new THREE.AnimationMixer(model);
@@ -8559,7 +8762,7 @@ async function attachJohnModel(root: THREE.Group, body: THREE.Group, spirit = fa
     else { root.userData.characterModelLoadSettled = true; root.userData.deathAnimationAvailable = true; }
   } catch (error) {
     root.userData.characterModelLoadSettled = true;
-    console.error('Failed to load John Christ; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load John Christ; keeping procedural fallback.', error);
   }
 }
 
@@ -9205,7 +9408,7 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     }
   } catch (error) {
     root.userData.deathAnimationAvailable = false;
-    console.error('Failed to load Obi-Wan model; keeping procedural fallback.', error);
+    reportDiagnosticError('Failed to load Obi-Wan model; keeping procedural fallback.', error);
   } finally {
     root.userData.characterModelLoadSettled = true;
   }
@@ -9339,6 +9542,7 @@ function obiWanPowerEffectFinished(power: ObiWanPowerRuntime) {
 }
 
 function applyObiWanPowerVisualIntent(intent: ObiWanPowerVisualIntent) {
+  debugRecorder.event('animation.visual-intent', { playerId: intent.playerId, character: 'shinobi', kind: intent.kind, targetId: 'targetId' in intent ? intent.targetId : undefined });
   const group = dummyGroups.get(intent.playerId);
   if (!group) return;
   const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
@@ -9682,7 +9886,7 @@ function syncNagrandOuterRing(width: number, height: number) {
     addNagrandBrazierFire(model);
     nagrandOuterRingGroup.add(model);
   }).catch((error) => {
-    console.error('Failed to load the Nagrand outer ring.', error);
+    reportDiagnosticError('Failed to load the Nagrand outer ring.', error);
   });
 }
 
@@ -9736,7 +9940,7 @@ function syncLordaeronPerimeter(width: number, height: number) {
     lordaeronPerimeterModel = model;
     lordaeronPerimeterGroup.add(model);
   }).catch((error) => {
-    console.error('Failed to load the Lordaeron cemetery perimeter.', error);
+    reportDiagnosticError('Failed to load the Lordaeron cemetery perimeter.', error);
   });
 }
 
@@ -9785,7 +9989,7 @@ function syncTrenchPerimeter(width: number, height: number) {
     trenchPerimeterGroup.add(model);
   }).catch((error) => {
     trenchPerimeterAssetPromise = null;
-    console.error('Failed to load The Trench perimeter.', error);
+    reportDiagnosticError('Failed to load The Trench perimeter.', error);
   });
 }
 
@@ -9860,7 +10064,7 @@ function syncLordaeronTomb() {
     lordaeronTombGroup.add(model);
     fitLordaeronTombHighlights();
   }).catch((error) => {
-    console.error('Failed to load the Lordaeron high-ground tomb.', error);
+    reportDiagnosticError('Failed to load the Lordaeron high-ground tomb.', error);
   });
 }
 

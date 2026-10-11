@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:debug-recording": "tsx scripts/check-debug-recording.ts",
+    "check:debug-server": "tsx scripts/check-debug-server.ts",
+    "check:debug-client": "tsx scripts/check-debug-client.ts",
+    "check:debug-reader": "tsx scripts/check-debug-reader.ts",
+    "debug:read": "tsx scripts/read-debug-dump.ts",
     "check:match-history": "tsx scripts/check-match-history.ts",
     "check:statistics-management": "tsx scripts/check-statistics-management.ts",
     "stats:dev": "wrangler dev --config cloudflare/wrangler.jsonc",

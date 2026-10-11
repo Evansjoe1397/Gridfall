@@ -20,7 +20,9 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
   {
     title: 'Interface and choices',
     shortcuts: [
-      { keys: ['Ctrl', 'D'], action: 'Show or hide the developer diagnostics panel.', detail: 'Available in the lobby and matches while not typing, with no other modifier keys. Shows FPS, frame timing, board-renderer statistics, and game / connection state. Overrides the browser bookmark shortcut.' },
+      { keys: ['Ctrl', 'D'], action: 'Show or hide the developer diagnostics panel.', detail: 'Available in the lobby and matches while not typing, with no other modifier keys. Shows FPS, frame timing, board-renderer statistics, and game / connection state; includes debug dump export and issue markers. Recording continues with the panel closed. Overrides the browser bookmark shortcut.' },
+      { keys: ['Ctrl', 'Shift', 'D'], action: 'Download the current debug dump.', detail: 'Available in the lobby and matches while not typing, without Alt or Meta. Works while client recording is paused. Includes available server history in online games. Overrides the browser bookmark-all-tabs shortcut.' },
+      { keys: ['Ctrl', 'Shift', 'R'], action: 'Pause or resume client debug recording.', detail: 'Available in the lobby and matches while not typing, without Alt or Meta. Preserves recorded history and marks the recording gap. Shared multiplayer server history continues. Overrides the browser hard-reload shortcut.' },
       { keys: ['Tab'], action: 'Show or hide the combat summary.', detail: 'Toggles the current summary during combat, or reopens the last summary after combat.' },
       { keys: ['H'], action: 'Show or hide Character HP bars on the board.' },
       { keys: ['J'], action: 'Enable or disable Perk-use labels.' },

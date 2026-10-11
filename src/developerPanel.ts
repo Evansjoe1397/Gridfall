@@ -1,6 +1,14 @@
 type DebugRow = readonly [label: string, value: string];
+import { debugRecorder } from './debug-recorder';
 
-export function createDeveloperPanel(snapshot: () => readonly DebugRow[]) {
+type RecordingControls = {
+  exportDump: () => void;
+  markIssue: () => void;
+  status: () => string;
+  toggleRecording: () => void;
+};
+
+export function createDeveloperPanel(snapshot: () => readonly DebugRow[], recording?: RecordingControls) {
   const panel = document.createElement('aside');
   panel.className = 'developer-panel';
   panel.hidden = true;
@@ -15,8 +23,28 @@ export function createDeveloperPanel(snapshot: () => readonly DebugRow[]) {
   const hint = document.createElement('small');
   hint.textContent = 'Ctrl+D · updates every 0.5s';
   const rows = document.createElement('dl');
+  const controls = document.createElement('div');
+  controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:10px 0';
+  const recorderStatus = document.createElement('small');
+  recorderStatus.style.cssText = 'display:block;overflow-wrap:anywhere';
+  function addButton(label: string, action: () => void) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.style.cssText = 'padding:5px 7px;border:1px solid #49786b;border-radius:4px;background:#132b23;color:#d5ebe4;cursor:pointer;font:inherit';
+    button.addEventListener('click', action);
+    controls.append(button);
+    return button;
+  }
+  if (recording) {
+    addButton('Mark issue', recording.markIssue);
+    addButton('Export debug dump', recording.exportDump);
+    addButton('Pause/resume client recording', recording.toggleRecording);
+  }
+  const previousButton = addButton('Export previous', () => { void debugRecorder.exportPrevious(); });
+  previousButton.hidden = true;
   header.append(title, close);
-  panel.append(header, hint, rows);
+  panel.append(header, hint, controls, recorderStatus, rows);
   document.body.append(panel);
 
   let previousTime: number | undefined;
@@ -27,6 +55,8 @@ export function createDeveloperPanel(snapshot: () => readonly DebugRow[]) {
   let workTotal = 0;
   const values = new Map<string, HTMLElement>();
   function render(entries: readonly DebugRow[]) {
+    recorderStatus.textContent = recording?.status() ?? debugRecorder.status();
+    previousButton.hidden = !debugRecorder.hasPrevious();
     for (const [label, value] of entries) {
       let cell = values.get(label);
       if (!cell) {
