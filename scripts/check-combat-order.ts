@@ -193,6 +193,7 @@ for (const count of [2, 3] as const) for (const attackCard of CARDS.filter((card
   const label = `${attackCard.id}/${defenseCard.id}/${count}`;
   try {
     let state = defend(attack(setup(attackCard.id, defenseCard.id, true, count)));
+    if (state.phase === 'choosing-mockingjay-defense') state = step(state, { type: 'mockingjay-defense-choice', playerId: 'P2', choice: 'draw' });
     if ((state.phase as string) === 'choosing-yamato-move') state = step(state, { type: 'yamato-move', playerId: 'P2', to: null });
     if ((state.phase as string) === 'choosing-blink-teleport') state = step(state, { type: 'blink-teleport', playerId: 'P2', to: { x: 3, y: 3 } });
     if ((state.phase as string) === 'choosing-lightbringer-swap') state = step(state, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true });

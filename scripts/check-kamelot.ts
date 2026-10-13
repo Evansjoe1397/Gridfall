@@ -28,6 +28,7 @@ const castAt = (state: GameState, label: string): GameState => {
 
 assert.deepEqual(STARTING_DECKS.merylin.defaults.filter((cardId) => cardId.endsWith('-stance')), ['kamelot-stance', 'windwalker-stance', 'carian-stance']);
 assert.equal(cardDefinition({ instanceId: 'description', cardId: 'kamelot-stance' }).levelEffects?.[0], 'Turn a Square you occupy into your Base Square or add +1 to its value. Maximum 3 changes.');
+assert.equal(cardDefinition({ instanceId: 'description', cardId: 'kamelot-stance' }).levelEffects?.[2], 'Remove up to 2 negative cards. Gain 1 Overpower for each card you didn’t remove.');
 assert.deepEqual(STARTING_DECKS.merylin.perkPhase, ['barbarian-stance', 'spellsinger-stance']);
 const testRoomStarters = createHotseatTestState(true, 'merylin', 2).players.P1.hand.map((card) => card.cardId);
 for (const cardId of ['kamelot-stance', 'windwalker-stance', 'carian-stance']) assert.ok(testRoomStarters.includes(cardId), `${cardId} starts in the Test Room Hand.`);
@@ -139,21 +140,78 @@ assert.deepEqual(kamelotChanges(queue).map((change) => change.label), ['B4', 'B5
 const levelThree = fresh();
 levelThree.players.P1.position = cell('B4');
 levelThree.players.P1.spellEcho = [null, null, { instanceId: 'kamelot-level-three', cardId: 'kamelot-stance' }];
-levelThree.players.P1.hand = [{ instanceId: 'followup-perk', cardId: 'carian-stance' }];
-const afterKamelot = step(levelThree, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
-assert.equal(afterKamelot.players.P1.spellsingerExtraPerkUses, 1, 'Level 3 grants one extra Perk use.');
-assert.equal(afterKamelot.players.P1.spellsingerExtraAttacks, 1, 'Level 3 grants one Attack-only Action.');
-const afterFollowup = step(afterKamelot, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'followup-perk', destination: 'direct' });
-assert.equal(afterFollowup.players.P1.spellsingerExtraPerkUses, 0, 'The followup Perk consumes the allowance.');
-assert.equal(afterFollowup.players.P1.actionsRemaining, 0, 'The normal Actions are exhausted after the second Perk.');
-afterFollowup.players.P1.spellsingerExtraPerkUses = 1;
-afterFollowup.players.P1.hand = [{ instanceId: 'third-perk', cardId: 'windwalker-stance' }, { instanceId: 'extra-attack', cardId: 'attack-2' }];
-afterFollowup.players.P2.position = cell('C4');
-assert.equal(applyCommand(afterFollowup, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'third-perk', destination: 'direct' }).ok, false, 'The extra Action cannot play a Perk.');
-const extraAttack = step(afterFollowup, { type: 'attack', playerId: 'P1', cardInstanceId: 'extra-attack', targetId: 'P2', targetKind: 'player' });
-assert.equal(extraAttack.players.P1.spellsingerExtraAttacks, 0, 'An Attack Card consumes the extra Action.');
-assert.equal(extraAttack.players.P1.actionsRemaining, 0);
-const expiredExtraAttack = step(afterKamelot, { type: 'end-turn', playerId: 'P1' });
-assert.equal(expiredExtraAttack.players.P1.spellsingerExtraAttacks, 0, 'The extra Attack Action expires at turn end.');
+levelThree.players.P1.hand = [{ instanceId: 'hand-status', cardId: 'pinned' }];
+levelThree.players.P1.deck = [{ instanceId: 'deck-status', cardId: 'exhaust' }, { instanceId: 'ordinary-card', cardId: 'attack-2' }];
+levelThree.players.P1.discard = [{ instanceId: 'discard-status', cardId: 'headache' }];
+let afterKamelot = step(levelThree, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(afterKamelot.phase, 'choosing-kamelot-removal');
+afterKamelot = step(afterKamelot, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'deck-status' });
+afterKamelot = step(afterKamelot, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'discard-status' });
+assert.equal(afterKamelot.phase, 'active');
+assert.deepEqual(afterKamelot.players.P1.removedDeck?.map((card) => card.instanceId), ['deck-status', 'discard-status']);
+assert.deepEqual(afterKamelot.players.P1.deck.map((card) => card.instanceId), ['ordinary-card']);
+assert.deepEqual(afterKamelot.players.P1.hand.map((card) => card.instanceId), ['hand-status'], 'Merylin can choose to retain a negative Card in Hand.');
+assert.equal(afterKamelot.players.P1.spellsingerExtraPerkUses ?? 0, 0, 'The former extra Perk bonus is gone.');
+assert.equal(afterKamelot.players.P1.spellsingerExtraAttacks ?? 0, 0, 'The former extra Attack bonus is gone.');
+
+const many = fresh();
+many.players.P1.position = cell('B4');
+many.players.P1.spellEcho = [null, null, { instanceId: 'many-kamelot', cardId: 'kamelot-stance' }];
+many.players.P1.deck = [
+  { instanceId: 'bottom-negative', cardId: 'exhaust' },
+  { instanceId: 'ordinary', cardId: 'attack-2' },
+  { instanceId: 'top-negative', cardId: 'panic' },
+];
+many.players.P1.discard = [{ instanceId: 'discard-negative', cardId: 'headache' }];
+let choosing = step(many, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(choosing.phase, 'choosing-kamelot-removal', 'More than two negative cards open a choice.');
+assert.equal(applyCommand(choosing, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'ordinary' }).ok, false, 'Non-status Cards cannot be chosen.');
+choosing = step(choosing, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'bottom-negative' });
+assert.equal(choosing.phase, 'choosing-kamelot-removal', 'A second selection remains.');
+choosing = step(choosing, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'discard-negative' });
+assert.equal(choosing.phase, 'active');
+assert.deepEqual(choosing.players.P1.deck.map((card) => card.instanceId), ['ordinary', 'top-negative'], 'A negative Card anywhere in Deck can be Removed.');
+assert.equal(choosing.players.P1.discard.length, 0, 'A negative Card in Discard can also be Removed.');
+assert.deepEqual(choosing.players.P1.removedDeck?.map((card) => card.instanceId), ['bottom-negative', 'discard-negative']);
+
+const optional = fresh();
+optional.players.P1.position = cell('B4');
+optional.players.P1.spellEcho = [null, null, { instanceId: 'optional-kamelot', cardId: 'kamelot-stance' }];
+optional.players.P1.deck = [
+  { instanceId: 'optional-one', cardId: 'exhaust' },
+  { instanceId: 'optional-two', cardId: 'panic' },
+  { instanceId: 'optional-three', cardId: 'headache' },
+];
+let stopped = step(optional, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+stopped = step(stopped, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: null });
+assert.equal(stopped.phase, 'active', 'Up to two allows ending the choice without removing a Card.');
+assert.equal(stopped.players.P1.deck.length, 3);
+assert.equal(stopped.players.P1.hand.filter((card) => card.cardId === 'overpower').length, 2);
+
+for (const removed of [0, 1, 2]) {
+  const state = fresh();
+  state.players.P1.position = cell('B4');
+  state.players.P1.spellEcho = [null, null, { instanceId: 'tradeoff', cardId: 'kamelot-stance' }];
+  state.players.P1.hand = [{ instanceId: 'in-hand', cardId: 'pinned' }];
+  state.players.P1.pinnedStacks = 1;
+  state.players.P1.deck = [{ instanceId: 'in-deck', cardId: 'exhaust' }];
+  state.players.P1.discard = [];
+  let result = step(state, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+  assert.equal(result.phase, 'choosing-kamelot-removal', 'Even two available Cards require an optional choice.');
+  if (removed >= 1) result = step(result, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'in-hand' });
+  if (removed === 2) result = step(result, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: 'in-deck' });
+  else result = step(result, { type: 'kamelot-remove', playerId: 'P1', cardInstanceId: null });
+  assert.equal(result.players.P1.hand.filter((card) => card.cardId === 'overpower').length, 2 - removed);
+  assert.equal(result.players.P1.removedDeck?.length, removed);
+  assert.equal(result.players.P1.pinnedStacks, Number(removed === 0));
+}
+const empty = fresh();
+empty.players.P1.position = cell('B4');
+empty.players.P1.spellEcho = [null, null, { instanceId: 'no-negatives', cardId: 'kamelot-stance' }];
+empty.players.P1.hand = []; empty.players.P1.deck = []; empty.players.P1.discard = [];
+const rewarded = step(empty, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
+assert.equal(rewarded.phase, 'active');
+assert.equal(rewarded.players.P1.hand.filter((card) => card.cardId === 'overpower').length, 2);
+assert.equal(new Set(rewarded.players.P1.hand.map((card) => card.instanceId)).size, 2);
 
 console.log('Kamelot Stance checks passed.');

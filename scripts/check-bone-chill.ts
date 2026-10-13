@@ -42,7 +42,7 @@ function resolve(state: GameState, defense?: 'block' | 'devour'): GameState {
 
 const card = CARDS.find((entry) => entry.id === 'bone-chill');
 assert.equal(card?.value, 3);
-assert.equal(card?.effectText, 'Value is 4 if attacking range is melee. After combat: steal MOV from target equal to your attacking range (up to 2).');
+assert.equal(card?.effectText, 'Value is 4 at melee Range. After combat, steal MOV from the target equal to your range for performing this Attack, up to 2.');
 assert.deepEqual(STARTING_DECKS.wreckna.attackFocus, ['finger-of-death', 'bone-chill']);
 assert.equal(Object.values(STARTING_DECKS.wreckna).flat().includes('drain-strength'), false, 'Drain Strength is absent from Wreckna\'s deck choices.');
 
@@ -60,6 +60,22 @@ for (const range of [1, 2, 3]) {
   assert.equal(result.players.P2.hexMovementPenalty, stolen);
   assert.equal(result.players.P2.movementRemaining, initial.players.P2.moveRange - stolen);
   assert.equal(effectiveMoveRange(result.players.P2), initial.players.P2.moveRange - stolen);
+}
+
+for (const attackDistance of [1, 2, 3]) {
+  for (const useReplicaPath of [false, true]) {
+    const boosted = setup(attackDistance);
+    boosted.players.P1.attackRange = 5;
+    boosted.players.P1.dakkothRangeBonus = 2;
+    const declared = useReplicaPath
+      ? step(boosted, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'bone', origin: 'spectre', targetKind: 'player', targetId: 'P2' })
+      : attack(boosted);
+    assert.equal(declared.pendingAttack?.boneChillSteal, Math.min(2, attackDistance), 'Steal records the performed distance, not maximum Attack Range.');
+    assert.equal(declared.pendingAttack?.attackValue, attackDistance === 1 ? 4 : 3);
+    const result = settled(step(declared, { type: 'pass-defense', playerId: 'P2' }));
+    assert.equal(result.players.P1.hexMovementBonus, Math.min(2, attackDistance));
+    assert.equal(result.players.P2.hexMovementPenalty, Math.min(2, attackDistance));
+  }
 }
 
 const blockDeclared = attack(setup(1, 'block'));

@@ -9,10 +9,10 @@ export const GAME_ICONS = [
   'might', 'wisdom', 'ritual', 'accumulate', 'square', 'pass-through',
 ] as const;
 
-export type GameIconName = typeof GAME_ICONS[number];
+export type GameIconName = typeof GAME_ICONS[number] | 'weaver';
 
 // Inline the tiny PNGs so cached overhead markers cannot retain failed requests.
-const iconSources = import.meta.glob<string>('./assets/icons/*.png', {
+const iconSources = import.meta.glob<string>('./assets/icons/*.{png,svg}', {
   eager: true,
   query: '?inline',
   import: 'default',
@@ -20,7 +20,7 @@ const iconSources = import.meta.glob<string>('./assets/icons/*.png', {
 
 /** Decorative artwork; the enclosing control supplies its name and tooltip. */
 export function gameIcon(name: GameIconName): string {
-  const source = iconSources[`./assets/icons/${name}.png`];
+  const source = iconSources[`./assets/icons/${name === 'weaver' ? 'weaver.svg' : `${name}.png`}`];
   if (!source) throw new Error(`Missing game icon: ${name}`);
   return `<img class="game-icon" src="${source}" alt="" aria-hidden="true" width="64" height="64" draggable="false">`;
 }

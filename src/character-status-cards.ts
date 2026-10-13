@@ -1,8 +1,8 @@
-import { CARDS, type CardTypeId, type CharacterId } from '../shared/game.ts';
+import { CARDS, type CardTypeId, type HotseatCharacterId } from '../shared/game.ts';
 
 // Directly generated cards only: exclude quest rewards, copied/transferred cards,
 // and non-card effects. John's positive Blessings have their own archive tab.
-export const CHARACTER_STATUS_CARD_IDS: Record<CharacterId, readonly CardTypeId[]> = {
+export const CHARACTER_STATUS_CARD_IDS: Record<HotseatCharacterId, readonly CardTypeId[]> = {
   shinobi: ['pinned', 'headache', 'exhaust'], // Movement effects, Hello There / Mind Tricks, Force Disarm.
   orkk: ['headache', 'exhaust'], // Knee Blast / CountaSpell, Teef Strike / Consume Rage.
   magician: ['headache'], // Counterspell.
@@ -10,9 +10,10 @@ export const CHARACTER_STATUS_CARD_IDS: Record<CharacterId, readonly CardTypeId[
   spectre: ['headache', 'panic'], // Consume Replica / Devour, Replicate.
   wreckna: ['headache', 'exhaust'], // Sap / Curse, Enfeeble / Finger of Death.
   merylin: ['headache', 'exhaust'], // Excalibur; Tactician / Frostmourne.
+  kazka: ['headache'], // Escalation.
 };
 
-export function characterStatusCards(character: CharacterId) {
+export function characterStatusCards(character: HotseatCharacterId) {
   return CHARACTER_STATUS_CARD_IDS[character].flatMap((id) => {
     const card = CARDS.find((candidate) => candidate.id === id);
     return card?.kind === 'status' && !card.id.startsWith('blessing-') ? [card] : [];
