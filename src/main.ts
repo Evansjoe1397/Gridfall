@@ -273,6 +273,7 @@ app.innerHTML = `
     <div class="choice-modal hidden" id="weaverChoiceModal" role="dialog" aria-modal="true" aria-labelledby="weaverChoiceTitle"></div>
     <div class="choice-modal hidden" id="narrativeModal" role="dialog" aria-modal="true" aria-labelledby="narrativeTitle"></div>
     <div class="choice-modal hidden" id="mockingjayNarrativeModal" role="dialog" aria-modal="true" aria-labelledby="mockingjayNarrativeTitle"></div>
+    <div class="choice-modal hidden" id="spellsingerDiscardModal" role="dialog" aria-modal="true" aria-labelledby="spellsingerDiscardTitle"></div>
     <div class="narrative-target-prompt hidden" id="narrativeTargetPrompt" role="status"></div>
     <div class="choice-modal hidden" id="onceUponReturnModal" role="dialog" aria-modal="true" aria-labelledby="onceUponReturnTitle"></div>
     <button class="narrative-restore hidden" id="narrativeRestore" type="button">Continue Narrative choice</button>
@@ -1760,6 +1761,7 @@ function renderUI() {
   renderWeaverChoiceModal();
   renderNarrativeModal();
   renderMockingjayNarrativeModal();
+  renderSpellsingerDiscardModal();
   renderOnceUponReturnModal();
   renderKamelotRemovalModal();
   renderActionQuestPanel();
@@ -1782,6 +1784,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-mockingjay-narrative') prompt.textContent = 'Mockingjay: discard a Narrative Card to trigger its special effect, or decline';
   if (gameState.phase === 'choosing-narrative-target') prompt.textContent = 'Narrative: click a highlighted enemy on the battlefield, or cancel the effect';
   if (gameState.phase === 'choosing-kamelot-removal') prompt.textContent = 'Kamelot Stance: Remove negative Cards from Hand, Deck or Discard, or gain Overpower';
+  if (gameState.phase === 'choosing-spellsinger-discard') prompt.textContent = 'Spellsinger Stance: choose a Card from Discard, then gain Summon';
   const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin) {
     const selectedReplica = gameState.objects.find((object) => object.id === spectrePerkOrigin.replicaId);
@@ -2181,6 +2184,19 @@ function renderWeaverChoiceModal() {
   modal.querySelectorAll<HTMLButtonElement>('[data-weaver-discard]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'weaver-choice', playerId: target.id, choice: 'discard', cardInstanceId: button.dataset.weaverDiscard! })));
 }
 
+function renderSpellsingerDiscardModal() {
+  const modal = byId('spellsingerDiscardModal');
+  const player = gameState.players[gameState.activePlayerId];
+  const visible = gameState.phase === 'choosing-spellsinger-discard' && canLocalAct(player.id);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible) { modal.innerHTML = ''; return; }
+  modal.innerHTML = `<div class="choice-dialog spellsinger-discard-dialog"><span>SPELLSINGER STANCE · LEVEL 3</span><h2 id="spellsingerDiscardTitle">Draw a Card from Discard</h2><p>Choose one Card to return to your Hand. Then gain Summon.</p><div class="discard-card-grid">${[...player.discard].reverse().map((instance) => {
+    const card = cardDefinition(instance);
+    return `<button type="button" class="card ${cardVisualClass(card)}" data-spellsinger-draw="${escapeHtml(instance.instanceId)}"><span>DRAW FROM DISCARD</span><strong>${cardNameHtml(card, true)}</strong><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('')}</div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-spellsinger-draw]').forEach((button) => button.onclick = () => dispatch({ type: 'spellsinger-discard', playerId: player.id, cardInstanceId: button.dataset.spellsingerDraw! }));
+}
+
 function renderMockingjayNarrativeModal() {
   const modal = byId('mockingjayNarrativeModal');
   const pending = (gameState as GameStateWithMockingjay).mockingjayNarrativeSpend;
@@ -2415,6 +2431,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianHeadacheIcon = player.character === 'merylin' && player.barbarianNextAttackHeadache ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('headache')}<span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>Merylin's next Attack adds Headache to the target's Hand after combat. Attacking an Object consumes this effect without applying Headache.</span></div>` : '';
     const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
+    const smartPushIcon = player.character === 'merylin' && player.spellsingerSmartPush ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('smart-push')}<b>1</b><span class="status-tooltip"><strong>Smart Push · next successful hit</strong>After your next Attack deals combat Damage to an enemy, push that target 1 Square into an adjacent destructible Object, destroying it and dealing 1 collision Damage. Otherwise, push from High Ground to an empty non-High Ground Square for 1 fall Damage. A fall during an Object collision also deals 1 fall Damage. If neither is possible, the target stays in place. Consumed on that hit. Columns, Flood Buttons and character-occupied Squares are ineligible.</span></div>` : '';
     const spellsingerAttackIcon = (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Dakkoth or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. This character may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after their normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
     const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Bone Chill, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
     const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, Curse, or Brain Freeze reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's turn.</span></div>` : '';
@@ -2432,7 +2449,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -3319,7 +3336,7 @@ function renderCombatReveal() {
     };
     const cardButtons = applicable.map((instance) => {
       const card = cardDefinition(instance);
-      const shortEffect: Partial<Record<CardTypeId, string>> = { overpower: '+1 to your Attack Card. Remove when Discarded.', 'heated-debate': 'Cancel the enemy Card’s post-combat effects. Remove when Discarded.', exhaust: 'Attach for -2 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      const shortEffect: Partial<Record<CardTypeId, string>> = { overpower: '+1 ATT against a diagonal enemy: adjacent, or Range 2 with Excalibur. Remove when Discarded.', 'heated-debate': 'Cancel the enemy Card’s post-combat effects. Remove when Discarded.', exhaust: 'Attach for -2 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
       return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${cardNameHtml(card)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
@@ -12276,6 +12293,7 @@ function onBoardClick(event: MouseEvent) {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
     const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);
+    if (playerHit === attacker.id && attacker.character !== 'spectre') return;
     const hitObject = gameState.objects.find((entry) => entry.id === objectHit);
     const entombedPlayer = playerHit ? gameState.players[playerHit] : undefined;
     const occupiedTomb = entombedPlayer?.wrecknaInsideTombId

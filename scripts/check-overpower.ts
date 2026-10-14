@@ -13,7 +13,7 @@ function fresh(stack = false): GameState {
   state.players.P1.position = { x: 2, y: 2 };
   state.players.P1.merylinSummonActive = true;
   state.players.P1.freeMoveUsed = true;
-  state.players.P2.position = { x: 3, y: 2 };
+  state.players.P2.position = { x: 3, y: 3 };
   state.players.P1.hand = [{ instanceId: 'attack', cardId: 'attack-2' }, { instanceId: 'power', cardId: 'overpower' }];
   state.players.P2.hand = [{ instanceId: 'defense', cardId: 'defend-1' }, { instanceId: 'defender-power', cardId: 'overpower' }];
   return state;
@@ -50,6 +50,37 @@ for (const stack of [false, true]) for (const pass of [false, true]) {
 
   state = acknowledge(choose(fight(fresh(stack), pass), false));
   assert.ok(state.players.P1.hand.some((card) => card.instanceId === 'power'), 'Declining combat use retains the Card.');
+}
+for (const stack of [false, true]) {
+  for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+    const source = fresh(stack);
+    source.players.P1.position = { x: 4, y: 3 };
+    source.players.P2.position = { x: 4 + dx, y: 3 + dy };
+    assert.ok(applicableCombatCardInstanceIds(fight(source), 'P1').includes('power'), 'Every adjacent diagonal qualifies.');
+  }
+  for (const dx of [-2, 2]) for (const dy of [-2, 2]) {
+    const source = fresh(stack);
+    source.players.P1.position = { x: 4, y: 3 };
+    source.players.P2.position = { x: 4 + dx, y: 3 + dy };
+    source.players.P1.hand[0].cardId = 'excalibur';
+    let state = fight(source);
+    assert.ok(applicableCombatCardInstanceIds(state, 'P1').includes('power'), 'Excalibur qualifies across one intervening diagonal Square.');
+    const before = state.combatReveal!.attackTotal;
+    state = choose(state);
+    assert.equal(state.combatReveal?.attackTotal, before + 1);
+  }
+  for (const [dx, dy, cardId] of [[1, 0, 'attack-2'], [0, 1, 'attack-2'], [2, 0, 'excalibur'], [0, 2, 'excalibur'], [2, 2, 'attack-2'], [3, 3, 'attack-2']] as const) {
+    const source = fresh(stack);
+    source.players.P1.attackRange = 4;
+    source.players.P1.position = { x: 4, y: 3 };
+    source.players.P2.position = { x: 4 + dx, y: 3 + dy };
+    source.players.P1.hand[0].cardId = cardId;
+    const state = fight(source);
+    assert.ok(!applicableCombatCardInstanceIds(state, 'P1').includes('power'), 'Cardinal targets and longer diagonals without the Excalibur exception do not qualify.');
+    if (state.phase === 'choosing-combat-stack') assert.ok(!applyCommand(state, { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: 'power' }).ok);
+    const settled = acknowledge(choose(state, false));
+    assert.ok(settled.players.P1.hand.some((card) => card.instanceId === 'power'), 'An unavailable Overpower remains in Hand.');
+  }
 }
 for (const command of ['guard', 'dash'] as const) {
   const source = fresh();
