@@ -9,7 +9,7 @@ export const GAME_ICONS = [
   'might', 'wisdom', 'ritual', 'accumulate', 'square', 'pass-through',
 ] as const;
 
-export type GameIconName = typeof GAME_ICONS[number] | 'weaver' | 'smart-push';
+export type GameIconName = typeof GAME_ICONS[number] | 'weaver' | 'smart-push' | 'mana-shield-reserve';
 
 // Inline the tiny PNGs so cached overhead markers cannot retain failed requests.
 const iconSources = import.meta.glob<string>('./assets/icons/*.{png,svg}', {

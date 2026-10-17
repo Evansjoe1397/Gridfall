@@ -91,6 +91,41 @@ for (const command of ['guard', 'dash'] as const) {
   assert.ok(!result.players.P1.discard.some((card) => card.cardId === 'overpower'));
   assert.equal(result.phase === 'choosing-guard-discard' || result.phase === 'choosing-dash-discard', false, 'Finishing Move discard resolves automatically.');
 }
+// Cancelling before movement refunds only the Overpower paid for this Dash attempt.
+let dashSource = fresh();
+dashSource.players.P1.movementRemaining = 1;
+dashSource.players.P1.hand.push({ instanceId: 'power2', cardId: 'overpower', revealedToOpponent: true });
+const initialHand = structuredClone(dashSource.players.P1.hand);
+for (let attempt = 0; attempt < 2; attempt++) {
+  const dashing = step(dashSource, { type: 'dash', playerId: 'P1' });
+  assert.equal(dashing.phase, 'dashing');
+  assert.equal(dashing.dashCancellation?.discardedCard?.cardId, 'overpower');
+  assert.equal(dashing.players.P1.hand.filter((card) => card.cardId === 'overpower').length, 1, 'Only one Overpower pays each Dash cost.');
+  dashSource = step(dashing, { type: 'cancel-dash', playerId: 'P1' });
+  assert.equal(dashSource.phase, 'active');
+  assert.equal(dashSource.players.P1.movementRemaining, 1);
+  assert.deepEqual([...dashSource.players.P1.hand].sort((a, b) => a.instanceId.localeCompare(b.instanceId)),
+    [...initialHand].sort((a, b) => a.instanceId.localeCompare(b.instanceId)), 'Cancellation restores the original Card instance without duplicates.');
+  assert.ok(!applyCommand(dashSource, { type: 'cancel-dash', playerId: 'P1' }).ok);
+}
+const committedDash = step(dashSource, { type: 'dash', playerId: 'P1' });
+const paidId = committedDash.dashCancellation!.discardedCard!.instanceId;
+const movedDash = step(committedDash, { type: 'move', playerId: 'P1', to: { x: 2, y: 1 } });
+assert.equal(movedDash.dashCancellation, null);
+assert.ok(!applyCommand(movedDash, { type: 'cancel-dash', playerId: 'P1' }).ok, 'Movement commits the Dash cost.');
+assert.ok(!movedDash.players.P1.hand.some((card) => card.instanceId === paidId));
+const endedDash = step(committedDash, { type: 'end-turn', playerId: 'P1' });
+assert.ok(!endedDash.players.P1.hand.some((card) => card.instanceId === paidId), 'Ending Dash keeps Overpower Removed.');
+const ordinarySource = fresh();
+ordinarySource.players.P1.hand = [{ instanceId: 'ordinary', cardId: 'attack-2' }];
+const pendingDash = step(ordinarySource, { type: 'dash', playerId: 'P1' });
+assert.equal(pendingDash.phase, 'choosing-dash-discard');
+assert.deepEqual(step(pendingDash, { type: 'cancel-dash', playerId: 'P1' }).players.P1.hand, ordinarySource.players.P1.hand);
+const ordinaryDash = step(pendingDash, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'ordinary' });
+const ordinaryCancelled = step(ordinaryDash, { type: 'cancel-dash', playerId: 'P1' });
+assert.deepEqual(ordinaryCancelled.players.P1.hand, ordinarySource.players.P1.hand);
+assert.equal(ordinaryCancelled.players.P1.discard.length, 0);
+
 let limited = fresh();
 limited.players.P1.hand.push({ instanceId: 'power2', cardId: 'overpower' }, ...[1, 2, 3, 4].map((id) => ({ instanceId: `ordinary-${id}`, cardId: 'attack-2' as const })));
 limited = step(limited, { type: 'end-turn', playerId: 'P1' });

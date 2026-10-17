@@ -8,7 +8,7 @@ import { finishedMatchRecord } from './match-record.ts';
 import { DEFAULT_STATS_URL } from '../shared/stats-config.ts';
 import { DebugRecorder, projectDebugState } from '../shared/debug-recording.ts';
 import { managementCapabilities, statsManagementRouter } from './stats-management.ts';
-import { applyCommand, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
+import { applyCommand, enablePerkMode, hasPendingPerkChoice, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
 type GameFormat = 'duel' | 'ffa' | 'bo3';
@@ -28,6 +28,7 @@ class DuelRoom extends Room {
   private format: GameFormat = 'duel';
   private seriesMode: BestOfThreeMode = 'duel';
   private arena: ArenaId = 'nagrand';
+  private perkMode = false;
   private seats = new Map<string, PlayerId>();
   private characterSelections: Partial<Record<PlayerId, CharacterId>> = {};
   private characters: Partial<Record<PlayerId, CharacterId>> = {};
@@ -53,6 +54,12 @@ class DuelRoom extends Room {
     this.onMessage('command', (client, raw) => this.handleCommand(client, raw));
     this.onMessage('hover-character', (client, raw) => this.previewCharacter(client, raw));
     this.onMessage('select-character', (client, raw) => this.confirmCharacter(client, raw));
+    this.onMessage('set-perk-mode', (client, enabled) => {
+      if (this.seats.get(client.sessionId) !== 'P1' || this.game || Object.keys(this.characters).length || typeof enabled !== 'boolean') return;
+      this.perkMode = enabled;
+      this.diagnostics.record('lobby.perk-mode', { enabled });
+      this.broadcastLobby();
+    });
     this.onMessage('ready', (client) => { this.diagnostics.record('client.ready', { seat: this.seats.get(client.sessionId) }); this.sendSnapshot(client); });
     this.onMessage('debug-export', (client, raw) => this.exportDiagnostics(client, raw));
     this.onMessage('debug-ping', (client, raw) => {
@@ -114,6 +121,7 @@ class DuelRoom extends Room {
       client.send('error', error);
     };
     if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'combat-stack-submit') {
+      if (this.game && hasPendingPerkChoice(this.game)) return reject('Resolve the drawn PERK Card choice before continuing.');
       if (!this.game || !seat || this.game.phase !== 'choosing-combat-stack' || !this.game.pendingAttack || ![this.game.pendingAttack.attackerId, this.game.pendingAttack.defenderId].includes(seat)) return reject('No Combat Stack selection is available.');
       if (this.combatStackSelections.has(seat)) return reject('Your Combat Stack selection is already locked.');
       const cardInstanceIds = (raw as { cardInstanceIds?: unknown }).cardInstanceIds;
@@ -238,8 +246,9 @@ class DuelRoom extends Room {
         ? createBestOfThreeState(this.seriesMode, {
           P1: this.tournamentCharacters.P1 ?? [this.characters.P1!, this.characters.P1!],
           P2: this.tournamentCharacters.P2 ?? [this.characters.P2!, this.characters.P2!],
-        })
+        }, false, this.perkMode)
         : createMultiplayerState(this.characters as Record<PlayerId, CharacterId>, this.arena === 'trench' || this.arena === 'pipe' ? this.arena : 'nagrand');
+      if (this.perkMode && !this.game.perkMode) enablePerkMode(this.game);
       this.broadcastState();
     }
   }
@@ -247,7 +256,7 @@ class DuelRoom extends Room {
   private broadcastLobby() {
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : this.arena === 'pipe' ? THE_PIPE_ARENA : NAGRAND_ARENA;
-    this.broadcast('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
+    this.broadcast('lobby-state', { perkMode: this.perkMode, playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
   }
 
   private sendSnapshot(client: Client) {
@@ -255,7 +264,7 @@ class DuelRoom extends Room {
     if (seat) client.send('seat', seat);
     const requiredPlayerCount = this.format === 'ffa' ? 3 : 2;
     const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : this.arena === 'pipe' ? THE_PIPE_ARENA : NAGRAND_ARENA;
-    client.send('lobby-state', { playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
+    client.send('lobby-state', { perkMode: this.perkMode, playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
     client.send('debug-meta', this.diagnosticMeta());
     if (this.game) client.send('state', this.game);
   }

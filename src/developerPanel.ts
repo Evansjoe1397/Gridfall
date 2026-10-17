@@ -3,7 +3,7 @@ import { debugRecorder } from './debug-recorder';
 
 type RecordingControls = {
   exportDump: () => void;
-  markIssue: () => void;
+  markIssue: (comment: string) => boolean;
   status: () => string;
   toggleRecording: () => void;
 };
@@ -27,6 +27,34 @@ export function createDeveloperPanel(snapshot: () => readonly DebugRow[], record
   controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:10px 0';
   const recorderStatus = document.createElement('small');
   recorderStatus.style.cssText = 'display:block;overflow-wrap:anywhere';
+  recorderStatus.setAttribute('role', 'status');
+  const issueForm = document.createElement('form');
+  issueForm.hidden = true;
+  const issueLabel = document.createElement('label');
+  issueLabel.textContent = 'Describe the issue (optional, up to 2,000 characters)';
+  const issueComment = document.createElement('textarea');
+  issueComment.maxLength = 2000;
+  issueComment.rows = 3;
+  issueComment.style.cssText = 'box-sizing:border-box;width:100%;font:inherit';
+  issueLabel.append(issueComment);
+  const issueHint = document.createElement('small');
+  issueHint.textContent = 'Attach screenshots separately alongside the downloaded dump.';
+  const saveIssue = document.createElement('button');
+  saveIssue.type = 'submit';
+  saveIssue.textContent = 'Save issue marker';
+  const cancelIssue = document.createElement('button');
+  cancelIssue.type = 'button';
+  cancelIssue.textContent = 'Cancel';
+  cancelIssue.addEventListener('click', () => { issueForm.hidden = true; });
+  issueForm.append(issueLabel, issueHint, saveIssue, cancelIssue);
+  issueForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (recording?.markIssue(issueComment.value)) {
+      issueForm.hidden = true;
+      issueComment.value = '';
+    }
+    recorderStatus.textContent = recording?.status() ?? debugRecorder.status();
+  });
   function addButton(label: string, action: () => void) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -37,14 +65,14 @@ export function createDeveloperPanel(snapshot: () => readonly DebugRow[], record
     return button;
   }
   if (recording) {
-    addButton('Mark issue', recording.markIssue);
+    addButton('Mark issue', () => { issueForm.hidden = false; issueComment.focus(); });
     addButton('Export debug dump', recording.exportDump);
     addButton('Pause/resume client recording', recording.toggleRecording);
   }
   const previousButton = addButton('Export previous', () => { void debugRecorder.exportPrevious(); });
   previousButton.hidden = true;
   header.append(title, close);
-  panel.append(header, hint, controls, recorderStatus, rows);
+  panel.append(header, hint, controls, issueForm, recorderStatus, rows);
   document.body.append(panel);
 
   let previousTime: number | undefined;

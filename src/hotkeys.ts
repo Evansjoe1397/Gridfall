@@ -14,7 +14,7 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
       { keys: ['C'], action: 'Cancel the latest movement segment.', detail: 'Available when the Cancel movement button is shown and enabled. Movement before a Perk becomes cancellable after undoing that Perk.' },
       { keys: ['Ctrl', 'Z'], action: 'Undo the latest movement segment or Perk.', detail: 'During your turn, in online and local games, while not typing. Undo movement first, then the latest Perk, then earlier movement. Another Perk replaces the previous Perk checkpoint. Attacking, Guard, Dash, ending the turn, other actions, opponent choices, Card draws/reveals, and random results commit earlier history.' },
       { keys: ['Alt', '1–9'], action: 'Activate a Hand Card by its position from left to right.', detail: 'Performs the same action as clicking that Card, including selecting it for a discard. Number row and numpad both work; disabled Cards cannot be activated.' },
-      { keys: ['1–3'], action: 'Activate your Spell Echo slot 1, 2, or 3.', detail: 'Number row and numpad both work; the slot must be enabled.' },
+      { keys: ['1–3'], action: 'Activate your Spell Echo slot 1, 2, or 3.', detail: 'Number row and numpad both work; the slot must be enabled. With a leveled Perk selected from Hand, insert it at Level 1. In Perk Mode, targeting an occupied Level 2 or 3 discards that Perk and shifts the lower Perks up one level.' },
     ],
   },
   {
@@ -64,6 +64,7 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
   {
     title: 'Mouse shortcuts and browsing',
     shortcuts: [
+      { keys: ['Click / tap your Spell Echo'], action: 'Place a selected Hand Perk in Spell Echo at Level 1.', detail: 'Select a Perk with levels during your active turn. In Perk Mode, click any occupied slot to discard its Perk, shift all lower Perks up one level, and insert the selected Perk at Level 1. Higher Perks stay in place. Outside Perk Mode only Level 1 can be replaced. Normal Action and Perk-use costs apply.' },
       { keys: ['Hover a green movement Square'], action: 'Preview the Character’s route and MOV cost, including automatic Slides and collisions.', detail: 'Hold Alt or enable movement previews with T (disabled by default). Available while choosing your movement destination, including Dash and special movement. Mouse or pen only; hidden while dragging the camera. Step-by-step movement previews the next step. Free Slides and Card-granted movement do not add MOV cost. Orange markers show pushes, damage, or destruction.' },
       { keys: ['Hover an eligible Iron Shield'], action: 'Preview Arm da Wiz’s Shield recall path.', detail: 'Always enabled independently of T and Alt. Da Orkk only, while choosing a Shield to recall with Arm da Wiz. Mouse or pen only; hidden while dragging the camera. Enemy-tile line sections change color for pulls at every level; level 2+ also shows predicted damage.' },
       { keys: ['Click a highlighted Iron Shield'], action: 'Recall and equip that Shield with Arm da Wiz.', detail: 'Da Orkk only, after choosing Recall Shield. Click the Shield on the board or its Square; only your Shields with a valid recall path are selectable. Hover to preview the route and damage first. Esc cancels.' },

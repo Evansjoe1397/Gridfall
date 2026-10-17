@@ -39,8 +39,8 @@ for (const card of ['thorns', 'flurry-defensive-strikes'] as const) {
 const mana = setup('mana-shield', 'magician');
 mana.players.P2.manaPoints = 1;
 const shielded = resolve(mana);
-assert.equal(shielded.players.P2.hp, mana.players.P2.hp - 1, 'Generated Mana contributes to DEF');
-assert.equal(shielded.players.P2.manaPoints, 2, 'Mana generation survives; post-combat Mana loss is cancelled');
+assert.equal(shielded.players.P2.hp, mana.players.P2.hp - 2, 'Stored Mana determines DEF without generation');
+assert.equal(shielded.players.P2.manaPoints, 1, 'Post-combat Mana loss is cancelled');
 
 const graveyard = setup('graveyard', 'wreckna');
 graveyard.players.P2.hand.push({ instanceId: 'tomb', cardId: 'tomb-block' });

@@ -31,6 +31,7 @@ import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duratio
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import { HOTKEY_SECTIONS } from './hotkeys.ts';
 import { createDeveloperPanel } from './developerPanel.ts';
+import { cardNameHtml, cardTextHtml } from './card-typography.ts';
 import { debugRecorder } from './debug-recorder.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
@@ -155,6 +156,11 @@ import {
   canUndoLastAction,
   canUndoMovement,
   phaseCardCandidates,
+  allowsAnySpellEchoReplacement,
+  canTargetSpellEchoSlotForInsertion,
+  enablePerkMode,
+  drawnPerkCandidates,
+  hasPendingPerkChoice,
   kykDirectionAllowed,
   pinnedCount,
   spectreActionEventForCommand,
@@ -174,6 +180,7 @@ import {
   type GameStateWithMockingjay,
   narrativeCardsInHand,
   feedSpiritDefenseBonus,
+  storedManaShieldDefenseBonus,
   type GameStateWithOnceUpon,
   type NarrativeEffect,
   type BestOfThreeMode,
@@ -292,8 +299,9 @@ let gameState = createInitialState();
 let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
+let selectedPerkMode = false;
 type GameFormat = 'duel' | 'ffa' | 'bo3';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; seriesCharacters?: Partial<Record<PlayerId, readonly [OnlineCharacter, OnlineCharacter]>>; seriesMode?: BestOfThreeMode | null; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { perkMode?: boolean; playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; seriesCharacters?: Partial<Record<PlayerId, readonly [OnlineCharacter, OnlineCharacter]>>; seriesMode?: BestOfThreeMode | null; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let tournamentFirstChoice: OnlineCharacter | null = null;
 let roomIdAutoSelected = false;
@@ -803,6 +811,7 @@ function oraclePulseAttributes(instanceId: string) {
 }
 let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
 let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
+const storedManaShieldVisuals = new Map<PlayerId, ManaShieldVisual>();
 let blockedCombatTargetId: PlayerId | null = null;
 let forfeitedCombatTargetId: PlayerId | null = null;
 let flurryCombatPosition: THREE.Vector3 | null = null;
@@ -873,6 +882,8 @@ function resetCombatSummary() {
   pendingManaShield = null;
   manaShieldVisual?.effect.dispose();
   manaShieldVisual = null;
+  for (const effect of storedManaShieldVisuals.values()) effect.dispose();
+  storedManaShieldVisuals.clear();
   activeCombatSummary = false;
   combatSummaryHidden = false;
   lastCombatSummaryHtml = '';
@@ -995,6 +1006,7 @@ function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'n
   const panel = byId('onlineWaiting');
   const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
   panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character')).join('')}</div>`;
+  renderPerkModeSwitch(panel);
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as HotseatCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character, arena, seriesMode);
@@ -1008,6 +1020,7 @@ function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: Hot
   const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
   panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character')).join('')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
   const dummyButton = panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!;
+  renderPerkModeSwitch(panel);
   if (seriesMode) {
     dummyButton.remove();
     panel.querySelectorAll('p')[1]!.textContent = `Step 2 of 2 · Choose the Character controlled by Player 2 against ${playerName}.`;
@@ -1026,6 +1039,7 @@ function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
   const steps = ['Player 1 · Match 1', 'Player 1 · Match 2', 'Player 2 · Match 1', 'Player 2 · Match 2'];
   const usedThisPlayer = selected.length === 1 ? selected[0] : selected.length === 3 ? selected[2] : null;
   panel.innerHTML = `<p class="eyebrow">BEST-OF-THREE · THE TOURNAMENT</p><h2>Choose ${steps[selected.length]}</h2><p>Each Player chooses two different Characters. The winner of each match keeps that Character for a deciding third match.</p><div class="character-choices">${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character', character === usedThisPlayer)).join('')}</div><button class="lobby-back-button" id="backTournament" type="button">Back</button>`;
+  renderPerkModeSwitch(panel);
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const next = [...selected, button.dataset.hotseatCharacter as HotseatCharacter];
     if (next.length < 4) showHotseatTournamentSelect(next);
@@ -1035,7 +1049,7 @@ function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
 }
 
 function startHotseatSeries(seriesMode: BestOfThreeMode, characters: Record<'P1' | 'P2', readonly [HotseatCharacter, HotseatCharacter]>) {
-  const state = createBestOfThreeState(seriesMode, characters, true);
+  const state = createBestOfThreeState(seriesMode, characters, true, selectedPerkMode);
   startHotseatState(state);
 }
 
@@ -1045,6 +1059,7 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
     : format === 'duel' && arena === 'trench'
     ? createTrenchTestState(false, character, opponentCharacter)
     : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  if (selectedPerkMode) enablePerkMode(state);
   startHotseatState(state);
 }
 
@@ -1317,6 +1332,17 @@ function normalizeOnlineState(state: GameState): GameState {
   return state;
 }
 
+function renderPerkModeSwitch(panel: HTMLElement, online = false) {
+  const enabled = online ? Boolean(onlineLobbyState?.perkMode) : selectedPerkMode;
+  const disabled = online && (localSeat !== 'P1' || Boolean(Object.keys(onlineLobbyState?.characters ?? {}).length));
+  panel.querySelector('.character-choices')?.insertAdjacentHTML('beforebegin', `<label class="perk-mode-setting"><span><strong>Perk Mode</strong><small>Start with your Base Perk. Draw PERK Cards to choose new Perks.${online ? ' Host sets this before anyone confirms a Character.' : ''}</small></span><input type="checkbox" role="switch" aria-label="Perk Mode" data-perk-mode ${enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span class="perk-mode-slider" aria-hidden="true"></span></label>`);
+  panel.querySelector<HTMLInputElement>('[data-perk-mode]')?.addEventListener('change', (event) => {
+    const enabled = (event.target as HTMLInputElement).checked;
+    if (online) sendRoomMessage('set-perk-mode', enabled);
+    else selectedPerkMode = enabled;
+  });
+}
+
 function renderOnlineLobby() {
   if (!room || !localSeat) return;
   const roomId = room.roomId;
@@ -1338,6 +1364,7 @@ function renderOnlineLobby() {
     <p>${orderMessage}${tournament && mayChoose ? tournamentFirstChoice ? ` Match 1: ${CHARACTER_SELECT_INFO[tournamentFirstChoice].name}. Choose a different Match 2 Character.` : ' Choose your Match 1 Character, then your Match 2 Character.' : ''}</p><div class="character-choices">
       ${ONLINE_CHARACTER_ORDER.map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
     </div>${tournament && tournamentFirstChoice && mayChoose ? '<button class="lobby-back-button" id="backTournamentFirst" type="button">Change Match 1 Character</button>' : ''}`;
+  renderPerkModeSwitch(panel, true);
   panel.querySelector<HTMLButtonElement>('#backTournamentFirst')?.addEventListener('click', () => { tournamentFirstChoice = null; renderOnlineLobby(); });
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
@@ -1398,6 +1425,7 @@ function sameLobbyExceptSelections(previous: OnlineLobbyState, next: OnlineLobby
     && previous.requiredPlayerCount === next.requiredPlayerCount
     && previous.arena === next.arena
     && previous.mode === next.mode
+    && previous.perkMode === next.perkMode
     && previous.started === next.started
     && (['P1', 'P2', 'P3'] as PlayerId[]).every((playerId) => previous.characters[playerId] === next.characters[playerId]);
 }
@@ -1768,6 +1796,7 @@ function renderUI() {
   renderPhaseRewardModal();
   renderCombatReveal();
   renderMatchResults();
+  renderDrawnPerkModal();
   renderDiscardModal();
   byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${cardTextHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
@@ -2184,6 +2213,30 @@ function renderWeaverChoiceModal() {
   modal.querySelectorAll<HTMLButtonElement>('[data-weaver-discard]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'weaver-choice', playerId: target.id, choice: 'discard', cardInstanceId: button.dataset.weaverDiscard! })));
 }
 
+function renderDrawnPerkModal() {
+  let modal = document.getElementById('drawnPerkModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'drawnPerkModal';
+    modal.className = 'choice-modal hidden';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'drawnPerkTitle');
+    document.body.append(modal);
+  }
+  const pending = Object.values(gameState.players).filter((player) => player.hp > 0 && (player.perkMode?.pendingChoices ?? 0) > 0);
+  const visible = hasPendingPerkChoice(gameState);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible) { modal.innerHTML = ''; return; }
+  const player = mode === 'online' ? pending.find((player) => player.id === localSeat) : pending[0];
+  if (!player) {
+    modal.innerHTML = '<div class="choice-dialog"><span>PERK MODE</span><h2 id="drawnPerkTitle">Waiting for a Perk choice</h2><p>Play resumes once the drawn PERK Cards are exchanged.</p></div>';
+    return;
+  }
+  modal.innerHTML = `<div class="choice-dialog focus-choice-dialog"><span>PERK MODE · ${player.perkMode!.pendingChoices} CHOICE(S)</span><h2 id="drawnPerkTitle">${escapeHtml(player.name)}: choose a Perk</h2><p>Your PERK Card is Removed. Choose one remaining Perk to add to your Hand.</p><div class="choice-cards">${drawnPerkCandidates(player).map((cardId) => focusSelectionCardHtml(cardId, 'data-drawn-perk')).join('')}</div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-drawn-perk]').forEach((button) => button.onclick = () => dispatch({ type: 'choose-drawn-perk', playerId: player.id, cardId: button.dataset.drawnPerk as Extract<GameCommand, { type: 'choose-drawn-perk' }>['cardId'] }));
+}
+
 function renderSpellsingerDiscardModal() {
   const modal = byId('spellsingerDiscardModal');
   const player = gameState.players[gameState.activePlayerId];
@@ -2204,7 +2257,7 @@ function renderMockingjayNarrativeModal() {
   modal.classList.toggle('hidden', !visible);
   if (!visible || !pending) { modal.innerHTML = ''; return; }
   const cards = narrativeCardsInHand(gameState, pending.playerId);
-  modal.innerHTML = `<div class="choice-dialog mockingjay-narrative-dialog"><span>MOCKINGJAY · AFTER COMBAT</span><h2 id="mockingjayNarrativeTitle">Spend a Narrative Card?</h2><p>Discard one Narrative Card from your Hand to trigger a Narrative effect. Its own printed effect is not played. Heated Debate is Removed when discarded.</p><div class="discard-card-grid">${cards.map((instance) => {
+  modal.innerHTML = `<div class="choice-dialog mockingjay-narrative-dialog"><span>MOCKINGJAY · AFTER COMBAT</span><h2 id="mockingjayNarrativeTitle">Spend a Narrative Card?</h2><p>Discard one Narrative Card from your Hand to trigger a Narrative effect. Its own printed effect is not played. ${cardTextHtml('Heated Debate is Removed when discarded.')}</p><div class="discard-card-grid">${cards.map((instance) => {
     const card = cardDefinition(instance);
     return `<button type="button" class="card ${cardVisualClass(card)}" data-mockingjay-spend="${escapeHtml(instance.instanceId)}"><span>DISCARD TO TRIGGER NARRATIVE</span><strong>${cardNameHtml(card, true)}</strong><small>${cardRulesHtml(card)}</small></button>`;
   }).join('')}</div><button type="button" class="choice-decline" id="mockingjayDecline">Decline</button></div>`;
@@ -2380,6 +2433,8 @@ function playerAbilityIcon(player: GameState['players'][PlayerId]) {
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
+    const reserve = Math.max(0, player.manaShieldUnusedBlock ?? 0);
+    const manaShieldReserveIcon = reserve > 0 && player.hp > 0 ? `<div class="status-icon mana-shield-reserve-status" tabindex="0" aria-label="Mana Shield: ${reserve} unused block">${gameIcon('mana-shield-reserve')}<b>+${reserve}</b><span class="status-tooltip"><strong>Mana Shield · Unused Block</strong>+${reserve} DEF on your next Defend Card. Stored block equals the previous Mana Shield's total DEF minus the attacker's total ATT, including all bonuses and penalties. This bonus remains through turns, attacks and hits taken without a Defend Card, then is consumed when you play a Defend Card.</span></div>` : '';
     const stacks = pinnedCount(player);
     const headacheInHand = player.hand.filter((card) => card.cardId === 'headache').length;
     const headacheInDiscard = player.discard.filter((card) => card.cardId === 'headache').length;
@@ -2459,7 +2514,7 @@ function renderHand() {
   const hasHeldExhaust = actualViewer.hand.some((instance) => instance.cardId === 'exhaust');
   const handValueHtml = (instance: typeof viewer.hand[number]) => {
     const card = cardDefinition(instance);
-    const baseValue = cardBaseValue(instance) + feedSpiritDefenseBonus(viewer, instance.cardId);
+    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + feedSpiritDefenseBonus(viewer, instance.cardId) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
     const reduced = hasHeldExhaust && (card.kind === 'attack' || card.kind === 'defend');
     return reduced
       ? `<b class="exhaust-reduced-value" title="${baseValue} − 1 from Exhaust in Hand">${Math.max(0, baseValue - 1)}</b>`
@@ -2813,8 +2868,9 @@ function renderManaModal() {
   document.querySelector('#minimizeManaChoice')?.addEventListener('click', () => dispatch({ type: 'minimize-mana-choice', playerId }));
 }
 
-function focusSelectionCardHtml(cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card' | 'data-phase-card') {
+function focusSelectionCardHtml(cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card' | 'data-phase-card' | 'data-drawn-perk') {
   const card = cardDefinition({ instanceId: '', cardId });
+  if (cardId === 'perk-draw') return `<button type="button" class="card perk focus-selection-card" ${attribute}="${cardId}"><span>DRAW TO CHOOSE A PERK · SHUFFLE ONLY</span><strong>PERK</strong><small>${cardRulesHtml(card)}</small></button>`;
   const typeLabel = card.kind === 'attack' ? (card.narrative ? 'ACTION · NARRATION ATTACK · DISCARD ON USE' : 'ACTION · DISCARD ON USE') : card.kind === 'combat' ? (card.narrative ? 'NARRATION · COMBAT CARD · REMOVE WHEN DISCARDED' : 'COMBAT CARD · REMOVE WHEN DISCARDED') : card.kind === 'defend' ? 'REACTION · DISCARD ON USE' : 'ACTION: PERK · ONCE PER TURN';
   const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'combat' ? '' : card.kind === 'defend' ? 'DEFEND VALUE' : 'PERK VALUE';
   return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${cardNameHtml(card)}</strong>${card.kind === 'combat' ? '' : `<div><b>${card.value}</b> ${valueLabel}</div>`}<small>${cardRulesHtml(card)}</small></button>`;
@@ -2943,7 +2999,7 @@ function renderPhaseRewardModal() {
     return;
   }
   if (progress.selectedCardId) {
-    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons"><button data-phase-destination="hand"><strong>Hand</strong></button><button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
+    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons">${progress.selectedCardId === 'perk-draw' ? '' : '<button data-phase-destination="hand"><strong>Hand</strong></button>'}<button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
     phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-destination]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-destination', playerId, destination: button.dataset.phaseDestination as any })));
     return;
   }
@@ -2962,7 +3018,7 @@ function renderPhaseRewardModal() {
     return;
   }
   const choices = phaseCardCandidates(gameState, playerId);
-  phaseRewardModal.innerHTML = `<div class="choice-dialog focus-choice-dialog phase-reward-focus-dialog"><span>PHASE ${reward.phase} REWARD · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><section class="focus-choice-group"><h3>Available Cards</h3><div class="focus-card-pair phase-reward-card-grid">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-phase-card')).join('')}</div></section><div class="phase-reward-status">${status}</div></div>`;
+  phaseRewardModal.innerHTML = `<div class="choice-dialog focus-choice-dialog phase-reward-focus-dialog"><span>PHASE ${reward.phase} REWARD · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}${gameState.perkMode && reward.phase === 1 ? ' PERK is always shuffled into your Deck, including for the Action Quest Winner.' : ''}</p><section class="focus-choice-group"><h3>Available Cards</h3><div class="focus-card-pair phase-reward-card-grid">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-phase-card')).join('')}</div></section><div class="phase-reward-status">${status}</div></div>`;
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
@@ -3209,7 +3265,7 @@ function renderCombatReveal() {
       to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
       empowered: reveal.counterspell.empowered }
     : null;
-  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield' && (pendingSwing.manaShieldManaBeforeCombat ?? 0) < 3
+  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield'
     ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
       position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
     : null;
@@ -3312,7 +3368,6 @@ function renderCombatReveal() {
       ...((pending as OrderedPreCombatAttack).preCombatLog ?? []),
       pending.blessedBlockResolved ? 'Defender pre-combat: the Attack Card effect was cancelled by Blessed Block.' : '',
       pending.blessedSwiftnessResolved ? 'Defender pre-combat: Blessed Swiftness annulled the Attacker’s unspent MOV.' : '',
-      pending.manaShieldManaGenerated ? 'Defender pre-combat: Mana Shield generated 1 Mana.' : '',
       ...(pending.attackModifiers ?? []).filter((entry) => entry.source.includes('pre-combat')).map((entry) => `Attacker pre-combat: ${entry.source} changed ATT by ${entry.value > 0 ? '+' : ''}${entry.value}.`),
     ].filter(Boolean);
     const ownResolvedValue = attacker ? reveal.attackTotal : reveal.defendTotal;
@@ -3515,9 +3570,10 @@ function renderSpellEchoBars() {
       const position = index + 1;
       const perk = instance ? cardDefinition(instance) : null;
       const selectedPerk = selected.kind === 'perk' ? owner.hand.find((card) => card.instanceId === selected.cardInstanceId) : undefined;
-      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && position === 1;
+      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId) && !hasPendingPerkChoice(gameState);
       const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
-      const tooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
+      const cardTooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
+      const tooltip = canPlace ? `Place the selected Perk at Level 1.${perk ? ` Discard ${perk.name} from Level ${position}.` : ''}${position > 1 ? ' Lower Perks move up one level; higher Perks stay.' : ''}\n${cardTooltip}` : cardTooltip;
       return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${cardNameHtml(perk)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
     }).join('');
     const leftEcho = fixedHotseatDuel ? ownerId === 'P1' : ownerId === viewerId;
@@ -3529,10 +3585,10 @@ function renderSpellEchoBars() {
     const ownerId = button.dataset.echoOwner as PlayerId;
     const position = Number(button.dataset.echoPosition);
     const current = selection.getSnapshot().context.selection;
-    if (current.kind === 'perk' && position === 1) {
-      const occupied = Boolean(gameState.players[ownerId].spellEcho[0]);
-      const replaceExisting = !occupied || window.confirm('Spell Echo position 1 is occupied. Discard the old Perk and replace it?');
-      if (replaceExisting) dispatch({ type: 'play-perk', playerId: ownerId, cardInstanceId: current.cardInstanceId, destination: 'echo', replaceExisting });
+    if (current.kind === 'perk' && ownerId === actingPlayer() && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position)) {
+      const occupied = Boolean(gameState.players[ownerId].spellEcho[position - 1]);
+      const replaceExisting = !occupied || allowsAnySpellEchoReplacement(gameState) || window.confirm('Spell Echo position 1 is occupied. Discard the old Perk and replace it?');
+      if (replaceExisting) dispatch({ type: 'play-perk', playerId: ownerId, cardInstanceId: current.cardInstanceId, destination: 'echo', echoPosition: position, replaceExisting });
     } else dispatch({ type: 'use-echo-perk', playerId: ownerId, position });
   }));
   document.querySelectorAll<HTMLElement>('[data-echo-preview]').forEach((slot) => {
@@ -3573,7 +3629,7 @@ function showCardPreview(cardId: string, pointer?: PointerEvent) {
   const card = CARDS.find((candidate) => candidate.id === cardId);
   if (!card) return;
   const preview = byId('cardHoverPreview');
-  preview.innerHTML = `<article class="card ${cardVisualClass(card)}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
+  preview.innerHTML = `<article class="card ${cardVisualClass(card)}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.id === 'mana-shield' ? 'MANA' : card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
   preview.classList.remove('hidden');
   preview.classList.toggle('cursor-preview', Boolean(pointer));
   if (pointer) positionCardPreview(pointer);
@@ -3599,20 +3655,6 @@ function cardRulesText(card: ReturnType<typeof cardDefinition>): string {
 
 function cardVisualClass(card: ReturnType<typeof cardDefinition>): string {
   return `${card.kind}${card.kind === 'status' && card.name.startsWith('Blessing:') ? ' blessing-status' : ''}${card.id === 'panic' ? ' panic-card' : ''}`;
-}
-
-function cardNameHtml(card: ReturnType<typeof cardDefinition>, uppercase = false): string {
-  const name = escapeHtml(uppercase ? card.name.toUpperCase() : card.name);
-  return card.narrative ? `<em class="narrative-card-name">${name}</em>` : name;
-}
-
-function cardTextHtml(text: string): string {
-  let html = escapeHtml(text);
-  for (const name of new Set(CARDS.filter((card) => card.narrative).map((card) => card.name))) {
-    const escaped = escapeHtml(name);
-    html = html.replaceAll(escaped, `<em class="narrative-card-name">${escaped}</em>`);
-  }
-  return html;
 }
 
 function cardRulesHtml(card: ReturnType<typeof cardDefinition>, includeFallback = true): string {
@@ -4724,7 +4766,7 @@ const developerPanel = createDeveloperPanel(() => {
   ];
 }, {
   exportDump: () => { debugRecorder.sample(collectDiagnosticSample, true); void debugRecorder.exportDump(gameState); },
-  markIssue: () => { debugRecorder.sample(collectDiagnosticSample, true); debugRecorder.markIssue(gameState); },
+  markIssue: (comment) => { debugRecorder.sample(collectDiagnosticSample, true); return debugRecorder.markIssue(gameState, comment); },
   toggleRecording: () => { debugRecorder.toggleRecording(); resetDiagnosticObservations(); debugRecorder.state(gameState); },
   status: () => debugRecorder.status(),
 });
@@ -5003,6 +5045,7 @@ renderer.setAnimationLoop((time) => {
     const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
     if (!effect.update(time, target?.position)) manaShieldVisual = null;
   }
+  updateStoredManaShieldVisuals(time);
   updateDamageVisuals(time);
   if (spellblockVisual) {
     const { effect, defenderId, replicaId } = spellblockVisual;
@@ -5318,6 +5361,30 @@ function showMissedCombatCallout() {
   if (!missed) return;
   missedCombatCallout = null;
   spawnCharacterCalloutBubble(missed.defenderId, 'Missed', worldPosition(missed.from).add(new THREE.Vector3(0, 2, 0)));
+}
+
+function updateStoredManaShieldVisuals(time: number) {
+  for (const [id, effect] of storedManaShieldVisuals) {
+    const player = gameState.players[id];
+    if (game.classList.contains('hidden') || !player || player.hp <= 0 || (player.manaShieldUnusedBlock ?? 0) <= 0) {
+      effect.dispose();
+      storedManaShieldVisuals.delete(id);
+    }
+  }
+  if (game.classList.contains('hidden')) return;
+  for (const player of Object.values(gameState.players)) {
+    if (player.hp <= 0 || (player.manaShieldUnusedBlock ?? 0) <= 0) continue;
+    const target = dummyGroups.get(player.id);
+    if (!target) continue;
+    let effect = storedManaShieldVisuals.get(player.id);
+    if (!effect) {
+      const height = Math.max(2.2, visibleCharacterTop(target) - target.position.y + 0.2);
+      effect = new ManaShieldVisual(scene, target.position, time, height);
+      storedManaShieldVisuals.set(player.id, effect);
+    }
+    effect.root.visible = target.visible;
+    effect.update(time, target.position);
+  }
 }
 
 function updateCharacterCalloutBubbles(time: number) {

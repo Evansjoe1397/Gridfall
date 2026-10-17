@@ -151,4 +151,14 @@ for (const p of Object.values(persistent.players)) p.hand = [];
 persistent = step(persistent, { type: 'end-turn', playerId: 'P1' });
 assert.equal(persistent.players.P1.spellsingerSmartPush, true);
 assert.equal(persistent.players.P1.spellsingerExtraPerkUses, 0);
+// Slide entry bridges the height change, so it is not a damaging fall destination.
+const slideFall = cast(setup());
+Object.assign(slideFall, { arenaId: 'trench' });
+slideFall.elevations = Object.fromEntries(['B2', 'C2', 'D2', 'B3', 'C3', 'D3', 'B4'].map((label) => [label, 1]));
+const slideHit = reveal(slideFall);
+const slideHp = slideHit.players.P2.hp;
+const actualFall = finish(slideHit);
+assert.deepEqual(actualFall.players.P2.position, { x: 4, y: 3 }, 'Smart Push skips the C4 Slide and selects D4 for an actual damaging fall.');
+assert.equal(actualFall.players.P2.hp, slideHp - 1);
+
 console.log('Spellsinger Stance and Smart Push checks passed.');

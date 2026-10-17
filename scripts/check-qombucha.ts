@@ -105,14 +105,16 @@ for (const simultaneous of [false, true]) {
 
   const shield = fresh(simultaneous);
   shield.players.P2.character = 'magician';
+  shield.players.P2.manaPoints = 3;
   shield.players.P2.hand = [{ instanceId: 'defense', cardId: 'mana-shield' }];
   heated(shield, 'P1');
   state = defense(attack(shield));
-  assert.equal(state.players.P2.manaPoints, 1, 'Mana generation precedes Heated Debate.');
+  assert.equal(state.players.P2.manaPoints, 3, 'Mana Shield uses existing Stored Mana without generating more.');
   state = choose(state, { P1: 'debate-P1' });
-  assert.equal(state.combatReveal?.defendTotal, 1, 'Printed DEF and the generated Mana remain in combat.');
+  assert.equal(state.combatReveal?.defendTotal, 3, 'Stored Mana determines Mana Shield DEF before post-combat cancellation.');
   state = acknowledge(state);
-  assert.equal(state.players.P2.manaPoints, 1, 'Post-combat Mana depletion is cancelled.');
+  assert.equal(state.players.P2.manaPoints, 3, 'Post-combat Mana depletion is cancelled.');
+  assert.equal(state.players.P2.manaShieldUnusedBlock ?? 0, 0, 'Heated Debate cancels creation of unused block.');
   assert.equal(state.players.P2.hand.some((card) => card.cardId === 'mana-shield'), false, 'Post-combat Hand return is cancelled.');
   assert.equal(state.players.P2.discard.some((card) => card.cardId === 'mana-shield'), true);
   assert.equal(state.phase, 'active', 'Heated Debate no longer triggers Narration.');
@@ -223,7 +225,7 @@ heated(state, 'P1'); heated(state, 'P2');
 state = acknowledge(choose(defense(attack(state)), { P1: 'debate-P1', P2: 'debate-P2' }));
 assert.equal(state.phase, 'active', 'Both sides cancel enemy effects without triggering Narration.');
 assert.equal(state.players.P2.hand.filter((card) => card.cardId === 'headache').length, 1);
-assert.equal(state.players.P2.manaPoints, 1);
+assert.equal(state.players.P2.manaPoints, 0, 'Mana Shield no longer generates Mana.');
 
 state = fresh(true);
 state.players.P2.carianReturnNextDefend = true;
