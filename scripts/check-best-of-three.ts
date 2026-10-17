@@ -113,6 +113,21 @@ assert.equal((state as GameStateWithQuestPhases).questPhases!.usedQuestIds.lengt
 assert.equal((state as GameStateWithQuestPhases).questPhases!.currentQuest!.announcedRound, 1);
 assert.equal(allCards(state, 'P2').length, 3, 'The lagging winner retains both catch-up Cards and its original Card.');
 const freshDecidingMatch = structuredClone(state);
+// Catch-up preserves the Phase reward progression even though Round/Quest clocks reset.
+let nextReward = structuredClone(freshDecidingMatch) as GameStateWithQuestPhases;
+nextReward.turn = 5;
+nextReward.activePlayerId = nextReward.roundFirstPlayerId === 'P1' ? 'P2' : 'P1';
+for (const player of Object.values(nextReward.players)) player.hand = [];
+nextReward = step(nextReward, { type: 'end-turn', playerId: nextReward.activePlayerId }) as GameStateWithQuestPhases;
+assert.equal(nextReward.turn, 6);
+assert.equal(nextReward.questPhases!.phaseReward?.phase, 3, 'Having caught up through Phase 2, Match 3 must next offer Phase 3 rather than Phase 1 again.');
+nextReward = finishRewardChoices(nextReward) as GameStateWithQuestPhases;
+nextReward.turn = 10;
+nextReward.activePlayerId = nextReward.roundFirstPlayerId === 'P1' ? 'P2' : 'P1';
+for (const player of Object.values(nextReward.players)) player.hand = [];
+nextReward = step(nextReward, { type: 'end-turn', playerId: nextReward.activePlayerId }) as GameStateWithQuestPhases;
+assert.equal(nextReward.turn, 11);
+assert.equal(nextReward.questPhases!.phaseReward, null, 'Phase 2 Perk rewards cannot be repeated at Round 11 of Match 3.');
 state = finishMatch(state, 'P1', 11);
 assert.deepEqual(state.series?.results.map((result) => result.winnerId), ['P1', 'P2', 'P1']);
 assert.deepEqual(state.series?.results.map((result) => result.arenaId), state.series?.arenaOrder);

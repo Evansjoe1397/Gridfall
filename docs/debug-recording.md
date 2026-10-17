@@ -4,7 +4,7 @@ Recording starts automatically when a local game starts or an online connection 
 
 ## Player workflow
 
-- **Ctrl+D** opens the developer panel. **Mark issue** adds an optional comment and captures diagnostic context. Send screenshots separately alongside the dump.
+- **Ctrl+D** opens the developer panel. **Mark issue** opens an optional comment field inside the panel; **Save issue marker** captures diagnostic context and confirms the saved event number. Export the debug dump to download the marker. Cancel closes the field without saving. Markers work while client recording is paused; start a game or connect online first. Send screenshots separately alongside the dump.
 - **Ctrl+Shift+D** downloads the current `.jsonl` dump, during play or after the match. The export includes whatever server history can be retrieved; a disconnected server does not prevent a client export.
 - **Ctrl+Shift+R** pauses/resumes **client** recording. Previous events remain available, and the gap is marked. Shared multiplayer server history continues for the other players. Export still works while paused.
 - **Export previous** retrieves the last saved client recording after a refresh/crash. Browser storage is saved in batches; the unsaved tail can be lost. This recovery does not include server history.

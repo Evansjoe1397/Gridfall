@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { BrowserDebugRecorder, DebugChunkCollector, buildDebugBundle, DEBUG_DUMP_LIMIT_BYTES } from '../src/debug-recorder';
+import { createDeveloperPanel } from '../src/developerPanel';
 
 const lines = (text: string) => text.trim().split('\n').map((line) => JSON.parse(line));
 const size = (text: string) => new TextEncoder().encode(text).length;
@@ -66,7 +67,7 @@ const fakeDb = { transaction: () => fakeTransaction() };
 const on = (name: string, listener: () => void) => listeners.set(name, [...(listeners.get(name) ?? []), listener]);
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'test', language: 'en', onLine: true, hardwareConcurrency: 4 } });
 Object.assign(globalThis, {
-  window: { addEventListener: on, devicePixelRatio: 1, innerWidth: 100, innerHeight: 100, prompt: () => '' },
+  window: { addEventListener: on, devicePixelRatio: 1, innerWidth: 100, innerHeight: 100, prompt: () => { throw new Error('Native dialogs must not be used'); } },
   document: { hidden: false, addEventListener: on, createElement: () => ({ click() {}, href: '', download: '' }) },
   indexedDB: { open: () => fakeRequest(fakeDb) },
   sessionStorage: { getItem: (key: string) => tabStorage.get(key) ?? null, setItem: (key: string, value: string) => tabStorage.set(key, value) },
@@ -87,6 +88,8 @@ URL.createObjectURL = ((blob: Blob) => { downloads.push(blob); return 'blob:test
 URL.revokeObjectURL = () => {};
 
 const browser = new BrowserDebugRecorder();
+assert.equal(browser.markIssue({}, 'Before starting'), false);
+assert.match(browser.status(), /Start a game/);
 browser.start({ mode: 'local', match: 'A' });
 const metadataHandlers = new Map<string, (value: unknown) => void>();
 browser.attachRoom({ onMessage: (name: string, handler: (value: unknown) => void) => metadataHandlers.set(name, handler), send() {} });
@@ -127,8 +130,12 @@ let sampled = false;
 browser.sample(() => { sampled = true; return {}; });
 assert.equal(sampled, false);
 assert.equal((browser as any).recorder.snapshot().events, count);
-browser.markIssue({ turn: 2 });
+assert.equal(browser.markIssue({ turn: 2 }, 'Paused issue'), true);
 assert.ok((browser as any).recorder.exportLines().includes('"recordingPaused":true'), 'Explicit issue marker must work while paused');
+assert.match(browser.status(), /Issue marker saved/);
+assert.equal(lines((browser as any).recorder.exportLines()).find((event) => event.k === 'issue').d.comment, 'Paused issue');
+assert.equal(browser.markIssue({ turn: 2 }, 'x'.repeat(2100)), true);
+assert.equal(lines((browser as any).recorder.exportLines()).filter((event) => event.k === 'issue').at(-1).d.comment.length, 2000);
 browser.toggleRecording(); browser.state({ turn: 2 });
 await browser.exportDump({ turn: 2 });
 assert.equal(lines(await downloads.at(-1)!.text()).at(-1).incomplete, true, 'Paused interval must be explicitly incomplete');
@@ -166,5 +173,43 @@ const oldMetaHandler = roomHandlers.get('debug-meta')!;
 browser.start({ match: 'C' }); oldMetaHandler({ recordingId: 'stale', revision: 99, event: 100, elapsedMs: 1 });
 assert.equal((browser as any).serverMeta, undefined, 'New match must detach old room metadata');
 await (browser as any).persistence;
+
+// Exercise the actual panel buttons and form with DOM fakes, including cancellation and failure.
+const elements: any[] = [];
+(document as any).createElement = (tag: string) => {
+  const handlers = new Map<string, (event: any) => void>();
+  const element: any = { tag, style: {}, hidden: false, value: '', children: [],
+    setAttribute() {}, append(...children: any[]) { this.children.push(...children); },
+    addEventListener(name: string, handler: (event: any) => void) { handlers.set(name, handler); },
+    focus() { this.focused = true; },
+    fire(name: string) { handlers.get(name)?.({ preventDefault() {} }); },
+  };
+  elements.push(element); return element;
+};
+(document as any).body = { append() {} };
+const comments: string[] = [];
+let canSave = true;
+createDeveloperPanel(() => [], { exportDump() {}, toggleRecording() {}, status: () => 'Marker result',
+  markIssue: (comment) => { comments.push(comment); return canSave; } });
+const button = (label: string) => elements.find((entry) => entry.textContent === label);
+const form = elements.find((entry) => entry.tag === 'form');
+const textarea = elements.find((entry) => entry.tag === 'textarea');
+button('Mark issue').fire('click');
+assert.equal(form.hidden, false);
+assert.equal(textarea.focused, true);
+textarea.value = 'Rendering froze';
+button('Cancel').fire('click');
+assert.equal(form.hidden, true);
+assert.deepEqual(comments, []);
+button('Mark issue').fire('click'); form.fire('submit');
+assert.deepEqual(comments, ['Rendering froze']);
+assert.equal(form.hidden, true);
+assert.equal(textarea.value, '');
+button('Mark issue').fire('click'); form.fire('submit');
+assert.equal(comments.at(-1), '', 'Comments are optional');
+canSave = false;
+button('Mark issue').fire('click'); textarea.value = 'Keep on failure'; form.fire('submit');
+assert.equal(form.hidden, false);
+assert.equal(textarea.value, 'Keep on failure');
 
 console.log('Debug client checks passed: byte cap, incomplete history, chunk validation, offline/timeout exports, visibility, pause/resume, paused markers, error grouping, long-task aggregation, server correlation, and isolated match/tab persistence.');

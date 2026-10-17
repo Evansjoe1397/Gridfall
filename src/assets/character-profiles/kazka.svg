@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 900" role="img" aria-label="Kazka, the Narrator">
+  <defs>
+    <radialGradient id="bg"><stop stop-color="#422734"/><stop offset="1" stop-color="#10151b"/></radialGradient>
+    <linearGradient id="dress" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fff9f0"/><stop offset=".5" stop-color="#d9d4d2"/><stop offset="1" stop-color="#f4eee9"/></linearGradient>
+    <linearGradient id="hair" x1="0" x2="1"><stop stop-color="#0b0910"/><stop offset=".5" stop-color="#2d1b2b"/><stop offset="1" stop-color="#08080d"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="12"/></filter>
+  </defs>
+  <rect width="720" height="900" fill="url(#bg)"/>
+  <circle cx="360" cy="390" r="285" fill="#5a2430" opacity=".16"/>
+  <path d="M265 138Q360 52 455 138Q514 230 469 493L525 810H198L250 493Q209 239 265 138Z" fill="url(#hair)"/>
+  <path d="M232 462Q183 495 143 898H577Q537 496 488 462L420 431H300Z" fill="url(#dress)" stroke="#fdf8ee" stroke-width="5"/>
+  <path d="M300 430Q340 476 360 503Q383 474 420 430" fill="none" stroke="#a42436" stroke-width="11"/>
+  <path d="M314 391H406V469Q385 498 360 505Q331 491 314 469Z" fill="#ead7d0"/>
+  <ellipse cx="360" cy="293" rx="105" ry="143" fill="#efe0d9"/>
+  <path d="M256 287Q244 160 313 124Q398 76 458 156Q474 199 463 284Q445 223 416 190Q367 224 278 211Z" fill="url(#hair)"/>
+  <path d="M268 175Q216 304 257 557M451 176Q500 309 460 557" fill="none" stroke="#160f1c" stroke-width="42" stroke-linecap="round"/>
+  <path d="M283 306Q311 289 338 306M382 306Q409 290 436 306" fill="none" stroke="#261721" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="314" cy="318" rx="18" ry="9" fill="#be1236" filter="url(#glow)"/>
+  <ellipse cx="407" cy="318" rx="18" ry="9" fill="#be1236" filter="url(#glow)"/>
+  <ellipse cx="314" cy="318" rx="11" ry="6" fill="#fa4258"/>
+  <ellipse cx="407" cy="318" rx="11" ry="6" fill="#fa4258"/>
+  <path d="M358 325L350 375Q360 382 369 375M332 410Q361 424 389 410" fill="none" stroke="#9b6e72" stroke-width="4" stroke-linecap="round"/>
+  <g fill="none" stroke="#a82233" stroke-width="8" stroke-linecap="round">
+    <path d="M360 515Q309 557 326 614Q350 663 295 718Q269 763 303 847"/>
+    <path d="M360 515Q411 557 394 614Q370 663 425 718Q451 763 417 847"/>
+    <path d="M318 573Q272 596 312 627M402 573Q448 596 408 627"/>
+    <path d="M300 701Q241 726 285 763M420 701Q479 726 435 763"/>
+    <path d="M254 824Q361 860 466 824"/>
+  </g>
+  <g fill="#b22c3a"><path d="M360 558l12 22-12 22-12-22z"/><path d="M300 742l9 18-9 18-9-18z"/><path d="M420 742l9 18-9 18-9-18z"/></g>
+</svg>

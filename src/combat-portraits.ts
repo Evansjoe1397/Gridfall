@@ -1,4 +1,4 @@
-import type { CardTypeId, CharacterId } from '../shared/game.ts';
+import type { CardTypeId, HotseatCharacterId } from '../shared/game.ts';
 
 export type CombatPortraitRole = 'attack' | 'defend';
 
@@ -19,7 +19,7 @@ for (const [path, url] of Object.entries(portraitModules)) {
   portraitBySlot.set(`${character.toLowerCase()}:${role.toLowerCase()}:${generalVariant ? '*' : cardId?.toLowerCase() ?? '*'}:${generalVariant ?? variant?.toLowerCase() ?? '*'}`, url);
 }
 
-export function combatPortrait(character: CharacterId | 'dummy', role: CombatPortraitRole, cardId?: CardTypeId, variant?: string): string | undefined {
+export function combatPortrait(character: HotseatCharacterId | 'dummy', role: CombatPortraitRole, cardId?: CardTypeId, variant?: string): string | undefined {
   if (character === 'dummy') return undefined;
   return (cardId && variant ? portraitBySlot.get(`${character}:${role}:${cardId}:${variant}`) : undefined)
     ?? (variant ? portraitBySlot.get(`${character}:${role}:*:${variant}`) : undefined)

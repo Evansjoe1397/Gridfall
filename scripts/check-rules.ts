@@ -1954,7 +1954,7 @@ spellsingerOneState.players.P1.deck = [{ instanceId: 'spellsinger-known', cardId
 const spellsingerOne = applyGameCommand(spellsingerOneState, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'spellsinger-one', destination: 'direct' });
 assert.equal(spellsingerOne.ok, true);
 if (spellsingerOne.ok) {
-  assert.deepEqual(spellsingerOne.state.players.P1.knownTopCardIds, ['excalibur'], 'Spellsinger Level 1 privately reveals the top Deck Card.');
+  assert.equal(spellsingerOne.state.players.P1.spellsingerSmartPush, true, 'Spellsinger Level 1 empowers the next successful hit with Smart Push.');
   assert.equal(spellsingerOne.state.players.P1.spellsingerExtraPerkUses, 1, 'Spellsinger grants one additional Perk use this turn.');
   const followupPerk = applyGameCommand(spellsingerOne.state, { type: 'play-perk', playerId: 'P1', cardInstanceId: 'spellsinger-followup', destination: 'direct' });
   assert.equal(followupPerk.ok, true, 'The extra Perk allowance permits a second Perk in the same turn.');
@@ -1968,8 +1968,8 @@ spellsingerTwoState.players.P1.spellEcho = [null, { instanceId: 'spellsinger-two
 const spellsingerTwo = applyGameCommand(spellsingerTwoState, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
 assert.equal(spellsingerTwo.ok, true);
 if (spellsingerTwo.ok) {
-  assert.deepEqual(spellsingerTwo.state.players.P1.knownTopCardIds, ['excalibur', 'moonlight'], 'Spellsinger Level 2 reveals the top two Cards in order.');
-  assert.equal(spellsingerTwo.state.players.P1.merylinSummonActive, true, 'Spellsinger Level 2 grants Summon.');
+  assert.equal(spellsingerTwo.state.players.P1.spellsingerExtraAttacks, 1, 'Spellsinger Level 2 grants an extra Attack.');
+  assert.equal(spellsingerTwo.state.players.P1.merylinSummonActive, false, 'Summon is now a Level 3 effect.');
 }
 
 const spellsingerThreeState = createHotseatTestState(true, 'merylin', 2);
@@ -1982,7 +1982,8 @@ const spellsingerThree = applyGameCommand(spellsingerThreeState, { type: 'use-ec
 assert.equal(spellsingerThree.ok, true);
 if (spellsingerThree.ok) {
   assert.equal(spellsingerThree.state.players.P1.actionsRemaining, 0);
-  assert.equal(spellsingerThree.state.players.P1.spellsingerExtraAttacks, 1, 'Spellsinger Level 3 grants an Attack beyond normal Actions.');
+  assert.equal(spellsingerThree.state.players.P1.spellsingerExtraAttacks, 1, 'Level 3 retains the extra Attack from Level 2.');
+  assert.equal(spellsingerThree.state.players.P1.merylinSummonActive, true, 'Level 3 grants Summon when Discard is empty.');
   const extraAttack = applyGameCommand(spellsingerThree.state, { type: 'attack', playerId: 'P1', cardInstanceId: 'spellsinger-extra-attack', targetId: 'P2', targetKind: 'player' });
   assert.equal(extraAttack.ok, true, 'The extra Attack remains usable with zero normal Actions.');
   if (extraAttack.ok) assert.equal(extraAttack.state.players.P1.spellsingerExtraAttacks, 0, 'Using the extra Attack consumes it.');

@@ -381,15 +381,23 @@ export class BrowserDebugRecorder {
     } catch (error) { this.exportStatus = `Export failed: ${shortError(error)}`; }
     finally { this.exporting = false; }
   }
-  markIssue(state: unknown): void {
-    const comment = window.prompt('Describe the issue (optional, up to 2,000 characters). Attach screenshots alongside the downloaded dump.');
-    if (comment === null) return;
+  markIssue(state: unknown, comment = ''): boolean {
+    if (!this.started) {
+      this.exportStatus = 'Start a game or connect online before marking an issue';
+      return false;
+    }
     try {
-      this.record('issue', { comment: comment.slice(0, 2000), recordingPaused: this.isPaused }, false, true);
+      const sequence = this.record('issue', { comment: comment.slice(0, 2000), recordingPaused: this.isPaused }, false, true);
+      if (sequence === undefined) {
+        this.exportStatus = 'Issue marker not saved: recording capacity reached';
+        return false;
+      }
       this.recorder.state(state, { diagnostic: 'issue', ...(this.serverMeta ? { server: this.serverMeta } : {}) });
       if (this.started && !this.persistenceStarted) this.beginPersistence();
       this.flush(true);
-    } catch { this.exportStatus = 'Issue marker failed'; }
+      this.exportStatus = `Issue marker saved (event ${sequence}). Export debug dump to download it.`;
+      return true;
+    } catch { this.exportStatus = 'Issue marker failed'; return false; }
   }
   status(): string {
     const summary = this.recorder.snapshot();

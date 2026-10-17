@@ -25,11 +25,13 @@ import { mainMenuMarkup } from './main-menu.ts';
 import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
 import { characterProfile } from './character-profiles.ts';
+import { createKazka, updateKazkaAnimation } from './kazkaModel.ts';
 import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
 import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
 import { HOTKEY_SECTIONS } from './hotkeys.ts';
 import { createDeveloperPanel } from './developerPanel.ts';
+import { cardNameHtml, cardTextHtml } from './card-typography.ts';
 import { debugRecorder } from './debug-recorder.ts';
 import wrecknaLichIconSource from './assets/icons/skull.png?inline';
 import * as THREE from 'three';
@@ -139,6 +141,9 @@ import {
   hasLineOfSight,
   hasReplicaPlacementLineOfSight,
   isNegativeStatusCard,
+  narrativeHpChanged,
+  narrativeStartSquareAvailable,
+  narrativeTargets,
   isShadowCloakedPerkTarget,
   isForbiddenSlideAscent,
   isForbiddenSlideAscentForPlayer,
@@ -154,6 +159,11 @@ import {
   canUndoLastAction,
   canUndoMovement,
   phaseCardCandidates,
+  allowsAnySpellEchoReplacement,
+  canTargetSpellEchoSlotForInsertion,
+  enablePerkMode,
+  drawnPerkCandidates,
+  hasPendingPerkChoice,
   kykDirectionAllowed,
   pinnedCount,
   spectreActionEventForCommand,
@@ -168,6 +178,14 @@ import {
   type Cell,
   type GameCommand,
   type GameState,
+  type GameStateWithKamelotRemoval,
+  type GameStateWithNarrative,
+  type GameStateWithMockingjay,
+  narrativeCardsInHand,
+  feedSpiritDefenseBonus,
+  storedManaShieldDefenseBonus,
+  type GameStateWithOnceUpon,
+  type NarrativeEffect,
   type BestOfThreeMode,
   type MatchStats,
   type SeriesMatchResult,
@@ -233,7 +251,7 @@ app.innerHTML = `
           <article class="character-browser-profile" id="characterBrowserProfile"></article>
           <section class="perk-browser" aria-labelledby="perkBrowserTitle">
             <header><h3 id="perkBrowserTitle">Character Cards</h3><div class="perk-browser-controls"><button id="previousPerk" type="button" aria-label="Previous Card">←</button><span id="perkPosition"></span><button id="nextPerk" type="button" aria-label="Next Card">→</button></div></header>
-            <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button><button type="button" data-browser-card-kind="status">Status cards</button><button type="button" class="hidden" data-browser-card-kind="blessings">Blessings</button></nav>
+            <nav class="character-card-categories" id="characterCardCategories" aria-label="Card categories"><button type="button" data-browser-card-kind="attack">Attack</button><button type="button" data-browser-card-kind="defend">Block</button><button type="button" data-browser-card-kind="perk">Perks</button><button type="button" data-browser-card-kind="status">Status cards</button><button type="button" class="hidden" data-browser-card-kind="combat">Combat</button><button type="button" class="hidden" data-browser-card-kind="blessings">Blessings</button></nav>
             <div class="perk-browser-track" id="perkBrowserTrack" tabindex="0"></div>
           </section>
         </div>
@@ -262,6 +280,14 @@ app.innerHTML = `
     <div class="choice-modal hidden" id="armDaWizModal"></div>
     <div class="choice-modal mana-choice-modal hidden" id="manaModal"></div>
     <div class="choice-modal hidden" id="focusModal"></div>
+    <div class="choice-modal hidden" id="weaverChoiceModal" role="dialog" aria-modal="true" aria-labelledby="weaverChoiceTitle"></div>
+    <div class="choice-modal hidden" id="narrativeModal" role="dialog" aria-modal="true" aria-labelledby="narrativeTitle"></div>
+    <div class="choice-modal hidden" id="mockingjayNarrativeModal" role="dialog" aria-modal="true" aria-labelledby="mockingjayNarrativeTitle"></div>
+    <div class="choice-modal hidden" id="spellsingerDiscardModal" role="dialog" aria-modal="true" aria-labelledby="spellsingerDiscardTitle"></div>
+    <div class="narrative-target-prompt hidden" id="narrativeTargetPrompt" role="status"></div>
+    <div class="choice-modal hidden" id="onceUponReturnModal" role="dialog" aria-modal="true" aria-labelledby="onceUponReturnTitle"></div>
+    <button class="narrative-restore hidden" id="narrativeRestore" type="button">Continue Narrative choice</button>
+    <div class="choice-modal hidden" id="kamelotRemovalModal" role="dialog" aria-modal="true" aria-labelledby="kamelotRemovalTitle"></div>
     <div class="choice-modal hidden" id="endTurnReminder" role="dialog" aria-modal="true" aria-labelledby="endTurnReminderTitle"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
@@ -276,8 +302,9 @@ let gameState = createInitialState();
 let mode: 'hotseat' | 'online' = 'hotseat';
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
+let selectedPerkMode = false;
 type GameFormat = 'duel' | 'ffa' | 'bo3';
-type OnlineLobbyState = { playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; seriesCharacters?: Partial<Record<PlayerId, readonly [OnlineCharacter, OnlineCharacter]>>; seriesMode?: BestOfThreeMode | null; arena: string; mode: string; started: boolean };
+type OnlineLobbyState = { perkMode?: boolean; playerCount: number; requiredPlayerCount: 2 | 3; selections: Partial<Record<PlayerId, OnlineCharacter>>; characters: Partial<Record<PlayerId, OnlineCharacter>>; seriesCharacters?: Partial<Record<PlayerId, readonly [OnlineCharacter, OnlineCharacter]>>; seriesMode?: BestOfThreeMode | null; arena: string; mode: string; started: boolean };
 let onlineLobbyState: OnlineLobbyState | null = null;
 let tournamentFirstChoice: OnlineCharacter | null = null;
 let roomIdAutoSelected = false;
@@ -297,6 +324,11 @@ let perkLabelsVisible = true;
 let hintsLanguage: 'en' | 'ru' = 'en';
 let hintsTab: 'hints' | 'character' | 'damage' | 'hotkeys' = 'hints';
 let discardViewerPlayerId: PlayerId | null = null;
+let discardViewerKind: 'discard' | 'removed' = 'discard';
+let weaverSelectingDiscard = false;
+let weaverChoiceKey = '';
+let narrativeChoiceKey = '';
+let narrativeMinimized = false;
 const selection = createActor(selectionMachine).start();
 let selectedTestObjectId: string | null = null;
 let selectedSpectreAttackOrigin: 'spectre' | 'replica' = 'spectre';
@@ -782,6 +814,7 @@ function oraclePulseAttributes(instanceId: string) {
 }
 let pendingManaShield: { defenderId: PlayerId; replicaId?: string; position: THREE.Vector3 } | null = null;
 let manaShieldVisual: { effect: ManaShieldVisual; defenderId: PlayerId; replicaId?: string } | null = null;
+const storedManaShieldVisuals = new Map<PlayerId, ManaShieldVisual>();
 let blockedCombatTargetId: PlayerId | null = null;
 let forfeitedCombatTargetId: PlayerId | null = null;
 let flurryCombatPosition: THREE.Vector3 | null = null;
@@ -853,6 +886,8 @@ function resetCombatSummary() {
   pendingManaShield = null;
   manaShieldVisual?.effect.dispose();
   manaShieldVisual = null;
+  for (const effect of storedManaShieldVisuals.values()) effect.dispose();
+  storedManaShieldVisuals.clear();
   activeCombatSummary = false;
   combatSummaryHidden = false;
   lastCombatSummaryHtml = '';
@@ -930,11 +965,12 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
 }
 
 type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna' | 'merylin';
-type SelectableCharacter = OnlineCharacter;
+type SelectableCharacter = OnlineCharacter | 'kazka';
 type HotseatCharacter = SelectableCharacter;
 type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench' | 'pipe';
-const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
+const KAZKA_TRAIT_DESCRIPTION = "Record each Character's Square and HP at the start of their turn. When they leave that Square, a Hologram remains until their next turn, or until they end their turn back there. Narrative effects may target Kazka or a visible enemy within her Attack Range: return a character to their recorded Square, revert their HP, or copy the top Card of an enemy's Removed Deck into that enemy's Hand. Each enemy has a Removed Deck for negative Status Cards Removed during play. Once per Round, at the end of a turn after an enemy has added at least 3 more Cards since their last Choice Event, that enemy chooses: lose 1 HP and draw 1 Card, or discard 1 Card. Kazka gains 1 HP if they draw, or draws 1 Card if they discard.";
+const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; title?: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
   orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 17, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
@@ -942,14 +978,16 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; hp: number
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
   wreckna: { name: 'Wreckna', hp: 15, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
+  kazka: { name: 'Kazka', title: 'The Narrator', hp: 18, movement: 2, attackRange: 3, trait: 'Weaver of Stories', traitIcon: 'weaver', traitDescription: KAZKA_TRAIT_DESCRIPTION },
 };
-const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
+const ONLINE_CHARACTER_ORDER: OnlineCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
+const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = [...ONLINE_CHARACTER_ORDER, 'kazka'];
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const portrait = characterProfile(character);
   const portraitMarkup = portrait ? `<img src="${portrait}" alt="" draggable="false">` : '';
   const trait = info.trait ? `<small class="character-trait-stat"><span class="character-select-trait-icon" tabindex="0" aria-label="${info.trait}: ${info.traitDescription}">${gameIcon(info.traitIcon)}<span class="character-select-trait-tooltip"><b>${info.trait}</b>${info.traitDescription}</span></span><span>${info.trait}</span></small>` : '<small class="character-trait-stat">TRAIT COMING LATER</small>';
-  return `<button class="character-choice-card" data-profile-character="${character}" ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}</strong><span class="character-choice-layout"><span class="character-choice-portrait" aria-hidden="true">${portraitMarkup}</span><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></span></button>`;
+  return `<button class="character-choice-card" data-profile-character="${character}" ${dataAttribute}="${character}" ${disabled ? 'disabled' : ''}>${selectionFrames}<strong>${info.name}${info.title ? ` · ${info.title}` : ''}</strong><span class="character-choice-layout"><span class="character-choice-portrait" aria-hidden="true">${portraitMarkup}</span><span class="character-core-stats"><small><b>${info.hp}</b> MAX HP</small><small><b>${info.movement}</b> MOV</small><small><b>${info.attackRange}</b> ${character === 'merylin' ? 'MELEE' : 'ATT RANGE'}</small>${trait}</span></span></button>`;
 }
 
 function dummySelectButton(): string {
@@ -973,7 +1011,8 @@ function showOnlineArenaSelect() {
 function showHotseatCharacterSelect(format: GameFormat, arena: HotseatArena = 'nagrand', seriesMode?: BestOfThreeMode) {
   const panel = byId('onlineWaiting');
   const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : format === 'ffa' ? 'LORDAERON ARENA' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT TEST · ${arenaName}</p><h2>Choose your Character</h2><p>${format === 'duel' ? 'Step 1 of 2 · Choose Player 1.' : 'Choose Player 1 for the three-player test.'}</p><div class="character-choices">${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character')).join('')}</div>`;
+  renderPerkModeSwitch(panel);
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const character = button.dataset.hotseatCharacter as HotseatCharacter;
     if (format === 'duel') showHotseatOpponentSelect(character, arena, seriesMode);
@@ -985,8 +1024,9 @@ function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: Hot
   const panel = byId('onlineWaiting');
   const playerName = CHARACTER_SELECT_INFO[playerCharacter].name;
   const arenaName = seriesMode ? 'RANDOM ARENA ORDER' : arena === 'trench' ? 'THE TRENCH' : arena === 'pipe' ? 'THE PIPE' : 'NAGRAND ARENA';
-  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${characterSelectButton('shinobi', 'data-hotseat-character')}${characterSelectButton('orkk', 'data-hotseat-character')}${characterSelectButton('magician', 'data-hotseat-character')}${characterSelectButton('john-christ', 'data-hotseat-character')}${characterSelectButton('spectre', 'data-hotseat-character')}${characterSelectButton('wreckna', 'data-hotseat-character')}${characterSelectButton('merylin', 'data-hotseat-character')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
+  panel.innerHTML = `<p class="eyebrow">HOTSEAT DUEL · ${arenaName}</p><h2>Choose the Enemy</h2><p>Step 2 of 2 · ${playerName} will fight a training Dummy or a character controlled by Player 2.</p><div class="character-choices">${dummySelectButton()}${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character')).join('')}</div><button class="lobby-back-button" id="backToPlayerCharacter" type="button">Back to Player 1</button>`;
   const dummyButton = panel.querySelector<HTMLButtonElement>('[data-hotseat-opponent="dummy"]')!;
+  renderPerkModeSwitch(panel);
   if (seriesMode) {
     dummyButton.remove();
     panel.querySelectorAll('p')[1]!.textContent = `Step 2 of 2 · Choose the Character controlled by Player 2 against ${playerName}.`;
@@ -1005,6 +1045,7 @@ function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
   const steps = ['Player 1 · Match 1', 'Player 1 · Match 2', 'Player 2 · Match 1', 'Player 2 · Match 2'];
   const usedThisPlayer = selected.length === 1 ? selected[0] : selected.length === 3 ? selected[2] : null;
   panel.innerHTML = `<p class="eyebrow">BEST-OF-THREE · THE TOURNAMENT</p><h2>Choose ${steps[selected.length]}</h2><p>Each Player chooses two different Characters. The winner of each match keeps that Character for a deciding third match.</p><div class="character-choices">${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-hotseat-character', character === usedThisPlayer)).join('')}</div><button class="lobby-back-button" id="backTournament" type="button">Back</button>`;
+  renderPerkModeSwitch(panel);
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const next = [...selected, button.dataset.hotseatCharacter as HotseatCharacter];
     if (next.length < 4) showHotseatTournamentSelect(next);
@@ -1014,7 +1055,7 @@ function showHotseatTournamentSelect(selected: HotseatCharacter[] = []) {
 }
 
 function startHotseatSeries(seriesMode: BestOfThreeMode, characters: Record<'P1' | 'P2', readonly [HotseatCharacter, HotseatCharacter]>) {
-  const state = createBestOfThreeState(seriesMode, characters, true);
+  const state = createBestOfThreeState(seriesMode, characters, true, selectedPerkMode);
   startHotseatState(state);
 }
 
@@ -1024,6 +1065,7 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
     : format === 'duel' && arena === 'trench'
     ? createTrenchTestState(false, character, opponentCharacter)
     : createHotseatTestState(false, character, format === 'ffa' ? 3 : 2, opponentCharacter);
+  if (selectedPerkMode) enablePerkMode(state);
   startHotseatState(state);
 }
 
@@ -1303,6 +1345,17 @@ function normalizeOnlineState(state: GameState): GameState {
   return state;
 }
 
+function renderPerkModeSwitch(panel: HTMLElement, online = false) {
+  const enabled = online ? Boolean(onlineLobbyState?.perkMode) : selectedPerkMode;
+  const disabled = online && (localSeat !== 'P1' || Boolean(Object.keys(onlineLobbyState?.characters ?? {}).length));
+  panel.querySelector('.character-choices')?.insertAdjacentHTML('beforebegin', `<label class="perk-mode-setting"><span><strong>Perk Mode</strong><small>Start with your Base Perk. Draw PERK Cards to choose new Perks.${online ? ' Host sets this before anyone confirms a Character.' : ''}</small></span><input type="checkbox" role="switch" aria-label="Perk Mode" data-perk-mode ${enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span class="perk-mode-slider" aria-hidden="true"></span></label>`);
+  panel.querySelector<HTMLInputElement>('[data-perk-mode]')?.addEventListener('change', (event) => {
+    const enabled = (event.target as HTMLInputElement).checked;
+    if (online) sendRoomMessage('set-perk-mode', enabled);
+    else selectedPerkMode = enabled;
+  });
+}
+
 function renderOnlineLobby() {
   if (!room || !localSeat) return;
   const roomId = room.roomId;
@@ -1322,8 +1375,9 @@ function renderOnlineLobby() {
   panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>${tournament ? `The Tournament · ${tournamentFirstChoice ? 'Match 2 Character' : 'Match 1 Character'}` : 'Character Select'}</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}${tournament && mayChoose ? tournamentFirstChoice ? ` Match 1: ${CHARACTER_SELECT_INFO[tournamentFirstChoice].name}. Choose a different Match 2 Character.` : ' Choose your Match 1 Character, then your Match 2 Character.' : ''}</p><div class="character-choices">
-      ${CHARACTER_BROWSER_ORDER.filter((character) => character !== 'spectre').map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
+      ${ONLINE_CHARACTER_ORDER.filter((character) => character !== 'spectre').map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
     </div>${tournament && tournamentFirstChoice && mayChoose ? '<button class="lobby-back-button" id="backTournamentFirst" type="button">Change Match 1 Character</button>' : ''}`;
+  renderPerkModeSwitch(panel, true);
   panel.querySelector<HTMLButtonElement>('#backTournamentFirst')?.addEventListener('click', () => { tournamentFirstChoice = null; renderOnlineLobby(); });
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
   roomIdField.addEventListener('click', () => roomIdField.select());
@@ -1384,6 +1438,7 @@ function sameLobbyExceptSelections(previous: OnlineLobbyState, next: OnlineLobby
     && previous.requiredPlayerCount === next.requiredPlayerCount
     && previous.arena === next.arena
     && previous.mode === next.mode
+    && previous.perkMode === next.perkMode
     && previous.started === next.started
     && (['P1', 'P2', 'P3'] as PlayerId[]).every((playerId) => previous.characters[playerId] === next.characters[playerId]);
 }
@@ -1400,6 +1455,10 @@ function renderOnlineSelectionFrames() {
 
 function actingPlayer(): PlayerId {
   if (mode === 'online') return localSeat ?? 'P1';
+  if (gameState.phase === 'choosing-mockingjay-defense') return gameState.pendingAttack?.defenderId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-mockingjay-narrative') return (gameState as GameStateWithMockingjay).mockingjayNarrativeSpend?.playerId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-narrative' || gameState.phase === 'choosing-narrative-target') return (gameState as GameStateWithNarrative).narrativeChoice?.kazkaId ?? gameState.activePlayerId;
+  if (gameState.phase === 'choosing-weaver-story') return gameState.weaverChoice?.targetId ?? gameState.activePlayerId;
   if ((gameState.phase as string) === 'choosing-yamato-move') return (gameState as GameState & { yamato?: { defenderId: PlayerId } }).yamato?.defenderId ?? gameState.activePlayerId;
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { playerId: PlayerId } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice) return spectreStatusChoice.playerId;
@@ -1721,14 +1780,17 @@ function renderUI() {
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
   showTurnAnnouncement(actor);
-  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : 'TRAINING DUMMY';
+  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : actor.character === 'kazka' ? 'THE NARRATOR' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
   byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${effectiveAttackRange(gameState, actor)}</b></span>`;
   const privatelyKnownTopIds = (actor.knownTopCardIds ?? []).filter((cardId, index) => actor.deck.at(-1 - index)?.cardId === cardId);
   const knownTopIds = privatelyKnownTopIds.length > 0 ? privatelyKnownTopIds : actor.knownTopCardId ? [actor.knownTopCardId] : [];
   const knownDeckMarkup = knownTopIds.length > 0 ? `<span>DECK <b>${actor.deck.length}</b></span>${knownTopIds.map((cardId, index) => { const card = cardDefinition({ instanceId: '', cardId }); return `<button class="pile-button pile-clickable known-deck" data-known-top-card="${card.id}" title="Known Deck Card ${index + 1}: ${escapeHtml(card.name)}">TOP ${index + 1}</button>`; }).join('')}` : `<span>DECK <b>${actor.deck.length}</b></span>`;
-  byId('piles').innerHTML = `${knownDeckMarkup}<span>HAND <b>${actor.hand.length}</b></span>${actor.discard.length > 0 ? `<button class="pile-button pile-clickable" id="discardPileButton" title="Open Discard pile">DISCARD <b>${actor.discard.length}</b></button>` : `<span>DISCARD <b>0</b></span>`}`;
-  byId('discardPileButton')?.addEventListener('click', () => { discardViewerPlayerId = actor.id; renderDiscardModal(); });
+  const weaverMatch = Object.values(gameState.players).some((player) => player.character === 'kazka');
+  const removedSinceChoice = Math.max(0, (actor.removedDeck?.length ?? 0) - (actor.weaverRemovedAtLastChoice ?? 0));
+  byId('piles').innerHTML = `${knownDeckMarkup}<span>HAND <b>${actor.hand.length}</b></span>${actor.discard.length > 0 ? `<button class="pile-button pile-clickable" id="discardPileButton" title="Open Discard Deck">DISCARD <b>${actor.discard.length}</b></button>` : `<span>DISCARD <b>0</b></span>`}${weaverMatch ? `<button class="pile-button pile-clickable" id="removedPileButton" title="Open Removed Deck · ${removedSinceChoice} added since the last Choice Event">REMOVE <b>${actor.removedDeck?.length ?? 0}</b></button>` : ''}`;
+  byId('discardPileButton')?.addEventListener('click', () => { discardViewerPlayerId = actor.id; discardViewerKind = 'discard'; renderDiscardModal(); });
+  byId('removedPileButton')?.addEventListener('click', () => { discardViewerPlayerId = actor.id; discardViewerKind = 'removed'; renderDiscardModal(); });
   document.querySelectorAll<HTMLElement>('[data-known-top-card]').forEach((button) => {
     button.addEventListener('pointerenter', (event) => showCardPreview((event.currentTarget as HTMLElement).dataset.knownTopCard!, event));
     button.addEventListener('pointermove', positionCardPreview);
@@ -1749,20 +1811,34 @@ function renderUI() {
   renderArmDaWizModal();
   renderManaModal();
   renderFocusModal();
+  renderWeaverChoiceModal();
+  renderNarrativeModal();
+  renderMockingjayNarrativeModal();
+  renderSpellsingerDiscardModal();
+  renderOnceUponReturnModal();
+  renderKamelotRemovalModal();
   renderActionQuestPanel();
   renderPhaseRewardModal();
   renderCombatReveal();
   renderMatchResults();
+  renderDrawnPerkModal();
   renderDiscardModal();
-  byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${escapeHtml(line)}</p>`).join('');
+  byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${cardTextHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
   const prompt = byId('prompt');
-  prompt.textContent = gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · pass through enemies, Objects, and Walls · finish unoccupied` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
+  prompt.textContent = gameState.phase === 'choosing-once-upon-return' ? 'Choose one newly drawn Card to return to the top of your Deck' : gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · pass through enemies, Objects, and Walls · finish unoccupied` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Play directly or select your Spell Echo position 1 · Escape to cancel' : '';
   if (gameState.phase === 'defending' && !canLocalAct(gameState.pendingAttack!.defenderId)) {
     prompt.textContent = `Waiting for ${gameState.players[gameState.pendingAttack!.defenderId].name} to choose a Defend Card or take the hit`;
   }
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
+  if (gameState.phase === 'choosing-weaver-story') prompt.textContent = 'Weaver of Stories: choose to spend 1 HP and draw, or discard a Card';
+  if (gameState.phase === 'choosing-narrative') prompt.textContent = 'Narrative: choose an effect or refuse · minimize to inspect the battlefield';
+  if (gameState.phase === 'choosing-mockingjay-defense') prompt.textContent = 'Mockingjay: discard your chosen Defend Card or let Kazka draw after combat';
+  if (gameState.phase === 'choosing-mockingjay-narrative') prompt.textContent = 'Mockingjay: discard a Narrative Card to trigger its special effect, or decline';
+  if (gameState.phase === 'choosing-narrative-target') prompt.textContent = 'Narrative: click a highlighted enemy on the battlefield, or cancel the effect';
+  if (gameState.phase === 'choosing-kamelot-removal') prompt.textContent = 'Kamelot Stance: Remove negative Cards from Hand, Deck or Discard, or gain Overpower';
+  if (gameState.phase === 'choosing-spellsinger-discard') prompt.textContent = 'Spellsinger Stance: choose a Card from Discard, then gain Summon';
   const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
   if (gameState.phase === 'choosing-spectre-perk-origin' && spectrePerkOrigin) {
     const selectedReplica = gameState.objects.find((object) => object.id === spectrePerkOrigin.replicaId);
@@ -2032,8 +2108,9 @@ function characterTraitHtml(ru: boolean) {
   const character = player.character as HotseatCharacter;
   const info = CHARACTER_SELECT_INFO[character];
   if (!info.trait) return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'Черты и карты этого персонажа будут добавлены позже.' : 'Traits and Cards for this character will be added later.'}</p>`;
+  if (character === 'kazka') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><h3>${escapeHtml(info.trait)}</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><strong>Turn records, Removed Deck choices, and Narrative effect rules are active. No Narrative Cards have been added yet.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>${player.attackRange}</b></span></footer></article>`;
   if (character === 'merylin') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>Swordcraft</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><p class="character-hint-detail">Attack Cards require an active Summon. Using an Attack consumes the current Summon. If that Attack grants Summon, the new Summon is applied after the spent one and can enable another Attack during the same turn.</p><strong>Current state: ${player.merylinSummonActive ? 'Summon active · Attack enabled' : 'no Summon · Attacks disabled'}.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>MELEE</b></span></footer></article>`;
-  const traitCharacter = character as Exclude<SelectableCharacter, 'merylin'>;
+  const traitCharacter = character as Exclude<SelectableCharacter, 'merylin' | 'kazka'>;
   const copy = {
     shinobi: {
       trait: 'Lightsaber',
@@ -2106,7 +2183,7 @@ function characterTraitHtml(ru: boolean) {
 function damageLogHtml(ru: boolean) {
   type DamageEntry = { eventType?: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
   const entries = ((gameState as GameState & { damageLog?: DamageEntry[] }).damageLog ?? []);
-  const combatRows = gameState.log.map((line, index) => `<li><i>#${gameState.log.length - index}</i><span>${escapeHtml(line)}</span></li>`).join('');
+  const combatRows = gameState.log.map((line, index) => `<li><i>#${gameState.log.length - index}</i><span>${cardTextHtml(line)}</span></li>`).join('');
   const combatLog = `<section class="damage-log-combat"><header><div><h3>${ru ? 'Журнал боя' : 'Combat Log'}</h3><p>${ru ? `Все записи: ${gameState.log.length}` : `All entries: ${gameState.log.length}`}</p></div></header>${combatRows ? `<ol>${combatRows}</ol>` : `<div class="damage-log-empty">${ru ? 'Записей боя пока нет.' : 'There are no combat entries yet.'}</div>`}</section>`;
   const sections = (Object.keys(gameState.players) as PlayerId[]).map((playerId) => {
     const player = gameState.players[playerId];
@@ -2123,13 +2200,193 @@ function damageLogHtml(ru: boolean) {
   return `<h2 id="hintsTitle">${ru ? 'Журнал урона' : 'Damage Log'}</h2><p class="damage-log-intro">${ru ? 'Каждая отдельная запись урона, полученного персонажами в этом матче. Потеря HP не считается уроном.' : 'Every separate instance of damage received by a character in this match. Effects that explicitly lose HP are not damage.'}</p><div class="damage-log-grid">${sections}</div>${combatLog}`;
 }
 
+function renderWeaverChoiceModal() {
+  const modal = byId('weaverChoiceModal');
+  const choice = gameState.weaverChoice;
+  const visible = gameState.phase === 'choosing-weaver-story' && Boolean(choice) && canLocalAct(choice!.targetId);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible || !choice) { modal.innerHTML = ''; weaverChoiceKey = ''; return; }
+  const target = gameState.players[choice.targetId];
+  const kazka = gameState.players[choice.kazkaId];
+  const key = `${gameState.turn}:${choice.targetId}:${target.weaverRemovedAtLastChoice}`;
+  if (key !== weaverChoiceKey) { weaverChoiceKey = key; weaverSelectingDiscard = false; }
+  const discardable = target.hand.some((card) => !cardDefinition(card).cannotBeDiscarded);
+  const hand = target.hand.map((instance) => {
+    const card = cardDefinition(instance);
+    const unavailable = card.cannotBeDiscarded || !weaverSelectingDiscard;
+    return `<button type="button" class="weaver-hand-card card ${cardVisualClass(card)}" data-weaver-discard="${escapeHtml(instance.instanceId)}" ${unavailable ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT DISCARD' : weaverSelectingDiscard ? 'SELECT TO DISCARD' : 'IN HAND'}</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('');
+  modal.innerHTML = `<div class="choice-dialog weaver-choice-dialog"><span>KAZKA · WEAVER OF STORIES</span><h2 id="weaverChoiceTitle">${escapeHtml(target.name)}: Choose</h2><p>${escapeHtml(target.name)} has ${target.removedDeck?.length ?? 0} negative Status Cards in the Removed Deck. Choose how to answer Kazka's story.</p><div class="choice-cards"><button id="weaverDrawChoice" type="button" ${target.hp < 1 ? 'disabled' : ''}><strong>Draw 1 Card for 1 HP</strong><small>Lose 1 HP, then draw 1 Card.</small></button><button id="weaverDiscardChoice" type="button" ${!discardable ? 'disabled' : ''}><strong>Discard a Card</strong><small>Choose one discardable Card from your Hand.</small></button></div><section class="weaver-hand"><h3>Your Hand · ${target.hand.length} Card${target.hand.length === 1 ? '' : 's'}</h3>${hand || '<p>Your Hand is empty.</p>'}</section><p class="weaver-choice-outcome" id="weaverChoiceOutcome" aria-live="polite">${weaverSelectingDiscard ? 'Select a Card from your Hand to discard.' : 'Hover over an option to see what Kazka receives.'}</p></div>`;
+  const outcome = modal.querySelector<HTMLElement>('#weaverChoiceOutcome')!;
+  const drawButton = modal.querySelector<HTMLButtonElement>('#weaverDrawChoice')!;
+  const discardButton = modal.querySelector<HTMLButtonElement>('#weaverDiscardChoice')!;
+  const baseMessage = outcome.textContent ?? '';
+  const describe = (button: HTMLButtonElement, message: string) => {
+    button.addEventListener('pointerenter', () => { outcome.textContent = message; });
+    button.addEventListener('focus', () => { outcome.textContent = message; });
+    button.addEventListener('pointerleave', () => { outcome.textContent = baseMessage; });
+    button.addEventListener('blur', () => { outcome.textContent = baseMessage; });
+  };
+  describe(drawButton, `${kazka.name} will restore 1 HP, up to her maximum.`);
+  describe(discardButton, `${kazka.name} will draw 1 Card.`);
+  drawButton.addEventListener('click', () => dispatch({ type: 'weaver-choice', playerId: target.id, choice: 'draw' }));
+  discardButton.addEventListener('click', () => {
+    const automatic = target.hand.find((card) => card.cardId === 'overpower');
+    if (automatic) dispatch({ type: 'weaver-choice', playerId: target.id, choice: 'discard', cardInstanceId: automatic.instanceId });
+    else { weaverSelectingDiscard = true; renderWeaverChoiceModal(); }
+  });
+  modal.querySelectorAll<HTMLButtonElement>('[data-weaver-discard]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'weaver-choice', playerId: target.id, choice: 'discard', cardInstanceId: button.dataset.weaverDiscard! })));
+}
+
+function renderDrawnPerkModal() {
+  let modal = document.getElementById('drawnPerkModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'drawnPerkModal';
+    modal.className = 'choice-modal hidden';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'drawnPerkTitle');
+    document.body.append(modal);
+  }
+  const pending = Object.values(gameState.players).filter((player) => player.hp > 0 && (player.perkMode?.pendingChoices ?? 0) > 0);
+  const visible = hasPendingPerkChoice(gameState);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible) { modal.innerHTML = ''; return; }
+  const player = mode === 'online' ? pending.find((player) => player.id === localSeat) : pending[0];
+  if (!player) {
+    modal.innerHTML = '<div class="choice-dialog"><span>PERK MODE</span><h2 id="drawnPerkTitle">Waiting for a Perk choice</h2><p>Play resumes once the drawn PERK Cards are exchanged.</p></div>';
+    return;
+  }
+  modal.innerHTML = `<div class="choice-dialog focus-choice-dialog"><span>PERK MODE · ${player.perkMode!.pendingChoices} CHOICE(S)</span><h2 id="drawnPerkTitle">${escapeHtml(player.name)}: choose a Perk</h2><p>Your PERK Card is Removed. Choose one remaining Perk to add to your Hand.</p><div class="choice-cards">${drawnPerkCandidates(player).map((cardId) => focusSelectionCardHtml(cardId, 'data-drawn-perk')).join('')}</div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-drawn-perk]').forEach((button) => button.onclick = () => dispatch({ type: 'choose-drawn-perk', playerId: player.id, cardId: button.dataset.drawnPerk as Extract<GameCommand, { type: 'choose-drawn-perk' }>['cardId'] }));
+}
+
+function renderSpellsingerDiscardModal() {
+  const modal = byId('spellsingerDiscardModal');
+  const player = gameState.players[gameState.activePlayerId];
+  const visible = gameState.phase === 'choosing-spellsinger-discard' && canLocalAct(player.id);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible) { modal.innerHTML = ''; return; }
+  modal.innerHTML = `<div class="choice-dialog spellsinger-discard-dialog"><span>SPELLSINGER STANCE · LEVEL 3</span><h2 id="spellsingerDiscardTitle">Draw a Card from Discard</h2><p>Choose one Card to return to your Hand. Then gain Summon.</p><div class="discard-card-grid">${[...player.discard].reverse().map((instance) => {
+    const card = cardDefinition(instance);
+    return `<button type="button" class="card ${cardVisualClass(card)}" data-spellsinger-draw="${escapeHtml(instance.instanceId)}"><span>DRAW FROM DISCARD</span><strong>${cardNameHtml(card, true)}</strong><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('')}</div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-spellsinger-draw]').forEach((button) => button.onclick = () => dispatch({ type: 'spellsinger-discard', playerId: player.id, cardInstanceId: button.dataset.spellsingerDraw! }));
+}
+
+function renderMockingjayNarrativeModal() {
+  const modal = byId('mockingjayNarrativeModal');
+  const pending = (gameState as GameStateWithMockingjay).mockingjayNarrativeSpend;
+  const visible = gameState.phase === 'choosing-mockingjay-narrative' && Boolean(pending) && canLocalAct(pending!.playerId);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible || !pending) { modal.innerHTML = ''; return; }
+  const cards = narrativeCardsInHand(gameState, pending.playerId);
+  modal.innerHTML = `<div class="choice-dialog mockingjay-narrative-dialog"><span>MOCKINGJAY · AFTER COMBAT</span><h2 id="mockingjayNarrativeTitle">Spend a Narrative Card?</h2><p>Discard one Narrative Card from your Hand to trigger a Narrative effect. Its own printed effect is not played. ${cardTextHtml('Heated Debate is Removed when discarded.')}</p><div class="discard-card-grid">${cards.map((instance) => {
+    const card = cardDefinition(instance);
+    return `<button type="button" class="card ${cardVisualClass(card)}" data-mockingjay-spend="${escapeHtml(instance.instanceId)}"><span>DISCARD TO TRIGGER NARRATIVE</span><strong>${cardNameHtml(card, true)}</strong><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('')}</div><button type="button" class="choice-decline" id="mockingjayDecline">Decline</button></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-mockingjay-spend]').forEach((button) => {
+    button.onclick = () => dispatch({ type: 'mockingjay-narrative-choice', playerId: pending.playerId, cardInstanceId: button.dataset.mockingjaySpend! });
+  });
+  modal.querySelector<HTMLButtonElement>('#mockingjayDecline')!.onclick = () => dispatch({ type: 'mockingjay-narrative-choice', playerId: pending.playerId, cardInstanceId: null });
+}
+
+function renderNarrativeModal() {
+  const modal = byId('narrativeModal');
+  const restore = byId('narrativeRestore');
+  const targetPrompt = byId('narrativeTargetPrompt');
+  const pending = (gameState as GameStateWithNarrative).narrativeChoice;
+  const visible = gameState.phase === 'choosing-narrative' && Boolean(pending) && canLocalAct(pending!.kazkaId);
+  const targeting = gameState.phase === 'choosing-narrative-target' && Boolean(pending?.selectedEffect) && canLocalAct(pending!.kazkaId);
+  targetPrompt.classList.toggle('hidden', !targeting);
+  if (targeting && pending?.selectedEffect) {
+    const label = pending.selectedEffect === 'enemy-position' ? 'return to their starting Square'
+      : pending.selectedEffect === 'enemy-hp' ? 'revert their HP' : 'copy their Removed Status Card';
+    targetPrompt.innerHTML = `<span>Click a highlighted enemy to ${label}.</span><button type="button">Cancel effect</button>`;
+    targetPrompt.querySelector('button')!.onclick = () => dispatch({ type: 'narrative-choice', playerId: pending.kazkaId, effect: 'refuse' });
+  } else targetPrompt.innerHTML = '';
+  if (!visible || !pending) {
+    modal.classList.add('hidden');
+    restore.classList.add('hidden');
+    modal.innerHTML = '';
+    narrativeChoiceKey = '';
+    narrativeMinimized = false;
+    return;
+  }
+  if (narrativeChoiceKey !== pending.id) {
+    narrativeChoiceKey = pending.id;
+    narrativeMinimized = false;
+  }
+  modal.classList.toggle('hidden', narrativeMinimized);
+  restore.classList.toggle('hidden', !narrativeMinimized);
+  restore.onclick = () => { narrativeMinimized = false; renderNarrativeModal(); };
+  if (narrativeMinimized) return;
+  const kazka = gameState.players[pending.kazkaId];
+  const effects: Array<{ id: NarrativeEffect; label: string; detail: string; enabled: boolean }> = [
+    { id: 'enemy-position', label: 'Return an enemy', detail: 'Move a visible enemy in range to their turn-start Square.', enabled: narrativeTargets(gameState, kazka.id, 'enemy-position').length > 0 },
+    { id: 'enemy-hp', label: 'Revert enemy HP', detail: 'Set a visible enemy’s HP to its turn-start value.', enabled: narrativeTargets(gameState, kazka.id, 'enemy-hp').length > 0 },
+    { id: 'copy-status', label: 'Copy Removed Status', detail: 'Copy the top Status Card of an enemy’s Removed Deck into that enemy’s Hand.', enabled: narrativeTargets(gameState, kazka.id, 'copy-status').length > 0 },
+    { id: 'self-position', label: 'Return Kazka', detail: `Move Kazka to her turn-start Square${kazka.turnStartRecord ? ` (${cellLabel(kazka.turnStartRecord.position)})` : ''}.`, enabled: narrativeStartSquareAvailable(gameState, kazka.id) },
+    { id: 'self-hp', label: 'Revert Kazka HP', detail: `Set Kazka’s HP to her turn-start value${kazka.turnStartRecord ? ` (${kazka.turnStartRecord.hp})` : ''}.`, enabled: narrativeHpChanged(gameState, kazka.id) },
+  ];
+  modal.innerHTML = `<div class="choice-dialog narrative-dialog"><span>KAZKA · NARRATIVE EFFECT</span><h2 id="narrativeTitle">Choose how the story changes</h2><p>Select one effect. For enemy effects, click a highlighted character on the battlefield. Enemy effects require a visible enemy within Kazka’s Range ${effectiveAttackRange(gameState, kazka)}. HP reversion sets the recorded value directly; a return requires an unoccupied starting Square.</p><div class="narrative-options">${effects.map((effect) => `<button type="button" data-narrative-effect="${effect.id}" ${effect.enabled ? '' : 'disabled'}><strong>${escapeHtml(effect.label)}</strong><small>${escapeHtml(effect.detail)}</small></button>`).join('')}</div><div class="narrative-actions"><button type="button" id="narrativeRefuse">Refuse effect</button><button type="button" id="narrativeMinimize">Minimize · review battlefield</button></div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-narrative-effect]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
+    const effect = button.dataset.narrativeEffect as NarrativeEffect;
+    dispatch({ type: 'narrative-choice', playerId: kazka.id, effect });
+  }));
+  modal.querySelector<HTMLButtonElement>('#narrativeRefuse')!.addEventListener('click', () => dispatch({ type: 'narrative-choice', playerId: kazka.id, effect: 'refuse' }));
+  modal.querySelector<HTMLButtonElement>('#narrativeMinimize')!.addEventListener('click', () => { narrativeMinimized = true; renderNarrativeModal(); });
+}
+
+function renderOnceUponReturnModal() {
+  const modal = byId('onceUponReturnModal');
+  const pending = (gameState as GameStateWithOnceUpon).onceUponReturn;
+  const visible = gameState.phase === 'choosing-once-upon-return' && Boolean(pending) && canLocalAct(pending!.playerId);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible || !pending) { modal.innerHTML = ''; return; }
+  const player = gameState.players[pending.playerId];
+  const choices = pending.drawnInstanceIds.flatMap((id) => {
+    const instance = player.hand.find((card) => card.instanceId === id);
+    if (!instance) return [];
+    const card = cardDefinition(instance);
+    return [`<button type="button" class="card ${cardVisualClass(card)}" data-once-upon-return="${escapeHtml(id)}"><span>RETURN TO TOP OF DECK</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`];
+  }).join('');
+  modal.innerHTML = `<div class="choice-dialog once-upon-return-dialog"><span>KAZKA · ${cardNameHtml(cardDefinition({ instanceId: '', cardId: 'once-upon-a-time' }), true)} · LEVEL ${pending.level}</span><h2 id="onceUponReturnTitle">Choose a Card to return</h2><p>Choose one of the two Cards you just drew. It will be placed on top of your Deck.${pending.level >= 2 ? ' Then choose a Narrative effect.' : ''}</p><div class="once-upon-return-cards">${choices}</div></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-once-upon-return]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'once-upon-return', playerId: pending.playerId, cardInstanceId: button.dataset.onceUponReturn! })));
+}
+
+function renderKamelotRemovalModal() {
+  const modal = byId('kamelotRemovalModal');
+  const pending = (gameState as GameStateWithKamelotRemoval).kamelotRemoval;
+  const visible = gameState.phase === 'choosing-kamelot-removal' && Boolean(pending) && canLocalAct(pending!.playerId);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible || !pending) { modal.innerHTML = ''; return; }
+  const player = gameState.players[pending.playerId];
+  const options = [
+    ...player.hand.map((card, index) => ({ card, pile: 'Hand', position: index + 1 })),
+    ...player.deck.map((card, index) => ({ card, pile: 'Deck', position: player.deck.length - index })),
+    ...player.discard.map((card, index) => ({ card, pile: 'Discard', position: player.discard.length - index })),
+  ].filter(({ card }) => isNegativeStatusCard(card));
+  const cards = options.map(({ card: instance, pile, position }) => {
+    const card = cardDefinition(instance);
+    return `<button type="button" class="kamelot-removal-card card ${cardVisualClass(card)}" data-kamelot-remove="${escapeHtml(instance.instanceId)}"><span>${pile.toUpperCase()} · ${position} FROM TOP</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.value}</b> STATUS VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+  }).join('');
+  modal.innerHTML = `<div class="choice-dialog kamelot-removal-dialog"><span>KAMELOT STANCE · LEVEL 3</span><h2 id="kamelotRemovalTitle">Remove Cards or gain Overpower</h2><p>Remove up to ${pending.remaining} more negative Card${pending.remaining === 1 ? '' : 's'} from Hand, Deck or Discard. Finish now to gain ${pending.remaining} Overpower Card${pending.remaining === 1 ? '' : 's'} instead.</p><div class="kamelot-removal-grid">${cards}</div><button type="button" class="choice-decline" id="kamelotRemovalFinish">Finish · gain ${pending.remaining} Overpower</button></div>`;
+  modal.querySelectorAll<HTMLButtonElement>('[data-kamelot-remove]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'kamelot-remove', playerId: pending.playerId, cardInstanceId: button.dataset.kamelotRemove! })));
+  modal.querySelector<HTMLButtonElement>('#kamelotRemovalFinish')!.addEventListener('click', () => dispatch({ type: 'kamelot-remove', playerId: pending.playerId, cardInstanceId: null }));
+}
+
 function renderDiscardModal() {
   const modal = byId('discardModal');
   const player = discardViewerPlayerId ? gameState.players[discardViewerPlayerId] : null;
   modal.classList.toggle('hidden', !player);
   if (!player) return;
-  const cards = [...player.discard].reverse();
-  byId('discardContent').innerHTML = `<span class="discard-eyebrow">PUBLIC CARD INFORMATION</span><h2 id="discardTitle">${escapeHtml(player.name)} · Discard Deck</h2><p>${cards.length} Card${cards.length === 1 ? '' : 's'} · newest discarded Card shown first</p>${cards.length === 0 ? '<div class="discard-empty">This Discard Deck is empty.</div>' : `<div class="discard-card-grid">${cards.map((instance, index) => { const card = cardDefinition(instance); return `<article class="card ${cardVisualClass(card)}"><span>${index === 0 ? 'TOP OF DISCARD · ' : ''}${card.kind.toUpperCase()}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`; }).join('')}</div>`}`;
+  const removed = discardViewerKind === 'removed';
+  const cards = [...(removed ? player.removedDeck ?? [] : player.discard)].reverse();
+  const pileName = removed ? 'Removed Deck' : 'Discard Deck';
+  const choiceProgress = removed ? ` · ${Math.max(0, cards.length - (player.weaverRemovedAtLastChoice ?? 0))} added since the last Choice Event` : '';
+  byId('discardContent').innerHTML = `<span class="discard-eyebrow">PUBLIC CARD INFORMATION</span><h2 id="discardTitle">${escapeHtml(player.name)} · ${pileName}</h2><p>${cards.length} Card${cards.length === 1 ? '' : 's'}${choiceProgress} · newest ${removed ? 'Removed' : 'discarded'} Card shown first</p>${cards.length === 0 ? `<div class="discard-empty">This ${pileName} is empty.</div>` : `<div class="discard-card-grid">${cards.map((instance, index) => { const card = cardDefinition(instance); return `<article class="card ${cardVisualClass(card)}"><span>${index === 0 ? `TOP OF ${removed ? 'REMOVED' : 'DISCARD'} · ` : ''}${card.kind.toUpperCase()}</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`; }).join('')}</div>`}`;
 }
 
 function hintsRulesHtml(ru: boolean) {
@@ -2156,7 +2413,9 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   const abilityIcon = playerAbilityIcon(player);
   const statusIcons = playerStatusIcons(player);
   const totalDamage = player.matchStats?.totalDamage ?? 0;
-  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong></div><div class="fighter-vitals"><div class="fighter-damage" aria-label="${escapeHtml(player.name)} total damage dealt: ${totalDamage}"><span>TOTAL DAMAGE</span><b>${totalDamage}</b></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div></div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
+  const removedCount = Object.values(gameState.players).some((candidate) => candidate.character === 'kazka')
+    ? `<small class="fighter-removed-count" title="Negative Status Cards in Removed Deck · ${Math.max(0, (player.removedDeck?.length ?? 0) - (player.weaverRemovedAtLastChoice ?? 0))} since the last Choice Event">REMOVE ${player.removedDeck?.length ?? 0}</small>` : '';
+  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong>${removedCount}</div><div class="fighter-vitals"><div class="fighter-damage" aria-label="${escapeHtml(player.name)} total damage dealt: ${totalDamage}"><span>TOTAL DAMAGE</span><b>${totalDamage}</b></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div></div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
 }
 
 function playerUiColor(playerId: PlayerId) {
@@ -2199,6 +2458,8 @@ function playerAbilityIcon(player: GameState['players'][PlayerId]) {
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
+    const reserve = Math.max(0, player.manaShieldUnusedBlock ?? 0);
+    const manaShieldReserveIcon = reserve > 0 && player.hp > 0 ? `<div class="status-icon mana-shield-reserve-status" tabindex="0" aria-label="Mana Shield: ${reserve} unused block">${gameIcon('mana-shield-reserve')}<b>+${reserve}</b><span class="status-tooltip"><strong>Mana Shield · Unused Block</strong>+${reserve} DEF on your next Defend Card. Stored block equals the previous Mana Shield's total DEF minus the attacker's total ATT, including all bonuses and penalties. This bonus remains through turns, attacks and hits taken without a Defend Card, then is consumed when you play a Defend Card.</span></div>` : '';
     const stacks = pinnedCount(player);
     const headacheInHand = player.hand.filter((card) => card.cardId === 'headache').length;
     const headacheInDiscard = player.discard.filter((card) => card.cardId === 'headache').length;
@@ -2249,8 +2510,9 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const windwalkerIcon = player.character === 'merylin' && (player.windwalkerMoveBonus ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.windwalkerMoveBonus}</b><span class="status-tooltip"><strong>Windwalker Stance · +${player.windwalkerMoveBonus} MOV</strong>This movement bonus lasts until turn end.${player.windwalkerUnrestrictedMovement ? ' Each adjacent step costs 1 MOV, including entering or leaving Shallow Water. Merylin may pass through enemies and Objects, but not Wall Objects, must finish on an unoccupied Square, and ignores negative movement effects and Slide effects. A Slide Square that is also a Trench Square cannot be used to climb onto High Ground.' : ''}</span></div>` : '';
     const barbarianAttackIcon = player.character === 'merylin' && (player.barbarianNextAttackBonus ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.barbarianNextAttackBonus}</b><span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>The next Attack Card gains +${player.barbarianNextAttackBonus} ATT. This does not expire, repeated uses keep only the higher bonus, and using any Attack consumes it regardless of the combat result.</span></div>` : '';
     const barbarianHeadacheIcon = player.character === 'merylin' && player.barbarianNextAttackHeadache ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('headache')}<span class="status-tooltip"><strong>Barbarian Stance · Next Attack</strong>Merylin's next Attack adds Headache to the target's Hand after combat. Attacking an Object consumes this effect without applying Headache.</span></div>` : '';
-    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Kamelot or Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
-    const spellsingerAttackIcon = (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Dakkoth, Kamelot or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. This character may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after their normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
+    const spellsingerPerkIcon = player.character === 'merylin' && (player.spellsingerExtraPerkUses ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('magic')}<b>+${player.spellsingerExtraPerkUses}</b><span class="status-tooltip"><strong>Extra Perk</strong>Spellsinger Stance allows ${player.spellsingerExtraPerkUses} additional Perk use${player.spellsingerExtraPerkUses === 1 ? '' : 's'} this turn. The allowance expires at turn end.</span></div>` : '';
+    const smartPushIcon = player.character === 'merylin' && player.spellsingerSmartPush ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('smart-push')}<b>1</b><span class="status-tooltip"><strong>Smart Push · next successful hit</strong>After your next Attack deals combat Damage to an enemy, push that target 1 Square into an adjacent destructible Object, destroying it and dealing 1 collision Damage. Otherwise, push from High Ground to an empty non-High Ground Square for 1 fall Damage. A fall during an Object collision also deals 1 fall Damage. If neither is possible, the target stays in place. Consumed on that hit. Columns, Flood Buttons and character-occupied Squares are ineligible.</span></div>` : '';
+    const spellsingerAttackIcon = (player.spellsingerExtraAttacks ?? 0) > 0 ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('attack')}<b>+${player.spellsingerExtraAttacks}</b><span class="status-tooltip"><strong>Extra Attack</strong>Dakkoth or Spellsinger Stance grants ${player.spellsingerExtraAttacks} Attack-only Action${player.spellsingerExtraAttacks === 1 ? '' : 's'}. This character may use ${player.spellsingerExtraAttacks === 1 ? 'it' : 'them'} after their normal Actions are exhausted. The allowance expires at turn end.</span></div>` : '';
     const hexBonusIcon = hexBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${hexBonus}</b><span class="status-tooltip"><strong>Stolen Movement</strong>Wreckna has +${hexBonus} maximum MOV stolen by Hex, Bone Chill, or Curse. Curse's gain expires at Wreckna's turn end; other matching gains expire with their target. Stolen MOV is immediately usable for Phylactery of Might.</span></div>` : '';
     const hexPenaltyIcon = hexPenalty > 0 ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<b>-${hexPenalty}</b><span class="status-tooltip"><strong>Movement Stolen</strong>Hex, Bone Chill, Curse, or Brain Freeze reduced maximum MOV by ${hexPenalty}. The penalty expires at the end of this character's turn.</span></div>` : '';
     const passThroughIcon = player.swiftformCanPassEnemies ? `<div class="status-icon pass-through-status" tabindex="0">${gameIcon('pass-through')}<span class="status-tooltip"><strong>Swiftform</strong>This character can move through enemies this turn, but cannot finish movement on an occupied Square.</span></div>` : '';
@@ -2267,7 +2529,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -2277,7 +2539,7 @@ function renderHand() {
   const hasHeldExhaust = actualViewer.hand.some((instance) => instance.cardId === 'exhaust');
   const handValueHtml = (instance: typeof viewer.hand[number]) => {
     const card = cardDefinition(instance);
-    const baseValue = cardBaseValue(instance);
+    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + feedSpiritDefenseBonus(viewer, instance.cardId) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
     const reduced = hasHeldExhaust && (card.kind === 'attack' || card.kind === 'defend');
     return reduced
       ? `<b class="exhaust-reduced-value" title="${baseValue} − 1 from Exhaust in Hand">${Math.max(0, baseValue - 1)}</b>`
@@ -2309,7 +2571,7 @@ function renderHand() {
       : '';
     const soulStrikeForcedBlocks = defenses.filter((instance) => instance.soulStrikeForcedUse === 'defend');
     const entombedWreckna = viewer.character === 'wreckna' && Boolean(viewer.wrecknaInsideTombId && gameState.objects.some((object) => object.id === viewer.wrecknaInsideTombId && object.kind === 'tomb'));
-    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}"${oraclePulseAttributes(instance.instanceId)} ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
+    byId('hand').innerHTML = `${oracleControl}${defenses.map((instance) => { const card = cardDefinition(instance); const soulStrikeUnavailable = soulStrikeForcedBlocks.length > 0 && instance.soulStrikeForcedUse !== 'defend'; const unavailable = !canLocalAct(viewerId) || soulStrikeUnavailable || (entombedWreckna && !canDefendInsideTomb(viewer, instance)) || (oracleForced && instance.instanceId !== oraclePending?.oracleInstanceId) || (oracleRevealed && instance.instanceId === oraclePending?.oracleInstanceId); const value = cardBaseValue(instance); const rules = (card.effectText ?? `Reduce incoming combat value by ${value}.`).replace(/reveal \d+ Cards/, `reveal ${value} Cards`); const label = instance.soulStrikeForcedUse === 'defend' ? 'SOUL STRIKE · MUST USE FIRST' : unavailable ? 'UNAVAILABLE THIS COMBAT' : 'REACTION · DISCARD ON USE'; return `<button class="card defend ${instance.soulStrikeForcedUse === 'defend' ? 'soul-strike-marked' : ''}" data-defend="${instance.instanceId}"${oraclePulseAttributes(instance.instanceId)} ${unavailable ? 'disabled' : ''}><span>${label}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${escapeHtml(rules)}</small></button>`; }).join('')}<button class="decline" id="passDefense" ${!canLocalAct(viewerId) || oracleForced ? 'disabled' : ''}>${oracleForced ? 'ORACLE MUST DEFEND' : 'TAKE THE HIT'}</button>`;
     document.querySelector('#oracleReveal')?.addEventListener('click', () => dispatch({ type: 'oracle-reveal', playerId: viewerId }));
     document.querySelectorAll<HTMLButtonElement>('[data-defend]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'defend', playerId: viewerId, cardInstanceId: button.dataset.defend! })));
     document.querySelector('#passDefense')?.addEventListener('click', () => dispatch({ type: 'pass-defense', playerId: viewerId }));
@@ -2318,7 +2580,7 @@ function renderHand() {
   if ((gameState.phase as string) === 'choosing-decay-discard') {
     const decay = (gameState as GameState & { decay?: { targetId?: PlayerId; remaining: number } }).decay;
     if (!decay?.targetId || viewerId !== decay.targetId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Curse to resolve.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-decay-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : `DECAY · DISCARD ${decay.remaining} MORE`}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-decay-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'decay-discard', playerId: viewerId, cardInstanceId: button.dataset.decayDiscard! })));
     return;
   }
@@ -2328,7 +2590,7 @@ function renderHand() {
     handElement.innerHTML = viewer.hand.map((instance) => {
       const card = cardDefinition(instance);
       const eligible = card.kind === 'defend';
-      return `<button class="card ${cardVisualClass(card)}" data-sap-defend="${instance.instanceId}" ${!eligible || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${eligible ? 'SAP · SELECT TO REVEAL' : 'SAP · DEFEND CARD REQUIRED'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${eligible ? '<span class="card-interaction">Reveal this Card to Wreckna and keep it in Hand.</span>' : ''}</small></button>`;
+      return `<button class="card ${cardVisualClass(card)}" data-sap-defend="${instance.instanceId}" ${!eligible || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${eligible ? 'SAP · SELECT TO REVEAL' : 'SAP · DEFEND CARD REQUIRED'}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}${eligible ? '<span class="card-interaction">Reveal this Card to Wreckna and keep it in Hand.</span>' : ''}</small></button>`;
     }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-sap-defend]:not(:disabled)').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'sap-defend-reveal', playerId: viewerId, cardInstanceId: button.dataset.sapDefend! })));
     return;
@@ -2338,7 +2600,7 @@ function renderHand() {
     if (!wisdom || viewerId !== wisdom.playerId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to discard for Phylactery of Wisdom.</div>'; return; }
     handElement.innerHTML = viewer.hand.map((instance) => {
       const card = cardDefinition(instance);
-      return `<button class="card ${cardVisualClass(card)}" data-wisdom-hand-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'PHYLACTERY OF WISDOM · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+      return `<button class="card ${cardVisualClass(card)}" data-wisdom-hand-discard="${instance.instanceId}" ${card.cannotBeDiscarded || !canLocalAct(viewerId) ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'PHYLACTERY OF WISDOM · SELECT TO DISCARD'}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
     }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-wisdom-hand-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'wreckna-wisdom-discard', playerId: viewerId, cardInstanceId: button.dataset.wisdomHandDiscard! })));
     return;
@@ -2346,14 +2608,14 @@ function renderHand() {
   if (gameState.phase === 'choosing-lichdom-copy') {
     const lichdom = (gameState as GameState & { lichdom?: { casterId: PlayerId } | null }).lichdom;
     if (!lichdom || viewerId !== lichdom.casterId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for Wreckna to choose a Card for Lichdom.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-lichdom-copy="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>LICHDOM · CREATE ONE-TIME COPY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-lichdom-copy="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>LICHDOM · CREATE ONE-TIME COPY</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     handElement.querySelectorAll<HTMLButtonElement>('[data-lichdom-copy]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'lichdom-copy-choice', playerId: viewerId, cardInstanceId: button.dataset.lichdomCopy! })));
     return;
   }
   if (gameState.phase === 'choosing-shadow-barter-discard') {
     const shadowBarter = (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } | null }).shadowBarter;
     if (!shadowBarter || viewerId !== shadowBarter.defenderId) { handElement.innerHTML = '<div class="drone-placeholder">Waiting for the target to discard for Shadow Barter.</div>'; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-shadow-barter-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'SHADOW BARTER · SELECT TO DISCARD'}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-shadow-barter-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'shadow-barter-discard', playerId: viewerId, cardInstanceId: button.dataset.shadowBarterDiscard! })));
     return;
   }
@@ -2369,7 +2631,7 @@ function renderHand() {
       const eligible = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded);
       byId('hand').innerHTML = eligible.map((instance) => {
         const card = cardDefinition(instance);
-        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>MIND BLAST &middot; SELECT TO DISCARD</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
       }).join('');
       document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
       return;
@@ -2379,7 +2641,7 @@ function renderHand() {
       const defenses = viewer.hand.filter((instance) => !(locked?.type === 'defend' && locked.cardInstanceId === instance.instanceId) && !cardDefinition(instance).cannotBeDiscarded && cardDefinition(instance).kind === 'defend');
       byId('hand').innerHTML = defenses.map((instance) => {
         const card = cardDefinition(instance);
-        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+        return `<button class="card ${cardVisualClass(card)}" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>DRAIN STRENGTH &middot; SELECT TO DISCARD</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} DEFEND VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
       }).join('');
       document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
       return;
@@ -2387,7 +2649,7 @@ function renderHand() {
     const attacks = viewer.hand.filter((instance) => !cardDefinition(instance).cannotBeDiscarded && (mindBlast || cardDefinition(instance).kind === requiredKind));
     byId('hand').innerHTML = attacks.map((instance) => {
       const card = cardDefinition(instance);
-      return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${card.name.toUpperCase()}</strong><div>${handValueHtml(instance)} ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
+      return `<button class="card attack" data-force-disarm="${instance.instanceId}" ${!canLocalAct(viewerId) ? 'disabled' : ''}><span>FORCE DISARM · SELECT TO DISCARD</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ATTACK VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this Attack card.')}</small></button>`;
     }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-force-disarm]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'force-disarm-discard', playerId: viewerId, cardInstanceId: button.dataset.forceDisarm! })));
     return;
@@ -2395,7 +2657,7 @@ function renderHand() {
   if (gameState.phase === 'choosing-grimoire-discard') {
     const pending = gameState.pendingAttack!;
     if (viewerId !== pending.defenderId) { handElement.innerHTML = `<div class="drone-placeholder">Waiting for the target to discard for Grimoire Cleanse.</div>`; return; }
-    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
+    handElement.innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-grimoire-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'GRIMOIRE CLEANSE · SELECT TO DISCARD'}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-grimoire-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'grimoire-discard', playerId: viewerId, cardInstanceId: button.dataset.grimoireDiscard! })));
     return;
   }
@@ -2405,7 +2667,7 @@ function renderHand() {
       byId('hand').innerHTML = `<div class="drone-placeholder">Waiting for ${escapeHtml(gameState.players[requiredPlayer].name)} to discard cards.</div>`;
       return;
     }
-    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
+    byId('hand').innerHTML = viewer.hand.map((instance) => { const card = cardDefinition(instance); return `<button class="card ${cardVisualClass(card)}" data-flurry-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><span>${card.cannotBeDiscarded ? 'CANNOT BE DISCARDED' : 'FLURRY · SELECT TO DISCARD'}</span><strong>${cardNameHtml(card, true)}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${escapeHtml(card.effectText ?? 'Click to discard this card.')}</small></button>`; }).join('');
     document.querySelectorAll<HTMLButtonElement>('[data-flurry-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'flurry-enemy-discard', playerId: viewerId, cardInstanceId: button.dataset.flurryDiscard! })));
     return;
   }
@@ -2426,9 +2688,9 @@ function renderHand() {
     const disabled = !canLocalAct(viewerId) || gameState.phase === 'finished' || Boolean(cannotOverstackDiscard) || unavailableMindTricksReveal || spiritBlocked || (!choosingDiscard && (!playableAction || gameState.phase !== 'active'));
     const removeOnUseOrDiscard = instance.cardId === 'feint' || instance.cardId === 'weak-feint' || instance.cardId === 'judgement';
     const interactionCopy = instance.oneTimeCopy ? ' One-time Lichdom copy: Removed when used or discarded.' : removeOnUseOrDiscard ? ' Removed when used or discarded.' : mindTricksReveal ? ' Click to reveal this card and keep it in Hand.' : choosingDiscard ? ' Click to confirm this discard.' : '';
-    const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
+    const typeLabel = instance.soulStrikeForcedUse === 'attack' ? 'SOUL STRIKE · MUST ATTACK WITH THIS FIRST' : soulStrikeAttackUnavailable ? 'SOUL STRIKE · ANOTHER ATTACK IS MARKED' : instance.oneTimeCopy ? 'ONE-TIME COPY · REMOVE ON USE OR DISCARD' : removeOnUseOrDiscard ? 'ATTACK · REMOVE ON USE OR DISCARD' : instance.cardId === 'blessing-prayer' ? 'BLESSING · FREE ACTION · LOSE 1 MOV' : rewardAction ? 'ACTION · REWARD CARD · REMOVE ON USE' : card.kind === 'combat' ? (card.narrative ? 'NARRATION · COMBAT CARD · REMOVE WHEN DISCARDED' : 'COMBAT CARD · REMOVE WHEN DISCARDED') : card.kind === 'status' ? (card.canRemoveAsAction ? 'STATUS · CLICK TO REMOVE FOR 1 ACTION' : 'STATUS · ACTIVE IN HAND') : card.kind === 'attack' ? (card.narrative ? 'ACTION · NARRATION ATTACK · DISCARD ON USE' : 'ACTION · DISCARD ON USE') : card.kind === 'perk' ? (card.narrative ? 'ACTION: NARRATIVE PERK · ONCE PER TURN' : 'ACTION: PERK · ONCE PER TURN') : card.kind === 'free-action' ? 'FREE ACTION · CLICK TO TARGET' : 'REACTION · DISCARD ON USE';
     const discardLabel = mindTricksReveal ? (unavailableMindTricksReveal ? 'ALREADY REVEALED' : 'SELECT TO REVEAL') : cannotOverstackDiscard ? 'CANNOT BE DISCARDED' : 'SELECT TO DISCARD';
-    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''} ${instance.soulStrikeForcedUse ? 'soul-strike-marked' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${card.name.toUpperCase()}</strong><div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
+    return `<button class="card ${cardVisualClass(card)} ${selected ? 'selected' : ''} ${instance.soulStrikeForcedUse ? 'soul-strike-marked' : ''}" data-instance="${instance.instanceId}" ${disabled ? 'disabled' : ''}><span>${choosingDiscard ? discardLabel : typeLabel}</span><strong>${cardNameHtml(card, true)}</strong>${card.kind === 'combat' ? '' : `<div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div>`}<small>${cardRulesHtml(card).replace(/reveal \d+ Cards/, `reveal ${cardBaseValue(instance)} Cards`)}${interactionCopy ? `<span class="card-interaction">${escapeHtml(interactionCopy)}</span>` : ''}</small></button>`;
   }).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-instance]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     if (gameState.phase === 'choosing-preparation-discard') dispatch({ type: 'preparation-discard', playerId: viewerId, cardInstanceId: button.dataset.instance! });
@@ -2531,7 +2793,7 @@ function renderFlurryModal() {
     const visible = viewerId === player.id && canLocalAct(player.id);
     modal.classList.toggle('hidden', !visible);
     if (!visible) { modal.innerHTML = ''; return; }
-    modal.innerHTML = `<div class="choice-dialog"><span>BLESSED PRAYER · LEVEL 3</span><h2>Choose a Card from Discard</h2><p>Move the selected Card from your Discard into your Hand.</p><div class="choice-cards">${[...player.discard].reverse().map((instance) => { const card = cardDefinition(instance); return `<button data-prayer-discard="${instance.instanceId}"><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? `${card.kind} ${card.value}`)}</small></button>`; }).join('')}</div></div>`;
+    modal.innerHTML = `<div class="choice-dialog"><span>BLESSED PRAYER · LEVEL 3</span><h2>Choose a Card from Discard</h2><p>Move the selected Card from your Discard into your Hand.</p><div class="choice-cards">${[...player.discard].reverse().map((instance) => { const card = cardDefinition(instance); return `<button data-prayer-discard="${instance.instanceId}"><strong>${cardNameHtml(card)}</strong><small>${escapeHtml(card.effectText ?? card.levelEffects?.join(' · ') ?? `${card.kind} ${card.value}`)}</small></button>`; }).join('')}</div></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-prayer-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'blessed-prayer-discard', playerId: player.id, cardInstanceId: button.dataset.prayerDiscard! })));
     return;
   }
@@ -2542,7 +2804,7 @@ function renderFlurryModal() {
     const canChooseManaBlast = viewerId === defender.id && canLocalAct(defender.id);
     modal.classList.toggle('hidden', !canChooseManaBlast);
     if (!canChooseManaBlast) { modal.innerHTML = ''; return; }
-    modal.innerHTML = `<div class="choice-dialog"><span>ATTACK FOLLOW-UP</span><h2>Mana Blast</h2><p>Discard one eligible Card to prevent the attacking Logan from gaining Mana, or refuse to discard.</p><div class="choice-cards">${defender.hand.map((instance) => { const card = cardDefinition(instance); return `<button data-mana-blast-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><strong>${escapeHtml(card.name)}</strong><small>${card.cannotBeDiscarded ? 'Cannot be discarded' : 'Discard this Card · No Mana gained'}</small></button>`; }).join('')}</div><button class="choice-decline" id="manaBlastRefuse">Refuse to discard · Grant ${refusedMana} Mana Point${refusedMana === 1 ? '' : 's'} to ${escapeHtml(attacker.name)}</button></div>`;
+    modal.innerHTML = `<div class="choice-dialog"><span>ATTACK FOLLOW-UP</span><h2>Mana Blast</h2><p>Discard one eligible Card to prevent the attacking Logan from gaining Mana, or refuse to discard.</p><div class="choice-cards">${defender.hand.map((instance) => { const card = cardDefinition(instance); return `<button data-mana-blast-discard="${instance.instanceId}" ${card.cannotBeDiscarded ? 'disabled' : ''}><strong>${cardNameHtml(card)}</strong><small>${card.cannotBeDiscarded ? 'Cannot be discarded' : 'Discard this Card · No Mana gained'}</small></button>`; }).join('')}</div><button class="choice-decline" id="manaBlastRefuse">Refuse to discard · Grant ${refusedMana} Mana Point${refusedMana === 1 ? '' : 's'} to ${escapeHtml(attacker.name)}</button></div>`;
     modal.querySelectorAll<HTMLButtonElement>('[data-mana-blast-discard]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'mana-blast-discard', playerId: defender.id, cardInstanceId: button.dataset.manaBlastDiscard! })));
     modal.querySelector('#manaBlastRefuse')?.addEventListener('click', () => dispatch({ type: 'mana-blast-refuse', playerId: defender.id }));
     return;
@@ -2631,11 +2893,12 @@ function renderManaModal() {
   document.querySelector('#minimizeManaChoice')?.addEventListener('click', () => dispatch({ type: 'minimize-mana-choice', playerId }));
 }
 
-function focusSelectionCardHtml(cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card' | 'data-phase-card') {
+function focusSelectionCardHtml(cardId: CardTypeId, attribute: 'data-opening-focus-card' | 'data-focus-card' | 'data-phase-card' | 'data-drawn-perk') {
   const card = cardDefinition({ instanceId: '', cardId });
-  const typeLabel = card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'defend' ? 'REACTION · DISCARD ON USE' : 'ACTION: PERK · ONCE PER TURN';
-  const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'DEFEND VALUE' : 'PERK VALUE';
-  return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${escapeHtml(card.name)}</strong><div><b>${card.value}</b> ${valueLabel}</div><small>${cardRulesHtml(card)}</small></button>`;
+  if (cardId === 'perk-draw') return `<button type="button" class="card perk focus-selection-card" ${attribute}="${cardId}"><span>DRAW TO CHOOSE A PERK · SHUFFLE ONLY</span><strong>PERK</strong><small>${cardRulesHtml(card)}</small></button>`;
+  const typeLabel = card.kind === 'attack' ? (card.narrative ? 'ACTION · NARRATION ATTACK · DISCARD ON USE' : 'ACTION · DISCARD ON USE') : card.kind === 'combat' ? (card.narrative ? 'NARRATION · COMBAT CARD · REMOVE WHEN DISCARDED' : 'COMBAT CARD · REMOVE WHEN DISCARDED') : card.kind === 'defend' ? 'REACTION · DISCARD ON USE' : 'ACTION: PERK · ONCE PER TURN';
+  const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'combat' ? '' : card.kind === 'defend' ? 'DEFEND VALUE' : 'PERK VALUE';
+  return `<button type="button" class="card ${cardVisualClass(card)} focus-selection-card" ${attribute}="${cardId}"><span>${typeLabel}</span><strong>${cardNameHtml(card)}</strong>${card.kind === 'combat' ? '' : `<div><b>${card.value}</b> ${valueLabel}</div>`}<small>${cardRulesHtml(card)}</small></button>`;
 }
 
 function renderFocusModal() {
@@ -2761,7 +3024,7 @@ function renderPhaseRewardModal() {
     return;
   }
   if (progress.selectedCardId) {
-    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons"><button data-phase-destination="hand"><strong>Hand</strong></button><button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
+    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE ${reward.phase} · ADDING RULES</span><h2>Choose Card destination</h2><p>As an Action Quest Winner, ${escapeHtml(player.name)} may choose where the new Card is added.</p><div class="choice-cards compact-choice-buttons">${progress.selectedCardId === 'perk-draw' ? '' : '<button data-phase-destination="hand"><strong>Hand</strong></button>'}<button data-phase-destination="shuffle"><strong>Shuffle</strong></button></div><div class="phase-reward-status">${status}</div></div>`;
     phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-destination]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-destination', playerId, destination: button.dataset.phaseDestination as any })));
     return;
   }
@@ -2769,7 +3032,7 @@ function renderPhaseRewardModal() {
     const duplicated = Boolean(progress.phaseThreeDuplicated);
     const removed = Boolean(progress.phaseThreeRemoved);
     const phaseThreeCards = ([['HAND', player.hand], ['DECK', player.deck], ['DISCARD', player.discard]] as const).flatMap(([pile, cards]) => cards.map((instance) => ({ pile, instance })));
-    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE THREE · CARD REFINEMENT · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>Duplicate up to 1 Card and Remove up to 1 Card from your Hand, Deck, or Discard. Each action can be used once.${winner ? ' You may choose the destination of a duplicate.' : ' A duplicate is shuffled into your Deck.'} Hover a Card for its complete rules.</p><div class="phase-three-progress"><span class="${duplicated ? 'used' : ''}">Duplicate: ${duplicated ? 'used' : 'available'}</span><span class="${removed ? 'used' : ''}">Remove: ${removed ? 'used' : 'available'}</span></div><div class="choice-cards phase-three-grid">${phaseThreeCards.map(({ pile, instance }) => { const card = cardDefinition(instance); const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'DEFEND VALUE' : card.kind === 'perk' ? 'PERK VALUE' : 'STATUS VALUE'; return `<article class="phase-three-card" data-phase-preview="${card.id}"><span>${pile}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value} ${valueLabel}</b><div class="phase-three-actions"><button type="button" class="phase-duplicate" data-phase-op="duplicate" data-instance="${instance.instanceId}" ${duplicated ? 'disabled' : ''}>Duplicate</button><button type="button" class="phase-remove" data-phase-op="remove" data-instance="${instance.instanceId}" ${removed ? 'disabled' : ''}>Remove</button></div></article>`; }).join('')}</div><button type="button" class="choice-decline" id="finishPhaseThree">${duplicated || removed ? 'Finish' : 'Use neither'}</button><div class="phase-reward-status">${status}</div></div>`;
+    phaseRewardModal.innerHTML = `<div class="choice-dialog"><span>PHASE THREE · CARD REFINEMENT · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>Duplicate up to 1 Card and Remove up to 1 Card from your Hand, Deck, or Discard. Each action can be used once.${winner ? ' You may choose the destination of a duplicate.' : ' A duplicate is shuffled into your Deck.'} Hover a Card for its complete rules.</p><div class="phase-three-progress"><span class="${duplicated ? 'used' : ''}">Duplicate: ${duplicated ? 'used' : 'available'}</span><span class="${removed ? 'used' : ''}">Remove: ${removed ? 'used' : 'available'}</span></div><div class="choice-cards phase-three-grid">${phaseThreeCards.map(({ pile, instance }) => { const card = cardDefinition(instance); const valueLabel = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'DEFEND VALUE' : card.kind === 'perk' ? 'PERK VALUE' : 'STATUS VALUE'; return `<article class="phase-three-card" data-phase-preview="${card.id}"><span>${pile}</span><strong>${cardNameHtml(card)}</strong><b>${card.value} ${valueLabel}</b><div class="phase-three-actions"><button type="button" class="phase-duplicate" data-phase-op="duplicate" data-instance="${instance.instanceId}" ${duplicated ? 'disabled' : ''}>Duplicate</button><button type="button" class="phase-remove" data-phase-op="remove" data-instance="${instance.instanceId}" ${removed ? 'disabled' : ''}>Remove</button></div></article>`; }).join('')}</div><button type="button" class="choice-decline" id="finishPhaseThree">${duplicated || removed ? 'Finish' : 'Use neither'}</button><div class="phase-reward-status">${status}</div></div>`;
     phaseRewardModal.querySelectorAll<HTMLElement>('[data-phase-op]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); dispatch({ type: 'phase-three-operation', playerId, cardInstanceId: button.dataset.instance!, operation: button.dataset.phaseOp as any }); }));
     byId('finishPhaseThree').addEventListener('click', () => dispatch({ type: 'phase-three-finish', playerId }));
     phaseRewardModal.querySelectorAll<HTMLElement>('[data-phase-preview]').forEach((card) => {
@@ -2780,7 +3043,7 @@ function renderPhaseRewardModal() {
     return;
   }
   const choices = phaseCardCandidates(gameState, playerId);
-  phaseRewardModal.innerHTML = `<div class="choice-dialog focus-choice-dialog phase-reward-focus-dialog"><span>PHASE ${reward.phase} REWARD · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}</p><section class="focus-choice-group"><h3>Available Cards</h3><div class="focus-card-pair phase-reward-card-grid">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-phase-card')).join('')}</div></section><div class="phase-reward-status">${status}</div></div>`;
+  phaseRewardModal.innerHTML = `<div class="choice-dialog focus-choice-dialog phase-reward-focus-dialog"><span>PHASE ${reward.phase} REWARD · LIVE</span><h2>${escapeHtml(player.name)}</h2><p>${winner ? 'Choose one Card. Because you won the previous Action Quest, you will choose its destination next.' : 'Choose one Card to shuffle into your Deck.'}${gameState.perkMode && reward.phase === 1 ? ' PERK is always shuffled into your Deck, including for the Action Quest Winner.' : ''}</p><section class="focus-choice-group"><h3>Available Cards</h3><div class="focus-card-pair phase-reward-card-grid">${choices.map((cardId) => focusSelectionCardHtml(cardId, 'data-phase-card')).join('')}</div></section><div class="phase-reward-status">${status}</div></div>`;
   phaseRewardModal.querySelectorAll<HTMLButtonElement>('[data-phase-card]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'phase-card-choice', playerId, cardId: button.dataset.phaseCard as any })));
 }
 
@@ -3032,7 +3295,7 @@ function renderCombatReveal() {
       to: worldPosition(gameState.players[pendingSwing.attackerId].position).add(new THREE.Vector3(0, 1.6, 0)),
       empowered: reveal.counterspell.empowered }
     : null;
-  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield' && (pendingSwing.manaShieldManaBeforeCombat ?? 0) < 3
+  pendingManaShield = pendingSwing && reveal.defendCardId === 'mana-shield'
     ? { defenderId: pendingSwing.defenderId, replicaId: pendingSwing.defenderReplicaId,
       position: worldPosition(pendingSwing.defenderPosition ?? gameState.players[pendingSwing.defenderId].position) }
     : null;
@@ -3090,7 +3353,17 @@ function renderCombatReveal() {
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
     ? items.map((item) => `<li class="${item.value < 0 ? 'penalty' : 'bonus'}"><b>${item.value > 0 ? '+' : '−'}${Math.abs(item.value)}${item.kind === 'extra-damage' ? ' DAMAGE' : ''}</b> from ${escapeHtml(item.source)}${item.timing ? ` · ${escapeHtml(item.timing)}` : ''}</li>`).join('')
     : '<li class="neutral">No bonus values applied</li>';
-  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${escapeHtml(defend.name)}</h3><b>${reveal.defendTotal}</b><small>${cardRulesHtml(defend, false)}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  const defendCard = defend ? `<article class="combat-card defend"><label>DEFEND VALUE <strong>${modifier(reveal.defendBase, reveal.defendTotal)}</strong></label><div><span>DEFENCE</span><h3>${cardNameHtml(defend)}</h3><b>${reveal.defendTotal}</b><small>${cardRulesHtml(defend, false)}</small></div></article>` : `<article class="combat-card defend"><label>NO DEFENCE</label><div><span>DEFENCE</span><h3>Take the hit</h3><b>0</b><small>No Defend Card was played.</small></div></article>`;
+  if (gameState.phase === 'choosing-mockingjay-defense' && gameState.pendingAttack) {
+    const pending = gameState.pendingAttack;
+    const canChoose = canLocalAct(pending.defenderId);
+    const nominated = gameState.players[pending.defenderId].hand.find((card) => card.instanceId === pending.mockingjayDefenseCommand?.cardInstanceId);
+    const cannotDiscard = !nominated || cardDefinition(nominated).cannotBeDiscarded;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MOCKINGJAY · BEFORE COMBAT</span><h2>${escapeHtml(gameState.players[pending.defenderId].name)} chooses</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><p>Discard the shown Defend Card and take the hit, preventing the Attacker from applying Combat Cards, or keep it and let Kazka draw 1 Card after combat.</p><div class="choice-cards"><button type="button" id="mockingjayDiscardDefense" ${!canChoose || cannotDiscard ? 'disabled' : ''}>Discard Defend Card · take the hit</button><button type="button" id="mockingjayKeepDefense" ${!canChoose ? 'disabled' : ''}>Keep Defend Card · Kazka draws after combat</button></div>${!canChoose ? '<p>Waiting for the Defender’s choice.</p>' : ''}</div>`;
+    modal.querySelector<HTMLButtonElement>('#mockingjayDiscardDefense')!.onclick = () => dispatch({ type: 'mockingjay-defense-choice', playerId: pending.defenderId, choice: 'discard' });
+    modal.querySelector<HTMLButtonElement>('#mockingjayKeepDefense')!.onclick = () => dispatch({ type: 'mockingjay-defense-choice', playerId: pending.defenderId, choice: 'draw' });
+    return;
+  }
   if (gameState.phase === 'choosing-combat-stack' && gameState.pendingAttack && (localSeat || mode === 'hotseat')) {
     const pending = gameState.pendingAttack;
     const combatants = [pending.attackerId, pending.defenderId];
@@ -3100,7 +3373,7 @@ function renderCombatReveal() {
       const submissionStatus = combatants
         .map((id) => `${escapeHtml(gameState.players[id].name)}: ${submittedIds.includes(id) ? 'SUBMITTED' : 'CHOOSING'}`)
         .join(' · ');
-      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · SPECTATOR VIEW</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">${submissionStatus}</div><p class="combat-spectator-note">You are observing this combat. Combat Card choices remain private until both participants submit.</p></div>`;
+      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · SPECTATOR VIEW</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">${submissionStatus}</div><p class="combat-spectator-note">You are observing this combat. Combat Card choices remain private until both participants submit.</p></div>`;
       return;
     }
     const combatSeat = localSeat ?? combatants.find((id) => localCombatSelections[id] === undefined);
@@ -3112,7 +3385,7 @@ function renderCombatReveal() {
     const attacker = combatSeat === pending.attackerId;
     const applicableIds = new Set(applicableCombatCardInstanceIds(gameState, combatSeat));
     const applicable = player.hand.filter((instance) => applicableIds.has(instance.instanceId));
-    const mightAvailable = combatSeat === pending.attackerId && combatAttackBoostApplicable(gameState) && player.character === 'wreckna' && player.movementRemaining > 0 && Boolean(activeWrecknaPhylactery(gameState, player.id, 'might'));
+    const mightAvailable = !pending.heatedDebateStackOnly && combatSeat === pending.attackerId && combatAttackBoostApplicable(gameState) && player.character === 'wreckna' && player.movementRemaining > 0 && Boolean(activeWrecknaPhylactery(gameState, player.id, 'might'));
     const submitted = submittedIds.includes(combatSeat);
     const opponentId = combatSeat === pending.attackerId ? pending.defenderId : pending.attackerId;
     const heldExhaust = player.hand.filter((card) => card.cardId === 'exhaust').length;
@@ -3125,7 +3398,6 @@ function renderCombatReveal() {
       ...((pending as OrderedPreCombatAttack).preCombatLog ?? []),
       pending.blessedBlockResolved ? 'Defender pre-combat: the Attack Card effect was cancelled by Blessed Block.' : '',
       pending.blessedSwiftnessResolved ? 'Defender pre-combat: Blessed Swiftness annulled the Attacker’s unspent MOV.' : '',
-      pending.manaShieldManaGenerated ? 'Defender pre-combat: Mana Shield generated 1 Mana.' : '',
       ...(pending.attackModifiers ?? []).filter((entry) => entry.source.includes('pre-combat')).map((entry) => `Attacker pre-combat: ${entry.source} changed ATT by ${entry.value > 0 ? '+' : ''}${entry.value}.`),
     ].filter(Boolean);
     const ownResolvedValue = attacker ? reveal.attackTotal : reveal.defendTotal;
@@ -3133,26 +3405,27 @@ function renderCombatReveal() {
       ? `Exhaust cannot be attached: your played ${attacker ? 'Attack' : 'Defend'} Card resolved to 0 Value or less.`
       : '';
     if (applicable.length === 0 && localCombatSelections[combatSeat] !== undefined) {
-      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-stack-private combat-stack-waiting"><h3>No applicable Combat Card</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : '<p>Your no-card choice was submitted automatically.</p>'}<div class="combat-ack-status">Waiting for ${escapeHtml(gameState.players[opponentId].name)} to finish their private choice.</div></div></div>`;
+      modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-stack-private combat-stack-waiting"><h3>No applicable Combat Card</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : '<p>Your no-card choice was submitted automatically.</p>'}<div class="combat-ack-status">Waiting for ${escapeHtml(gameState.players[opponentId].name)} to finish their private choice.</div></div></div>`;
       return;
     }
     const optionResult = (instance: (typeof player.hand)[number]) => {
+      if (instance.cardId === 'heated-debate') return 'ATT and DEF unchanged · cancel enemy post-combat effects';
       const definition = cardDefinition(instance);
       const ownValue = attacker ? reveal.attackTotal : reveal.defendTotal;
       if (instance.cardId === 'vicious-mockery' || instance.cardId === 'vicious-mockery-1') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + definition.value}`;
       if (instance.cardId === 'exhaust') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue - 1} · attached Exhaust replaces its held -1 with -2`;
       if (instance.cardId === 'blessing-might') return `ATT ${reveal.attackTotal} → ${reveal.attackTotal + 2}`;
       if (instance.cardId === 'blessing-light') return `Enemy DEF ${reveal.defendTotal} → ${reveal.defendTotal - 1}`;
-      if (instance.cardId === 'banner') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 1}`;
+      if (instance.cardId === 'banner' || instance.cardId === 'overpower') return `${attacker ? 'ATT' : 'DEF'} ${ownValue} → ${ownValue + 1}`;
       return `ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal} · ${definition.effectText ?? 'apply this Combat Card effect'}`;
     };
     const cardButtons = applicable.map((instance) => {
       const card = cardDefinition(instance);
-      const shortEffect: Partial<Record<CardTypeId, string>> = { exhaust: 'Attach for -2 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
-      return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
+      const shortEffect: Partial<Record<CardTypeId, string>> = { overpower: '+1 ATT against a diagonal enemy: adjacent, or Range 2 with Excalibur. Remove when Discarded.', 'heated-debate': 'Cancel the enemy Card’s post-combat effects. Remove when Discarded.', exhaust: 'Attach for -2 to your played Card.', 'vicious-mockery': '+2 to your played Card.', 'vicious-mockery-1': '+1 to your played Card.', banner: '+1 to your played Card.', 'mythril-helmet': 'Negate all Damage.', 'blessing-light': '-1 to enemy Defend.', 'blessing-might': '+2 to your Attack.', 'blessing-shield': 'Block 1 combat or effect Damage and 1 Status.', 'blessing-faith': 'Negate all Damage to both sides.' };
+      return `<button class="combat-stack-card" data-combat-stack-card="${instance.instanceId}" data-combat-preview="${card.id}" ${submitted ? 'disabled' : ''}><strong>${cardNameHtml(card)}</strong><small>${escapeHtml(shortEffect[card.id] ?? 'Apply this Combat Card.')}</small><span>${escapeHtml(optionResult(instance))}</span></button>`;
     }).join('');
     const mightButton = mightAvailable ? `<button class="combat-stack-card" id="usePhylacteryMight" ${submitted ? 'disabled' : ''}><strong>USE PHYLACTERY OF MIGHT</strong><small>Combat Power · Spend 1 MOV instead of using a Combat Card.</small><span>ATT ${reveal.attackTotal} → ${reveal.attackTotal + 1}</span></button>` : '';
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${escapeHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Use one extra card, or none</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : ''}${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>None</strong><small>Keep all Combat Cards. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · PRIVATE SELECTION · LIVE</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-modifier-breakdown"><section><h4>PRE-COMBAT STACK</h4><ul>${preCombatEffects.length ? preCombatEffects.map((line) => `<li>${cardTextHtml(line)}</li>`).join('') : '<li class="neutral">No pre-combat effects changed this combat.</li>'}</ul></section></div><div class="combat-stack-private"><h3>Use one extra card, or none</h3>${zeroValueExhaustNote ? `<p class="combat-stack-rule-note">${escapeHtml(zeroValueExhaustNote)}</p>` : ''}${mightButton}${cardButtons}<button class="combat-stack-card combat-stack-none" id="refuseCombatStack" ${submitted ? 'disabled' : ''}><strong>None</strong><small>Keep all Combat Cards. ${escapeHtml(unchangedEffects)}.</small><span>ATT ${reveal.attackTotal} · DEF ${reveal.defendTotal}</span></button></div><div class="combat-ack-status">${submitted ? 'Your selection is locked.' : 'Your choice remains hidden until both Players submit.'} · ${escapeHtml(gameState.players[opponentId].name)}: ${combatStackSubmittedPlayerIds.includes(opponentId) ? 'SUBMITTED' : 'CHOOSING'}</div></div>`;
     modal.querySelector<HTMLButtonElement>('#usePhylacteryMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'wreckna-might-choice', playerId: combatSeat, use: true }));
     modal.querySelectorAll<HTMLButtonElement>('[data-combat-stack-card]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
       if (mode === 'online') sendRoomMessage('command', { type: 'combat-stack-submit', cardInstanceIds: [button.dataset.combatStackCard!] });
@@ -3172,7 +3445,7 @@ function renderCombatReveal() {
   if (reveal.manaBarrage) {
     const decisionPlayer = reveal.manaBarrage.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MANA BARRAGE · COMBAT EFFECT</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply 1 Mana Point?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Spend exactly 1 stored Mana Point to deal 1 Damage to the target during combat, or keep the Mana.</div><div class="combat-choice-buttons"><button id="useManaBarrage" ${mayDecide ? '' : 'disabled'}>SPEND · +1 DAMAGE</button><button id="keepManaBarrage" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>MANA BARRAGE · COMBAT EFFECT</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply 1 Mana Point?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Spend exactly 1 stored Mana Point to deal 1 Damage to the target during combat, or keep the Mana.</div><div class="combat-choice-buttons"><button id="useManaBarrage" ${mayDecide ? '' : 'disabled'}>SPEND · +1 DAMAGE</button><button id="keepManaBarrage" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepManaBarrage:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mana-barrage-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3181,7 +3454,7 @@ function renderCombatReveal() {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.viciousMockery.eligible.includes(decisionPlayer) && !reveal.viciousMockery.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
     const side = gameState.pendingAttack?.attackerId === decisionPlayer ? 'ATT' : 'DEF';
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>SPECIAL COMBAT CARD</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: use Vicious Mockery?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Vicious Mockery from the game to give the played Card +2 ${side}, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useViciousMockery" ${mayDecide ? '' : 'disabled'}>USE · +2 ${side}</button><button id="keepViciousMockery" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>SPECIAL COMBAT CARD</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: use Vicious Mockery?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Vicious Mockery from the game to give the played Card +2 ${side}, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useViciousMockery" ${mayDecide ? '' : 'disabled'}>USE · +2 ${side}</button><button id="keepViciousMockery" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useViciousMockery:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'vicious-mockery-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepViciousMockery:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'vicious-mockery-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3189,7 +3462,7 @@ function renderCombatReveal() {
   if (reveal.blessingLight) {
     const decisionPlayer = reveal.blessingLight.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Light?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Light to decrease the enemy's played Defend Card Value by 1, or keep it for another combat.</div><div class="combat-choice-buttons"><button id="useBlessingLight" ${mayDecide ? '' : 'disabled'}>USE · -1 ENEMY DEF</button><button id="keepBlessingLight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingLight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-light-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3197,7 +3470,7 @@ function renderCombatReveal() {
   if (reveal.blessingMight) {
     const decisionPlayer = reveal.blessingMight.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Might?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Might to increase the played Attack Card by +2 ATT, or keep it for another combat. It cannot be used during Spirit Form.</div><div class="combat-choice-buttons"><button id="useBlessingMight" ${mayDecide ? '' : 'disabled'}>USE · +2 ATT</button><button id="keepBlessingMight" ${mayDecide ? '' : 'disabled'}>KEEP CARD</button></div></div>`;
     document.querySelector('#useBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingMight:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-might-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3205,7 +3478,7 @@ function renderCombatReveal() {
   if (reveal.blessingFaith) {
     const decisionPlayer = reveal.blessingFaith.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT SANCTUARY</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Faith?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Faith to negate all combat-value and Card-effect Damage dealt to both attacker and defender in this combat.</div><div class="combat-choice-buttons"><button id="useBlessingFaith" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepBlessingFaith" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT SANCTUARY</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Faith?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Blessing: Faith to negate all combat-value and Card-effect Damage dealt to both attacker and defender in this combat.</div><div class="combat-choice-buttons"><button id="useBlessingFaith" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepBlessingFaith" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingFaith:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-faith-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3213,7 +3486,7 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
     document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
@@ -3222,7 +3495,7 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>REWARD · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Mythril Helmet?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Mythril Helmet from the Deck to negate all Damage in this combat, or keep it for later.</div><div class="combat-choice-buttons"><button id="useMythrilHelmet" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepMythrilHelmet" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>REWARD · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Mythril Helmet?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove Mythril Helmet from the Deck to negate all Damage in this combat, or keep it for later.</div><div class="combat-choice-buttons"><button id="useMythrilHelmet" ${mayDecide ? '' : 'disabled'}>USE · NEGATE DAMAGE</button><button id="keepMythrilHelmet" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     document.querySelector('#useMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepMythrilHelmet:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'mythril-helmet-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3230,7 +3503,7 @@ function renderCombatReveal() {
   if (reveal.exhaust) {
     const decisionPlayer = actingPlayer();
     const mayDecide = reveal.exhaust.eligible.includes(decisionPlayer) && !reveal.exhaust.decided.includes(decisionPlayer) && canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -2 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -2</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT MODIFIER</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: attach Exhaust?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Remove one Exhaust from Hand and apply -2 Value to your played card, or keep its normal -1 penalty.</div><div class="combat-choice-buttons"><button id="attachExhaust" ${mayDecide ? '' : 'disabled'}>ATTACH · -2</button><button id="keepExhaust" ${mayDecide ? '' : 'disabled'}>KEEP · -1</button></div></div>`;
     document.querySelector('#attachExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepExhaust:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'exhaust-decision', playerId: decisionPlayer, use: false }));
     return;
@@ -3273,9 +3546,9 @@ function renderCombatReveal() {
     : '';
   const breakdown = `<div class="combat-modifier-breakdown"><section><h4>ATTACK VALUE SOURCES</h4><ul>${modifierLines(reveal.attackModifiers)}</ul></section><section><h4>DEFEND VALUE SOURCES</h4><ul>${modifierLines(reveal.defendModifiers)}</ul></section></div>`;
   const appliedCombatCards = reveal.combatStackApplied
-    ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${escapeHtml(cardDefinition({ instanceId: '', cardId }).name)}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
+    ? `<div class="combat-modifier-breakdown combat-stack-reveal">${combatPlayers.map((id) => `<section><h4>${escapeHtml(gameState.players[id].name)} · COMBAT CARDS</h4><ul>${(reveal.combatStackApplied?.[id] ?? []).length ? reveal.combatStackApplied![id]!.map((cardId) => `<li class="bonus"><b>APPLIED</b> ${cardNameHtml(cardDefinition({ instanceId: '', cardId }))}</li>`).join('') : '<li class="neutral">No Combat Cards applied</li>'}</ul></section>`).join('')}</div>`
     : '';
-  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${escapeHtml(attack.name)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
+  modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT RESOLUTION</span><h2>Attack vs Defence</h2>${resultSummary}${soulStrikeSummary}<div class="combat-countdown"><b>${seconds}</b> seconds</div><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div>${appliedCombatCards}${breakdown}<div class="combat-ack-status">${confirmationStatus}</div><button id="combatRevealOk" ${acknowledged ? 'disabled' : ''}>${acknowledged ? 'WAITING FOR OPPONENT' : readyLabel}</button></div>`;
   document.querySelector('#combatRevealOk:not(:disabled)')?.addEventListener('click', acknowledgeCombatReveal);
   activeCombatSummary = true;
   modal.classList.toggle('hidden', combatSummaryHidden);
@@ -3327,10 +3600,11 @@ function renderSpellEchoBars() {
       const position = index + 1;
       const perk = instance ? cardDefinition(instance) : null;
       const selectedPerk = selected.kind === 'perk' ? owner.hand.find((card) => card.instanceId === selected.cardInstanceId) : undefined;
-      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && position === 1;
+      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId) && !hasPendingPerkChoice(gameState);
       const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
-      const tooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
-      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${escapeHtml(perk.name)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
+      const cardTooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
+      const tooltip = canPlace ? `Place the selected Perk at Level 1.${perk ? ` Discard ${perk.name} from Level ${position}.` : ''}${position > 1 ? ' Lower Perks move up one level; higher Perks stay.' : ''}\n${cardTooltip}` : cardTooltip;
+      return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${cardNameHtml(perk)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
     }).join('');
     const leftEcho = fixedHotseatDuel ? ownerId === 'P1' : ownerId === viewerId;
     const seatClass = leftEcho ? 'own-echo' : `opponent-echo seat-${ownerId.toLowerCase()}`;
@@ -3341,10 +3615,10 @@ function renderSpellEchoBars() {
     const ownerId = button.dataset.echoOwner as PlayerId;
     const position = Number(button.dataset.echoPosition);
     const current = selection.getSnapshot().context.selection;
-    if (current.kind === 'perk' && position === 1) {
-      const occupied = Boolean(gameState.players[ownerId].spellEcho[0]);
-      const replaceExisting = !occupied || window.confirm('Spell Echo position 1 is occupied. Discard the old Perk and replace it?');
-      if (replaceExisting) dispatch({ type: 'play-perk', playerId: ownerId, cardInstanceId: current.cardInstanceId, destination: 'echo', replaceExisting });
+    if (current.kind === 'perk' && ownerId === actingPlayer() && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position)) {
+      const occupied = Boolean(gameState.players[ownerId].spellEcho[position - 1]);
+      const replaceExisting = !occupied || allowsAnySpellEchoReplacement(gameState) || window.confirm('Spell Echo position 1 is occupied. Discard the old Perk and replace it?');
+      if (replaceExisting) dispatch({ type: 'play-perk', playerId: ownerId, cardInstanceId: current.cardInstanceId, destination: 'echo', echoPosition: position, replaceExisting });
     } else dispatch({ type: 'use-echo-perk', playerId: ownerId, position });
   }));
   document.querySelectorAll<HTMLElement>('[data-echo-preview]').forEach((slot) => {
@@ -3371,7 +3645,7 @@ function renderOpponentHand() {
       const forcedUse = instance.soulStrikeForcedUse;
       const forcedLabel = forcedUse === 'attack' ? 'MUST ATTACK' : forcedUse === 'defend' ? 'MUST BLOCK' : '';
       const title = forcedLabel ? `Soul Strike: ${forcedLabel.toLowerCase()} with ${card.name} next` : `Revealed: ${card.name} — value ${card.value}`;
-      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}"${oraclePulseAttributes(instance.instanceId)} data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${escapeHtml(card.name)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
+      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}"${oraclePulseAttributes(instance.instanceId)} data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${cardNameHtml(card)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${visibleHand.length} CARD${visibleHand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
@@ -3385,7 +3659,7 @@ function showCardPreview(cardId: string, pointer?: PointerEvent) {
   const card = CARDS.find((candidate) => candidate.id === cardId);
   if (!card) return;
   const preview = byId('cardHoverPreview');
-  preview.innerHTML = `<article class="card ${cardVisualClass(card)}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
+  preview.innerHTML = `<article class="card ${cardVisualClass(card)}"><span>${card.kind === 'attack' ? 'ACTION · DISCARD ON USE' : card.kind === 'perk' ? 'ACTION: PERK · ONCE PER TURN' : 'REACTION · DISCARD ON USE'}</span><strong>${cardNameHtml(card, true)}</strong><div><b>${card.id === 'mana-shield' ? 'MANA' : card.value}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
   preview.classList.remove('hidden');
   preview.classList.toggle('cursor-preview', Boolean(pointer));
   if (pointer) positionCardPreview(pointer);
@@ -3406,7 +3680,7 @@ function cardRulesText(card: ReturnType<typeof cardDefinition>): string {
   const fallback = card.kind === 'attack'
     ? hintsLanguage === 'ru' ? `Нанесите боевой урон со значением Атаки ${card.value}.` : `Deal combat damage with ${card.value} Attack Value.`
     : hintsLanguage === 'ru' ? `Защищайтесь со значением Защиты ${card.value}.` : `Defend with ${card.value} Defence Value.`;
-  return [levels, translation?.effectText ?? card.effectText, translation?.consumeText ?? card.consumeText].filter(Boolean).join('\n') || fallback;
+  return [levels, translation?.effectText ?? card.effectText, translation?.consumeText ?? card.consumeText, card.specialEffectText].filter(Boolean).join('\n') || fallback;
 }
 
 function cardVisualClass(card: ReturnType<typeof cardDefinition>): string {
@@ -3420,10 +3694,11 @@ function cardRulesHtml(card: ReturnType<typeof cardDefinition>, includeFallback 
   const consumeText = translation?.consumeText ?? card.consumeText;
   const levels = levelEffects?.map((effect, index) => `${hintsLanguage === 'ru' ? 'Уровень' : 'Level'} ${index + 1}: ${effect}`).join('\n') ?? '';
   const effect = effectText
-    ? (/^\s*\*?consume\s*:/i.test(effectText) ? `<em class="consume-effect">${escapeHtml(effectText.replace(/^\s*\*/, ''))}</em>` : escapeHtml(effectText))
+    ? (/^\s*\*?consume\s*:/i.test(effectText) ? `<em class="consume-effect">${cardTextHtml(effectText.replace(/^\s*\*/, ''))}</em>` : cardTextHtml(effectText))
     : '';
-  const consume = consumeText ? `<em class="consume-effect">${escapeHtml(consumeText)}</em>` : '';
-  if (levels || effect || consume) return [escapeHtml(levels), effect, consume].filter(Boolean).join('\n');
+  const consume = consumeText ? `<em class="consume-effect">${cardTextHtml(consumeText)}</em>` : '';
+  const special = card.specialEffectText ? `<em class="consume-effect narrative-spend-effect">${cardTextHtml(card.specialEffectText)}</em>` : '';
+  if (levels || effect || consume || special) return [cardTextHtml(levels), effect, consume, special].filter(Boolean).join('\n');
   return includeFallback ? escapeHtml(cardRulesText(card)) : '';
 }
 
@@ -3522,7 +3797,7 @@ function canLocalAct(playerId: PlayerId) {
 }
 
 function notify(message: string) {
-  toast.textContent = message;
+  toast.innerHTML = cardTextHtml(message);
   toast.classList.add('visible');
   window.setTimeout(() => toast.classList.remove('visible'), 2600);
 }
@@ -3533,7 +3808,7 @@ function renderPrivateNotice() {
   if (!notice || notice.id === lastPrivateNoticeId || viewerId !== notice.playerId || Date.now() - notice.createdAt > 10_000) return;
   lastPrivateNoticeId = notice.id;
   window.clearTimeout(centerNoticeTimer);
-  centerNotice.textContent = notice.message;
+  centerNotice.innerHTML = cardTextHtml(notice.message);
   centerNotice.classList.add('visible');
   centerNoticeTimer = window.setTimeout(() => centerNotice.classList.remove('visible'), 4000);
 }
@@ -3611,7 +3886,7 @@ function showQuickAttackPopup(event: MouseEvent, targetId: PlayerId) {
   byId('quickAttackTitle').textContent = gameState.players[targetId].name;
   byId('quickAttackCards').innerHTML = cards.map((instance) => {
     const card = cardDefinition(instance);
-    return `<button class="card attack" type="button" data-quick-attack-card="${escapeHtml(instance.instanceId)}"><span>ATTACK · CLICK TO PLAY</span><strong>${escapeHtml(card.name.toUpperCase())}</strong><div><b>${cardBaseValue(instance)}</b> ATTACK VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
+    return `<button class="card attack" type="button" data-quick-attack-card="${escapeHtml(instance.instanceId)}"><span>ATTACK · CLICK TO PLAY</span><strong>${cardNameHtml(card, true)}</strong><div><b>${cardBaseValue(instance)}</b> ATTACK VALUE</div><small>${cardRulesHtml(card)}</small></button>`;
   }).join('');
   popup.style.width = `${Math.min(660, 360 + Math.max(0, cards.length - 1) * 210)}px`;
   byId('quickAttackCards').querySelectorAll<HTMLButtonElement>('[data-quick-attack-card]').forEach((button) => button.addEventListener('click', () => {
@@ -4175,6 +4450,8 @@ let movementPreviewRoute: MovementPreview | undefined;
 const movementPreviewLabels: { element: HTMLDivElement; position: THREE.Vector3 }[] = [];
 const axisLabels: THREE.Sprite[] = [];
 const dummyGroups = new Map<PlayerId, THREE.Group>();
+type WeaverHologram = { group: THREE.Group; source: THREE.Object3D; sourceVersion: string; recordKey: string; label: THREE.Sprite; baseScale: THREE.Vector3; startedAt: number };
+const weaverHolograms = new Map<PlayerId, WeaverHologram>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
 type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number; worldPosition?: THREE.Vector3 };
@@ -4534,7 +4811,7 @@ const developerPanel = createDeveloperPanel(() => {
   ];
 }, {
   exportDump: () => { debugRecorder.sample(collectDiagnosticSample, true); void debugRecorder.exportDump(gameState); },
-  markIssue: () => { debugRecorder.sample(collectDiagnosticSample, true); debugRecorder.markIssue(gameState); },
+  markIssue: (comment) => { debugRecorder.sample(collectDiagnosticSample, true); return debugRecorder.markIssue(gameState, comment); },
   toggleRecording: () => { debugRecorder.toggleRecording(); resetDiagnosticObservations(); debugRecorder.state(gameState); },
   status: () => debugRecorder.status(),
 });
@@ -4713,6 +4990,7 @@ renderer.setAnimationLoop((time) => {
       if (group.userData.character === 'shinobi') updateObiWanAnimation(group, id, false, deltaSeconds);
       if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
       if (group.userData.character === 'merylin') updateMerylinAnimation(group, id, deltaSeconds, true);
+      if (group.userData.character === 'kazka') updateKazkaAnimation(group, time, 'idle');
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
@@ -4746,6 +5024,10 @@ renderer.setAnimationLoop((time) => {
       syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
     }
     syncCharacterIdleHold(group, holdIdle);
+    if (group.userData.character === 'kazka') {
+      const attack = gameState.pendingAttack;
+      updateKazkaAnimation(group, time, attack?.attackerId === id ? 'attack' : attack?.defenderId === id ? 'defend' : 'idle');
+    }
     animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation) || Boolean(group.userData.merylinAnimation);
     body.position.y = usesImportedAnimation ? 0 : holdIdle && !locomoting ? group.userData.character === 'wreckna' ? 0.2 : 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : locomoting ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
@@ -4818,6 +5100,7 @@ renderer.setAnimationLoop((time) => {
     const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
     if (!effect.update(time, target?.position)) manaShieldVisual = null;
   }
+  updateStoredManaShieldVisuals(time);
   updateDamageVisuals(time);
   if (spellblockVisual) {
     const { effect, defenderId, replicaId } = spellblockVisual;
@@ -4838,6 +5121,7 @@ renderer.setAnimationLoop((time) => {
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
   updateCharacterHealthBars();
+  syncWeaverHolograms(time);
   animateHotPotato(time);
   animateQuestFlags(time);
   updatePerkUseLabels(time);
@@ -5132,6 +5416,30 @@ function showMissedCombatCallout() {
   if (!missed) return;
   missedCombatCallout = null;
   spawnCharacterCalloutBubble(missed.defenderId, 'Missed', worldPosition(missed.from).add(new THREE.Vector3(0, 2, 0)));
+}
+
+function updateStoredManaShieldVisuals(time: number) {
+  for (const [id, effect] of storedManaShieldVisuals) {
+    const player = gameState.players[id];
+    if (game.classList.contains('hidden') || !player || player.hp <= 0 || (player.manaShieldUnusedBlock ?? 0) <= 0) {
+      effect.dispose();
+      storedManaShieldVisuals.delete(id);
+    }
+  }
+  if (game.classList.contains('hidden')) return;
+  for (const player of Object.values(gameState.players)) {
+    if (player.hp <= 0 || (player.manaShieldUnusedBlock ?? 0) <= 0) continue;
+    const target = dummyGroups.get(player.id);
+    if (!target) continue;
+    let effect = storedManaShieldVisuals.get(player.id);
+    if (!effect) {
+      const height = Math.max(2.2, visibleCharacterTop(target) - target.position.y + 0.2);
+      effect = new ManaShieldVisual(scene, target.position, time, height);
+      storedManaShieldVisuals.set(player.id, effect);
+    }
+    effect.root.visible = target.visible;
+    effect.update(time, target.position);
+  }
 }
 
 function updateCharacterCalloutBubbles(time: number) {
@@ -7981,7 +8289,7 @@ function spawnPerkUseLabel(event: PerkUseEvent) {
   const element = document.createElement('div');
   element.className = 'perk-use-label';
   element.style.setProperty('--player-color', playerUiColor(event.playerId));
-  element.textContent = event.level ? `${event.name} - lvl${event.level}` : event.name;
+  element.innerHTML = cardTextHtml(event.level ? `${event.name} - lvl${event.level}` : event.name);
   overheadStatusLayer.appendChild(element);
   perkUseLabels.set(event.playerId, {
     element,
@@ -10544,7 +10852,7 @@ function syncBoard() {
     if (!group || group.userData.character !== character) {
       if (group) scene.remove(group);
       const color = id === 'P1' ? 0x169bd3 : id === 'P2' ? 0xff5d68 : 0xa06cff;
-      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : character === 'merylin' ? createMerylin(color) : createDummy(color);
+      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : character === 'merylin' ? createMerylin(color) : character === 'kazka' ? createKazka() : createDummy(color);
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
@@ -11763,6 +12071,9 @@ function updateTargetHighlights(time: number) {
   const selected = selection.getSnapshot().context.selection;
   const attacker = gameState.players[gameState.activePlayerId];
   const canTarget = selected.kind === 'attack' && gameState.phase === 'active' && canLocalAct(attacker.id);
+  const narrative = (gameState as GameStateWithNarrative).narrativeChoice;
+  const narrativeTargetsOnBoard = gameState.phase === 'choosing-narrative-target' && narrative?.selectedEffect && canLocalAct(narrative.kazkaId)
+    ? narrativeTargets(gameState, narrative.kazkaId, narrative.selectedEffect) : [];
   const selectedAttack = selected.kind === 'attack' ? attacker.hand.find((card) => card.instanceId === selected.cardInstanceId) : null;
   const pull = gameState.forcePull;
   const canPullTarget = gameState.phase === 'choosing-force-pull-target' && Boolean(pull) && canLocalAct(pull!.casterId);
@@ -11821,10 +12132,11 @@ function updateTargetHighlights(time: number) {
     const decayCaster = decay ? gameState.players[decay.casterId] : null;
     const validDecay = canDecayTarget && !perkProtected && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
     const validSpectreOrigin = canSpectreOriginChoice && spectreOriginChoice!.perkId === 'shadow-dagger' && playerId === spectreOriginChoice!.casterId;
-    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin;
+    const validNarrative = narrativeTargetsOnBoard.includes(playerId);
+    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin || validNarrative;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
-    const showRing = target.character === 'spectre' ? validSpectreOrigin : valid;
+    const showRing = target.character === 'spectre' ? validSpectreOrigin || validNarrative : valid;
     ring.visible = showRing;
     if (showRing) {
       const pulse = 1 + Math.sin(time * 0.006) * 0.08;
@@ -11884,7 +12196,7 @@ function updateTargetHighlights(time: number) {
   const hoveredQuickAttackTarget = quickAttackShortcutAvailable && !pendingQuickAttackTargetId ? quickAttackTargetAtPointer() : null;
   renderer.domElement.style.cursor = cameraGrab
     ? 'grabbing'
-    : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canFireballTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget
+    : canTarget || canPullTarget || canArmTarget || canTestPhylacteryTarget || canKykTarget || canArcaneTarget || canChainTarget || canFireballTarget || canMagicTarget || canShadowDirection || canSpectreOriginChoice || canSapTarget || canDecayTarget || narrativeTargetsOnBoard.length > 0
       ? 'crosshair'
       : hoveredQuickAttackTarget ? ATTACK_SWORD_CURSOR : 'grab';
 }
@@ -11923,14 +12235,18 @@ function onBoardClick(event: MouseEvent) {
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
   const hits = boardHitsAt(event.clientX, event.clientY);
   const selected = selection.getSnapshot().context.selection;
-  if (selected.kind === 'none' || selected.kind === 'move') {
+  if (gameState.phase === 'active' && (selected.kind === 'none' || selected.kind === 'move')) {
     const quickAttackTarget = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
     if (quickAttackTarget && availableQuickAttackCards(quickAttackTarget).length > 0) {
       showQuickAttackPopup(event, quickAttackTarget);
       return;
     }
   }
-  if (selectedTestObjectId) {
+  if (gameState.phase === 'choosing-narrative-target') {
+    const pending = (gameState as GameStateWithNarrative).narrativeChoice;
+    const targetId = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find((id) => id && pending?.selectedEffect && narrativeTargets(gameState, pending.kazkaId, pending.selectedEffect).includes(id));
+    if (pending?.selectedEffect && targetId && canLocalAct(pending.kazkaId)) dispatch({ type: 'narrative-choice', playerId: pending.kazkaId, effect: pending.selectedEffect, targetId });
+  } else if (selectedTestObjectId) {
     const cellHit = hits.find((hit) => hit.object.userData.cell);
     if (cellHit) {
       const objectId = selectedTestObjectId; selectedTestObjectId = null;
@@ -12120,6 +12436,7 @@ function onBoardClick(event: MouseEvent) {
     const objectHit = hits.find((hit) => hit.object.userData.objectId)?.object.userData.objectId as string | undefined;
     const attacker = gameState.players[gameState.activePlayerId];
     const selectedAttackCard = attacker.hand.find((card) => card.instanceId === selected.cardInstanceId);
+    if (playerHit === attacker.id && attacker.character !== 'spectre') return;
     const hitObject = gameState.objects.find((entry) => entry.id === objectHit);
     const entombedPlayer = playerHit ? gameState.players[playerHit] : undefined;
     const occupiedTomb = entombedPlayer?.wrecknaInsideTombId
@@ -12365,7 +12682,7 @@ function resize() {
 
 let browserCharacter: SelectableCharacter = CHARACTER_BROWSER_ORDER[0];
 let browserPerkIndex = 0;
-let browserCardKind: 'attack' | 'defend' | 'perk' | 'status' | 'blessings' = 'attack';
+let browserCardKind: 'attack' | 'defend' | 'perk' | 'status' | 'blessings' | 'combat' = 'attack';
 let characterPreviewRenderer: THREE.WebGLRenderer | null = null;
 let characterPreviewScene: THREE.Scene | null = null;
 let characterPreviewCamera: THREE.PerspectiveCamera | null = null;
@@ -12420,12 +12737,15 @@ function selectBrowserCharacter(character: SelectableCharacter) {
 
 function renderCharacterBrowserProfile() {
   const info = CHARACTER_SELECT_INFO[browserCharacter];
-  byId('characterBrowserProfile').innerHTML = `<h3>${escapeHtml(info.name)}</h3><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div><section class="character-browser-trait"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>`;
+  const trait = info.trait ? `<section class="character-browser-trait"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><strong>${escapeHtml(info.trait)}</strong></div></header><p>${escapeHtml(info.traitDescription)}</p></section>` : '<p class="character-perk-empty">Traits and Cards will be added later.</p>';
+  byId('characterBrowserProfile').innerHTML = `<h3>${escapeHtml(info.name)}${info.title ? ` · ${escapeHtml(info.title)}` : ''}</h3><div class="character-browser-stats"><span><b>${info.hp}</b>MAX HP</span><span><b>${info.movement}</b>MOV</span><span><b>${info.attackRange}</b>ATT RANGE</span></div>${trait}`;
 }
 
 function characterBrowserCards(character: SelectableCharacter, kind: typeof browserCardKind) {
   if (kind === 'status') return characterStatusCards(character);
   if (kind === 'blessings') return character === 'john-christ' ? CARDS.filter((card) => card.id.startsWith('blessing-')) : [];
+  if (character === 'kazka') return CARDS.filter((card) => ['once-upon-a-time', 'qombucha', 'heated-debate', 'escalation', 'mockingjay', 'attack-2', 'attack-3', 'defend-1'].includes(card.id) && card.kind === kind);
+  if (character === 'merylin' && kind === 'combat') return CARDS.filter((card) => card.id === 'overpower');
   const definition = STARTING_DECKS[character];
   const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase, ...(character === 'john-christ' ? ['judgement' as const] : [])];
   return ids.flatMap((id) => {
@@ -12438,18 +12758,20 @@ function renderCharacterBrowserCards() {
   const cards = characterBrowserCards(browserCharacter, browserCardKind);
   byId('characterCardCategories').querySelectorAll<HTMLButtonElement>('[data-browser-card-kind]').forEach((button) => {
     button.classList.toggle('hidden', button.dataset.browserCardKind === 'blessings' && browserCharacter !== 'john-christ');
+    if (button.dataset.browserCardKind === 'combat') button.classList.toggle('hidden', browserCharacter !== 'kazka' && browserCharacter !== 'merylin');
     button.classList.toggle('active', button.dataset.browserCardKind === browserCardKind);
     button.setAttribute('aria-pressed', String(button.dataset.browserCardKind === browserCardKind));
   });
-  byId('perkBrowserTrack').innerHTML = cards.map((card, index) => {
+  byId('perkBrowserTrack').innerHTML = cards.length === 0 ? '<p class="character-perk-empty">No Cards yet.</p>' : cards.map((card, index) => {
     const levels = 'levelEffects' in card && card.levelEffects ? card.levelEffects : [];
     const effectText = 'effectText' in card && card.effectText ? card.effectText : '';
     const consumeText = 'consumeText' in card && card.consumeText ? card.consumeText : '';
-    const levelCopy = levels.length ? levels.map((description, level) => `<p><b>LV ${level + 1}</b><span>${escapeHtml(description)}</span></p>`).join('') : '<p class="character-perk-empty">This Perk has a single direct effect.</p>';
-    const typeCopy = card.kind === 'attack' ? 'ACTION · ATTACK CARD' : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : card.kind === 'status' ? (card.id.startsWith('blessing-') ? 'STATUS · BLESSING CARD' : 'STATUS CARD') : 'ACTION: PERK · ONCE PER TURN';
-    const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : card.kind === 'status' ? 'CARD VALUE' : 'PERK VALUE';
-    const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${escapeHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description${consumeText ? ' has-consume' : ''}">${escapeHtml(effectText || 'No additional effect.')}</p>${consumeText ? `<p class="character-perk-extra character-consume-description">${escapeHtml(consumeText)}</p>` : ''}`;
-    return `<article class="character-perk-card ${card.kind}" data-browser-perk="${index}"><span>${typeCopy}</span><h4>${escapeHtml(card.name)}</h4><small>${card.value} ${valueCopy}</small>${rules}</article>`;
+    const specialText = card.specialEffectText ?? '';
+    const levelCopy = levels.length ? levels.map((description, level) => `<p><b>LV ${level + 1}</b><span>${cardTextHtml(description)}</span></p>`).join('') : '<p class="character-perk-empty">This Perk has a single direct effect.</p>';
+    const typeCopy = card.kind === 'attack' ? (card.narrative ? 'ACTION · NARRATION & ATTACK CARD' : 'ACTION · ATTACK CARD') : card.kind === 'defend' ? 'REACTION · BLOCK CARD' : card.kind === 'combat' ? (card.narrative ? 'NARRATION · COMBAT CARD' : 'COMBAT CARD') : card.kind === 'status' ? (card.id.startsWith('blessing-') ? 'STATUS · BLESSING CARD' : 'STATUS CARD') : card.narrative ? 'ACTION: NARRATIVE PERK · ONCE PER TURN' : 'ACTION: PERK · ONCE PER TURN';
+    const valueCopy = card.kind === 'attack' ? 'ATTACK VALUE' : card.kind === 'defend' ? 'BLOCK VALUE' : card.kind === 'combat' ? '' : card.kind === 'status' ? 'CARD VALUE' : 'PERK VALUE';
+    const rules = card.kind === 'perk' ? `<div class="character-perk-levels">${levelCopy}</div>${effectText ? `<p class="character-perk-extra">${cardTextHtml(effectText)}</p>` : ''}` : `<p class="character-perk-extra character-card-description${consumeText || specialText ? ' has-consume' : ''}">${cardTextHtml(effectText || 'No additional effect.')}</p>${consumeText ? `<p class="character-perk-extra character-consume-description">${cardTextHtml(consumeText)}</p>` : ''}${specialText ? `<p class="character-perk-extra character-consume-description"><em>${cardTextHtml(specialText)}</em></p>` : ''}`;
+    return `<article class="character-perk-card ${card.kind}" data-browser-perk="${index}"><span>${typeCopy}</span><h4>${cardNameHtml(card)}</h4>${card.kind === 'combat' ? '' : `<small>${card.value} ${valueCopy}</small>`}${rules}</article>`;
   }).join('');
   byId('perkBrowserTrack').scrollLeft = 0;
   updatePerkBrowserControls();
@@ -12468,7 +12790,7 @@ function updatePerkBrowserControls() {
   const count = characterBrowserCards(browserCharacter, browserCardKind).length;
   (byId('previousPerk') as HTMLButtonElement).disabled = browserPerkIndex <= 0;
   (byId('nextPerk') as HTMLButtonElement).disabled = browserPerkIndex >= count - 1;
-  byId('perkPosition').textContent = `${browserPerkIndex + 1} / ${count}`;
+  byId('perkPosition').textContent = `${count ? browserPerkIndex + 1 : 0} / ${count}`;
 }
 
 function resizeCharacterPreview() {
@@ -12543,6 +12865,10 @@ function setupCharacterPreview() {
       updateMerylinAnimation(characterPreviewModel, undefined, delta, false, previewWeapon);
     }
     if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
+    if (characterPreviewModel?.userData.character === 'kazka') {
+      const phase = Math.floor(time / 3500) % 3;
+      updateKazkaAnimation(characterPreviewModel, time, phase === 1 ? 'attack' : phase === 2 ? 'defend' : 'idle');
+    }
     if (characterPreviewModel?.userData.spectreAnimation) updateSpectreAnimation(characterPreviewModel, undefined, delta);
     if (characterPreviewModel?.userData.character === 'john-christ') {
       const johnNormal = characterPreviewModel.userData.johnNormalAnimation as JohnAnimationState | undefined;
@@ -12597,6 +12923,104 @@ function characterHologramMaterials(source: THREE.Material | THREE.Material[]) {
   return Array.isArray(source) ? source.map(characterHologramMaterial) : characterHologramMaterial(source);
 }
 
+function weaverHologramMaterials(source: THREE.Material | THREE.Material[]) {
+  // Layered imported meshes can saturate additive blending into solid white planes.
+  // A bounded cyan tint keeps the whole turn-start silhouette legible.
+  const make = (original: THREE.Material) => new THREE.MeshBasicMaterial({
+    name: `${original.name || 'Character'}_PreviewHologram`,
+    color: 0x70efff,
+    transparent: true,
+    opacity: 0.38,
+    depthWrite: false,
+    side: original.side,
+    blending: THREE.NormalBlending,
+    map: 'map' in original && original.map instanceof THREE.Texture ? original.map : null,
+    alphaMap: 'alphaMap' in original && original.alphaMap instanceof THREE.Texture ? original.alphaMap : null,
+  });
+  return Array.isArray(source) ? source.map(make) : make(source);
+}
+
+function makeWeaverHpLabel(hp: number): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = 'rgba(5, 31, 35, .88)';
+  context.strokeStyle = '#83f4fa';
+  context.lineWidth = 5;
+  context.beginPath(); context.roundRect(8, 12, 240, 104, 22); context.fill(); context.stroke();
+  context.textAlign = 'center';
+  context.fillStyle = '#c6ffff';
+  context.font = 'bold 76px sans-serif';
+  context.fillText(String(hp), 128, 91);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }));
+  label.position.set(0, 2.68, 0);
+  label.scale.set(0.83, 0.43, 1);
+  label.renderOrder = 112;
+  return label;
+}
+
+function disposeWeaverHologram(id: PlayerId): void {
+  const entry = weaverHolograms.get(id);
+  if (!entry) return;
+  scene.remove(entry.group);
+  entry.group.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) if (material.name.endsWith('_PreviewHologram')) material.dispose();
+  });
+  (entry.label.material.map as THREE.Texture | null)?.dispose();
+  entry.label.material.dispose();
+  weaverHolograms.delete(id);
+}
+
+function syncWeaverHolograms(time: number): void {
+  const active = Object.values(gameState.players).some((player) => player.character === 'kazka' && player.hp > 0);
+  if (!active) { for (const id of weaverHolograms.keys()) disposeWeaverHologram(id); return; }
+  for (const id of Object.keys(gameState.players) as PlayerId[]) {
+    const player = gameState.players[id];
+    const record = player.turnStartRecord;
+    const model = dummyGroups.get(id);
+    const source = model?.children[0];
+    if (!record || !model || !source || player.hp <= 0 || player.weaverHologramExpired) { disposeWeaverHologram(id); continue; }
+    const recordKey = `${player.character}:${record.position.x},${record.position.y}:${record.hp}:${record.round}`;
+    const sourceVersion = `${source.children.length}:${model.userData.characterModelLoadSettled}`;
+    let entry = weaverHolograms.get(id);
+    if (entry && (entry.source !== source || entry.sourceVersion !== sourceVersion || entry.recordKey !== recordKey)) {
+      disposeWeaverHologram(id);
+      entry = undefined;
+    }
+    const away = player.position.x !== record.position.x || player.position.y !== record.position.y;
+    if (!entry && away) {
+      const group = new THREE.Group();
+      group.name = `WeaverTurnStartHologram-${id}`;
+      const clone = cloneSkeleton(source);
+      clone.traverse((child) => {
+        if (child instanceof THREE.Light || child instanceof THREE.Sprite || child.userData.characterEffect || child.name === 'TargetRing') child.visible = false;
+        // Holograms are visual markers; clicks must pass through to live characters.
+        if (child instanceof THREE.Mesh) child.raycast = () => {};
+      });
+      applyCharacterHologram(clone, true, weaverHologramMaterials);
+      group.add(clone);
+      group.position.copy(worldPosition(record.position));
+      group.rotation.copy(model.rotation);
+      group.scale.copy(model.scale);
+      const label = makeWeaverHpLabel(record.hp);
+      group.add(label);
+      scene.add(group);
+      entry = { group, source, sourceVersion, recordKey, label, baseScale: model.scale.clone(), startedAt: time };
+      weaverHolograms.set(id, entry);
+    }
+    if (!entry) continue;
+    if (away && !entry.group.visible) entry.startedAt = time;
+    entry.group.visible = away;
+    if (away) entry.group.scale.copy(entry.baseScale).multiplyScalar(1 + Math.sin((time - entry.startedAt) * .004) * .014);
+  }
+  for (const id of [...weaverHolograms.keys()]) if (!gameState.players[id]) disposeWeaverHologram(id);
+}
+
 function showCharacterPreviewModel(character: SelectableCharacter) {
   if (!characterPreviewScene) return;
   if (characterPreviewModel) characterPreviewScene.remove(characterPreviewModel);
@@ -12608,7 +13032,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
           : character === 'john-christ' ? createJohnChrist(0xffd166)
             : character === 'spectre' ? createSpectre(0xa06cff)
               : character === 'wreckna' ? createWreckna(0x72d8ff)
-                : createMerylin(0xb069ff);
+                : character === 'merylin' ? createMerylin(0xb069ff) : createKazka();
     model.userData.character = character;
     model.traverse((child) => { if (child.name === 'TargetRing') child.visible = false; });
     characterPreviewModels.set(character, model);
