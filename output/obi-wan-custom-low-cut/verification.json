@@ -1,0 +1,38 @@
+{
+  "glb": "C:\\Users\\artur\\git\\Gridfall\\output\\obi-wan-custom-low-cut\\Obi-Wan-Low-Cut-Custom.glb",
+  "bytes": 2340892,
+  "animation": "Low_Cut_Custom",
+  "duration_seconds": 2,
+  "bones": 24,
+  "meshes": 2,
+  "embedded_images": 2,
+  "idle_endpoint_matrix_error": 0.0,
+  "round_trip_joint_checks": [
+    {
+      "frame": 1,
+      "max_joint_error_m": 8.32018714992923e-06
+    },
+    {
+      "frame": 13,
+      "max_joint_error_m": 9.030782939406245e-06
+    },
+    {
+      "frame": 19,
+      "max_joint_error_m": 9.156787802832506e-06
+    },
+    {
+      "frame": 23,
+      "max_joint_error_m": 9.171794841820931e-06
+    },
+    {
+      "frame": 49,
+      "max_joint_error_m": 8.32018714992923e-06
+    }
+  ],
+  "original_low_cut_preserved": true,
+  "largest_arm_rotation_per_frame": {
+    "frame": 16,
+    "bone": "RightForeArm",
+    "degrees": 34.01220421745329
+  }
+}

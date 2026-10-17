@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ArchmageAnimation, ARCHMAGE_CLIPS, ARCHMAGE_SCALE, archmageMovementDuration, archmageSegment } from '../src/archmageAnimation.ts';
+import { IdleAnimationHold } from '../src/idleAnimationHold.ts';
 import { SpellblockVisual, SPELLBLOCK_ASSEMBLY_MS } from '../src/spellblockVisual.ts';
 import { merylinRouteMotion } from '../src/merylinAnimation.ts';
 import { ShizzleVisual, shizzleMovementDuration } from '../src/shizzleVisual.ts';
@@ -28,6 +29,14 @@ header.writeUInt32LE(padded.length, 12);
 const headless = Buffer.concat([header, padded, bytes.subarray(20 + jsonLength)]);
 const asset = await new GLTFLoader().parseAsync(headless.buffer.slice(headless.byteOffset, headless.byteOffset + headless.byteLength), '');
 const state = new ArchmageAnimation(asset.scene, asset.animations, SPELLBLOCK_ASSEMBLY_MS / 1000);
+const idleHold = new IdleAnimationHold();
+idleHold.sync(state, true);
+state.update(25, undefined, false, false, undefined, false, true);
+idleHold.sync(state, true);
+assert.equal(state.current, 'Idle', 'Post-combat idle holds must suppress scheduled Conjure');
+assert.equal(state.actions.Idle.time, 0);
+idleHold.sync(state, false);
+state.reset();
 const advance = (seconds: number, effectFinished = false) => {
   for (let remaining = seconds; remaining > 1e-9;) {
     const step = Math.min(.02, remaining);

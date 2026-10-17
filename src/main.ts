@@ -50,8 +50,10 @@ import { JOHN_BLESSING_RELEASE_SECONDS, JOHN_CLIPS, JOHN_MIND_BLAST_END_SECONDS,
 import { attachJohnHealthAnchor } from './johnChristVisuals.ts';
 import { groundJohnBlessingClip } from './johnChristGrounding.ts';
 import { MerylinAnimation, MERYLIN_SCALE, MERYLIN_SWING_IMPACT_SECONDS, MERYLIN_MOONLIGHT_RELEASE_SECONDS, merylinMovementDuration, merylinRouteMotion } from './merylinAnimation.ts';
-import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_LOW_CUT_CLIP, OBI_WAN_LOW_CUT_PREPARE_SECONDS, OBI_WAN_LOW_CUT_RETRACT_SECONDS, obiWanAttackPreparationSeconds, OBI_WAN_LEG_KICK_CLIP, OBI_WAN_LEG_KICK_DURATION_SECONDS, obiWanAttackClip, shouldDelayObiWanSaberDraw, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
-import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
+import { OBI_WAN_ATTACK_FACING_OFFSET_RADIANS, OBI_WAN_ATTACK_HIT_SECONDS, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_CUT_THEM_LEGS_CLIP, OBI_WAN_CUT_THEM_LEGS_DURATION_SECONDS, OBI_WAN_LEG_KICK_CLIP, OBI_WAN_LEG_KICK_DURATION_SECONDS, obiWanAttackClip, obiWanLightsaberFrame, type ObiWanAttackClip } from './obiWanAttackAnimation.ts';
+import { OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_DANCE_THROUGH_ENTRY_FRAME, OBI_WAN_DANCE_THROUGH_FPS, OBI_WAN_DANCE_THROUGH_STEP_FRAMES, OBI_WAN_DANCE_THROUGH_TURN_MS, isObiWanDanceThroughMovement, obiWanDanceThroughTimeScale, obiWanDanceThroughInputLocked, obiWanDanceThroughFrame, shouldHoldObiWanDanceThrough, shouldShowObiWanLightsaberDuringDance } from './obiWanDanceThroughAnimation.ts';
+import { OBI_WAN_FLIP_CLIP, OBI_WAN_FLIP_FPS, OBI_WAN_FLIP_TURN_MS, isObiWanFlipMovement, obiWanFlipSegment, obiWanFlipFrame, obiWanFlipTravelProgress, prepareObiWanFlipClip, type ObiWanFlipSegment } from './obiWanFlipAnimation.ts';
+import { IdleAnimationHold, effectIdleHoldActive, type IdleAnimationState } from './idleAnimationHold.ts';
 import { FrostmourneEffects } from './frostmourneEffects.ts';
 import { StingEffects } from './stingEffects.ts';
 import { MerylinWeapons, merylinWeaponForCard, merylinHitSeconds, merylinObjectSwingDeferredByChoice, shuffledMerylinWeapons, type MerylinWeapon } from './merylinWeapons.ts';
@@ -78,6 +80,7 @@ import { createMoonlightWave, updateMoonlightWave, disposeMoonlightWave } from '
 import { MoonlightEffects } from './moonlightEffects.ts';
 import { LightbringerEffects } from './lightbringerEffects.ts';
 import { createArcaneMissile, updateArcaneMissile, spawnArcaneImpact, updateArcaneImpacts } from './arcaneMissileVisuals.ts';
+import { clearCutThemLegsBlood, spawnCutThemLegsBlood, updateCutThemLegsBlood } from './cutThemLegsVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
 import { createDesertAtmosphere } from './desert-atmosphere.ts';
 import { createStormAtmosphere } from './storm-atmosphere.ts';
@@ -788,6 +791,7 @@ let lastCombatSummaryHtml = '';
 let lastCombatSummaryOpen = false;
 const POST_COMBAT_VISUAL_DELAY_MS = 500;
 let postCombatVisualNotBefore = 0;
+let postCombatIdleHoldActive = false;
 let activeCombatVisualAttackId: string | null = null;
 let completedCombatVisualAttackId: string | null = null;
 let merylinCombatAttacker: { attackerId: PlayerId; defenderId: PlayerId; weapon: MerylinWeapon } | null = null;
@@ -855,6 +859,7 @@ function resetCombatSummary() {
   lastCombatSummaryOpen = false;
   combatRevealWasVisible = false;
   postCombatVisualNotBefore = 0;
+  postCombatIdleHoldActive = false;
   activeCombatVisualAttackId = null;
   completedCombatVisualAttackId = null;
   merylinCombatAttacker = null;
@@ -863,6 +868,7 @@ function resetCombatSummary() {
   obiWanCombatAttacker = null;
   obiWanCombatImpactPending = false;
   obiWanAttackImpactWaits.clear();
+  clearCutThemLegsBlood();
   orkkCombatAttacker = null;
   deferredOrkkCombatAttack = null;
   orkkCombatImpactPending = false;
@@ -1144,6 +1150,10 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       const previousBoardSize = gameState.boardSize;
       const previousGameState = gameState;
       gameState = normalizeOnlineState(state);
+      for (const [playerId, stepsBefore] of pendingOnlineDanceSteps) {
+        if (gameState.phase !== 'dance-through' || gameState.danceThrough?.playerId !== playerId
+          || gameState.danceThrough.stepsRemaining !== stepsBefore) pendingOnlineDanceSteps.delete(playerId);
+      }
       debugRecorder.state(gameState);
       if (!enteringBattle) syncOraclePresentation(previousGameState, gameState);
       if ((gameState.perkUndoRevision ?? 0) !== (previousGameState.perkUndoRevision ?? 0)) resetPerkUndoVisuals();
@@ -1186,11 +1196,13 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       pendingOnlineOrkkVisualIntent = null;
       pendingOnlineSpectreVisualIntent = null;
       if (localSeat) pendingMovementCancellationTargets.delete(localSeat);
+      if (localSeat && pendingOnlineDanceSteps.delete(localSeat)) renderUI();
       notify(message);
     });
     room.onMessage('notice', (message: string) => { debugRecorder.event('network.notice', message); notify(message); });
     room.onError((code, message) => debugRecorder.event('network.error', { code, message }));
     room.onDrop((code, reason) => {
+      pendingOnlineDanceSteps.clear();
       debugRecorder.event('network.drop', { code, reason });
       byId('connection').classList.add('reconnecting');
       byId('connection').innerHTML = `<span></span> Reconnecting to room ${room?.roomId ?? ''}`;
@@ -1206,6 +1218,7 @@ async function connectOnline(action: 'create' | 'join', format: GameFormat = 'du
       notify('Reconnected to the room.');
     });
     room.onLeave((code, reason) => {
+      pendingOnlineDanceSteps.clear();
       debugRecorder.event('network.left', { code, reason });
       if (!room) return;
       sessionStorage.removeItem(reconnectionTokenKey(room.roomId));
@@ -1309,7 +1322,7 @@ function renderOnlineLobby() {
   panel.innerHTML = `<p class="eyebrow">PRIVATE ROOM</p><div class="room-id-copy"><label for="displayedRoomId">ROOM LINK · CTRL+C TO COPY</label><input id="displayedRoomId" value="${escapeHtml(roomLink)}" readonly spellcheck="false" aria-label="Multiplayer Room link"><button id="copyRoomId" type="button">COPY LINK</button></div><h2>${tournament ? `The Tournament · ${tournamentFirstChoice ? 'Match 2 Character' : 'Match 1 Character'}` : 'Character Select'}</h2>
     <div class="match-rules"><span>ARENA<strong>${escapeHtml(state?.arena ?? 'Nagrand Arena')}</strong></span><span>MODE<strong>${escapeHtml(state?.mode ?? '1 versus 1')}</strong></span><span>PLAYERS<strong>${state?.playerCount ?? 1} / ${requiredPlayerCount}</strong></span></div>
     <p>${orderMessage}${tournament && mayChoose ? tournamentFirstChoice ? ` Match 1: ${CHARACTER_SELECT_INFO[tournamentFirstChoice].name}. Choose a different Match 2 Character.` : ' Choose your Match 1 Character, then your Match 2 Character.' : ''}</p><div class="character-choices">
-      ${CHARACTER_BROWSER_ORDER.map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
+      ${CHARACTER_BROWSER_ORDER.filter((character) => character !== 'spectre').map((character) => characterSelectButton(character, 'data-character', !mayChoose || tournament && tournamentFirstChoice === character, characterSelectionFrames(character, state))).join('')}
     </div>${tournament && tournamentFirstChoice && mayChoose ? '<button class="lobby-back-button" id="backTournamentFirst" type="button">Change Match 1 Character</button>' : ''}`;
   panel.querySelector<HTMLButtonElement>('#backTournamentFirst')?.addEventListener('click', () => { tournamentFirstChoice = null; renderOnlineLobby(); });
   const roomIdField = panel.querySelector<HTMLInputElement>('#displayedRoomId')!;
@@ -1550,6 +1563,9 @@ game.addEventListener('pointerdown', event => {
 });
 
 function dispatch(command: GameCommand) {
+  if (command.type !== 'ack-combat' && obiWanDanceStepInputLocked(command.playerId)) {
+    return notify('Wait for Dance Through to finish this step.');
+  }
   noteObiWanActivity(command.playerId);
   const powerVisualIntent = wizardPowerVisualIntentForCommand(gameState, command);
   const obiWanPowerVisualIntent = obiWanPowerVisualIntentForCommand(gameState, command);
@@ -1562,7 +1578,16 @@ function dispatch(command: GameCommand) {
       return notify('Waiting for your seat assignment.');
     }
     if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
-    sendRoomMessage('command', command);
+    if (command.type === 'move' && gameState.phase === 'dance-through'
+      && gameState.players[command.playerId]?.character === 'shinobi') {
+      pendingOnlineDanceSteps.set(command.playerId, gameState.danceThrough?.stepsRemaining ?? 0);
+    }
+    try {
+      sendRoomMessage('command', command);
+    } catch (error) {
+      pendingOnlineDanceSteps.delete(command.playerId);
+      throw error;
+    }
     return;
   }
   const previousGameState = gameState;
@@ -1831,7 +1856,7 @@ function renderUI() {
   cancelDanceButton.classList.toggle('hidden', gameState.phase !== 'dance-through' && !choosingYamatoMove && !canDeclineLichdom);
   cancelDanceButton.textContent = canDeclineLichdom ? 'Skip Phylactery · Keep HP' : choosingYamatoMove ? 'Stay in Place' : 'Cancel Dance Through';
   const danceOccupied = Boolean(gameState.danceThrough?.enemyUnderfoot || (gameState.danceThrough as typeof gameState.danceThrough & { objectUnderfoot?: string | null } | null)?.objectUnderfoot);
-  cancelDanceButton.disabled = (!choosingYamatoMove && !canDeclineLichdom && danceOccupied) || !canLocalAct(actingPlayer());
+  cancelDanceButton.disabled = (!choosingYamatoMove && !canDeclineLichdom && (danceOccupied || obiWanDanceStepInputLocked(actingPlayer()))) || !canLocalAct(actingPlayer());
   if (canDeclineReplacement) {
     cancelDanceButton.classList.remove('hidden');
     cancelDanceButton.textContent = 'Cancel Phylactery creation';
@@ -2785,6 +2810,7 @@ function renderCombatReveal() {
     modal.classList.remove('has-attack-portrait', 'has-defend-portrait');
     let flurryAttackNotBefore = 0;
     if (combatRevealWasVisible) {
+      postCombatIdleHoldActive = true;
       if (pendingOracle) {
         oracleBlockVisual?.dispose();
         const target = dummyGroups.get(pendingOracle.defenderId);
@@ -2911,6 +2937,10 @@ function renderCombatReveal() {
       const target = targetFor(obiWanAttack.defenderId);
       if (attacker) attacker.rotation.y = obiWanAttackFacingRotation(attacker, target.x-attacker.position.x, target.z-attacker.position.z, obiWanAttack.clip);
       playObiWanAttack(obiWanAttack.attackerId, obiWanAttack.clip, () => {
+        if (obiWanAttack.clip === OBI_WAN_CUT_THEM_LEGS_CLIP && !blink?.missed && attacker) {
+          const hitPosition = dummyGroups.get(obiWanAttack.defenderId)?.position ?? target;
+          spawnCutThemLegsBlood(scene, attacker.position, hitPosition);
+        }
         showMissedCombatCallout();
         obiWanCombatImpactPending = false;
         genericCombatImpactAt = 0;
@@ -4258,8 +4288,23 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
 const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: number; startedAt: number }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; dashCalloutShown?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; dashCalloutShown?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; flip?: ObiWanFlipSegment; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
+const pendingOnlineDanceSteps = new Map<PlayerId, number>();
+
+function obiWanDanceStepInputLocked(playerId: PlayerId) {
+  const animation = dummyGroups.get(playerId)?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
+  return obiWanDanceThroughInputLocked(pendingOnlineDanceSteps.has(playerId), movementAnimations.get(playerId), animation?.danceThrough);
+}
+const characterIdleHolds = new WeakMap<THREE.Group, IdleAnimationHold>();
+
+function syncCharacterIdleHold(group: THREE.Group, hold: boolean) {
+  let controller = characterIdleHolds.get(group);
+  if (!controller) { controller = new IdleAnimationHold(); characterIdleHolds.set(group, controller); }
+  const states = new Set(['wizardAnimation', 'obiWanAnimation', 'orkkAnimation', 'spectreAnimation', 'merylinAnimation', 'johnNormalAnimation', 'johnSpiritAnimation', 'johnAnimation']
+    .map(key => group.userData[key] as IdleAnimationState | undefined));
+  for (const state of states) if (state) controller.sync(state, hold);
+}
 const dashWindTrails = new DashWindTrails(scene);
 const dashPreviousPosition = new THREE.Vector3();
 const portalTeleports = new Map<PlayerId, { movement: CharacterMovementAnimation; visual: PortalTeleport; character: THREE.Group }>();
@@ -4635,6 +4680,7 @@ renderer.setAnimationLoop((time) => {
     }
   }
   updateArcaneImpacts(deltaSeconds);
+  updateCutThemLegsBlood(time);
   updateSweetPotatoEffects(time);
   updateStoicShellHealAnimations(time);
   updateManaConsumeAnimations(time);
@@ -4643,6 +4689,12 @@ renderer.setAnimationLoop((time) => {
   updateWindwalker(time);
   updateCarian(time);
   updateCharacterFacing(deltaSeconds);
+  const specialMovementPending = [...movementAnimations.values()].some(movement => movement.flip || movement.danceThrough);
+  const effectsPending = combatAnimationImpactPending() || time < postCombatVisualNotBefore
+    || finishingBlowVisualsActive(time) || Boolean(spellblockVisual || manaShieldVisual || oracleBlockVisual)
+    || counterspellVisuals.length > 0 || loganAttackVisuals.length > 0;
+  const holdIdle = effectIdleHoldActive(gameState.phase, postCombatIdleHoldActive, effectsPending, specialMovementPending);
+  if (!effectsPending && !holdIdle) postCombatIdleHoldActive = false;
   dummyGroups.forEach((group, id) => {
     const body = group.children[0];
     const defeated = gameState.players[id]?.hp <= 0;
@@ -4674,6 +4726,8 @@ renderer.setAnimationLoop((time) => {
       return;
     }
     const movement = movementAnimations.get(id);
+    group.userData.holdIdle = holdIdle;
+    syncCharacterIdleHold(group, holdIdle);
     const moving = Boolean(movement);
     const locomoting = moving && !movement?.teleport && !isCharacterSliding(movement, time);
     updateWizardAnimation(group, locomoting, deltaSeconds);
@@ -4691,9 +4745,10 @@ renderer.setAnimationLoop((time) => {
       updateMerylinAnimation(group, id, deltaSeconds);
       syncMerylinSummonVisual(group, Boolean(gameState.players[id].merylinSummonActive), time);
     }
+    syncCharacterIdleHold(group, holdIdle);
     animateFearSigil(group, time);
     const usesImportedAnimation = group.userData.character === 'magician' || group.userData.character === 'shinobi' || Boolean(group.userData.orkkAnimation) || Boolean(group.userData.spectreAnimation) || Boolean(group.userData.johnAnimation) || Boolean(group.userData.merylinAnimation);
-    body.position.y = usesImportedAnimation ? 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : locomoting ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
+    body.position.y = usesImportedAnimation ? 0 : holdIdle && !locomoting ? group.userData.character === 'wreckna' ? 0.2 : 0 : group.userData.character === 'wreckna' ? 0.2 + Math.sin(time * 0.0022 + (id === 'P1' ? 0 : 2)) * 0.075 : locomoting ? Math.abs(Math.sin(time * 0.012)) * 0.08 : Math.sin(time * 0.002 + (id === 'P1' ? 0 : 2)) * 0.035;
     const lichAura = group.getObjectByName('WrecknaLevitationAura');
     if (lichAura) { lichAura.rotation.z = time * 0.0007; lichAura.scale.setScalar(1 + Math.sin(time * 0.004) * 0.08); }
     if (group.userData.character === 'wreckna') {
@@ -5585,9 +5640,9 @@ function updateCharacterMovement(time: number) {
   movementAnimations.forEach((animation, playerId) => {
     const group = dummyGroups.get(playerId);
     if (!group) return;
-    if (animation.danceThrough && obiWanDanceThroughPresentationBlocked(playerId, group)) {
+    if ((animation.danceThrough || animation.flip) && obiWanDanceThroughPresentationBlocked(playerId, group)) {
       animation.turnStartedAt = time;
-      animation.startedAt = time + OBI_WAN_DANCE_THROUGH_TURN_MS;
+      animation.startedAt = time + (animation.flip ? OBI_WAN_FLIP_TURN_MS : OBI_WAN_DANCE_THROUGH_TURN_MS);
       animation.turnFromRotation = group.rotation.y;
       return;
     }
@@ -5634,6 +5689,7 @@ function updateCharacterMovement(time: number) {
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     let eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     if (animation.shizzle) eased = THREE.MathUtils.smoothstep(progress, .1, 1);
+    if (animation.flip && !isCharacterSliding(animation, time)) eased = obiWanFlipTravelProgress(progress, animation.flip);
     if (animation.slideSegmentIndex !== undefined && animation.slideStartsAtMs !== undefined) {
       const segmentCount = Math.max(1, animation.path?.length ?? animation.travelSquares ?? 1);
       const slideRouteStart = animation.slideStartsAtMs === 0
@@ -5641,7 +5697,7 @@ function updateCharacterMovement(time: number) {
         : THREE.MathUtils.clamp(animation.slideSegmentIndex / segmentCount, 0, 1);
       if (elapsed < animation.slideStartsAtMs) {
         const approachProgress = THREE.MathUtils.clamp(elapsed / Math.max(1, animation.slideStartsAtMs), 0, 1);
-        const approachEased = constantLocomotionSpeed ? approachProgress : approachProgress < 0.5 ? 2 * approachProgress * approachProgress : 1 - Math.pow(-2 * approachProgress + 2, 2) / 2;
+        const approachEased = animation.flip ? obiWanFlipTravelProgress(elapsed / animation.flip.durationMs, animation.flip) : constantLocomotionSpeed ? approachProgress : approachProgress < 0.5 ? 2 * approachProgress * approachProgress : 1 - Math.pow(-2 * approachProgress + 2, 2) / 2;
         eased = approachEased * slideRouteStart;
       } else {
         const slideProgress = THREE.MathUtils.clamp((elapsed - animation.slideStartsAtMs) / Math.max(1, animation.duration - animation.slideStartsAtMs), 0, 1);
@@ -5671,8 +5727,11 @@ function updateCharacterMovement(time: number) {
     if (progress >= 1) {
       group.position.copy(animation.to);
       body.rotation.z = 0;
-      if (animation.danceThrough) animation.completed = true;
-      else movementAnimations.delete(playerId);
+      if ((animation.danceThrough && group.userData.obiWanAnimation) || (animation.flip && group.userData.obiWanAnimation && !isCharacterSliding(animation, time))) animation.completed = true;
+      else {
+        movementAnimations.delete(playerId);
+        if (animation.danceThrough) renderUI();
+      }
     }
   });
 }
@@ -5739,7 +5798,7 @@ function updateCharacterFacing(deltaSeconds: number) {
     const spectreAnimation = group.userData.spectreAnimation as SpectreAnimationState | undefined;
     if (spectreAnimation?.oneShot) return;
     const obiWanAnimation = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-    if (obiWanAnimation?.power || obiWanAnimation?.attack || obiWanAnimation?.danceThrough) return;
+    if (obiWanAnimation?.power || obiWanAnimation?.attack || obiWanAnimation?.danceThrough || obiWanAnimation?.flip) return;
     const johnAnimation = group.userData.johnNormalAnimation as JohnAnimationState | undefined;
     const johnSpiritAnimation = group.userData.johnSpiritAnimation as JohnAnimationState | undefined;
     if (johnAnimation?.attack || johnSpiritAnimation?.attack || johnCastWaits.has(playerId)
@@ -6730,14 +6789,14 @@ function playObiWanAttack(playerId: PlayerId, clip: ObiWanAttackClip, impact: ()
   if (!player || player.character !== 'shinobi') { impact(); return; }
   const group = dummyGroups.get(playerId);
   const state = group?.userData.obiWanAnimation as ObiWanAnimationState | undefined;
-  if (state) startObiWanAttack(state, clip, group);
+  if (state) startObiWanAttack(state, clip);
   else if (group) {
     group.userData.pendingObiWanAttack = clip;
-    group.userData.obiWanAttackEndsAt = performance.now() + OBI_WAN_LEG_KICK_DURATION_SECONDS * 1000;
+    group.userData.obiWanAttackEndsAt = performance.now() + (clip === OBI_WAN_CUT_THEM_LEGS_CLIP ? OBI_WAN_CUT_THEM_LEGS_DURATION_SECONDS : OBI_WAN_LEG_KICK_DURATION_SECONDS) * 1000;
   }
   obiWanAttackImpactWaits.set(playerId, {
     callbacks: [impact],
-    fallbackAt: performance.now() + (obiWanAttackPreparationSeconds(clip) + OBI_WAN_ATTACK_HIT_SECONDS[clip]) * 1000,
+    fallbackAt: performance.now() + OBI_WAN_ATTACK_HIT_SECONDS[clip] * 1000,
   });
 }
 
@@ -7311,6 +7370,7 @@ function resetSeriesMatchVisuals() {
   lastVisualCells.clear();
   lastObjectVisualCells.clear();
   movementAnimations.clear();
+  pendingOnlineDanceSteps.clear();
   dashWindTrails.clear();
   objectMovementAnimations.clear();
   objectImpactAnimations.clear();
@@ -7626,12 +7686,7 @@ function characterFacingRotation(group: THREE.Group, dx: number, dz: number) {
 }
 
 function obiWanAttackFacingRotation(group: THREE.Group, dx: number, dz: number, clip: ObiWanAttackClip) {
-  const target = characterFacingRotation(group, dx, dz) + OBI_WAN_ATTACK_FACING_OFFSET_RADIANS[clip];
-  if (clip === OBI_WAN_LOW_CUT_CLIP) {
-    group.userData.obiWanAttackTurn = { from: group.rotation.y, to: target };
-    return group.rotation.y;
-  }
-  return target;
+  return characterFacingRotation(group, dx, dz) + OBI_WAN_ATTACK_FACING_OFFSET_RADIANS[clip];
 }
 
 function installImportedShield(root: THREE.Group, asset: Awaited<ReturnType<GLTFLoader['loadAsync']>>) {
@@ -7847,7 +7902,7 @@ function updateWizardAnimation(group: THREE.Group, moving: boolean, deltaSeconds
   const effectsFinished = Boolean(power && playerId && powerFacingSettled && wizardPowerEffectFinished(power, playerId));
   state.update(deltaSeconds, motion, wallActive, effectsFinished,
     wallActive ? (performance.now() - spellblockVisual!.effect.startedAt) / 1000 : undefined,
-    Boolean(playerId && isShizzleGliding(playerId)));
+    Boolean(playerId && isShizzleGliding(playerId)), Boolean(group.userData.holdIdle));
   if (state.powerRaised && state.power?.holdAtEnd && !state.power.liftStarted && state.power.phase !== 'resolving') {
     if (playerId && state.power.targetKind && state.power.targetId) {
       liftWizardPowerTarget(playerId, state.power.targetKind, state.power.targetId);
@@ -8307,7 +8362,7 @@ function updateMerylinAnimation(group: THREE.Group, playerId: PlayerId | undefin
     squares: route.travelSquares ?? route.path?.length ?? 1,
     ...motion, durationMs: route.duration, elapsedMs: now - route.startedAt,
     bodyScale: Math.max(.001, group.children[0].scale.x * group.scale.x),
-  } : undefined, busy || Boolean(route) || Boolean(playerId && impactAnimations.has(playerId)), summoned);
+  } : undefined, busy || Boolean(group.userData.holdIdle) || Boolean(route) || Boolean(playerId && impactAnimations.has(playerId)), summoned);
   const weapons=group.userData.merylinWeapons as MerylinWeapons | undefined;
   weapons?.update(delta, summoned, state.isAttacking, state.current, busy || Boolean(route), previewWeapon);
   (group.userData.frostmourneEffects as FrostmourneEffects | undefined)?.update(now, Boolean(weapons?.frostVisible), state.isAttacking && state.attackWeapon==='frostmourne', weapons?.frostOpacity ?? 0);
@@ -9053,10 +9108,11 @@ function updateStoicShellHealAnimations(time: number) {
 type ObiWanAnimationState = {
   mixer: THREE.AnimationMixer;
   actions: Record<string, THREE.AnimationAction>;
-  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead' | ObiWanAttackClip | typeof OBI_WAN_DANCE_THROUGH_CLIP;
+  current: 'Idle' | 'CasualWalkOneCell' | 'Walking' | 'Running' | 'RunFast' | 'Power' | 'Dead' | ObiWanAttackClip | typeof OBI_WAN_DANCE_THROUGH_CLIP | typeof OBI_WAN_FLIP_CLIP;
   power?: ObiWanPowerRuntime;
-  attack?: { clip: ObiWanAttackClip; impactReached: boolean; finished?: boolean; preparation?: { elapsed: number; from: number; to: number } };
+  attack?: { clip: ObiWanAttackClip; impactReached: boolean; finished?: boolean };
   danceThrough?: { holding: boolean; stepStartFrame: number; stepEndFrame: number };
+  flip?: CharacterMovementAnimation;
   deathEndsAt?: number;
 };
 
@@ -9239,15 +9295,13 @@ function updateObiWanLightsaberAnimation(group: THREE.Group, deltaSeconds: numbe
   const fallbackClip = group.userData.pendingObiWanAttack as ObiWanAttackClip | undefined;
   // Light the Saber becomes active at combat impact, but the unarmed kick
   // must finish before the blade starts extending.
-  const delayDraw = animation
-    ? shouldDelayObiWanSaberDraw(animation.attack?.clip, Boolean(animation.attack?.finished))
-    : shouldDelayObiWanSaberDraw(fallbackClip, performance.now() >= Number(group.userData.obiWanAttackEndsAt ?? 0));
-  const lowCutActive = animation?.attack?.clip === OBI_WAN_LOW_CUT_CLIP && !animation.attack.finished;
-  const target = delayDraw ? 0 : lowCutActive ? 1 : Number(group.userData.obiWanLightsaberTarget ?? 0);
-  const previous = Number(group.userData.obiWanLightsaberProgress ?? target);
-  const retractingLowCut = performance.now() < Number(group.userData.obiWanLowCutRetractUntil ?? 0);
-  const step = deltaSeconds / (lowCutActive ? OBI_WAN_LOW_CUT_PREPARE_SECONDS : retractingLowCut ? OBI_WAN_LOW_CUT_RETRACT_SECONDS : 0.5);
-  const progress = THREE.MathUtils.clamp(previous + Math.sign(target - previous) * Math.min(Math.abs(target - previous), step), 0, 1);
+  const { target, progress } = obiWanLightsaberFrame(
+    Boolean(group.userData.obiWanLightsaberTarget),
+    animation ? animation.attack?.clip : fallbackClip,
+    animation ? Boolean(animation.attack?.finished) : performance.now() >= Number(group.userData.obiWanAttackEndsAt ?? 0),
+    group.userData.obiWanLightsaberProgress as number | undefined,
+    deltaSeconds,
+  );
   group.userData.obiWanLightsaberProgress = progress;
   const hiltVisible = target > 0 || progress > 0;
   for (const hiltName of ['ObiWanImportedLightsaberHilt', 'ObiWanFallbackLightsaberHilt']) {
@@ -9318,7 +9372,7 @@ function beginObiWanCancellationReturn(playerId: PlayerId, targetCell: Cell) {
 }
 
 function loadObiWanAsset() {
-  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20261008-low-cut-sword`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
+  return obiWanAssetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-optimized.glb?v=20261013-mixamo-cut`, (url) => new GLTFLoader().loadAsync(url)).catch((error) => {
     obiWanAssetPromise = null;
     throw error;
   });
@@ -9353,9 +9407,10 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const deadClip = asset.animations.find((clip) => clip.name === 'Dead');
     const legKickClip = asset.animations.find((clip) => clip.name === OBI_WAN_LEG_KICK_CLIP);
     const doubleSwingClip = asset.animations.find((clip) => clip.name === OBI_WAN_DOUBLE_SWING_CLIP);
-    const lowCutClip = asset.animations.find((clip) => clip.name === OBI_WAN_LOW_CUT_CLIP)?.clone();
+    const cutThemLegsClip = asset.animations.find((clip) => clip.name === OBI_WAN_CUT_THEM_LEGS_CLIP);
     const danceThroughClip = asset.animations.find((clip) => clip.name === OBI_WAN_DANCE_THROUGH_CLIP);
-    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip || !legKickClip || !doubleSwingClip || !lowCutClip || !danceThroughClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, Dead, Leg_Kick, Double_Swing, Low_Cut, and Dance_Through clips.');
+    const flipClip = asset.animations.find((clip) => clip.name === OBI_WAN_FLIP_CLIP);
+    if (!idleClip || !casualWalkClip || !walkingClip || !runningClip || !runFastClip || !powerClip || !deadClip || !legKickClip || !doubleSwingClip || !cutThemLegsClip || !danceThroughClip || !flipClip) throw new Error('Obi-Wan GLB must contain Idle, Casual_Walk, Walking, Running, RunFast, Power, Dead, Leg_Kick, Double_Swing, Cut_Them_Legs, Dance_Through, and Flip clips.');
     const alignedCasualWalk = alignObiWanLocomotionRoot(casualWalkClip, idleClip);
     const alignedWalking = alignObiWanLocomotionRoot(walkingClip, idleClip);
     const alignedRunning = alignObiWanLocomotionRoot(runningClip, idleClip);
@@ -9364,19 +9419,14 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     const preparedDanceThrough = prepareObiWanInPlaceClip(danceThroughClip, idleClip);
     const oneCellWalk = THREE.AnimationUtils.subclip(alignedCasualWalk, 'CasualWalkOneCell', 0, 35, OBI_WAN_WALK_FPS);
     const mixer = new THREE.AnimationMixer(model);
-    // The saber mesh is renamed when splitting its hilt/blade. Bind the
-    // clip-specific authored pose to the actual hilt, including each clone.
-    const saberHilt = model.getObjectByName('ObiWanImportedLightsaberHilt');
-    if (saberHilt) for (const track of lowCutClip.tracks) {
-      if (track.name.startsWith('Lightsaber.')) track.name = track.name.replace('Lightsaber.', `${saberHilt.uuid}.`);
-    }
-    const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip.name === OBI_WAN_LOW_CUT_CLIP ? lowCutClip : clip)]));
+    const actions = Object.fromEntries(asset.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
     actions.CasualWalkOneCell = mixer.clipAction(oneCellWalk);
     actions.Walking = mixer.clipAction(alignedWalking);
     actions.Running = mixer.clipAction(alignedRunning);
     actions.RunFast = mixer.clipAction(alignedRunFast);
     actions[OBI_WAN_DOUBLE_SWING_CLIP] = mixer.clipAction(preparedDoubleSwing);
     actions[OBI_WAN_DANCE_THROUGH_CLIP] = mixer.clipAction(preparedDanceThrough);
+    actions[OBI_WAN_FLIP_CLIP] = mixer.clipAction(prepareObiWanFlipClip(flipClip, idleClip, model));
     actions.CasualWalkOneCell.timeScale = OBI_WAN_WALK_TIME_SCALE;
     actions.Walking.timeScale = OBI_WAN_WALKING_TIME_SCALE;
     actions.Running.timeScale = OBI_WAN_RUN_TIME_SCALE;
@@ -9389,17 +9439,19 @@ async function attachObiWanModel(root: THREE.Group, body: THREE.Group, playerCol
     actions[OBI_WAN_LEG_KICK_CLIP].clampWhenFinished = true;
     actions[OBI_WAN_DOUBLE_SWING_CLIP].setLoop(THREE.LoopOnce, 1);
     actions[OBI_WAN_DOUBLE_SWING_CLIP].clampWhenFinished = true;
-    actions[OBI_WAN_LOW_CUT_CLIP].setLoop(THREE.LoopOnce, 1);
-    actions[OBI_WAN_LOW_CUT_CLIP].clampWhenFinished = true;
+    actions[OBI_WAN_CUT_THEM_LEGS_CLIP].setLoop(THREE.LoopOnce, 1);
+    actions[OBI_WAN_CUT_THEM_LEGS_CLIP].clampWhenFinished = true;
     actions[OBI_WAN_DANCE_THROUGH_CLIP].setLoop(THREE.LoopRepeat, Infinity);
     actions[OBI_WAN_DANCE_THROUGH_CLIP].clampWhenFinished = false;
+    actions[OBI_WAN_FLIP_CLIP].setLoop(THREE.LoopOnce, 1);
+    actions[OBI_WAN_FLIP_CLIP].clampWhenFinished = true;
     actions.Idle.play();
     mixer.update(0);
     root.userData.obiWanAnimation = { mixer, actions, current: 'Idle' } satisfies ObiWanAnimationState;
     const pendingObiWanAttack = root.userData.pendingObiWanAttack as ObiWanAttackClip | undefined;
     if (pendingObiWanAttack) {
       delete root.userData.pendingObiWanAttack;
-      startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack, root);
+      startObiWanAttack(root.userData.obiWanAnimation as ObiWanAnimationState, pendingObiWanAttack);
     }
     root.userData.deathAnimationAvailable = true;
     const playerId = root.userData.playerId as PlayerId | undefined;
@@ -9495,7 +9547,7 @@ function finishObiWanDanceThrough(group: THREE.Group, playerId: PlayerId, state:
   group.userData.obiWanLightsaberTarget = lightsaberVisible ? 1 : 0;
 }
 
-function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip, group?: THREE.Group) {
+function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip) {
   if (state.deathEndsAt !== undefined) return;
   if (state.power) finishObiWanPowerAnimation(state);
   state.actions[state.current].fadeOut(0.08);
@@ -9504,12 +9556,6 @@ function startObiWanAttack(state: ObiWanAnimationState, clip: ObiWanAttackClip, 
   action.reset().setEffectiveTimeScale(1).fadeIn(0.08).play();
   state.current = clip;
   state.attack = { clip, impactReached: false };
-  if (clip === OBI_WAN_LOW_CUT_CLIP) {
-    const turn = group?.userData.obiWanAttackTurn as { from: number; to: number } | undefined;
-    state.attack.preparation = { elapsed: 0, from: turn?.from ?? group?.rotation.y ?? 0, to: turn?.to ?? group?.rotation.y ?? 0 };
-    action.paused = true;
-  }
-  if (group) delete group.userData.obiWanAttackTurn;
 }
 
 function playObiWanDeathAnimation(playerId: PlayerId, startedAt: number): number | null {
@@ -9585,8 +9631,8 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
   const state = group.userData.obiWanAnimation as ObiWanAnimationState | undefined;
   if (!state) return;
   const combat = gameState.pendingAttack;
-  const busy = moving || movementAnimations.has(playerId) || state.deathEndsAt !== undefined
-    || Boolean(state.attack && !state.attack.finished) || Boolean(state.power || state.danceThrough)
+  const busy = Boolean(group.userData.holdIdle) || moving || movementAnimations.has(playerId) || state.deathEndsAt !== undefined
+    || Boolean(state.attack && !state.attack.finished) || Boolean(state.power || state.danceThrough || state.flip)
     || gameState.players[playerId]?.hp <= 0
     || Boolean(combat && (combat.attackerId === playerId || combat.defenderId === playerId))
     || (gameState.phase === 'dance-through' && (gameState.danceThrough?.playerId ?? gameState.activePlayerId) === playerId);
@@ -9603,20 +9649,6 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
       state.attack = undefined;
     } else {
       const action = state.actions[state.attack.clip];
-      const preparation = state.attack.preparation;
-      if (preparation) {
-        preparation.elapsed += deltaSeconds;
-        const t = Math.min(1, preparation.elapsed / OBI_WAN_LOW_CUT_PREPARE_SECONDS);
-        const eased = t * t * (3 - 2 * t);
-        const turn = Math.atan2(Math.sin(preparation.to - preparation.from), Math.cos(preparation.to - preparation.from));
-        group.rotation.y = preparation.from + turn * eased;
-        state.mixer.update(deltaSeconds);
-        if (t >= 1) {
-          action.paused = false;
-          state.attack.preparation = undefined;
-        }
-        return;
-      }
       state.mixer.update(deltaSeconds);
       state.attack.impactReached ||= action.time >= OBI_WAN_ATTACK_HIT_SECONDS[state.attack.clip];
       if (!action.isRunning()) {
@@ -9624,12 +9656,46 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
         state.actions.Idle.reset().fadeIn(0.1).play();
         state.current = 'Idle';
         state.attack.finished = true;
-        if (state.attack.clip === OBI_WAN_LOW_CUT_CLIP) {
-          group.userData.obiWanLowCutRetractUntil = performance.now() + OBI_WAN_LOW_CUT_RETRACT_SECONDS * 1000;
-        }
       }
       return;
     }
+  }
+  if (movement?.flip && !isCharacterSliding(movement)) {
+    if (obiWanDanceThroughPresentationBlocked(playerId, group) || performance.now() < movement.startedAt) {
+      state.mixer.update(deltaSeconds);
+      return;
+    }
+    const action = state.actions[OBI_WAN_FLIP_CLIP];
+    if (state.flip !== movement) {
+      if (state.power) finishObiWanPowerAnimation(state);
+      state.actions[state.current].stop();
+      action.reset().setEffectiveWeight(1).play();
+      action.paused = true;
+      state.current = OBI_WAN_FLIP_CLIP;
+      state.flip = movement;
+    }
+    // Clamp to the exact segment boundary using the tile movement's clock.
+    action.time = obiWanFlipFrame((performance.now() - movement.startedAt) / movement.flip.durationMs, movement.flip) / OBI_WAN_FLIP_FPS;
+    state.mixer.update(deltaSeconds);
+    if (!movement.completed) return;
+    movementAnimations.delete(playerId);
+  }
+  if (state.flip) {
+    const waitingForSecondStep = state.flip.flip?.holdAfter && gameState.phase === 'double-jump'
+      && gameState.doubleJump?.playerId === playerId && (!movement || movement.completed);
+    if (waitingForSecondStep) {
+      state.actions[OBI_WAN_FLIP_CLIP].paused = true;
+      state.mixer.update(0);
+      return;
+    }
+    // Keep frame 65 frozen during the fade; never advance into the cut tail.
+    state.actions[OBI_WAN_FLIP_CLIP].paused = true;
+    state.actions[OBI_WAN_FLIP_CLIP].fadeOut(0.12);
+    state.actions.Idle.reset().fadeIn(0.12).play();
+    state.current = 'Idle';
+    state.flip = undefined;
+    state.mixer.update(deltaSeconds);
+    return;
   }
   const danceThroughBlocked = obiWanDanceThroughPresentationBlocked(playerId, group);
   if (ownsDanceThrough && gameState.phase === 'dance-through' && !state.danceThrough && !danceThroughBlocked) poseObiWanForDanceThrough(group, state);
@@ -9661,8 +9727,15 @@ function updateObiWanAnimation(group: THREE.Group, playerId: PlayerId, moving: b
         stepEndFrame: endsLoop ? OBI_WAN_DANCE_THROUGH_STEP_FRAMES : OBI_WAN_DANCE_THROUGH_STEP_FRAMES * 2,
       };
       movementAnimations.delete(playerId);
+      renderUI();
     } else {
-      state.mixer.update(deltaSeconds);
+      // Sample the same elapsed-time clock as tile travel. A slow render frame
+      // must not leave the clip behind or prematurely release the input lock.
+      action.paused = true;
+      const progress = (performance.now() - movement.startedAt) / movement.duration;
+      action.time = Math.min(action.getClip().duration - 1e-6,
+        obiWanDanceThroughFrame(progress, state.danceThrough!.stepStartFrame, state.danceThrough!.stepEndFrame) / OBI_WAN_DANCE_THROUGH_FPS);
+      state.mixer.update(0);
     }
     return;
   }
@@ -10554,8 +10627,11 @@ function syncBoard() {
         const spectreRelocate = character === 'spectre' && recordedMovement?.kind === 'relocate';
         const portalTeleport = Boolean(recordedPathMatches && recordedMovement?.sourceCardId && portalStyleTeleportCards.has(recordedMovement.sourceCardId));
         const danceThrough = character === 'shinobi' && Boolean(recordedPathMatches) && isObiWanDanceThroughMovement(recordedMovement?.sourceCardId);
+        const flip = character === 'shinobi' && !forced && Boolean(recordedPathMatches) && isObiWanFlipMovement(recordedMovement?.sourceCardId)
+          ? obiWanFlipSegment(recordedMovement?.doubleJumpStep ?? (gameState.doubleJump?.stepsRemaining === 1 ? 1 : 2))
+          : undefined;
         const shizzle = character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle';
-        const fullRouteLocomotionDuration = shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
+        const fullRouteLocomotionDuration = flip ? flip.durationMs : shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
@@ -10574,14 +10650,14 @@ function syncBoard() {
               : 320 + travelSquares * 150;
         const locomotionDuration = slideSegmentIndex === undefined
           ? fullRouteLocomotionDuration
-          : fullRouteLocomotionDuration * slideSegmentIndex / travelSquares;
+          : flip ? fullRouteLocomotionDuration : fullRouteLocomotionDuration * slideSegmentIndex / travelSquares;
         const directSlide = slideSegmentIndex === 1;
         const slideStartsAtMs = slideSegmentIndex === undefined ? undefined : directSlide ? 0 : Math.max(0, locomotionDuration - SLIDE_EARLY_TRIGGER_MS);
         const slideSteps = slideSegmentIndex === undefined ? 0 : travelSquares - slideSegmentIndex;
         const duration = slideStartsAtMs === undefined ? locomotionDuration
           : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS + Math.max(0, slideSteps - 1) * SLIDE_GLIDE_DURATION_MS
             : slideStartsAtMs + slideSteps * SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, shizzle, slideSegmentIndex, slideStartsAtMs };
+        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, flip, shizzle, slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -10590,20 +10666,20 @@ function syncBoard() {
         else {
           const pullDelay = replicatePull ? recordedMovement.delayMs ?? 0 : 0;
           const movementQueuedAt = performance.now() + pullDelay;
-          const turnDuration = danceThrough ? OBI_WAN_DANCE_THROUGH_TURN_MS : 0;
+          const turnDuration = flip ? OBI_WAN_FLIP_TURN_MS : danceThrough ? OBI_WAN_DANCE_THROUGH_TURN_MS : 0;
           const movementStartedAt = movementQueuedAt + turnDuration;
           const firstMovementTarget = visualPath[0] ?? target;
           const turnDx = firstMovementTarget.x - group.position.x;
           const turnDz = firstMovementTarget.z - group.position.z;
-          const turnToRotation = danceThrough && Math.abs(turnDx) + Math.abs(turnDz) > 0.0001
+          const turnToRotation = (danceThrough || flip) && Math.abs(turnDx) + Math.abs(turnDz) > 0.0001
             ? characterFacingRotation(group, turnDx, turnDz)
             : undefined;
           const pullSource = replicatePull && recordedMovement.source ? worldPosition(recordedMovement.source) : undefined;
           movementAnimations.set(id, {
             ...movement,
             startedAt: movementStartedAt,
-            turnStartedAt: danceThrough ? movementQueuedAt : undefined,
-            turnFromRotation: danceThrough ? group.rotation.y : undefined,
+            turnStartedAt: danceThrough || flip ? movementQueuedAt : undefined,
+            turnFromRotation: danceThrough || flip ? group.rotation.y : undefined,
             turnToRotation,
             faceToward: pullSource,
           });

@@ -1,0 +1,61 @@
+{
+  "file": "C:\\Users\\artur\\git\\Gridfall\\output\\mixamo-obi-wan-20261013\\Obi-Wan-Mixamo.fbx",
+  "bytes": 1040252,
+  "source": {
+    "vertices": 8122,
+    "triangles": 10225,
+    "bones": 24,
+    "bone_names": [
+      "Head",
+      "Hips",
+      "LeftArm",
+      "LeftFoot",
+      "LeftForeArm",
+      "LeftHand",
+      "LeftLeg",
+      "LeftShoulder",
+      "LeftToeBase",
+      "LeftUpLeg",
+      "RightArm",
+      "RightFoot",
+      "RightForeArm",
+      "RightHand",
+      "RightLeg",
+      "RightShoulder",
+      "RightToeBase",
+      "RightUpLeg",
+      "Spine",
+      "Spine01",
+      "Spine02",
+      "head_end",
+      "headfront",
+      "neck"
+    ],
+    "weighted_vertices": 8122,
+    "textures": [
+      {
+        "name": "texture_1_Material_1_baseColor",
+        "size": [
+          2048,
+          2048
+        ]
+      }
+    ]
+  },
+  "round_trip": {
+    "meshes": 1,
+    "armatures": 1,
+    "vertices": 8122,
+    "bones": 24,
+    "weighted_vertices": 8122,
+    "textures": [
+      {
+        "size": [
+          2048,
+          2048
+        ],
+        "packed": true
+      }
+    ]
+  }
+}

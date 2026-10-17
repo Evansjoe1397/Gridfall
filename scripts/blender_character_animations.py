@@ -70,6 +70,23 @@ def apply_character_staff_pose(rig, action_name):
     staff.scale = (67.68447,) * 3
 
 
+def apply_character_saber_pose(rig, action_name):
+    saber = bpy.data.objects.get("Lightsaber")
+    if not saber or saber.parent != rig:
+        saber = next((obj for obj in rig.children
+                      if obj.type == "MESH" and obj.parent_bone == "RightHand"
+                      and "gridfall_animation_pose_map" in obj), None)
+    if not saber:
+        return
+    try:
+        poses = json.loads(saber.get("gridfall_animation_pose_map", "{}"))
+    except (TypeError, ValueError):
+        return
+    pose = poses.get(action_name, poses.get("default"))
+    if pose and "matrix_basis" in pose:
+        saber.matrix_basis = Matrix(pose["matrix_basis"])
+
+
 def character(context):
     configured = context.scene.get("gridfall_character_armature", "")
     rig = bpy.data.objects.get(configured) if configured else None
@@ -152,6 +169,7 @@ class GRIDFALL_OT_play_bound_character_animation(bpy.types.Operator):
         context.scene.frame_set(start)
         context.view_layer.update()
         apply_character_staff_pose(rig, action.name)
+        apply_character_saber_pose(rig, action.name)
         context.scene["gridfall_active_animation"] = action.name
 
         if context.screen:

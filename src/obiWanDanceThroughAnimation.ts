@@ -19,6 +19,20 @@ export function shouldHoldObiWanDanceThrough(gamePhase: string, stepMoving: bool
   return gamePhase === 'dance-through' && !stepMoving;
 }
 
+export function obiWanDanceThroughInputLocked(
+  awaitingMoveResponse: boolean,
+  movement: { danceThrough?: boolean } | undefined,
+  dance: { holding: boolean } | undefined,
+) {
+  // Keep the lock through the turn, combat-effect wait, tile travel, and the
+  // completed movement's final pose. The renderer releases it after that pose.
+  return awaitingMoveResponse || Boolean(movement?.danceThrough) || Boolean(dance && !dance.holding);
+}
+
+export function obiWanDanceThroughFrame(progress: number, startFrame: number, endFrame: number) {
+  return startFrame + (endFrame - startFrame) * Math.max(0, Math.min(1, progress));
+}
+
 export function shouldShowObiWanLightsaberDuringDance(
   lightsaberBuff: boolean | undefined,
   sourceCardId: string | undefined,

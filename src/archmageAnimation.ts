@@ -138,7 +138,7 @@ export class ArchmageAnimation {
     this.conjure.update(delta, this.current === 'Conjure');
   }
 
-  update(delta: number, motion?: ArchmageMotion, wallActive = false, effectFinished = false, wallAgeSeconds?: number, glide = false) {
+  update(delta: number, motion?: ArchmageMotion, wallActive = false, effectFinished = false, wallAgeSeconds?: number, glide = false, holdIdle = false) {
     if (this.deathEndsAt !== undefined) { this.advance(delta); return; }
     if (wallActive) {
       if (!this.wall) {
@@ -182,6 +182,9 @@ export class ArchmageAnimation {
       action.paused = true;
       // Distance, rather than render delta, also keeps diagonal steps and delayed frames synchronized.
       action.time = motion.travelledDistance / (stanceSpeed[gait] * ARCHMAGE_SCALE * motion.bodyScale) % action.getClip().duration;
+    } else if (holdIdle) {
+      this.idleSeconds = 0;
+      this.play('Idle');
     } else {
       this.idleSeconds += delta;
       this.play(Math.floor(this.idleSeconds / 10) % 2 ? 'Conjure' : 'Idle');

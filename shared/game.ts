@@ -350,7 +350,7 @@ export type PlayerState = {
   spellsingerExtraPerkUses?: number;
   spellsingerExtraAttacks?: number;
   decayMovementBonus?: number;
-  visualMovement?: { dash?: boolean; fastRun?: boolean; from: Cell; path: Cell[]; slideEffectsIgnored?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate' | 'lightbringer-swap'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
+  visualMovement?: { doubleJumpStep?: 1 | 2; dash?: boolean; fastRun?: boolean; from: Cell; path: Cell[]; slideEffectsIgnored?: boolean; triggerAnimationId?: string; triggerRouteProgress?: number; kind?: 'replicate-pull' | 'relocate' | 'lightbringer-swap'; source?: Cell; tetherSource?: Cell; sourceObjectId?: string; sourcePlayerId?: PlayerId; sourceCardId?: CardTypeId; delayMs?: number; durationMs?: number };
   visualMovementCause?: 'voluntary' | 'own-card' | 'enemy-ability' | 'movement-cancelled';
   matchStats?: MatchStats;
 };
@@ -8813,7 +8813,7 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   const passedEnemy = passedReplica ?? (jump.enemyUnderfoot ? characterBody(state, 'player', jump.enemyUnderfoot) : null);
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
-  player.visualMovement = { from: enteredFrom, path: [{ ...to }] };
+  player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'double-jump', doubleJumpStep: jump.stepsRemaining > 1 ? 1 : 2 };
   player.position = to;
   applySlideSquare(state, player, enteredFrom, true);
   markCharacterMoved(player, 'own-card');
