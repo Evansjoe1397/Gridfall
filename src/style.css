@@ -1693,3 +1693,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   [data-oracle-pulse="true"] { animation-name: none; outline: 1px solid #65cfff; }
   [data-oracle-pulse="true"]::after { display: none; }
 }
+.pyro-storage i { border-color: #a75a34; background: #3c1e18; }
+.pyro-storage i.filled { border-color: #ffd17a; background: #ff6929; box-shadow: 0 0 12px #ff652b, inset 0 0 5px #fff0b0; }
+.pyro-storage small { color: #ffc476; }
+.flame-ward-status { box-shadow: inset 0 0 8px #ff701859; }
+.flame-ward-status.flame-ward-charged { box-shadow: 0 0 7px #67b9ff80, inset 0 0 8px #ff701859; }

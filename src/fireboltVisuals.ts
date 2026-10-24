@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createFlameWardShield, animateFlameWardShield, disposeFlameWardShield } from './flame-ward-visuals.ts';
 
 /** A self-contained charge, comet and ember burst, in world coordinates. */
 export class FireboltVisual {
@@ -13,10 +14,12 @@ export class FireboltVisual {
   private readonly light = new THREE.PointLight(0xff7b20, 0, 4);
   private readonly travelMs: number;
   private readonly side: THREE.Vector3;
+  private readonly wardShield?: THREE.Group;
 
-  constructor(private readonly from: THREE.Vector3, private readonly to: THREE.Vector3, private readonly startedAt: number, private readonly power = 1) {
+  constructor(private readonly from: THREE.Vector3, private readonly to: THREE.Vector3, private readonly startedAt: number, private readonly power = 1, private readonly route?: THREE.Vector3[], private readonly absorption = false, wardLevel = 0) {
     this.group.name = power > 1 ? 'Fireball' : 'Firebolt';
-    this.travelMs = 360 + Math.min(4, from.distanceTo(to)) * 65;
+    const routeLength = route && route.length > 1 ? route.slice(1).reduce((length, point, index) => length + point.distanceTo(route[index]), 0) : from.distanceTo(to);
+    this.travelMs = 360 + Math.min(route ? 10 : 4, routeLength) * 65;
     this.impactAt = startedAt + 220 + this.travelMs;
     this.side = new THREE.Vector3().subVectors(to, from).cross(new THREE.Vector3(0, 1, 0)).normalize();
     const pixels = new Uint8Array(32 * 32 * 4);
@@ -40,6 +43,11 @@ export class FireboltVisual {
     this.ring.position.copy(to).add(new THREE.Vector3(0, -1.18, 0));
     this.ring.visible = false;
     this.group.add(this.ring, this.light);
+    if (wardLevel > 0) {
+      this.wardShield = createFlameWardShield(wardLevel >= 3);
+      this.wardShield.position.copy(from);
+      this.group.add(this.wardShield);
+    }
     this.update(startedAt);
   }
 
@@ -51,20 +59,38 @@ export class FireboltVisual {
   }
 
   private point(progress: number, out: THREE.Vector3) {
-    out.lerpVectors(this.from, this.to, progress);
+    if (this.route && this.route.length > 1) {
+      const scaled = progress * (this.route.length - 1);
+      const index = Math.min(this.route.length - 2, Math.floor(scaled));
+      out.lerpVectors(this.route[index], this.route[index + 1], scaled - index);
+    } else out.lerpVectors(this.from, this.to, progress);
     out.y += Math.sin(progress * Math.PI) * .32;
   }
 
+  /** Ward shots follow the moving Character until impact, then freeze the burst. */
+  trackTarget(position: THREE.Vector3): void {
+    this.to.copy(position);
+    this.ring.position.copy(position).add(new THREE.Vector3(0, -1.18, 0));
+  }
+
   update(time: number): boolean {
+    this.group.visible = time >= this.startedAt;
+    if (!this.group.visible) return false;
     const elapsed = Math.max(0, time - this.startedAt);
     const travel = THREE.MathUtils.clamp((elapsed - 220) / this.travelMs, 0, 1);
     const burst = Math.max(0, time - this.impactAt) / 680;
     const arrived = time >= this.impactAt;
     const charge = Math.min(1, elapsed / 220);
+    if (this.wardShield) {
+      this.wardShield.visible = elapsed < 220;
+      this.wardShield.scale.set(1 - charge * .95, 1 - charge * .95, 1 + charge * 2);
+      animateFlameWardShield(this.wardShield, time);
+    }
     this.point(travel, this.core.position);
     this.halo.position.copy(this.core.position);
     this.core.visible = this.halo.visible = burst < .4;
     this.core.scale.setScalar((arrived ? .95 * Math.max(0, 1 - burst * 2.5) : .35 + charge * .28) * this.power);
+    if (this.wardShield && elapsed < 220) this.core.scale.multiplyScalar(charge);
     this.halo.scale.setScalar((arrived ? 1.2 + burst * 5 : 1 + charge * .6 + Math.sin(elapsed * .035) * .12) * this.power);
     this.halo.material.opacity = arrived ? Math.max(0, 1 - burst * 2.5) : .75;
     this.trail.forEach((ember, i) => {
@@ -83,12 +109,12 @@ export class FireboltVisual {
       spark.visible = arrived && burst < 1;
       if (!spark.visible) return;
       const angle = i * 2.399963;
-      const radius = (1 - Math.pow(1 - Math.min(1, burst), 3)) * (.45 + (i % 5) * .18);
+      const radius = (this.absorption ? Math.pow(1 - Math.min(1, burst), 3) : 1 - Math.pow(1 - Math.min(1, burst), 3)) * (.45 + (i % 5) * .18);
       spark.position.copy(this.to).add(new THREE.Vector3(Math.cos(angle) * radius, Math.sin(i * 7.1) * radius * .55 + burst * .65, Math.sin(angle) * radius));
       spark.scale.setScalar((.12 + (i % 3) * .055) * (1 - burst) * this.power);
       spark.material.opacity = Math.pow(1 - burst, 1.5);
     });
-    this.ring.visible = arrived;
+    this.ring.visible = arrived && !this.absorption;
     this.ring.scale.setScalar((.35 + burst * 2.2) * this.power);
     this.ring.material.opacity = arrived ? Math.max(0, .65 * (1 - burst * 1.7)) : 0;
     this.light.position.copy(this.core.position);
@@ -97,6 +123,7 @@ export class FireboltVisual {
   }
 
   dispose() {
+    if (this.wardShield) disposeFlameWardShield(this.wardShield);
     this.group.removeFromParent();
     this.group.traverse((part) => { if (part instanceof THREE.Sprite) part.material.dispose(); });
     this.ring.geometry.dispose();

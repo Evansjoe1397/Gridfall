@@ -26,6 +26,14 @@ import { characterStatusCards } from './character-status-cards.ts';
 import { combatPortrait } from './combat-portraits.ts';
 import { characterProfile } from './character-profiles.ts';
 import { createKazka, updateKazkaAnimation } from './kazkaModel.ts';
+import { createFyrebanks, updateFyrebanksAnimation } from './fyrebanksModel.ts';
+import { createLens, disposeLens, orientLens } from './lens-model.ts';
+import { lensAttackTargets, lensSummonSquareEligible, lensPushSquareEligible } from '../shared/game.ts';
+import { FOCUS_LENS_DESCRIPTION, PYRO_CHARGES_DESCRIPTION } from '../shared/game.ts';
+import { updatePyroChargeVisuals, disposePyroChargeVisuals } from './pyro-charge-visuals.ts';
+import { updateFlameWardVisuals, disposeFlameWardVisuals } from './flame-ward-visuals.ts';
+import { updatePyrodashVisuals, disposePyrodashVisuals } from './pyrodash-visuals.ts';
+import { pyrodashDirectionAt } from '../shared/game.ts';
 import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
 import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
@@ -84,6 +92,7 @@ import { LightbringerEffects } from './lightbringerEffects.ts';
 import { createArcaneMissile, updateArcaneMissile, spawnArcaneImpact, updateArcaneImpacts } from './arcaneMissileVisuals.ts';
 import { clearCutThemLegsBlood, spawnCutThemLegsBlood, updateCutThemLegsBlood } from './cutThemLegsVisuals.ts';
 import { addNagrandBrazierFire, updateNagrandBrazierFire } from './nagrand-brazier-fire.ts';
+import { PatchOfFlamesVisuals } from './patch-of-flames.ts';
 import { createDesertAtmosphere } from './desert-atmosphere.ts';
 import { createStormAtmosphere } from './storm-atmosphere.ts';
 import { createNagrandMountains, NAGRAND_LANDSCAPE_SCALE } from './nagrand-mountains.ts';
@@ -182,7 +191,7 @@ import {
   type GameStateWithNarrative,
   type GameStateWithMockingjay,
   narrativeCardsInHand,
-  feedSpiritDefenseBonus,
+  defenseCardValueBonus,
   storedManaShieldDefenseBonus,
   type GameStateWithOnceUpon,
   type NarrativeEffect,
@@ -525,7 +534,9 @@ document.querySelector('#directPerkButton')!.addEventListener('click', () => {
   if (selected.kind === 'perk') dispatch({ type: 'play-perk', playerId: actingPlayer(), cardInstanceId: selected.cardInstanceId, destination: 'direct' });
 });
 document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
-  if ((gameState.phase as string) === 'choosing-yamato-move') dispatch({ type: 'yamato-move', playerId: actingPlayer(), to: null });
+  if (gameState.phase === 'choosing-lens-push') dispatch({ type: 'lens-push', playerId: actingPlayer(), to: null });
+  else if (gameState.lensPerk || gameState.lensSelection) dispatch({ type: 'cancel-targeting', playerId: actingPlayer() });
+  else if ((gameState.phase as string) === 'choosing-yamato-move') dispatch({ type: 'yamato-move', playerId: actingPlayer(), to: null });
   else if (gameState.phase === 'choosing-lichdom-target') dispatch({ type: 'lichdom-decline-phylactery', playerId: actingPlayer() });
   else if ((gameState.phase as string) === 'choosing-dakkoth-phylactery-target' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace') dispatch({ type: 'wreckna-phylactery-decline', playerId: actingPlayer() });
   else dispatch({ type: 'end-dance', playerId: actingPlayer() });
@@ -747,12 +758,14 @@ window.addEventListener('keydown', (event) => {
     toggleCompactHandMode();
   }
   if (event.code === 'KeyC' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !game.classList.contains('hidden')) {
-    const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
+  const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
     if (!cancelMovementButton.classList.contains('hidden') && !cancelMovementButton.disabled) { event.preventDefault(); cancelMovementButton.click(); }
   }
 });
 
 function isWaitingForResolvedCardTarget() {
+  if (gameState.lensPerk) return true;
+  if (gameState.lensSelection && (gameState.phase === 'choosing-lens-target' || gameState.phase === 'confirming-lens-destruction')) return true;
   if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
   if (gameState.phase === 'choosing-spirit-guardian-square' && (Boolean((gameState as GameState & { spiritGuardian?: unknown }).spiritGuardian) || Boolean((gameState as any).spectreReplicaPlacement))) return true;
   if (gameState.phase === 'choosing-arkane-arow-target' && Boolean((gameState as any).spectreShadow)) return true;
@@ -965,7 +978,7 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
 }
 
 type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna' | 'merylin';
-type SelectableCharacter = OnlineCharacter | 'kazka';
+type SelectableCharacter = OnlineCharacter | 'kazka' | 'fyrebanks';
 type HotseatCharacter = SelectableCharacter;
 type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench' | 'pipe';
@@ -979,9 +992,10 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; title?: st
   wreckna: { name: 'Wreckna', hp: 15, movement: 2, attackRange: 2, trait: 'Phylactery · Entombed', traitIcon: 'skull', traitDescription: 'Infuse Objects with Wreckna’s undead Soul to empower Attack, Defend, or Perk Cards. While any Phylactery exists, Damage cannot reduce Wreckna below 1 HP, but the attacker still receives full post-match Damage credit. Spend 2 MOV to enter a Tomb; restore 1 HP when beginning a turn inside it.' },
   merylin: { name: 'Merylin Pendragon', hp: 20, movement: 2, attackRange: 1, trait: 'Swordcraft', traitIcon: 'attack', traitDescription: 'Summon swords from other realms through Card and Perk effects. Summon enables one Attack Card and is consumed when that Attack is used.' },
   kazka: { name: 'Kazka', title: 'The Narrator', hp: 18, movement: 2, attackRange: 3, trait: 'Weaver of Stories', traitIcon: 'weaver', traitDescription: KAZKA_TRAIT_DESCRIPTION },
+  fyrebanks: { name: 'Fyrebanks', title: 'Fire Mage', hp: 18, movement: 2, attackRange: 2, trait: 'Focus Lens · Pyro Charges', traitIcon: 'focus-lens', traitDescription: `${FOCUS_LENS_DESCRIPTION} ${PYRO_CHARGES_DESCRIPTION}` },
 };
 const ONLINE_CHARACTER_ORDER: OnlineCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
-const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = [...ONLINE_CHARACTER_ORDER, 'kazka'];
+const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = [...ONLINE_CHARACTER_ORDER, 'kazka', 'fyrebanks'];
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const portrait = characterProfile(character);
@@ -1454,7 +1468,10 @@ function renderOnlineSelectionFrames() {
 }
 
 function actingPlayer(): PlayerId {
+  if (gameState.lensPerk) return gameState.lensPerk.casterId;
   if (mode === 'online') return localSeat ?? 'P1';
+  if (gameState.lensSelection) return gameState.lensSelection.playerId;
+  if (gameState.phase === 'choosing-pyrodash-direction') return gameState.pyrodash?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mockingjay-defense') return gameState.pendingAttack?.defenderId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-mockingjay-narrative') return (gameState as GameStateWithMockingjay).mockingjayNarrativeSpend?.playerId ?? gameState.activePlayerId;
   if (gameState.phase === 'choosing-narrative' || gameState.phase === 'choosing-narrative-target') return (gameState as GameStateWithNarrative).narrativeChoice?.kazkaId ?? gameState.activePlayerId;
@@ -1661,6 +1678,7 @@ function dispatch(command: GameCommand) {
   else startResolvedFireSpell(previousGameState, gameState);
   const perkUseEvent = perkUseEventForTransition(previousGameState, command, gameState);
   selection.send({ type: 'CLEAR' });
+  if (command.type === 'cancel-targeting' && previousGameState.lensSelection && gameState.phase === 'active') selection.send({ type: 'SELECT_ATTACK', cardInstanceId: previousGameState.lensSelection.cardInstanceId });
   if (movementCancellationTarget) beginObiWanCancellationReturn(command.playerId, movementCancellationTarget);
   if (orkkVisualIntent) applyOrkkVisualIntent(orkkVisualIntent);
   renderAll();
@@ -1780,7 +1798,7 @@ function renderUI() {
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
   showTurnAnnouncement(actor);
-  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : actor.character === 'kazka' ? 'THE NARRATOR' : 'TRAINING DUMMY';
+  byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : actor.character === 'kazka' ? 'THE NARRATOR' : actor.character === 'fyrebanks' ? 'FIRE MAGE' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
   byId('activeStats').innerHTML = `<span>MOV <b>${actor.movementRemaining}/${effectiveMoveRange(actor)}</b></span><span>ACTIONS <b>${actor.actionsRemaining}/2</b></span><span>ATT. RANGE <b>${effectiveAttackRange(gameState, actor)}</b></span>`;
   const privatelyKnownTopIds = (actor.knownTopCardIds ?? []).filter((cardId, index) => actor.deck.at(-1 - index)?.cardId === cardId);
@@ -1891,6 +1909,11 @@ function renderUI() {
   if (gameState.phase === 'choosing-blink-discard') prompt.textContent = 'Blink: discard another Card from Hand as an extra cost';
   if (gameState.phase === 'choosing-base-placement') prompt.textContent = `${gameState.players[gameState.activePlayerId].name}: choose a Square on a bright red unclaimed base`;
   if (gameState.phase === 'choosing-preparation-discard') prompt.textContent = 'Preparation: select any eligible Card from your Hand to discard';
+  if (gameState.phase === 'choosing-lens-target') prompt.textContent = 'Lens: select a highlighted enemy within Range 2 of the Lens · Esc or Cancel Lens to restore your selections';
+  if (gameState.phase === 'choosing-lens-square') prompt.textContent = 'Summon Lens: choose an adjacent Square · The existing Lens will be replaced · Esc to cancel';
+  if (gameState.phase === 'choosing-lens-push') prompt.textContent = 'Summon Lens: choose a highlighted push direction, or Keep Lens here · Esc cancels the entire Perk';
+  if (gameState.phase === 'confirming-lens-destruction') prompt.textContent = 'Lens: this Attack is not in a straight line. Confirm destruction or cancel.';
+  if (gameState.phase === 'choosing-pyrodash-direction') prompt.textContent = `Pyrodash: click a highlighted lane ${gameState.pyrodash?.lens ? 'from the Lens ' : ''}toward the target · ${gameState.pyrodash?.fp ?? 0} FP · Reflections are automatic`;
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
@@ -1939,6 +1962,17 @@ function renderUI() {
     cancelDanceButton.disabled = !canLocalAct(actingPlayer());
   }
   cancelDanceButton.title = canDeclineLichdom ? 'Keep your HP, draw Lichdom\'s Card, and continue with its Level 3 effect if available.' : choosingYamatoMove ? 'Resolve Yamato without moving.' : danceOccupied ? 'Shinobi must leave the occupied Square before cancelling.' : 'End Dance Through movement early.';
+  if (gameState.lensSelection) {
+    cancelDanceButton.classList.remove('hidden'); cancelDanceButton.textContent = 'Cancel Lens';
+    cancelDanceButton.disabled = !canLocalAct(gameState.lensSelection.playerId);
+    cancelDanceButton.title = 'Restore the Card, Action and selections from before targeting the Lens.';
+  }
+  if (gameState.lensPerk) {
+    cancelDanceButton.classList.remove('hidden');
+    cancelDanceButton.textContent = gameState.phase === 'choosing-lens-push' ? 'Keep Lens here' : 'Cancel Summon Lens';
+    cancelDanceButton.disabled = !canLocalAct(gameState.lensPerk.casterId);
+    cancelDanceButton.title = gameState.phase === 'choosing-lens-push' ? 'Finish the Perk without pushing the summoned Lens.' : 'Cancel this Perk and restore the previous Lens.';
+  }
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
   const canCancelMovement = canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
   cancelMovementButton.textContent = 'Cancel movement (C / Ctrl+Z)';
@@ -2107,10 +2141,11 @@ function characterTraitHtml(ru: boolean) {
   }
   const character = player.character as HotseatCharacter;
   const info = CHARACTER_SELECT_INFO[character];
+  if (character === 'fyrebanks') return `<h2 id="hintsTitle">Fyrebanks · Fire Mage</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon('focus-lens')}</span><div><small>CHARACTER TRAIT</small><h3>Focus Lens</h3></div></header><p>${escapeHtml(FOCUS_LENS_DESCRIPTION)}</p><p>Arch Beam has base Value 0. Its before-combat effect adds this Attack's FP; its after-combat effect gives the target Burning. Cancelling the Attack Card effects prevents the corresponding effects. Dragon Claws has base Value 2, requires melee, deals 1 before-combat Damage to a Burning target, then Absorbs flames within this Attack's FP Range after combat. FP is never stored between Attacks.</p><header><span>${gameIcon('pyro-charges')}</span><div><small>CHARACTER TRAIT</small><h3>Pyro Charges</h3></div></header><p>${escapeHtml(PYRO_CHARGES_DESCRIPTION)}</p><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>${effectiveAttackRange(gameState, player)}</b></span></footer></article>`;
   if (!info.trait) return `<h2 id="hintsTitle">${escapeHtml(player.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><p class="empty-advice">${ru ? 'Черты и карты этого персонажа будут добавлены позже.' : 'Traits and Cards for this character will be added later.'}</p>`;
   if (character === 'kazka') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>CHARACTER TRAIT</small><h3>${escapeHtml(info.trait)}</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><strong>Turn records, Removed Deck choices, and Narrative effect rules are active. No Narrative Cards have been added yet.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>${player.attackRange}</b></span></footer></article>`;
   if (character === 'merylin') return `<h2 id="hintsTitle">${escapeHtml(info.name)} · ${ru ? 'Персонаж' : 'Character'}</h2><article class="character-hint-card" style="--character-color:${playerUiColor(player.id)}"><header><span>${gameIcon(info.traitIcon)}</span><div><small>${ru ? 'ОСОБЕННОСТЬ ПЕРСОНАЖА' : 'CHARACTER TRAIT'}</small><h3>Swordcraft</h3></div></header><p>${escapeHtml(info.traitDescription)}</p><p class="character-hint-detail">Attack Cards require an active Summon. Using an Attack consumes the current Summon. If that Attack grants Summon, the new Summon is applied after the spent one and can enable another Attack during the same turn.</p><strong>Current state: ${player.merylinSummonActive ? 'Summon active · Attack enabled' : 'no Summon · Attacks disabled'}.</strong><footer><span>HP <b>${player.maxHp}</b></span><span>MOV <b>${player.moveRange}</b></span><span>ATTACK RANGE <b>MELEE</b></span></footer></article>`;
-  const traitCharacter = character as Exclude<SelectableCharacter, 'merylin' | 'kazka'>;
+  const traitCharacter = character as Exclude<SelectableCharacter, 'merylin' | 'kazka' | 'fyrebanks'>;
   const copy = {
     shinobi: {
       trait: 'Lightsaber',
@@ -2409,13 +2444,14 @@ function renderFighter(id: PlayerId, elementId: string, side: 'left' | 'right') 
   const hpPercent = player.hp / player.maxHp * 100;
   const manaMode = player.manaMode === 'consume' ? '<small>CONSUME</small>' : '';
   const mana = player.character === 'magician' ? `<div class="mana-storage" title="Classic Wizardry Mana: ${player.manaPoints}/3">${[1, 2, 3].map((point) => `<i class="${point <= player.manaPoints ? 'filled' : ''}"></i>`).join('')}${manaMode}</div>` : '';
-  const title = player.character === 'magician' ? ' · THE MAGICIAN' : '';
+  const pyro = player.character === 'fyrebanks' ? `<div class="mana-storage pyro-storage" title="Pyro Charges: ${player.pyroCharges ?? 0}/3" aria-label="Pyro Charges: ${player.pyroCharges ?? 0} of 3">${[1, 2, 3].map((charge) => `<i class="${charge <= (player.pyroCharges ?? 0) ? 'filled' : ''}"></i>`).join('')}<small>PYRO CHARGES</small></div>` : '';
+  const title = player.character === 'magician' ? ' · THE MAGICIAN' : player.character === 'fyrebanks' ? ' · FIRE MAGE' : '';
   const abilityIcon = playerAbilityIcon(player);
   const statusIcons = playerStatusIcons(player);
   const totalDamage = player.matchStats?.totalDamage ?? 0;
   const removedCount = Object.values(gameState.players).some((candidate) => candidate.character === 'kazka')
     ? `<small class="fighter-removed-count" title="Negative Status Cards in Removed Deck · ${Math.max(0, (player.removedDeck?.length ?? 0) - (player.weaverRemovedAtLastChoice ?? 0))} since the last Choice Event">REMOVE ${player.removedDeck?.length ?? 0}</small>` : '';
-  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong>${removedCount}</div><div class="fighter-vitals"><div class="fighter-damage" aria-label="${escapeHtml(player.name)} total damage dealt: ${totalDamage}"><span>TOTAL DAMAGE</span><b>${totalDamage}</b></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div></div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}`;
+  element.innerHTML = `<div><span>${id === 'P1' ? 'PLAYER 01' : id === 'P2' ? 'PLAYER 02' : 'PLAYER 03'}${title}</span><strong>${player.name}</strong>${removedCount}</div><div class="fighter-vitals"><div class="fighter-damage" aria-label="${escapeHtml(player.name)} total damage dealt: ${totalDamage}"><span>TOTAL DAMAGE</span><b>${totalDamage}</b></div><div class="hp-copy"><b>${player.hp}</b> / ${player.maxHp} HP</div></div><div class="hp-track"><i style="width:${hpPercent}%"></i>${abilityIcon || statusIcons ? `<div class="hud-status-strip" aria-label="${escapeHtml(player.name)} ability and statuses">${abilityIcon}${statusIcons}</div>` : ''}</div>${mana}${pyro}`;
 }
 
 function playerUiColor(playerId: PlayerId) {
@@ -2454,10 +2490,22 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
 function playerAbilityIcon(player: GameState['players'][PlayerId]) {
   if (!(player.character in CHARACTER_SELECT_INFO)) return '';
   const info = CHARACTER_SELECT_INFO[player.character as HotseatCharacter];
+  if (player.character === 'fyrebanks') {
+    const pending = gameState.pendingAttack;
+    const points = pending?.attackerId === player.id ? pending.fyrePoints ?? 0 : 0;
+    const label = player.traitBlocked ? 'Focus Lens · Trait Blocked' : `Focus Lens · ${points} FP`;
+    const lens = `<div class="trait-icon hud-ability-icon focus-lens-trait" tabindex="0" aria-label="${label}">${gameIcon('focus-lens')}<span class="trait-tooltip"><b>${label}</b>${escapeHtml(FOCUS_LENS_DESCRIPTION)}${points ? ` This Attack: ${points} FP.` : ' No FP is stored.'}</span></div>`;
+    return lens + `<div class="trait-icon hud-ability-icon" tabindex="0" aria-label="Pyro Charges: ${player.pyroCharges ?? 0}">${gameIcon('pyro-charges')}<em>${player.pyroCharges ?? 0}</em><span class="trait-tooltip"><b>Pyro Charges</b>${escapeHtml(PYRO_CHARGES_DESCRIPTION)}</span></div>`;
+  }
   return `<div class="trait-icon hud-ability-icon" tabindex="0" aria-label="${escapeHtml(info.trait)}">${gameIcon(info.traitIcon)}<span class="trait-tooltip"><b>${escapeHtml(info.trait)}</b>${escapeHtml(info.traitDescription)}</span></div>`;
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
+    const ward = player.flameWard;
+    const wardIcon = player.hp > 0 && ward && (!ward.triggered || ward.level >= 3) ? `<div class="status-icon flame-ward-status${ward.level >= 3 && !ward.triggered ? ' flame-ward-charged' : ''}" tabindex="0" aria-label="Flame Ward${ward.triggered ? ': Range bonus' : ': enemy movement triggers Burning'}">${gameIcon('flame-ward')}<span class="status-tooltip"><strong>Flame Ward · Level ${ward.level}</strong>${ward.triggered ? 'Shield already fired. ' : `The first enemy that moves onto or through a Square within your current Attack Range and line of sight receives Burning${ward.level >= 2 ? ' and takes 1 Damage' : ''}. The shield then fires and is consumed. `}${ward.level >= 3 ? `+1 Attack Range during enemy turns until the start of your next turn. ${ward.triggered ? 'No unused-Ward reward.' : 'If the Ward remains untriggered, gain 1 Pyro Charge and restore 1 HP at the start of your next turn.'}` : 'Expires at the start of your next turn.'}</span></div>` : '';
+    const evocationRange = Math.max(0, player.evocationRangeBonus ?? 0);
+    const evocationDraws = Math.max(0, player.evocationNextAttackDraws ?? 0);
+    const evocationIcon = player.hp > 0 && (evocationRange > 0 || evocationDraws > 0) ? `<div class="status-icon" tabindex="0" aria-label="Evocation: +${evocationRange} Range, ${evocationDraws} queued draw${evocationDraws === 1 ? '' : 's'}">${gameIcon('spellbook')}${evocationDraws > 0 ? `<b>${evocationDraws}</b>` : ''}<span class="status-tooltip"><strong>Evocation</strong>${evocationRange > 0 ? `+${evocationRange} Attack Range until the end of this turn. ` : ''}${evocationDraws > 0 ? `Draw ${evocationDraws} Card${evocationDraws === 1 ? '' : 's'} after your next Attack. This draw remains pending across turns until used.` : ''}</span></div>` : '';
     const reserve = Math.max(0, player.manaShieldUnusedBlock ?? 0);
     const manaShieldReserveIcon = reserve > 0 && player.hp > 0 ? `<div class="status-icon mana-shield-reserve-status" tabindex="0" aria-label="Mana Shield: ${reserve} unused block">${gameIcon('mana-shield-reserve')}<b>+${reserve}</b><span class="status-tooltip"><strong>Mana Shield · Unused Block</strong>+${reserve} DEF on your next Defend Card. Stored block equals the previous Mana Shield's total DEF minus the attacker's total ATT, including all bonuses and penalties. This bonus remains through turns, attacks and hits taken without a Defend Card, then is consumed when you play a Defend Card.</span></div>` : '';
     const stacks = pinnedCount(player);
@@ -2521,7 +2569,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: { carrierId: PlayerId | null; status: string }[] } | null } }).questPhases?.captureTheFlag;
     const flagCarrier = Boolean(flagState?.flags.some((flag) => flag.status === 'carried' && flag.carrierId === player.id));
     const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">${gameIcon('flag')}<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and begin a turn there to complete The Conqueror.</span></div>` : '';
-    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the beginning of the turn. Only Dash Removes Burning; its movement is then spent randomly through legal empty Squares.</span></div>` : '';
+    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the end of your turn. Ending on Shallow Water then Removes Burning. Dash deals existing Burning Damage first. Fyrebanks with an active Trait and at least 1 accumulated Pyro Charge discards those Cards, gains +1 MOV each and controls his route; otherwise they are Removed and Dash movement is random. Burning from Patch of Flames during Dash arrives after turn completion and deals no Damage that turn.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">${gameIcon('panic')}${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">${gameIcon('spirit')}<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
     const shellIcon = displayedStoicShell(player.id, player.stoicShell) ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<span class="status-tooltip"><strong>Stoic Shell</strong>Restore 1 HP at the beginning of your turn, up to maximum HP. Healing does not stack. HP Damage removes Stoic Shell.</span></div>` : '';
@@ -2529,7 +2577,8 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const guardianPenaltyIcon = spiritGuardianEnemyPenalty(gameState, player) ? `<div class="status-icon guardian-penalty-status" tabindex="0">${gameIcon('spirit')}<b>-1</b><span class="status-tooltip"><strong>Spirit Guardian's Judgment</strong>While adjacent to an enemy level 3 Spirit Guardian, this Player's Attack and Defend Cards have -1 Value.</span></div>` : '';
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
-    return `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    const lensBurningIcon = player.hp > 0 && player.lensBurningReady ? `<div class="status-icon" tabindex="0" aria-label="Summon Lens: next magnified Attack applies Burning">${gameIcon('lens-burning')}<span class="status-tooltip"><strong>Summon Lens · Burning Attack</strong>Your next Attack through Lens applies Burning to its target after both Cards’ post-combat effects finish. Independent of Attack Card effect cancellation. Remains until used.</span></div>` : '';
+    return lensBurningIcon + wardIcon + evocationIcon + manaShieldReserveIcon + `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -2539,7 +2588,7 @@ function renderHand() {
   const hasHeldExhaust = actualViewer.hand.some((instance) => instance.cardId === 'exhaust');
   const handValueHtml = (instance: typeof viewer.hand[number]) => {
     const card = cardDefinition(instance);
-    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + feedSpiritDefenseBonus(viewer, instance.cardId) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
+    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + defenseCardValueBonus(viewer, instance.cardId) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
     const reduced = hasHeldExhaust && (card.kind === 'attack' || card.kind === 'defend');
     return reduced
       ? `<b class="exhaust-reduced-value" title="${baseValue} − 1 from Exhaust in Hand">${Math.max(0, baseValue - 1)}</b>`
@@ -2716,6 +2765,20 @@ function renderHand() {
 
 function renderFlurryModal() {
   const modal = byId('flurryModal');
+  if (gameState.phase === 'confirming-lens-destruction' && gameState.lensSelection) {
+    const playerId = gameState.lensSelection.playerId;
+    modal.classList.toggle('hidden', !canLocalAct(playerId));
+    if (!canLocalAct(playerId)) { modal.innerHTML = ''; return; }
+    modal.innerHTML = '<div class="choice-dialog"><span>LENS</span><h2>Destroy the Lens?</h2><p>This Attack is not in a straight line, so it cannot be magnified. Continuing destroys the Lens and resolves the usual Object Attack effects.</p><div class="choice-cards"><button id="lensDestroy"><strong>Destroy Lens</strong></button><button id="lensCancel"><strong>Cancel</strong></button></div></div>';
+    modal.querySelector('#lensDestroy')?.addEventListener('click', () => dispatch({ type: 'lens-destroy', playerId }));
+    modal.querySelector('#lensCancel')?.addEventListener('click', () => dispatch({ type: 'cancel-targeting', playerId }));
+    return;
+  }
+  if (gameState.phase === 'choosing-pyrodash-direction') {
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+    return;
+  }
   const flurry = gameState.flurry;
   const viewerId = actingPlayer();
   const objectLightbringer = (gameState as ObjectLightbringerState).objectLightbringer;
@@ -3843,7 +3906,7 @@ function quickAttackCommand(targetId: PlayerId, cardInstanceId: string): GameCom
   const attacker = gameState.players[gameState.activePlayerId];
   if (!attacker) return null;
   if (attacker.character === 'spectre') {
-    const origin = spectreAttackOriginForTarget(attacker, gameState.players[targetId].position);
+    const origin = spectreAttackOriginForTarget(attacker, gameState.players[targetId].position, attacker.hand.find((card) => card.instanceId === cardInstanceId)?.cardId);
     return origin ? { type: 'spectre-attack', playerId: attacker.id, cardInstanceId, origin, targetId, targetKind: 'player' } : null;
   }
   return { type: 'attack', playerId: attacker.id, cardInstanceId, targetId, targetKind: 'player' };
@@ -4541,7 +4604,7 @@ function releaseCombatDamageVisuals(timing?: 'mana-barrage-combat' | 'mana-barra
 const objectImpactAnimations = new Map<string, { startedAt: number; origin: THREE.Vector3; quaternion: THREE.Quaternion }>();
 const processedObjectPushAnimations = new Set<string>();
 const completedObjectMovementAnimationIds = new Set<string>();
-const fireboltAnimations: { animationId: string; visual: FireboltVisual }[] = [];
+const fireboltAnimations: { animationId: string; visual: FireboltVisual; followTargetId?: string }[] = [];
 const processedSpellProjectiles = new Set<string>();
 const completedAttackEffectAnimations = new Set<string>();
 const pendingMindBlastCastEvents = new Set<string>();
@@ -4565,7 +4628,7 @@ const impactAnimations = new Map<PlayerId, number>();
 const damageNumbers: { sprite: THREE.Sprite; playerId: PlayerId; lane: number; startedAt: number; origin: THREE.Vector3 }[] = [];
 const statEffectBubbles: { element: HTMLDivElement; playerId: PlayerId; slot: number; startedAt: number }[] = [];
 const lastVisualCells = new Map<PlayerId, string>();
-type CharacterMovementAnimation = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; dashCalloutShown?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; flip?: ObiWanFlipSegment; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
+type CharacterMovementAnimation = { pyrodash?: boolean; animationId?: string; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; path?: THREE.Vector3[]; travelSquares?: number; dash?: boolean; dashCalloutShown?: boolean; fastRun?: boolean; forced?: boolean; verticalOnly?: boolean; teleport?: boolean; obiWanReturn?: boolean; danceThrough?: boolean; flip?: ObiWanFlipSegment; completed?: boolean; turnStartedAt?: number; turnFromRotation?: number; turnToRotation?: number; faceToward?: THREE.Vector3; facingApplied?: boolean; shizzle?: boolean; slideSegmentIndex?: number; slideStartsAtMs?: number };
 const movementAnimations = new Map<PlayerId, CharacterMovementAnimation>();
 const pendingOnlineDanceSteps = new Map<PlayerId, number>();
 
@@ -4911,11 +4974,14 @@ window.addEventListener('blur', () => {
   }
 });
 let previousFrameTime = performance.now();
+const patchOfFlamesVisuals = new PatchOfFlamesVisuals();
+scene.add(patchOfFlamesVisuals.group);
 renderer.setAnimationLoop((time) => {
   const debugFrameStartedAt = developerPanel.visible || debugRecorder.recordingEnabled ? performance.now() : undefined;
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   hologramShaderTime.value = time / 1000;
+  patchOfFlamesVisuals.update(gameState, time, worldPosition, !game.classList.contains('hidden'));
   if (nagrandOuterRingGroup.visible) updateNagrandBrazierFire(time);
   updateCameraMovement(deltaSeconds);
   if (!cameraGrab) controls.update();
@@ -4991,6 +5057,7 @@ renderer.setAnimationLoop((time) => {
       if (group.userData.character === 'john-christ') updateJohnAnimation(group, id, deltaSeconds);
       if (group.userData.character === 'merylin') updateMerylinAnimation(group, id, deltaSeconds, true);
       if (group.userData.character === 'kazka') updateKazkaAnimation(group, time, 'idle');
+      if (group.userData.character === 'fyrebanks') updateFyrebanksAnimation(group, time, 'idle');
       body.position.y = 0;
       const ring = group.getObjectByName('TargetRing');
       if (ring) ring.visible = false;
@@ -5006,6 +5073,10 @@ renderer.setAnimationLoop((time) => {
     const movement = movementAnimations.get(id);
     group.userData.holdIdle = holdIdle;
     syncCharacterIdleHold(group, holdIdle);
+    if (group.userData.character === 'fyrebanks') {
+      const pending = gameState.pendingAttack;
+      updateFyrebanksAnimation(group, time, pending?.attackerId === id ? 'attack' : pending?.defenderId === id ? 'defend' : 'idle');
+    }
     const moving = Boolean(movement);
     const locomoting = moving && !movement?.teleport && !isCharacterSliding(movement, time);
     updateWizardAnimation(group, locomoting, deltaSeconds);
@@ -5055,6 +5126,14 @@ renderer.setAnimationLoop((time) => {
       if (light) light.intensity = 2.8 + Math.sin(time * 0.006) * 0.7;
     }
     updateManaOrbAnimation(group, time);
+    if (group.userData.character === 'fyrebanks') {
+      const player = gameState.players[id];
+      const visible = player.hp > 0 && !game.classList.contains('hidden');
+      updatePyroChargeVisuals(group, player.pyroCharges ?? 0, time, visible);
+      updateFlameWardVisuals(group, visible && player.flameWard && !player.flameWard.triggered ? player.flameWard.level : 0, time);
+      const movement = movementAnimations.get(id);
+      updatePyrodashVisuals(group, visible && Boolean(movement?.pyrodash && time >= movement.startedAt && time < movement.startedAt + movement.duration), time);
+    }
     if (group.userData.character === 'orkk') updateOrkkRageCoreAnimation(group, time);
   });
   updateShizzleVisuals(time, deltaSeconds);
@@ -5655,13 +5734,17 @@ function spawnJohnFireImpact(event: { id: string; style?: string; to: Cell; targ
 }
 
 function startFireSpellVisual(event: SpellProjectile) {
-  const from = worldPosition(event.from).add(new THREE.Vector3(0, 1.25, 0));
+  const absorbing = event.style === 'absorb-flames';
+  const ward = event.style === 'flame-ward';
+  const from = worldPosition(event.from).add(new THREE.Vector3(0, ward ? 3.25 : absorbing ? .35 : 1.25, 0));
   const to = worldPosition(event.to).add(new THREE.Vector3(0, 1.25, 0));
   const caster = dummyGroups.get(event.casterId);
-  if (caster) caster.rotation.y = characterFacingRotation(caster, to.x - from.x, to.z - from.z);
-  const visual = new FireboltVisual(from, to, performance.now(), event.style === 'fireball' ? 1.4 : 1);
+  if (caster && !absorbing) caster.rotation.y = characterFacingRotation(caster, to.x - from.x, to.z - from.z);
+  const route = absorbing ? event.path.map((cell, index) => worldPosition(cell).add(new THREE.Vector3(0, index === event.path.length - 1 ? 1.25 : .35, 0))) : undefined;
+  const afterImpact = event.afterProjectileId ? fireboltAnimations.find((entry) => entry.animationId === event.afterProjectileId)?.visual.impactAt ?? 0 : 0;
+  const visual = new FireboltVisual(from, to, Math.max(performance.now(), afterImpact), absorbing ? .5 : event.style === 'fireball' || event.style === 'pyro-discharge' ? 1.4 : 1, route, absorbing, ward ? event.flameWardLevel ?? 1 : 0);
   scene.add(visual.group);
-  fireboltAnimations.push({ animationId: event.id, visual });
+  fireboltAnimations.push({ animationId: event.id, visual, followTargetId: ward ? event.targetId : undefined });
 }
 
 function startResolvedFireSpell(previous: GameState, current: GameState) {
@@ -5703,7 +5786,7 @@ function syncSpellProjectiles() {
       continue;
     }
     processedSpellProjectiles.add(event.id);
-    if (event.style === 'fireball' || event.style === 'firebolt') {
+    if (event.style === 'fireball' || event.style === 'firebolt' || event.style === 'absorb-flames' || event.style === 'pyro-discharge' || event.style === 'flame-ward') {
       startFireSpellVisual(event);
       continue;
     }
@@ -5798,7 +5881,11 @@ function syncSpellProjectiles() {
 function updateSpellProjectiles(time: number) {
   let completedAttackEffectThisFrame = false;
   for (let index = fireboltAnimations.length - 1; index >= 0; index--) {
-    const { animationId, visual } = fireboltAnimations[index];
+    const { animationId, visual, followTargetId } = fireboltAnimations[index];
+    if (followTargetId && time < visual.impactAt) {
+      const target = dummyGroups.get(followTargetId as PlayerId) ?? objectGroups.get(followTargetId);
+      if (target) visual.trackTarget(target.position.clone().add(new THREE.Vector3(0, 1.25, 0)));
+    }
     const complete = visual.update(time);
     if (time >= visual.impactAt) {
       for (const damage of pendingDamageVisuals.get(animationId) ?? []) {
@@ -5997,6 +6084,7 @@ function updateCharacterMovement(time: number) {
       || (group.userData.character === 'orkk' && !animation.forced && travelSquares <= 2);
     let eased = animation.verticalOnly ? progress * progress : constantLocomotionSpeed ? progress : progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     if (animation.shizzle) eased = THREE.MathUtils.smoothstep(progress, .1, 1);
+    if (animation.pyrodash) eased = progress;
     if (animation.flip && !isCharacterSliding(animation, time)) eased = obiWanFlipTravelProgress(progress, animation.flip);
     if (animation.slideSegmentIndex !== undefined && animation.slideStartsAtMs !== undefined) {
       const segmentCount = Math.max(1, animation.path?.length ?? animation.travelSquares ?? 1);
@@ -6014,6 +6102,13 @@ function updateCharacterMovement(time: number) {
     }
     dashPreviousPosition.copy(group.position);
     const hasMovementDirection = moveAlongAnimationRoute(group.position, animation.from, animation.to, animation.path, eased, characterMovementDirection);
+    if (animation.pyrodash && animation.animationId) {
+      const queued = pendingDamageVisuals.get(animation.animationId) ?? [];
+      for (const damage of queued.filter((event) => (event.triggerRouteProgress ?? 1) <= eased)) spawnDamageVisual(damage.playerId, damage.amount, damage.collision, damage.fatal, damage.effect);
+      const pending = queued.filter((event) => (event.triggerRouteProgress ?? 1) > eased);
+      if (pending.length) pendingDamageVisuals.set(animation.animationId, pending);
+      else pendingDamageVisuals.delete(animation.animationId);
+    }
     if (animation.dash && !animation.forced && !animation.teleport && !animation.verticalOnly
       && group.visible && !group.userData.defeated && group.position.distanceToSquared(dashPreviousPosition) > 0.000001) {
       if (!animation.dashCalloutShown) {
@@ -6370,7 +6465,7 @@ function updateObjectMovement(time: number) {
       if (parachute) group.remove(parachute);
       objectMovementAnimations.delete(objectId);
       if (animation.removeOnComplete) {
-        scene.remove(group); objectGroups.delete(objectId); lastObjectVisualCells.delete(objectId);
+        if (group.userData.objectKind === 'lens') disposeLens(group); scene.remove(group); objectGroups.delete(objectId); lastObjectVisualCells.delete(objectId);
         if (animation.equipPlayerId) {
           const equipped = dummyGroups.get(animation.equipPlayerId)?.getObjectByName('EquippedShield');
           if (equipped) equipped.visible = true;
@@ -7684,9 +7779,9 @@ function resetSeriesMatchVisuals() {
   objectImpactAnimations.clear();
   processedObjectPushAnimations.clear();
   completedObjectMovementAnimationIds.clear();
-  dummyGroups.forEach((group) => scene.remove(group));
+  dummyGroups.forEach((group) => { disposePyroChargeVisuals(group); disposeFlameWardVisuals(group); disposePyrodashVisuals(group); scene.remove(group); });
   dummyGroups.clear();
-  objectGroups.forEach((group) => scene.remove(group));
+  objectGroups.forEach((group) => { if (group.userData.objectKind === 'lens') disposeLens(group); scene.remove(group); });
   objectGroups.clear();
 }
 
@@ -10749,7 +10844,7 @@ function showHandCardPreview(source: HTMLElement, pointer: PointerEvent) {
 
 function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPiece[] | undefined {
   const kind = group.userData.objectKind as string | undefined;
-  if (kind !== 'wooden-box' && kind !== 'orkk-shield') return undefined;
+  if (kind !== 'wooden-box' && kind !== 'orkk-shield' && kind !== 'lens') return undefined;
   group.userData.destroying = true;
   group.children.forEach((child) => { child.visible = false; });
   const pieces: ObjectDestructionPiece[] = [];
@@ -10776,6 +10871,16 @@ function prepareObjectDestructionPieces(group: THREE.Group): ObjectDestructionPi
         new THREE.Vector3(side * (0.45 + index * 0.06), 0.35 + (index % 3) * 0.18, (index % 3 - 1) * 0.55),
         new THREE.Vector3(2.1 + index * 0.22, side * (1.5 + index * 0.17), side * 2.4),
       );
+    }
+  } else if (kind === 'lens') {
+    for (let index = 0; index < 8; index++) {
+      const angle = index * Math.PI / 4;
+      const golden = index % 2 === 0;
+      const geometry = golden ? new THREE.TorusGeometry(.48, .055, 6, 9, Math.PI / 3) : new THREE.ConeGeometry(.2, .45, 3);
+      const material = fadingDestructionMaterial(golden ? 0xe2b549 : 0x9be6ff, golden ? .32 : .08, golden ? .8 : .1);
+      material.transparent = true; material.opacity = golden ? 1 : .6;
+      const mesh = new THREE.Mesh(geometry, material);
+      addPiece(mesh, new THREE.Vector3(Math.cos(angle) * .18, .7, Math.sin(angle) * .12), new THREE.Vector3(Math.cos(angle) * .8, .4 + index * .03, Math.sin(angle) * .7), new THREE.Vector3(index * .4, 2.1, -index * .3));
     }
   } else {
     const pieceCount = 6;
@@ -10850,9 +10955,9 @@ function syncBoard() {
     const character = gameState.players[id].character;
     let group = dummyGroups.get(id);
     if (!group || group.userData.character !== character) {
-      if (group) scene.remove(group);
+      if (group) { disposePyroChargeVisuals(group); disposeFlameWardVisuals(group); disposePyrodashVisuals(group); scene.remove(group); }
       const color = id === 'P1' ? 0x169bd3 : id === 'P2' ? 0xff5d68 : 0xa06cff;
-      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : character === 'merylin' ? createMerylin(color) : character === 'kazka' ? createKazka() : createDummy(color);
+      group = character === 'orkk' ? createDaOrkk(color) : character === 'shinobi' ? createObiWanShinobi(color) : character === 'magician' ? createLongHatLogan(color) : character === 'john-christ' ? createJohnChrist(color) : character === 'spectre' ? createSpectre(color) : character === 'wreckna' ? createWreckna(color) : character === 'merylin' ? createMerylin(color) : character === 'kazka' ? createKazka() : character === 'fyrebanks' ? createFyrebanks() : createDummy(color);
       group.userData.character = character;
       dummyGroups.set(id, group); scene.add(group); lastVisualCells.delete(id); movementAnimations.delete(id);
     }
@@ -10904,7 +11009,7 @@ function syncBoard() {
     } else if (!previousKey) {
       group.position.copy(target);
       faceCharacterTowardNearestOpponent(group, id);
-    } else if (previousKey !== targetKey) {
+    } else if (previousKey !== targetKey || (recordedMovement?.sourceCardId === 'pyrodash' && recordedMovement.animationId !== group.userData.lastPyrodashAnimationId)) {
       fadePerkUseLabelForMovement(id, targetKey, gameState.players[id].visualMovementCause, gameState.players[id].visualMovement?.sourceCardId);
       const cancellationReturn = character === 'shinobi' && (
         gameState.players[id].visualMovementCause === 'movement-cancelled'
@@ -10939,7 +11044,9 @@ function syncBoard() {
           ? obiWanFlipSegment(recordedMovement?.doubleJumpStep ?? (gameState.doubleJump?.stepsRemaining === 1 ? 1 : 2))
           : undefined;
         const shizzle = character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle';
-        const fullRouteLocomotionDuration = flip ? flip.durationMs : shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
+        const pyrodash = Boolean(recordedPathMatches && recordedMovement?.sourceCardId === 'pyrodash');
+        if (pyrodash) group.userData.lastPyrodashAnimationId = recordedMovement?.animationId;
+        const fullRouteLocomotionDuration = pyrodash ? recordedMovement?.durationMs ?? 220 + travelSquares * 180 : flip ? flip.durationMs : shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS
@@ -10965,7 +11072,7 @@ function syncBoard() {
         const duration = slideStartsAtMs === undefined ? locomotionDuration
           : directSlide ? DIRECT_SLIDE_GLIDE_DURATION_MS + Math.max(0, slideSteps - 1) * SLIDE_GLIDE_DURATION_MS
             : slideStartsAtMs + slideSteps * SLIDE_GLIDE_DURATION_MS;
-        const movement = { playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, flip, shizzle, slideSegmentIndex, slideStartsAtMs };
+        const movement = { pyrodash, animationId: pyrodash ? recordedMovement?.animationId : undefined, playerId: id, from, to: target.clone(), duration, dash: Boolean(recordedPathMatches && recordedMovement?.dash), path: visualPath.length > 0 ? visualPath : undefined, travelSquares, fastRun, forced, teleport: spectreRelocate || portalTeleport, danceThrough, flip, shizzle, slideSegmentIndex, slideStartsAtMs };
         if (recordedMovement?.triggerAnimationId) {
           const queued = impactTriggeredCharacterMovements.get(recordedMovement.triggerAnimationId) ?? [];
           queued.push({ ...movement, triggerRouteProgress: recordedMovement.triggerRouteProgress });
@@ -11041,7 +11148,7 @@ function syncBoard() {
       const lichIcon = group.getObjectByName('WrecknaTombLichIcon');
       if (lichIcon) lichIcon.visible = false;
     }
-    if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { scene.remove(group); if (group.userData.objectKind === 'spirit-guardian') disposeSpiritGuardianVisuals(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); }
+    if (!currentObjectIds.has(id) && !animatedRemovalIds.has(id)) { if (group.userData.objectKind === 'lens') disposeLens(group); scene.remove(group); if (group.userData.objectKind === 'spirit-guardian') disposeSpiritGuardianVisuals(group); objectGroups.delete(id); lastObjectVisualCells.delete(id); objectMovementAnimations.delete(id); }
   });
   gameState.objects.forEach((object) => {
     let group = objectGroups.get(object.id);
@@ -11055,8 +11162,9 @@ function syncBoard() {
       lastObjectVisualCells.delete(object.id);
       group = undefined;
     }
-    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'pipe-button' ? createPipeButton() : object.kind === 'tomb' ? createWrecknaTomb() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
+    if (!group) { group = object.kind === 'spirit-guardian' ? createSpiritGuardian(object.guardianLevel ?? 1) : object.kind === 'spectre-replica' ? createSpectre(object.ownerId === 'P2' ? 0xff5d68 : object.ownerId === 'P3' ? 0xa06cff : 0x169bd3, true) : object.kind === 'orkk-shield' ? createOrkkShieldObject() : object.kind === 'wall-pillar' ? createArenaPillar() : object.kind === 'pipe-button' ? createPipeButton() : object.kind === 'tomb' ? createWrecknaTomb() : object.kind === 'lens' ? createLens() : createWoodenBox(); group.userData.objectKind = object.kind; objectGroups.set(object.id, group); scene.add(group); }
     if (object.kind === 'wall-pillar' && visualArena().id === 'pipe') group.rotation.y = object.position.x === 1 ? 0 : Math.PI;
+    if (object.kind === 'lens') orientLens(group, object.lensFacing);
     group.userData.objectId = object.id;
     if (object.kind === 'tomb') syncWrecknaTombLichIcon(group, object.id);
     if (object.kind === 'orkk-shield') group.userData.ownerId = object.ownerId;
@@ -11734,17 +11842,19 @@ function distanceFromWorld(from: THREE.Vector3, to: THREE.Vector3) {
   return Math.max(Math.abs(from.x - to.x), Math.abs(from.z - to.z)) / 1.92;
 }
 
-function spectreAttackOriginForTarget(attacker: GameState['players'][PlayerId], target: Cell): 'spectre' | 'replica' | null {
+function spectreAttackOriginForTarget(attacker: GameState['players'][PlayerId], target: Cell, cardId?: CardTypeId): 'spectre' | 'replica' | null {
   if (attacker.character !== 'spectre') return null;
+  const selected = selection.getSnapshot().context.selection;
+  const attackCardId = cardId ?? (selected.kind === 'attack' ? attacker.hand.find((card) => card.instanceId === selected.cardInstanceId)?.cardId : undefined);
   const candidates: Array<{ origin: 'spectre' | 'replica'; position: Cell; range: number }> = [
     { origin: 'spectre', position: attacker.position, range: effectiveAttackRange(gameState, attacker) },
     ...(!attacker.traitBlocked ? spectreReplicas(gameState, attacker.id).map((replica) => ({ origin: 'replica' as const, position: replica.position, range: 1 })) : []),
   ];
-  return candidates.find(({ position, range }) => distance(position, target) <= range && hasLineOfSight(gameState, position, target) && canAttackTargetSquare(gameState, position, target))?.origin ?? null;
+  return candidates.find(({ position, range }) => distance(position, target) <= range && (attackCardId !== 'dragon-claws' || distance(position, target) === 1) && hasLineOfSight(gameState, position, target) && canAttackTargetSquare(gameState, position, target))?.origin ?? null;
 }
 
 function selectedAttackCanReach(attacker: GameState['players'][PlayerId], selectedCard: GameState['players'][PlayerId]['hand'][number] | null | undefined, target: Cell): boolean {
-  if (attacker.character === 'spectre') return Boolean(spectreAttackOriginForTarget(attacker, target));
+  if (attacker.character === 'spectre') return Boolean(spectreAttackOriginForTarget(attacker, target, selectedCard?.cardId));
   return Boolean(selectedCard)
     && attackCardTargetInRange(gameState, attacker, selectedCard!.cardId, target)
     && hasLineOfSight(gameState, attacker.position, target)
@@ -11752,6 +11862,7 @@ function selectedAttackCanReach(attacker: GameState['players'][PlayerId], select
 }
 
 function highlightCells() {
+  const lensTargets = lensAttackTargets(gameState);
   movementPreviewRoutes.clear();
   shieldPreviewRoutes.clear();
   if (gameState.phase === 'choosing-arm-da-wiz-target' && gameState.armDaWiz && canLocalAct(gameState.armDaWiz.casterId)) {
@@ -11770,6 +11881,15 @@ function highlightCells() {
   const selectedCard = (selected.kind === 'attack' || selected.kind === 'perk') ? activePlayer.hand.find((card) => card.instanceId === selected.cardInstanceId) : null;
   cellMeshes.forEach((mesh) => {
     const cell = mesh.userData.cell as Cell;
+    if (gameState.lensPerk) {
+      const casterId = gameState.lensPerk.casterId;
+      const valid = canLocalAct(casterId) && (gameState.phase === 'choosing-lens-square' ? lensSummonSquareEligible(gameState, casterId, cell) : lensPushSquareEligible(gameState, casterId, cell));
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      material.emissive.set(valid ? 0xffd45a : 0x000000); material.emissiveIntensity = valid ? .8 : 0;
+      return;
+    }
+    const pyrodashHeading = canLocalAct(actor.id) ? pyrodashDirectionAt(gameState, cell) : undefined;
+    const lensTargetValid = Boolean(gameState.lensSelection && canLocalAct(gameState.lensSelection.playerId) && lensTargets.some((body) => cellLabel(body.position) === cellLabel(cell)));
     const playerOnCell = Object.values(gameState.players).find((player) => player.hp > 0 && player.position.x === cell.x && player.position.y === cell.y);
     const objectsOnCell = gameState.objects.filter((object) => object.position.x === cell.x && object.position.y === cell.y);
     const objectOnCell = objectsOnCell[0];
@@ -11911,9 +12031,9 @@ function highlightCells() {
       && canLocalAct(decay!.casterId) && wrecknaPerkTargetInRange(gameState, decayCaster!, cell);
     const kykTargetValid = gameState.phase === 'choosing-kyk-target' && Boolean(force) && ((Boolean(objectOnCell) && !isFixedWallObject(objectOnCell!)) || (Boolean(playerOnCell) && playerOnCell!.id !== force!.casterId)) && distance(gameState.players[force!.casterId].position, cell) === 1;
     const targetSquareValid = attackTargetValid || selectedPerkTargetValid || forceTargetValid || pullTargetValid || magicTargetValid || arcaneTargetValid || chainTargetValid || fireballTargetValid || boomerangTargetValid || armTargetValid || testPhylacteryTargetValid || lichdomTargetValid || phylacteryReplacementValid || dakkothTombSacrificeValid || dakkothPhylacteryTargetValid || necronomiconTombTargetValid || sapTargetValid || decayTargetValid || kykTargetValid;
-    const valid = yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid || targetSquareValid;
+    const valid = gameState.phase === 'choosing-lens-target' ? lensTargetValid : gameState.phase === 'choosing-pyrodash-direction' ? Boolean(pyrodashHeading) : yamatoMoveValid || (selected.kind === 'move' && (danceValid || doubleJumpValid || shizzleStepValid || regularValid)) || forceDirectionValid || magicDirectionValid || kykDirectionValid || arkaneValid || shadowDirectionValid || preparationValid || teleportDestinationValid || shizzleDestinationValid || boxTeleportValid || guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid || targetSquareValid;
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const highlightColor = forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
+    const highlightColor = gameState.phase === 'choosing-lens-target' ? (lensTargetValid ? 0xffd45a : 0x000000) : gameState.phase === 'choosing-pyrodash-direction' ? (pyrodashHeading ? (pyrodashHeading.x && pyrodashHeading.y ? 0x557dff : 0xff4964) : 0x000000) : forceCollisionWarning ? 0xff2638 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0xffd45a : targetSquareValid ? 0xffb52e : kykDirectionValid ? 0xffb52e : arkaneValid || shadowDirectionValid ? 0xffb52e : teleportDestinationValid ? 0x70f5ff : boxTeleportValid ? 0x45c8ff : valid ? 0x19d3a2 : 0x000000;
     const regularMovementPhase = gameState.phase === 'active' || gameState.phase === 'dashing';
     const stepMovementValid = danceValid || doubleJumpValid || shizzleStepValid || yamatoMoveValid;
     if (highlightColor === 0x19d3a2 && canLocalAct(actor.id)
@@ -11927,7 +12047,7 @@ function highlightCells() {
         command: { type: yamatoMoveValid ? 'yamato-move' : shizzleDestinationValid ? 'shizzle-destination' : 'move', playerId: actor.id, to: cell },
       });
     }
-    material.emissive.set(highlightColor); material.emissiveIntensity = forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
+    material.emissive.set(highlightColor); material.emissiveIntensity = gameState.phase === 'choosing-lens-target' ? (lensTargetValid ? .8 : 0) : gameState.phase === 'choosing-pyrodash-direction' ? (pyrodashHeading ? .8 : 0) : forceCollisionWarning ? 0.9 : guardianPlacementValid || dakkothTombSquareValid || sacrificeTombSquareValid || shadowBarterTombSquareValid ? 0.72 : targetSquareValid ? 0.68 : kykDirectionValid ? 0.7 : arkaneValid || shadowDirectionValid ? 0.62 : teleportDestinationValid ? 0.72 : boxTeleportValid ? 0.7 : valid ? 0.38 : 0;
     const slideRamp = mesh.getObjectByName('SlideDirectionArrow')?.parent;
     if (slideRamp) {
       slideRamp.traverse((child) => {
@@ -12068,6 +12188,7 @@ function updateMovementPathPreview() {
 }
 
 function updateTargetHighlights(time: number) {
+  const lensTargets = lensAttackTargets(gameState);
   const selected = selection.getSnapshot().context.selection;
   const attacker = gameState.players[gameState.activePlayerId];
   const canTarget = selected.kind === 'attack' && gameState.phase === 'active' && canLocalAct(attacker.id);
@@ -12133,10 +12254,11 @@ function updateTargetHighlights(time: number) {
     const validDecay = canDecayTarget && !perkProtected && playerId !== decay!.casterId && wrecknaPerkTargetInRange(gameState, decayCaster!, target.position);
     const validSpectreOrigin = canSpectreOriginChoice && spectreOriginChoice!.perkId === 'shadow-dagger' && playerId === spectreOriginChoice!.casterId;
     const validNarrative = narrativeTargetsOnBoard.includes(playerId);
-    const valid = validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin || validNarrative;
+    const validLensTarget = Boolean(gameState.lensSelection && canLocalAct(gameState.lensSelection.playerId) && lensTargets.some((body) => body.kind === 'player' && body.ownerId === playerId));
+    const valid = validLensTarget || validAttack || validPull || validArcane || validChain || validMagic || validSap || validDecay || validSpectreOrigin || validNarrative;
     const ring = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (!ring) return;
-    const showRing = target.character === 'spectre' ? validSpectreOrigin || validNarrative : valid;
+    const showRing = target.character === 'spectre' ? validLensTarget || validSpectreOrigin || validNarrative : valid;
     ring.visible = showRing;
     if (showRing) {
       const pulse = 1 + Math.sin(time * 0.006) * 0.08;
@@ -12149,6 +12271,7 @@ function updateTargetHighlights(time: number) {
   });
   objectGroups.forEach((group, objectId) => {
     const object = gameState.objects.find((entry) => entry.id === objectId);
+    const validLensTarget = Boolean(gameState.lensSelection && canLocalAct(gameState.lensSelection.playerId) && lensTargets.some((body) => body.kind === 'replica' && body.id === objectId));
     const attackObjectReachable = object && selectedAttackCanReach(attacker, selectedAttack, object.position);
     const validAttackObject = canTarget && Boolean(object) && (selectedAttack?.cardId === 'moonlight' || !isFixedWallObject(object!))
       && !(object!.kind === 'spectre-replica' && object!.ownerId === attacker.id) && Boolean(attackObjectReachable);
@@ -12180,7 +12303,7 @@ function updateTargetHighlights(time: number) {
     const selectedSpectreOriginObject = validSpectreOriginObject && spectreOriginChoice!.origin === 'replica' && spectreOriginChoice!.replicaId === objectId;
     const originRing = group.getObjectByName('TargetRing') as THREE.Mesh | undefined;
     if (originRing) {
-      originRing.visible = validSpectreOriginObject;
+      originRing.visible = validSpectreOriginObject || validLensTarget;
       if (validSpectreOriginObject) {
         (originRing.material as THREE.MeshBasicMaterial).opacity = selectedSpectreOriginObject ? 0.96 : 0.34;
         originRing.scale.setScalar(selectedSpectreOriginObject ? 1 + Math.sin(time * 0.006) * 0.08 : 1);
@@ -12188,8 +12311,8 @@ function updateTargetHighlights(time: number) {
     }
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh) || !(child.material instanceof THREE.MeshStandardMaterial)) return;
-      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0xffb52e : 0x000000);
-      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0.55 : 0;
+      child.material.emissive.set(validSpectreOriginObject ? 0x8b5cff : validLensTarget || validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0xffb52e : 0x000000);
+      child.material.emissiveIntensity = validSpectreOriginObject ? (selectedSpectreOriginObject ? 0.8 : 0.25) : validLensTarget || validAttackObject || validShield || validTestPhylacteryObject || validWrecknaObject || validReplacementPhylactery || validKykObject || validMagicObject || validChainObject || validReplicaEffect ? 0.55 : 0;
     });
   });
   const quickAttackShortcutAvailable = selected.kind === 'none' || selected.kind === 'move';
@@ -12235,6 +12358,30 @@ function onBoardClick(event: MouseEvent) {
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
   const hits = boardHitsAt(event.clientX, event.clientY);
   const selected = selection.getSnapshot().context.selection;
+  if (gameState.phase === 'choosing-lens-target' && gameState.lensSelection) {
+    const targets = lensAttackTargets(gameState);
+    const hitPlayer = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
+    const hitObject = hits.map((hit) => hitUserData<string>(hit, 'objectId')).find(Boolean);
+    const cellHit = hits.find((hit) => hit.object.userData.cell)?.object.userData.cell as Cell | undefined;
+    const target = targets.find((body) => body.kind === 'player' && body.id === hitPlayer)
+      ?? targets.find((body) => body.kind === 'replica' && body.id === hitObject)
+      ?? (cellHit ? targets.find((body) => cellLabel(body.position) === cellLabel(cellHit)) : undefined);
+    if (target && canLocalAct(gameState.lensSelection.playerId)) dispatch({ type: 'lens-target', playerId: gameState.lensSelection.playerId, targetId: target.id, targetKind: target.kind });
+    return;
+  }
+  if (gameState.lensPerk) {
+    const hit = hits.find((item) => item.object.userData.cell);
+    const playerId = gameState.lensPerk.casterId;
+    if (hit && canLocalAct(playerId)) dispatch({ type: gameState.phase === 'choosing-lens-square' ? 'lens-square' : 'lens-push', playerId, to: hit.object.userData.cell });
+    return;
+  }
+  if (gameState.phase === 'choosing-pyrodash-direction' && gameState.pyrodash) {
+    const dash = gameState.pyrodash;
+    const cellHit = hits.find((hit) => hit.object.userData.cell);
+    const heading = cellHit ? pyrodashDirectionAt(gameState, cellHit.object.userData.cell) : undefined;
+    if (heading && canLocalAct(dash.playerId)) dispatch({ type: 'pyrodash-direction', playerId: dash.playerId, dx: heading.x, dy: heading.y });
+    return;
+  }
   if (gameState.phase === 'active' && (selected.kind === 'none' || selected.kind === 'move')) {
     const quickAttackTarget = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
     if (quickAttackTarget && availableQuickAttackCards(quickAttackTarget).length > 0) {
@@ -12480,7 +12627,8 @@ function onBoardClick(event: MouseEvent) {
           }
           else dispatch({ type: 'attack', playerId: attacker.id, cardInstanceId: selected.cardInstanceId, targetId: object.id, targetKind: 'object' });
         };
-        showObjectAttackConfirmation(event, `${object.name} · ${cellLabel(object.position)}`, message, attack);
+        if (object.kind === 'lens' && attacker.character === 'fyrebanks' && selectedAttackCard?.cardId !== 'dragon-claws') attack();
+        else showObjectAttackConfirmation(event, `${object.name} · ${cellLabel(object.position)}`, message, attack);
       }
     }
   }
@@ -12745,6 +12893,7 @@ function characterBrowserCards(character: SelectableCharacter, kind: typeof brow
   if (kind === 'status') return characterStatusCards(character);
   if (kind === 'blessings') return character === 'john-christ' ? CARDS.filter((card) => card.id.startsWith('blessing-')) : [];
   if (character === 'kazka') return CARDS.filter((card) => ['once-upon-a-time', 'qombucha', 'heated-debate', 'escalation', 'mockingjay', 'attack-2', 'attack-3', 'defend-1'].includes(card.id) && card.kind === kind);
+  if (character === 'fyrebanks') return CARDS.filter((card) => ['arch-beam', 'dragon-claws', 'pyrodash', 'pocket-lens', 'evocation', 'flame-ward', 'lens', 'block-with-flames', 'fire-shield', 'counterflame', 'attack-2', 'attack-3', 'defend-1'].includes(card.id) && card.kind === kind);
   if (character === 'merylin' && kind === 'combat') return CARDS.filter((card) => card.id === 'overpower');
   const definition = STARTING_DECKS[character];
   const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase, ...(character === 'john-christ' ? ['judgement' as const] : [])];
@@ -12865,6 +13014,10 @@ function setupCharacterPreview() {
       updateMerylinAnimation(characterPreviewModel, undefined, delta, false, previewWeapon);
     }
     if (characterPreviewModel?.userData.character === 'orkk') updateOrkkRageCoreAnimation(characterPreviewModel, time);
+    if (characterPreviewModel?.userData.character === 'fyrebanks') {
+      const phase = Math.floor(time / 3500) % 3;
+      updateFyrebanksAnimation(characterPreviewModel, time, phase === 1 ? 'attack' : phase === 2 ? 'defend' : 'idle');
+    }
     if (characterPreviewModel?.userData.character === 'kazka') {
       const phase = Math.floor(time / 3500) % 3;
       updateKazkaAnimation(characterPreviewModel, time, phase === 1 ? 'attack' : phase === 2 ? 'defend' : 'idle');
@@ -13032,7 +13185,7 @@ function showCharacterPreviewModel(character: SelectableCharacter) {
           : character === 'john-christ' ? createJohnChrist(0xffd166)
             : character === 'spectre' ? createSpectre(0xa06cff)
               : character === 'wreckna' ? createWreckna(0x72d8ff)
-                : character === 'merylin' ? createMerylin(0xb069ff) : createKazka();
+                : character === 'merylin' ? createMerylin(0xb069ff) : character === 'fyrebanks' ? createFyrebanks() : createKazka();
     model.userData.character = character;
     model.traverse((child) => { if (child.name === 'TargetRing') child.visible = false; });
     characterPreviewModels.set(character, model);

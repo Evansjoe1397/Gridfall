@@ -31,7 +31,18 @@ function attack(state: GameState) { return step(state, { type: 'attack', playerI
 function defend(state: GameState) { return step(state, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' }); }
 function final(state: GameState): GameState { return state.combatReveal?.deferredAfterCombatState ? JSON.parse(state.combatReveal.deferredAfterCombatState) : state; }
 
-const blockers = ['block', 'da-blokk', 'spellblock', 'blessed-block', 'tomb-block', 'decisive-block'] as const;
+const blockers = ['block', 'da-blokk', 'spellblock', 'blessed-block', 'tomb-block', 'decisive-block', 'block-with-flames'] as const;
+assert.equal(cardDefinition({ instanceId: '', cardId: 'yamato' }).effectText, 'Before combat: you may move 1 Square. If you lose combat, deal 2 Damage to each adjacent enemy. After combat: Summon.');
+for (const stack of [false, true]) for (const attackValue of [1, 2, 3]) {
+  let state = attack(setup('attack-3', 'yamato', stack));
+  state.pendingAttack!.attackValue = attackValue;
+  state = defend(state);
+  assert.equal(state.phase, 'choosing-yamato-move');
+  state = step(state, { type: 'yamato-move', playerId: 'P2', to: null });
+  const resolved = final(state);
+  assert.equal(resolved.players.P1.hp, 20 - (attackValue > 2 ? 2 : 0), 'Yamato deals 2 retaliation Damage only when Merylin loses.');
+  assert.equal(resolved.players.P2.merylinSummonActive, true);
+}
 for (const card of ['blessed-might', 'feint'] as const) {
   const state = defend(attack(setup(card, 'thorns')));
   assert.equal(state.players.P1.hp, 19, `${card} cannot cancel already resolved defensive pre-combat damage`);

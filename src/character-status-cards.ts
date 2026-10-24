@@ -11,6 +11,7 @@ export const CHARACTER_STATUS_CARD_IDS: Record<HotseatCharacterId, readonly Card
   wreckna: ['headache', 'exhaust'], // Sap / Curse, Enfeeble / Finger of Death.
   merylin: ['headache', 'exhaust'], // Excalibur; Tactician / Frostmourne.
   kazka: ['headache'], // Escalation.
+  fyrebanks: ['burning'], // Arch Beam.
 };
 
 export function characterStatusCards(character: HotseatCharacterId) {

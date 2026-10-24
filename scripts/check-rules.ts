@@ -1693,7 +1693,7 @@ if (yamatoRetaliationAttack.ok) {
     assert.equal(yamatoStayed.ok, true);
     if (yamatoStayed.ok) {
       const resolved = JSON.parse(yamatoStayed.state.combatReveal!.deferredAfterCombatState!);
-      assert.equal(resolved.players.P1.hp, attackerHp - 1, 'After losing combat, Yamato deals 1 Damage to each adjacent enemy.');
+      assert.equal(resolved.players.P1.hp, attackerHp - 2, 'After losing combat, Yamato deals 2 Damage to each adjacent enemy.');
       assert.equal(resolved.players.P2.merylinSummonActive, true, 'Yamato grants Summon after a normally resolved combat.');
       assert.equal(yamatoStayed.state.combatReveal?.combatWinnerId, 'P1', 'Yamato uses final amplified combat values to determine whether combat was lost.');
     }
