@@ -33,7 +33,7 @@ const burning = (state: GameState, id: 'P1' | 'P2' = 'P1') => state.players[id].
 
 const card = cardDefinition({ instanceId: '', cardId: 'block-with-flames' });
 assert.equal(card.name, 'Block with Flames'); assert.equal(card.kind, 'defend'); assert.equal(card.value, 1);
-for (const id of ['P1', 'P2'] as const) assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players[id].hand.some((entry) => entry.cardId === 'block-with-flames'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'block-with-flames'), true, 'block-with-flames belongs to the base starting pool.');
 for (const stack of [false, true]) {
   let state = fight(setup('arch-beam', stack));
   assert.equal(state.combatReveal?.attackTotal, 0, 'The Block cancels Arch Beam FP before combat.');

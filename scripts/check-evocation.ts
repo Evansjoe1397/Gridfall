@@ -42,7 +42,7 @@ const acknowledge = (state: GameState) => step(step(state, { type: 'ack-combat',
 const card = cardDefinition({ instanceId: '', cardId: 'evocation' });
 assert.equal(card.kind, 'perk'); assert.equal(card.value, 1);
 assert.deepEqual(card.levelEffects, ['Draw 1 card', 'Absorb Flames in Range', 'Gain 1 Att Range until the end of turn. Draw a card after the next Attack.']);
-assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players.P1.deck.some((entry) => entry.cardId === 'evocation'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'evocation'), true, 'evocation belongs to the base starting pool.');
 
 for (const level of [1, 2, 3] as const) {
   let state = setup(); burn(state);

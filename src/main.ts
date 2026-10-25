@@ -28,7 +28,7 @@ import { characterProfile } from './character-profiles.ts';
 import { createKazka, updateKazkaAnimation } from './kazkaModel.ts';
 import { createFyrebanks, updateFyrebanksAnimation } from './fyrebanksModel.ts';
 import { createLens, disposeLens, orientLens } from './lens-model.ts';
-import { lensAttackTargets, lensSummonSquareEligible, lensPushSquareEligible } from '../shared/game.ts';
+import { lensAttackTargets, lensSummonSquareEligible, lensPushSquareEligible, rayOfFirePath } from '../shared/game.ts';
 import { FOCUS_LENS_DESCRIPTION, PYRO_CHARGES_DESCRIPTION } from '../shared/game.ts';
 import { updatePyroChargeVisuals, disposePyroChargeVisuals } from './pyro-charge-visuals.ts';
 import { updateFlameWardVisuals, disposeFlameWardVisuals } from './flame-ward-visuals.ts';
@@ -534,6 +534,8 @@ document.querySelector('#directPerkButton')!.addEventListener('click', () => {
   if (selected.kind === 'perk') dispatch({ type: 'play-perk', playerId: actingPlayer(), cardInstanceId: selected.cardInstanceId, destination: 'direct' });
 });
 document.querySelector('#finishDanceButton')!.addEventListener('click', () => {
+  if (gameState.phase === 'choosing-ray-of-fire-square') { dispatch({ type: 'cancel-targeting', playerId: actingPlayer() }); return; }
+  if (gameState.players[actingPlayer()].fyrestarter?.stage === 'active') { dispatch({ type: 'fyrestarter-dash', playerId: actingPlayer(), use: false }); return; }
   if (gameState.phase === 'choosing-lens-push') dispatch({ type: 'lens-push', playerId: actingPlayer(), to: null });
   else if (gameState.lensPerk || gameState.lensSelection) dispatch({ type: 'cancel-targeting', playerId: actingPlayer() });
   else if ((gameState.phase as string) === 'choosing-yamato-move') dispatch({ type: 'yamato-move', playerId: actingPlayer(), to: null });
@@ -716,6 +718,9 @@ window.addEventListener('keydown', (event) => {
     notify('Card use cancelled.');
     return;
   }
+  if (event.code === 'Escape' && (gameState.phase === 'choosing-fyrestarter-dash' || gameState.players[actingPlayer()].fyrestarter?.stage === 'active')) {
+    event.preventDefault(); dispatch({ type: 'fyrestarter-dash', playerId: actingPlayer(), use: false }); return;
+  }
   if (event.code === 'Escape' && ['choosing-dash-discard', 'dashing'].includes(gameState.phase)) {
     event.preventDefault();
     dispatch({ type: 'cancel-dash', playerId: actingPlayer() });
@@ -764,6 +769,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 function isWaitingForResolvedCardTarget() {
+  if (gameState.phase === 'choosing-ray-of-fire-square') return true;
   if (gameState.lensPerk) return true;
   if (gameState.lensSelection && (gameState.phase === 'choosing-lens-target' || gameState.phase === 'confirming-lens-destruction')) return true;
   if (gameState.phase === 'choosing-spectre-perk-origin' && Boolean((gameState as any).spectrePerkOrigin)) return true;
@@ -1848,6 +1854,8 @@ function renderUI() {
   if (gameState.phase === 'defending' && !canLocalAct(gameState.pendingAttack!.defenderId)) {
     prompt.textContent = `Waiting for ${gameState.players[gameState.pendingAttack!.defenderId].name} to choose a Defend Card or take the hit`;
   }
+  if (gameState.phase === 'choosing-fyrestarter-dash') prompt.textContent = 'Fyrestarter: Dash or keep only the absorption';
+  if (actor.fyrestarter?.stage === 'active') prompt.textContent = `Fyrestarter Dash: ${actor.movementRemaining} MOV · another Action or Escape ends this Dash`;
   const spectreStatusChoice = (gameState as any).spectreStatusChoice as { mode: 'relocate' | 'anguish' } | undefined;
   if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice?.mode === 'anguish') prompt.textContent = 'ANGUISH: choose a negative Status Card to transfer · Escape to decline';
   if (gameState.phase === 'choosing-weaver-story') prompt.textContent = 'Weaver of Stories: choose to spend 1 HP and draw, or discard a Card';
@@ -1911,6 +1919,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-preparation-discard') prompt.textContent = 'Preparation: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-lens-target') prompt.textContent = 'Lens: select a highlighted enemy within Range 2 of the Lens · Esc or Cancel Lens to restore your selections';
   if (gameState.phase === 'choosing-lens-square') prompt.textContent = 'Summon Lens: choose an adjacent Square · The existing Lens will be replaced · Esc to cancel';
+  if (gameState.phase === 'choosing-ray-of-fire-square') prompt.textContent = `Ray of Fire: choose a Square within Range ${effectiveAttackRange(gameState, actor)} · Fire includes your Square and the target · Esc to cancel`;
   if (gameState.phase === 'choosing-lens-push') prompt.textContent = 'Summon Lens: choose a highlighted push direction, or Keep Lens here · Esc cancels the entire Perk';
   if (gameState.phase === 'confirming-lens-destruction') prompt.textContent = 'Lens: this Attack is not in a straight line. Confirm destruction or cancel.';
   if (gameState.phase === 'choosing-pyrodash-direction') prompt.textContent = `Pyrodash: click a highlighted lane ${gameState.pyrodash?.lens ? 'from the Lens ' : ''}toward the target · ${gameState.pyrodash?.fp ?? 0} FP · Reflections are automatic`;
@@ -1974,6 +1983,14 @@ function renderUI() {
     cancelDanceButton.title = gameState.phase === 'choosing-lens-push' ? 'Finish the Perk without pushing the summoned Lens.' : 'Cancel this Perk and restore the previous Lens.';
   }
   const cancelMovementButton = byId('cancelMovementButton') as HTMLButtonElement;
+  if (gameState.phase === 'choosing-ray-of-fire-square') {
+    cancelDanceButton.classList.remove('hidden'); cancelDanceButton.textContent = 'Cancel Ray of Fire';
+    cancelDanceButton.disabled = !canLocalAct(actor.id); cancelDanceButton.title = 'Restore the Perk, Action and Spell Echo before choosing a Square.';
+  }
+  if (actor.fyrestarter?.stage === 'active') {
+    cancelDanceButton.classList.remove('hidden'); cancelDanceButton.textContent = 'Finish Fyrestarter Dash (Esc)';
+    cancelDanceButton.disabled = !canLocalAct(actor.id); cancelDanceButton.title = 'End this Dash and its penalty immunity, keeping your turn and any unused pre-Dash MOV.';
+  }
   const canCancelMovement = canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
   cancelMovementButton.textContent = 'Cancel movement (C / Ctrl+Z)';
   cancelMovementButton.classList.toggle('hidden', !canCancelMovement);
@@ -2501,6 +2518,7 @@ function playerAbilityIcon(player: GameState['players'][PlayerId]) {
 }
 
 function playerStatusIcons(player: GameState['players'][PlayerId]) {
+    const fyrestarterIcon = player.hp > 0 && (player.fyrestarter || player.fyrestarterBurningProtection) ? `<div class="status-icon" tabindex="0">${gameIcon('burning')}<span class="status-tooltip"><strong>Fyrestarter</strong>${player.fyrestarter?.stage === 'active' ? `Dash ends when you take another Action. ${player.fyrestarter.ignorePenalties ? 'MOV penalties are ignored during this Dash. ' : ''}${player.fyrestarter.level >= 3 ? `${3 - player.fyrestarter.patchesCreated} Patches of Flames remaining. ` : ''}` : ''}${player.fyrestarterBurningProtection ? 'Burning Damage is prevented through the end of this turn.' : ''}</span></div>` : '';
     const ward = player.flameWard;
     const wardIcon = player.hp > 0 && ward && (!ward.triggered || ward.level >= 3) ? `<div class="status-icon flame-ward-status${ward.level >= 3 && !ward.triggered ? ' flame-ward-charged' : ''}" tabindex="0" aria-label="Flame Ward${ward.triggered ? ': Range bonus' : ': enemy movement triggers Burning'}">${gameIcon('flame-ward')}<span class="status-tooltip"><strong>Flame Ward · Level ${ward.level}</strong>${ward.triggered ? 'Shield already fired. ' : `The first enemy that moves onto or through a Square within your current Attack Range and line of sight receives Burning${ward.level >= 2 ? ' and takes 1 Damage' : ''}. The shield then fires and is consumed. `}${ward.level >= 3 ? `+1 Attack Range during enemy turns until the start of your next turn. ${ward.triggered ? 'No unused-Ward reward.' : 'If the Ward remains untriggered, gain 1 Pyro Charge and restore 1 HP at the start of your next turn.'}` : 'Expires at the start of your next turn.'}</span></div>` : '';
     const evocationRange = Math.max(0, player.evocationRangeBonus ?? 0);
@@ -2569,7 +2587,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const flagState = (gameState as GameState & { questPhases?: { captureTheFlag?: { flags: { carrierId: PlayerId | null; status: string }[] } | null } }).questPhases?.captureTheFlag;
     const flagCarrier = Boolean(flagState?.flags.some((flag) => flag.status === 'carried' && flag.carrierId === player.id));
     const flagIcon = flagCarrier ? `<div class="status-icon flag-carrier-status" tabindex="0">${gameIcon('flag')}<span class="status-tooltip"><strong>Carried Flag</strong>Carry an enemy Flag to either Square of your Base and begin a turn there to complete The Conqueror.</span></div>` : '';
-    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the end of your turn. Ending on Shallow Water then Removes Burning. Dash deals existing Burning Damage first. Fyrebanks with an active Trait and at least 1 accumulated Pyro Charge discards those Cards, gains +1 MOV each and controls his route; otherwise they are Removed and Dash movement is random. Burning from Patch of Flames during Dash arrives after turn completion and deals no Damage that turn.</span></div>` : '';
+    const burningIcon = burning > 0 ? `<div class="status-icon burning-status" tabindex="0">${gameIcon('burning')}${burning > 1 ? `<b>${burning}</b>` : ''}<span class="status-tooltip"><strong>Burning</strong>Receive 1 Damage per Burning Card at the end of your turn. Ending on Shallow Water then Removes Burning. Dash deals existing Burning Damage first. Fyrebanks with an active Trait and at least 1 accumulated Pyro Charge Removes those Cards, gains +1 MOV each and controls his route; otherwise they are Removed and Dash movement is random. Burning from Patch of Flames during Dash arrives after turn completion and deals no Damage that turn.</span></div>` : '';
     const panicIcon = panic > 0 ? `<div class="status-icon panic-status" tabindex="0">${gameIcon('panic')}${panic > 1 ? `<b>${panic}</b>` : ''}<span class="status-tooltip"><strong>Panic</strong>Attack and Perk Cards cannot be used. Free Move Removes Panic and spends all currently available movement randomly.</span></div>` : '';
     const spiritIcon = player.spiritForm ? `<div class="status-icon holy-spirit-trait" tabindex="0">${gameIcon('spirit')}<span class="status-tooltip"><strong>Spirit Form</strong>+2 to Attack Cards and 1 MOV immune to negative movement Status effects. May pass through enemies, Objects, Shields, and Wall Objects. Regain 1 MOV on every occupied Square and siphon 1 MOV from each crossed enemy once per turn. Attack or end the turn to exit.</span></div>` : '';
     const shellIcon = displayedStoicShell(player.id, player.stoicShell) ? `<div class="status-icon highground-active" tabindex="0">${gameIcon('shell')}<span class="status-tooltip"><strong>Stoic Shell</strong>Restore 1 HP at the beginning of your turn, up to maximum HP. Healing does not stack. HP Damage removes Stoic Shell.</span></div>` : '';
@@ -2578,7 +2596,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
     const lensBurningIcon = player.hp > 0 && player.lensBurningReady ? `<div class="status-icon" tabindex="0" aria-label="Summon Lens: next magnified Attack applies Burning">${gameIcon('lens-burning')}<span class="status-tooltip"><strong>Summon Lens · Burning Attack</strong>Your next Attack through Lens applies Burning to its target after both Cards’ post-combat effects finish. Independent of Attack Card effect cancellation. Remains until used.</span></div>` : '';
-    return lensBurningIcon + wardIcon + evocationIcon + manaShieldReserveIcon + `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return fyrestarterIcon + lensBurningIcon + wardIcon + evocationIcon + manaShieldReserveIcon + `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -2588,7 +2606,8 @@ function renderHand() {
   const hasHeldExhaust = actualViewer.hand.some((instance) => instance.cardId === 'exhaust');
   const handValueHtml = (instance: typeof viewer.hand[number]) => {
     const card = cardDefinition(instance);
-    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + defenseCardValueBonus(viewer, instance.cardId) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
+    const baseValue = (card.id === 'mana-shield' ? viewer.manaPoints : cardBaseValue(instance)) + defenseCardValueBonus(viewer, instance.cardId, false, gameState) + (card.kind === 'defend' ? storedManaShieldDefenseBonus(gameState, viewer) : 0);
+    if (card.id === 'immolate-improved') return `<b title="FP from this Attack + Pyro Charges gained this turn; pre-combat absorption can increase this total">FP + ${viewer.pyroChargesGainedThisTurn ?? 0}${hasHeldExhaust ? ' − 1' : ''}</b>`;
     const reduced = hasHeldExhaust && (card.kind === 'attack' || card.kind === 'defend');
     return reduced
       ? `<b class="exhaust-reduced-value" title="${baseValue} − 1 from Exhaust in Hand">${Math.max(0, baseValue - 1)}</b>`
@@ -2765,6 +2784,16 @@ function renderHand() {
 
 function renderFlurryModal() {
   const modal = byId('flurryModal');
+  if (gameState.phase === 'choosing-fyrestarter-dash') {
+    const playerId = gameState.activePlayerId;
+    modal.classList.toggle('hidden', !canLocalAct(playerId));
+    if (!canLocalAct(playerId)) { modal.innerHTML = ''; return; }
+    const canPay = gameState.players[playerId].hand.some((card) => card.cardId === 'burning' || (!cardDefinition(card).cannotBeDiscarded && !cardDefinition(card).name.startsWith('Blessing:') && card.cardId !== 'judgement'));
+    modal.innerHTML = `<div class="choice-dialog"><span>FYRESTARTER</span><h2>Dash without ending your turn?</h2><p>Absorption has resolved. Burning pays automatically; otherwise discard one eligible Card. Another Action ends this Dash.</p><div class="choice-cards"><button id="fyrestarterDash" ${canPay ? '' : 'disabled'}><strong>Dash</strong></button><button id="fyrestarterSkip"><strong>Skip Dash</strong></button></div></div>`;
+    modal.querySelector('#fyrestarterDash')?.addEventListener('click', () => dispatch({ type: 'fyrestarter-dash', playerId, use: true }));
+    modal.querySelector('#fyrestarterSkip')?.addEventListener('click', () => dispatch({ type: 'fyrestarter-dash', playerId, use: false }));
+    return;
+  }
   if (gameState.phase === 'confirming-lens-destruction' && gameState.lensSelection) {
     const playerId = gameState.lensSelection.playerId;
     modal.classList.toggle('hidden', !canLocalAct(playerId));
@@ -11881,6 +11910,12 @@ function highlightCells() {
   const selectedCard = (selected.kind === 'attack' || selected.kind === 'perk') ? activePlayer.hand.find((card) => card.instanceId === selected.cardInstanceId) : null;
   cellMeshes.forEach((mesh) => {
     const cell = mesh.userData.cell as Cell;
+    if (gameState.phase === 'choosing-ray-of-fire-square') {
+      const valid = canLocalAct(actor.id) && rayOfFirePath(gameState, actor.id, cell) !== null;
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      material.emissive.set(valid ? 0xff6622 : 0x000000); material.emissiveIntensity = valid ? .8 : 0;
+      return;
+    }
     if (gameState.lensPerk) {
       const casterId = gameState.lensPerk.casterId;
       const valid = canLocalAct(casterId) && (gameState.phase === 'choosing-lens-square' ? lensSummonSquareEligible(gameState, casterId, cell) : lensPushSquareEligible(gameState, casterId, cell));
@@ -12358,6 +12393,12 @@ function onBoardClick(event: MouseEvent) {
   if (pendingObjectAttackConfirmation) closeObjectAttackConfirmation();
   const hits = boardHitsAt(event.clientX, event.clientY);
   const selected = selection.getSnapshot().context.selection;
+  if (gameState.phase === 'choosing-ray-of-fire-square') {
+    const hit = hits.find((item) => item.object.userData.cell);
+    const playerId = gameState.activePlayerId;
+    if (hit && canLocalAct(playerId)) dispatch({ type: 'ray-of-fire-square', playerId, to: hit.object.userData.cell });
+    return;
+  }
   if (gameState.phase === 'choosing-lens-target' && gameState.lensSelection) {
     const targets = lensAttackTargets(gameState);
     const hitPlayer = hits.map((hit) => hitUserData<PlayerId>(hit, 'playerId')).find(Boolean);
@@ -12893,7 +12934,7 @@ function characterBrowserCards(character: SelectableCharacter, kind: typeof brow
   if (kind === 'status') return characterStatusCards(character);
   if (kind === 'blessings') return character === 'john-christ' ? CARDS.filter((card) => card.id.startsWith('blessing-')) : [];
   if (character === 'kazka') return CARDS.filter((card) => ['once-upon-a-time', 'qombucha', 'heated-debate', 'escalation', 'mockingjay', 'attack-2', 'attack-3', 'defend-1'].includes(card.id) && card.kind === kind);
-  if (character === 'fyrebanks') return CARDS.filter((card) => ['arch-beam', 'dragon-claws', 'pyrodash', 'pocket-lens', 'evocation', 'flame-ward', 'lens', 'block-with-flames', 'fire-shield', 'counterflame', 'attack-2', 'attack-3', 'defend-1'].includes(card.id) && card.kind === kind);
+  if (character === 'fyrebanks') return CARDS.filter((card) => ['arch-beam', 'dragon-claws', 'pyrodash', 'pocket-lens', 'evocation', 'flame-ward', 'lens', 'block-with-flames', 'fire-shield', 'counterflame', 'wall-of-fire', 'breezy', 'immolate-improved', 'fyrestarter', 'ray-of-fire'].includes(card.id) && card.kind === kind);
   if (character === 'merylin' && kind === 'combat') return CARDS.filter((card) => card.id === 'overpower');
   const definition = STARTING_DECKS[character];
   const ids = [...definition.defaults, ...definition.attackFocus, ...definition.defendFocus, ...definition.perkPhase, ...(character === 'john-christ' ? ['judgement' as const] : [])];

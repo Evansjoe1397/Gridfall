@@ -113,7 +113,7 @@ state = step(state, { type: 'move', playerId: 'P1', to: cell('C2') });
 assert.equal(state.players.P1.pyroCharges, 0); assert.equal(state.players.P1.hp, 10);
 assert.equal(countBurning(state, 'P1'), 2);
 
-// Fyrebanks chooses his Dash route and gains one MOV per Burning discarded.
+// Fyrebanks chooses his Dash route and gains one MOV per Burning Removed as Dash payment.
 for (const charges of [1, 2]) for (const count of [1, 2, 3]) {
   state = setup(); burn(state, 'P1', count);
   state.players.P1.pyroCharges = charges;
@@ -122,13 +122,15 @@ for (const charges of [1, 2]) for (const count of [1, 2, 3]) {
   assert.equal(state.phase, 'dashing'); assert.deepEqual(state.players.P1.position, cell('B2'));
   assert.equal(state.players.P1.hp, 10 - count, 'Normal pre-Dash Burning Damage is retained.');
   assert.equal(state.players.P1.movementRemaining, 2 + count);
-  assert.equal(countBurning(state, 'P1'), 0); assert.equal(state.players.P1.discard.filter((card) => card.cardId === 'burning').length, count);
+  assert.equal(countBurning(state, 'P1'), 0); assert.equal(state.players.P1.discard.filter((card) => card.cardId === 'burning').length, 0);
+  assert.equal(state.players.P1.removedDeck?.filter((card) => card.cardId === 'burning').length, count);
   assert.equal(state.players.P1.pyroCharges, charges, 'Controlled Dash requires existing Charges but does not spend them.');
   ignite(state, 'C2');
   state = step(state, { type: 'move', playerId: 'P1', to: cell('C2') });
   assert.equal(countBurning(state, 'P1'), 0); assert.equal(state.pendingDashBurning?.P1, 1);
   const cancelled = step(state, { type: 'cancel-movement', playerId: 'P1' });
-  assert.equal(cancelled.pendingDashBurning?.P1 ?? 0, 0); assert.equal(cancelled.players.P1.discard.length, count);
+  assert.equal(cancelled.pendingDashBurning?.P1 ?? 0, 0); assert.equal(cancelled.players.P1.discard.length, 0);
+  assert.equal(cancelled.players.P1.removedDeck?.filter((card) => card.cardId === 'burning').length, count);
   state = step(state, { type: 'end-turn', playerId: 'P1' });
   assert.equal(state.activePlayerId, 'P2'); assert.equal(countBurning(state, 'P1'), 1);
   assert.equal(state.players.P1.hp, 10 - count, 'New Patch Burning still arrives after turn-end Damage.');

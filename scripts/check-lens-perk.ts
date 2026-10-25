@@ -43,7 +43,7 @@ function fight(state: GameState, defense: CardTypeId = 'defend-1', through = tru
 const acknowledge = (state: GameState) => step(step(state, { type: 'ack-combat', playerId: 'P1' }), { type: 'ack-combat', playerId: 'P2' });
 const burning = (state: GameState, id: 'P1' | 'P2') => state.players[id].hand.filter((card) => card.cardId === 'burning').length;
 
-assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'shinobi').players.P1.hand.some((card) => card.cardId === 'lens'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'lens'), false, 'lens is outside the base starting pool.');
 assert.equal(cardDefinition({ instanceId: '', cardId: 'lens' }).name, 'Summon Lens');
 for (const level of [1, 2, 3] as const) {
   let state = setup(); assert.ok(summonLens(state, 'P1', cell('G7')));

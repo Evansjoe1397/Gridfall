@@ -43,17 +43,24 @@ assert.equal(cardDefinition({ instanceId: '', cardId: 'arch-beam' }).effectText,
 assert.equal(CARDS.filter((card) => card.id === 'arch-beam').length, 1);
 assert.deepEqual(characterStatusCards('fyrebanks').map((card) => card.id), ['burning']);
 
-for (const create of [() => createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks'), () => createHotseatTestState(false, 'fyrebanks', 3), () => createPipeTestState(false, 'fyrebanks', 'fyrebanks'), () => createTrenchTestState(false, 'fyrebanks', 'fyrebanks')]) {
+for (const create of [() => createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks'), () => createHotseatTestState(true, 'fyrebanks', 3), () => createPipeTestState(true, 'fyrebanks', 'fyrebanks'), () => createTrenchTestState(true, 'fyrebanks', 'fyrebanks')]) {
   const state = create(); const player = state.players.P1;
   assert.equal(player.name, 'Fyrebanks'); assert.equal(player.maxHp, 18); assert.equal(player.hp, 18);
   assert.equal(player.moveRange, 2); assert.equal(player.attackRange, 2);
-  assert.deepEqual(player.hand.map((card) => card.cardId), ['block-with-flames', 'fire-shield', 'lens', 'counterflame', 'pocket-lens'], 'Hotseat starts with exactly the five newest Fyrebanks Cards.');
-  assert.ok(player.deck.some((card) => card.cardId === 'arch-beam'), 'Earlier prototype Cards remain available from the Deck.');
-  assert.notEqual(state.phase, 'choosing-focus', 'The incomplete character has no undefined opening Focus choices.');
-  enablePerkMode(state); assert.equal(player.perkMode, undefined, 'No invented Perks are added to the incomplete character.');
+  for (const fighter of Object.values(state.players).filter((entry) => entry.character === 'fyrebanks')) {
+    assert.equal(fighter.hand.length, 3, 'Normal opening Hand: the base Perk plus two random Cards.');
+    assert.equal(fighter.hand[0].cardId, 'evocation', 'Evocation is always the base Perk in Hand.');
+    assert.equal(fighter.deck.length, 6);
+    const pool = [...fighter.hand, ...fighter.deck];
+    assert.deepEqual(pool.map((card) => card.cardId).sort(), ['dragon-claws', 'pyrodash', 'arch-beam', 'block-with-flames', 'fire-shield', 'counterflame', 'evocation', 'flame-ward', 'ray-of-fire'].sort(), 'Exactly the nine specified base Cards, once each.');
+    for (const kind of ['attack', 'defend', 'perk']) assert.equal(pool.filter((card) => cardDefinition(card).kind === kind).length, 3);
+    assert.equal(new Set(pool.map((card) => card.instanceId)).size, 9);
+  }
+  enablePerkMode(state); assert.equal(player.perkMode?.remaining.length, 8, 'Perk Mode includes the two sidelined base Perks and six phase Cards.');
 }
 const series = createBestOfThreeState('duel', { P1: ['fyrebanks', 'fyrebanks'], P2: ['fyrebanks', 'fyrebanks'] }, true);
 assert.equal(series.players.P1.character, 'fyrebanks');
+assert.equal(series.phase, 'choosing-focus', 'Completed Fyrebanks enters normal Focus setup in series.');
 
 let cases = 0;
 for (const stack of [false, true]) for (const range of [1, 2, 3, 4, 5]) for (let distance = 1; distance <= range; distance++) {
@@ -128,6 +135,11 @@ assert.ok(bounds.max.y > 2.5 && bounds.max.y < 3.5, 'The board model has normal 
 // Run the production trait composer to verify the badge, tooltip and combat-only FP display.
 const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 const parsed = ts.createSourceFile('main.ts', main, ts.ScriptTarget.Latest, true);
+const browserFunction = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'characterBrowserCards')!;
+const browserCode = ts.transpileModule(browserFunction.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const browserCards = runInNewContext(browserCode + '\ncharacterBrowserCards;', { CARDS, characterStatusCards }) as (character: string, kind: string) => typeof CARDS;
+const uniqueIds = ['arch-beam', 'dragon-claws', 'evocation', 'flame-ward', 'pyrodash', 'block-with-flames', 'fire-shield', 'lens', 'counterflame', 'pocket-lens', 'wall-of-fire', 'breezy', 'immolate-improved', 'fyrestarter', 'ray-of-fire'].sort();
+assert.deepEqual(['attack', 'defend', 'perk', 'combat'].flatMap((kind) => Array.from(browserCards('fyrebanks', kind), (card) => card.id)).sort(), uniqueIds, 'Character browser retains all authored Cards, including Cards outside the base deck, without default or unrelated Cards.');
 const composer = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'playerAbilityIcon')!;
 const gameState = attack(setup(3));
 const code = ts.transpileModule(composer.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;

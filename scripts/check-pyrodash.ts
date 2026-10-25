@@ -45,7 +45,7 @@ function route(from: string, toward: string, fp = 3, state = setup()): GameState
 }
 const labels = (state: GameState) => state.players.P1.visualMovement?.path.map((at) => String.fromCharCode(64 + at.x) + (at.y + 1));
 assert.equal(cardDefinition({ instanceId: '', cardId: 'pyrodash' }).value, 1);
-assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'shinobi').players.P1.deck.some((card) => card.cardId === 'pyrodash'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'pyrodash'), true, 'pyrodash belongs to the base starting pool.');
 assert.deepEqual(pyrodashDirections(cell('B2'), cell('D3')), [{ x: 1, y: 0 }, { x: 1, y: 1 }]);
 assert.deepEqual(pyrodashDirections(cell('D4'), cell('C1')), [{ x: 0, y: -1 }, { x: -1, y: -1 }]);
 for (let x = -3; x <= 3; x++) for (let y = -3; y <= 3; y++) {
@@ -205,9 +205,10 @@ assert.equal(state.phase, 'finished'); assert.deepEqual(state.players.P1.positio
 state = setup(); state.players.P1.freeMoveUsed = true; state.players.P1.movementRemaining = 1; state.players.P1.pyroCharges = 1; burn(state, 'P1');
 state = step(state, { type: 'dash', playerId: 'P1' });
 assert.equal(state.players.P1.movementRemaining, 4); assert.equal(state.players.P1.hp, 17);
-assert.equal(state.players.P1.discard.filter((card) => card.cardId === 'burning').length, 1);
+assert.equal(state.players.P1.discard.filter((card) => card.cardId === 'burning').length, 0);
+assert.equal(state.players.P1.removedDeck?.filter((card) => card.cardId === 'burning').length, 1);
 assert.match(state.log.join('\n'), /1 remaining MOV \+ 2 normal Dash MOV = 3 MOV/);
-assert.match(state.log.join('\n'), /1 Burning Card for \+1 bonus MOV \(4 total/);
+assert.match(state.log.join('\n'), /1 Burning Card used for Dash, gained \+1 bonus MOV \(4 total/);
 
 const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
 updatePyrodashVisuals(root, true, 1000); assert.equal(body.visible, false);

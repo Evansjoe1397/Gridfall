@@ -41,7 +41,7 @@ const ignite = (state: GameState, x: number, y = 1) => assert.ok(modifySquare(st
 const definition = cardDefinition({ instanceId: '', cardId: 'dragon-claws' });
 assert.equal(definition.name, 'Dragon Claws'); assert.equal(definition.value, 2);
 assert.equal(definition.effectText, 'Can use only in melee Range. Before combat: Deal 1 Damage if target is Burning. After combat: Absorb flames in FP Range.');
-assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players.P1.deck.some((card) => card.cardId === 'dragon-claws'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'dragon-claws'), true, 'dragon-claws belongs to the base starting pool.');
 
 for (const stack of [false, true]) {
   for (const pile of ['hand', 'deck', 'discard', 'removedDeck', 'none'] as const) {

@@ -40,7 +40,7 @@ const burn = (state: GameState, id: 'P1' | 'P2' = 'P2') => state.players[id].han
 const card = cardDefinition({ instanceId: '', cardId: 'counterflame' });
 assert.equal(card.name, 'Counterflame'); assert.equal(card.kind, 'defend'); assert.equal(card.value, 2);
 assert.equal(card.effectText, "Create Patch of Flames on Attacker's Square after combat. If you lost this combat or received a negative effect as a result of it - apply Burning to Attacker.");
-for (const id of ['P1', 'P2'] as const) assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players[id].hand.some((card) => card.cardId === 'counterflame'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'counterflame'), true, 'counterflame belongs to the base starting pool.');
 
 for (const stack of [false, true]) {
   for (const value of [1, 2, 3]) {

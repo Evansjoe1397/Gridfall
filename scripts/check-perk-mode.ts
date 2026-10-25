@@ -147,4 +147,4 @@ const regular = step(normal, { type: 'choose-focus-card', playerId: 'P1', cardId
 assert.equal(regular.perkMode, undefined);
 assert.ok(!regular.players.P1.deck.some((card) => card.cardId === 'perk-draw'));
 assert.equal([...regular.players.P1.deck, ...regular.players.P1.hand].filter((card) => cardDefinition(card).kind === 'perk').length, 3);
-console.log('Perk Mode checks passed: all seven rosters, opening order, queued draws, pool validation, Phase rewards, arenas, FFA, series carryover, and normal mode.');
+console.log('Perk Mode checks passed: all configured rosters, opening order, queued draws, pool validation, Phase rewards, arenas, FFA, series carryover, and normal mode.');

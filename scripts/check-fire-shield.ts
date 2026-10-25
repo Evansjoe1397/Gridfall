@@ -40,7 +40,7 @@ const burn = (state: GameState, id: 'P1' | 'P2' = 'P1') => state.players[id].han
 const burning = (state: GameState, id: 'P1' | 'P2') => state.players[id].hand.filter((card) => card.cardId === 'burning').length;
 assert.equal(cardDefinition({ instanceId: '', cardId: 'fire-shield' }).kind, 'defend');
 assert.equal(cardDefinition({ instanceId: '', cardId: 'fire-shield' }).value, 1);
-for (const id of ['P1', 'P2'] as const) assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players[id].hand.some((card) => card.cardId === 'fire-shield'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'fire-shield'), true, 'fire-shield belongs to the base starting pool.');
 
 for (const stack of [false, true]) {
   let state = fight(setup(stack));

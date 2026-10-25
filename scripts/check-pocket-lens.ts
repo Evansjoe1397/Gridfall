@@ -34,7 +34,7 @@ const burning = (state: GameState, id: 'P1' | 'P2' = 'P2') => state.players[id].
 const object = (id: string, at: string, kind: 'wooden-box' | 'wall-pillar' = 'wooden-box') => ({ id, name: id, kind, position: cell(at), hp: 1, maxHp: 1 });
 const card = cardDefinition({ instanceId: '', cardId: 'pocket-lens' });
 assert.equal(card.name, 'Pocket Lens'); assert.equal(card.kind, 'attack'); assert.equal(card.value, 2);
-assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players.P1.hand.some((card) => card.cardId === 'pocket-lens'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'pocket-lens'), false, 'pocket-lens is outside the base starting pool.');
 for (const stack of [false, true]) {
   // Both creation Cards share one global Lens, including across owners.
   let sequence = setup(stack);

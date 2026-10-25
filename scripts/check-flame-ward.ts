@@ -39,7 +39,7 @@ const move = (label: string): GameCommand => ({ type: 'move', playerId: 'P2', to
 const burning = (state: GameState) => state.players.P2.hand.filter((card) => card.cardId === 'burning').length;
 const shots = (state: GameState) => state.spellProjectiles.filter((event) => event.style === 'flame-ward');
 assert.equal(cardDefinition({ instanceId: '', cardId: 'flame-ward' }).kind, 'perk');
-for (const id of ['P1', 'P2'] as const) assert.ok(createHotseatTestState(false, 'fyrebanks', 2, 'fyrebanks').players[id].deck.some((card) => card.cardId === 'flame-ward'));
+for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'flame-ward'), true, 'flame-ward belongs to the base starting pool.');
 
 for (const stack of [false, true]) for (const level of [1, 2, 3] as const) {
   let state = use(setup(stack), level);
