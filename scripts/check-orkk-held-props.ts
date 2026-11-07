@@ -1,3 +1,4 @@
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,7 +62,7 @@ const filepath = path.resolve('public/models/da-orkh-optimized-skill03.glb');
 const stripped = stripGlbMaterials(fs.readFileSync(filepath));
 const arrayBuffer = stripped.buffer.slice(stripped.byteOffset, stripped.byteOffset + stripped.byteLength) as ArrayBuffer;
 const asset = await new Promise<Awaited<ReturnType<GLTFLoader['parseAsync']>>>((resolve, reject) => {
-  new GLTFLoader().parse(arrayBuffer, '', resolve, reject);
+  new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parse(arrayBuffer, '', resolve, reject);
 });
 const model = asset.scene as THREE.Group;
 stabilizeOrkkHeldProps(model);

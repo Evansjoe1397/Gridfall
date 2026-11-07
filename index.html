@@ -6,9 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#08110f" />
     <title>Gridfall — Test Duel</title>
+    <style>
+      #assetLoading { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; background: #08110f; color: #e3f4eb; font: 16px/1.5 system-ui, sans-serif; }
+      #assetLoading > div { width: min(32rem, 85vw); text-align: center; }
+      #assetLoading[hidden] { display: none; }
+      #assetLoading progress { display: block; width: 100%; height: 1rem; margin: 1.5rem 0; accent-color: #63ddb3; }
+      #assetLoading button { padding: .7rem 1.4rem; cursor: pointer; }
+    </style>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="assetLoading" role="status" aria-live="polite" aria-busy="true"><div>
+      <h1>GRIDFALL</h1><progress id="assetProgress" max="1" value="0" aria-label="Game resources"></progress>
+      <p id="assetStatus">Preparing game resources…</p><button id="assetRetry" type="button" hidden>Try again</button>
+    </div></div>
+    <script type="module" src="/src/bootstrap.ts"></script>
   </body>
 </html>

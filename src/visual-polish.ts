@@ -1,3 +1,4 @@
+import { loadGameTexture } from './game-assets.ts';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { retryAssetLoad } from './retry-asset-load.ts';
@@ -9,7 +10,7 @@ export const polishedNagrandTiles = (arena: string) => visualPolish.enabled && v
 
 let stone: Promise<THREE.Texture> | undefined;
 export function loadPolishStone(anisotropy: number) {
-  return stone ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/polish-stone-v1.png`, (url) => new THREE.TextureLoader().loadAsync(url))
+  return stone ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/polish-stone-v1.webp`, (url) => loadGameTexture(url))
     .then((texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;

@@ -1,34 +1,126 @@
-.shell > .lobby { min-height: calc(100dvh - 50px); padding: clamp(20px, 5vh, 64px) 0; gap: 28px; }
-.lobby .lobby-copy { position: relative; }
-.lobby .lobby-copy .eyebrow { color: #94b5aa; font-size: 10px; letter-spacing: .38em; }
-.lobby .lobby-copy h1 { margin: 8px 0 0; font-size: clamp(64px, 9vw, 106px); letter-spacing: .08em; line-height: .95; color: #e5f6ef; text-shadow: 0 8px 45px #52dab528; }
-.lobby .mode-grid { width: min(1000px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.lobby .mode-card { --menu-accent: #72f6d7; min-width: 0; min-height: 190px; padding: 24px 28px; gap: 8px; border: 1px solid #345148; border-radius: 8px; justify-content: center; background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--menu-accent) 9%, transparent), transparent 65%), linear-gradient(135deg, #12231ee8, #091410f5); box-shadow: 0 8px 24px #0002; transition: border-color .18s, transform .18s, background .18s; }
-.lobby .menu-online { --menu-accent: #67caff; }
-.lobby .menu-characters { --menu-accent: #dfbd75; }
-.lobby .menu-statistics { --menu-accent: #b3a0ed; }
-.lobby .mode-card > span { color: var(--menu-accent); font-size: 9px; letter-spacing: .2em; }
-.lobby .mode-card > strong { font-size: 32px; line-height: 1.1; }
-.lobby .mode-card.primary:hover { border-color: var(--menu-accent); transform: translateY(-2px); }
-.lobby .mode-card.primary:focus-visible { outline: 2px solid var(--menu-accent); outline-offset: 3px; }
-.lobby .menu-icon { position: absolute; right: 26px; top: 24px; width: 44px; height: 44px; color: var(--menu-accent); opacity: .55; pointer-events: none; }
-.lobby .menu-arrow { position: absolute; bottom: 23px; right: 28px; color: var(--menu-accent); font-size: 21px; font-style: normal; opacity: .65; }
-.lobby .mode-card.online { gap: 9px; }
+.shell > .lobby {
+  --ink: #171b19;
+  --brass: #c7a46a;
+  --edge: #645a46;
+  --ivory: #f4ead2;
+  --display: Georgia, 'Times New Roman', serif;
+  min-height: calc(100dvh - 50px);
+  padding: clamp(20px, 5vh, 64px) 0;
+  gap: 28px;
+}
+.lobby .lobby-copy h1 {
+  margin: 0;
+  color: var(--ivory);
+  font: 500 clamp(52px, 8vw, 94px)/1 var(--display);
+  letter-spacing: .065em;
+  text-shadow: 0 4px 26px #0008;
+}
+.lobby-copy::after {
+  content: '';
+  display: block;
+  width: min(18rem, 60%); height: 1px; margin: 17px auto 0;
+  background: linear-gradient(to right, transparent, var(--brass), transparent);
+}
+.lobby .mode-grid {
+  width: min(1080px, 100%); gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+}
+.lobby .mode-card {
+  min-width: 0; min-height: 220px; padding: 24px 28px; gap: 8px;
+  justify-content: flex-end; border: 1px solid var(--edge); border-radius: 2px;
+  color: var(--ivory);
+  background:
+    linear-gradient(var(--shade-angle, 90deg), #171916 0%, #171916ce 27%, transparent 67%),
+    linear-gradient(0deg, #141713b3, transparent 40%),
+    var(--art) var(--portrait-edge, right) 0 top var(--portrait-top, 5px) / auto 205% no-repeat,
+    radial-gradient(ellipse at var(--glow-x, 72%) 38%, var(--glow), #171c18 78%);
+  box-shadow: inset 0 0 0 4px #13161288, 0 8px 22px #0003;
+}
+.lobby :is(.menu-online,.menu-statistics) {
+  --portrait-edge: left;
+  --shade-angle: 270deg;
+  --glow-x: 28%;
+  align-items: flex-end;
+  text-align: right;
+}
+.lobby .menu-statistics .menu-arrow { top: 18px; bottom: auto; }
+.lobby .menu-hotseat {
+  --portrait-top: -40px;
+  --art: url('./assets/combat-portraits/merylin.attack.sting.webp'); --glow: #564a38;
+}
+.lobby .menu-online {
+  --art: url('./assets/combat-portraits/shinobi.defend.webp'); --glow: #374851;
+}
+.lobby .menu-characters {
+  --art: url('./assets/combat-portraits/magician.attack.webp'); --glow: #423a49;
+}
+.lobby .menu-statistics {
+  --art: url('./assets/combat-portraits/john-christ.defend.spirit.webp'); --glow: #554238;
+}
+.lobby .mode-card > strong { font: 500 clamp(24px, 3vw, 33px)/1.15 var(--display); text-transform: none; text-shadow: 0 2px 8px #000; }
+.lobby .mode-card.primary:hover { border-color: var(--brass); transform: none; }
+.lobby :is(.mode-grid,.online-waiting,.character-browser) :is(button,input):focus-visible { outline: 2px solid #efcb86; outline-offset: 2px; }
+.lobby .menu-icon { width: 29px; height: 29px; color: var(--brass); }
+.lobby .menu-online .menu-icon { display: none; }
+.lobby .menu-online > :is(.menu-room-fields,.menu-room-actions) {
+  width: min(100%, 278px); background: #191d19; padding: 8px 10px; text-align: left;
+}
+.lobby .menu-online .menu-room-actions { margin-top: -8px; padding-top: 2px; }
+.lobby .menu-arrow { position: absolute; bottom: 22px; right: 24px; color: var(--ivory); font: 22px Georgia, serif; }
 .lobby .menu-room-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
-.lobby .menu-room-fields label { min-width: 0; font-size: 8px; letter-spacing: .1em; }
-.lobby .menu-room-fields input { width: 100%; min-width: 0; border-radius: 4px; padding: 9px 10px; font-size: 12px; }
-.lobby .menu-room-fields input:focus { border-color: var(--menu-accent); }
-.lobby .menu-room-actions button { border-radius: 4px; font-size: 12px; }
-.lobby .menu-room-actions button:hover { border-color: var(--menu-accent); background: #17382e; }
+.lobby .menu-room-fields label { min-width: 0; color: #d0c8b6; font-size: 10px; letter-spacing: .04em; }
+.lobby .menu-room-fields input { width: 100%; min-width: 0; padding: 9px; background: #101511; border-color: #605d50; font-size: 13px; }
+.lobby .menu-room-actions button, .lobby .lobby-back-button { border: 1px solid var(--edge); background: #302f27; color: var(--ivory); font-size: 13px; }
+.lobby .menu-room-actions button:hover, .lobby .lobby-back-button:hover { border-color: var(--brass); background: #413b2f; }
+
+.lobby :is(.online-waiting,.character-browser) {
+  border-color: var(--edge); background: linear-gradient(145deg, #262a24, #131916 78%); color: var(--ivory);
+}
+.lobby :is(.online-waiting,.character-browser-heading) h2 {
+  font: 500 clamp(28px, 4vw, 42px)/1.1 var(--display); text-transform: none;
+}
+.lobby .online-waiting > .eyebrow { color: var(--brass); }
+.lobby .online-waiting :is(.character-choice-card,[data-series-mode],[data-format]), .lobby .arena-choices button {
+  background: linear-gradient(150deg, #34372e, #1c221d); color: var(--ivory);
+}
+.lobby .online-waiting button:is(.character-choice-card,[data-series-mode],[data-format]):not(:has(.character-selection-frame)),
+.lobby .arena-choices button { border: 1px solid var(--edge); }
+.lobby .online-waiting button:is(.character-choice-card,[data-series-mode],[data-format]):enabled:hover:not(:has(.character-selection-frame)),
+.lobby .arena-choices button:hover { border-color: var(--brass); box-shadow: inset 0 0 20px #ccb17d10; }
+.lobby .online-waiting :is([data-format],[data-series-mode],.arena-choices button) strong {
+  display: block; font: 500 22px/1.2 var(--display); text-transform: none;
+}
+.lobby .online-waiting :is([data-format],[data-series-mode],.arena-choices button) small { display: block; margin-top: 6px; color: #c5c3b4; line-height: 1.4; }
+.lobby .online-waiting :is([data-format],[data-series-mode]) { padding: 16px; }
+.lobby .character-choices:has([data-format]), .lobby .arena-choices { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.lobby .arena-choices button { padding: 16px 10px; cursor: pointer; }
+.arena-map {
+  display: grid; grid-template-columns: repeat(var(--columns),1fr); aspect-ratio: 1;
+  width: min(100%, 162px); margin: 0 auto 15px; gap: 1px; border: 3px double #8f805f;
+  background: #302e25; box-shadow: 0 4px 12px #0005;
+}
+.arena-map i, .map-key i { position: relative; display: grid; place-items: center; background: #575746; }
+.arena-map .tile-slope { background: #79765a; }
+.arena-map .tile-ridge, .map-key .tile-ridge { background: #b09c72; box-shadow: inset 0 -2px 0 #756644; }
+.arena-map .tile-basin { background: repeating-linear-gradient(160deg,#375c60 0 4px,#40696b 4px 6px); }
+.arena-map .tile-trench { background: #353c35; }
+:is(.arena-map,.map-key) .start::after { content: ''; width: 47%; aspect-ratio: 1; background: #ffe5ac; transform: rotate(45deg); box-shadow: 0 0 0 1px #3b3426; }
+:is(.arena-map,.map-key) .pillar::after { content: ''; width: 60%; aspect-ratio: 1; border-radius: 50%; background: #292c28; border: 1px solid #aca690; }
+:is(.arena-map,.map-key) .slide::after { content: ''; width: 65%; height: 18%; border-block: 1px solid #e8ddad; transform: rotate(-35deg); }
+:is(.arena-map,.map-key) .switch::after { content: ''; width: 46%; aspect-ratio: 1; background: #c27248; border: 1px solid #f0c891; }
+.map-key, .map-key span { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.map-key { flex-wrap: wrap; gap: 7px 15px; margin: 16px auto; color: #c7c5b6; font-size: 11px; }
+.map-key i { width: 14px; height: 14px; }
 .shell > .connection { display: none; }
 .shell > .connection.reconnecting, .shell > .connection.disconnected { display: block; position: fixed; z-index: 80; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 9px 14px; border: 1px solid #496359; border-radius: 5px; background: #091610f2; font-size: 11px; }
-@media (max-width: 600px) {
-  .shell > .lobby { padding: 24px 0; gap: 24px; }
-  .lobby .mode-grid { grid-template-columns: 1fr; }
-  .lobby .mode-card { min-height: 160px; padding: 22px; }
-  .lobby .menu-icon { right: 22px; top: 22px; width: 36px; height: 36px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .lobby .mode-card { transition: none; }
-  .lobby .mode-card.primary:hover { transform: none; }
+@media (max-width: 650px) {
+  .shell > .lobby { padding: 20px 0; gap: 20px; }
+  .lobby .mode-grid, .lobby .character-choices:has([data-format]), .lobby .arena-choices { grid-template-columns: 1fr; }
+  .lobby .mode-card { min-height: 205px; padding: 18px; }
+  .lobby .online-waiting { padding: 16px; }
+  .lobby .online-waiting [data-format] { min-height: 72px; }
+  .lobby .arena-choices button { display: grid; grid-template-columns: 80px 1fr; align-content: center; column-gap: 14px; text-align: left; }
+  .arena-map { grid-row: span 2; margin: 0; }
+  .lobby .arena-choices strong { align-self: end; }
 }

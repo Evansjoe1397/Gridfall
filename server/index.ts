@@ -1,6 +1,5 @@
 import { Room, Server, type Client } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { HistoryOutbox, buildIdentity } from './history-outbox.ts';
@@ -8,6 +7,9 @@ import { finishedMatchRecord } from './match-record.ts';
 import { DEFAULT_STATS_URL } from '../shared/stats-config.ts';
 import { DebugRecorder, projectDebugState } from '../shared/debug-recording.ts';
 import { managementCapabilities, statsManagementRouter } from './stats-management.ts';
+import { MatchLoading } from './match-loading.ts';
+import { RECONNECT_WINDOW_SECONDS } from '../shared/reconnection.ts';
+import { serveClient } from './serve-client.ts';
 import { applyCommand, enablePerkMode, hasPendingPerkChoice, CharacterIdSchema, createBestOfThreeState, createLordaeronMultiplayerState, createMultiplayerState, forcePowerActionEventForCommand, GameCommandSchema, orkkActionEventForCommand, perkUseEventForTransition, resolveMultiplayerCombatStack, spectreActionEventForCommand, wizardActionEventForCommand, type BestOfThreeMode, type CharacterId, type GameState, type PlayerId } from '../shared/game.ts';
 import { arenaForPlayerCount, NAGRAND_ARENA, THE_PIPE_ARENA, THE_TRENCH_ARENA, type ArenaId } from '../shared/arenas.ts';
 
@@ -24,6 +26,7 @@ class DuelRoom extends Room {
   private savedMatches = new Set<string>();
   maxClients = 3;
   private game: GameState | null = null;
+  private matchLoading = new MatchLoading();
   private password = '';
   private format: GameFormat = 'duel';
   private seriesMode: BestOfThreeMode = 'duel';
@@ -62,6 +65,11 @@ class DuelRoom extends Room {
     });
     this.onMessage('ready', (client) => { this.diagnostics.record('client.ready', { seat: this.seats.get(client.sessionId) }); this.sendSnapshot(client); });
     this.onMessage('debug-export', (client, raw) => this.exportDiagnostics(client, raw));
+    this.onMessage('assets-ready', (client, raw) => {
+      const seat = this.seats.get(client.sessionId);
+      if (!seat || !this.game || !raw || !Number.isSafeInteger(raw.token) || !this.matchLoading.acknowledge(raw.token, seat)) return;
+      this.publishMatchLoading();
+    });
     this.onMessage('debug-ping', (client, raw) => {
       if (raw && typeof raw.id === 'number' && Number.isSafeInteger(raw.id)) client.send('debug-pong', { id: raw.id, serverTime: Date.now() });
     });
@@ -81,9 +89,9 @@ class DuelRoom extends Room {
   }
 
   onDrop(client: Client) {
-    this.diagnostics.record('network.drop', { seat: this.seats.get(client.sessionId), reconnectWindowSeconds: 90 });
+    this.diagnostics.record('network.drop', { seat: this.seats.get(client.sessionId), reconnectWindowSeconds: RECONNECT_WINDOW_SECONDS });
     this.broadcast('notice', 'A player lost connection. Waiting for them to reconnect.');
-    this.allowReconnection(client, 90);
+    this.allowReconnection(client, RECONNECT_WINDOW_SECONDS);
   }
 
   onReconnect(client: Client) {
@@ -97,6 +105,7 @@ class DuelRoom extends Room {
     this.diagnostics.record('network.leave', { seat });
     this.debugExportTimes.delete(client.sessionId);
     this.seats.delete(client.sessionId);
+    if (seat && this.matchLoading.remove(seat)) this.publishMatchLoading();
     if (!this.game && seat) {
       delete this.characterSelections[seat];
       delete this.characters[seat];
@@ -120,6 +129,7 @@ class DuelRoom extends Room {
       this.diagnostics.record('command.rejected', { commandEvent: this.diagnosticCommandEvent, seat, error, durationMs: Math.round((performance.now() - started) * 100) / 100 });
       client.send('error', error);
     };
+    if (this.matchLoading.blocked) return reject('Waiting for all Players to finish loading.');
     if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'combat-stack-submit') {
       if (this.game && hasPendingPerkChoice(this.game)) return reject('Resolve the drawn PERK Card choice before continuing.');
       if (!this.game || !seat || this.game.phase !== 'choosing-combat-stack' || !this.game.pendingAttack || ![this.game.pendingAttack.attackerId, this.game.pendingAttack.defenderId].includes(seat)) return reject('No Combat Stack selection is available.');
@@ -180,7 +190,19 @@ class DuelRoom extends Room {
     this.broadcastState();
   }
 
+  private publishMatchLoading() {
+    this.broadcast('match-loading', this.matchLoading.snapshot());
+    if (!this.matchLoading.blocked && this.game) {
+      this.game.matchStartedAt = Date.now();
+      if (this.game.series?.match === 1) this.game.series.startedAt = this.game.matchStartedAt;
+      this.broadcastState();
+    }
+  }
+
   private broadcastState() {
+    if (this.game && this.matchLoading.prepare(`${(this.game as GameState & { arenaId?: string }).arenaId ?? this.arena}:${this.game.series?.match ?? 1}`, this.seats.values())) {
+      this.broadcast('match-loading', this.matchLoading.snapshot());
+    }
     if (this.game) {
       this.diagnosticRevision++;
       this.diagnostics.state(this.game, { revision: this.diagnosticRevision, commandEvent: this.diagnosticCommandEvent });
@@ -266,6 +288,7 @@ class DuelRoom extends Room {
     const arena = this.format === 'ffa' ? arenaForPlayerCount(requiredPlayerCount) : this.arena === 'trench' ? THE_TRENCH_ARENA : this.arena === 'pipe' ? THE_PIPE_ARENA : NAGRAND_ARENA;
     client.send('lobby-state', { perkMode: this.perkMode, playerCount: this.seats.size, requiredPlayerCount, selections: this.characterSelections, characters: this.characters, seriesCharacters: this.tournamentCharacters, seriesMode: this.format === 'bo3' ? this.seriesMode : null, arena: this.format === 'bo3' ? 'Nagrand, Trench, Pipe (random order)' : arena.name, mode: this.format === 'ffa' ? 'Free For All' : this.format === 'bo3' ? `Best-of-Three · ${this.seriesMode === 'tournament' ? 'The Tournament' : '1 versus 1'}` : '1 versus 1', started: Boolean(this.game) });
     client.send('debug-meta', this.diagnosticMeta());
+    if (this.game) client.send('match-loading', this.matchLoading.snapshot());
     if (this.game) client.send('state', this.game);
   }
 
@@ -308,14 +331,14 @@ class DuelRoom extends Room {
   }
 }
 
-const transport = new WebSocketTransport();
+// Protocol pongs are handled by the browser, including background tabs.
+const transport = new WebSocketTransport({ pingInterval: 2000, pingMaxRetries: 2 });
 const app = transport.getExpressApp();
 const statsManagement = { url: process.env.GRIDFALL_STATS_URL || DEFAULT_STATS_URL,
   importKey: process.env.GRIDFALL_STATS_IMPORT_KEY, adminKey: process.env.GRIDFALL_STATS_ADMIN_KEY };
 app.get('/api/stats-config', (request, response) => response.set('Cache-Control', 'no-store').json({ url: statsManagement.url, ...managementCapabilities(request, statsManagement) }));
 app.use('/api/stats-management', statsManagementRouter(statsManagement));
-app.use(express.static('dist'));
-app.get(/.*/, (_request, response) => response.sendFile('index.html', { root: 'dist' }));
+serveClient(app);
 const gameServer = new Server({ transport });
 gameServer.define('duel', DuelRoom);
 const port = Number(process.env.PORT ?? 2567);

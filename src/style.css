@@ -283,7 +283,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .quick-attack-popup > header > small { margin-left: auto; color: #c8878d; font-size: 7px; letter-spacing: .12em; }
 .quick-attack-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .quick-attack-cards .card { min-height: 190px; border-color: #73313a; border-top-color: #ff3d4d; background: linear-gradient(145deg, rgba(58,20,25,.96), rgba(21,10,12,.96)); color: #fff; }
-.quick-attack-cards .card span { color: #d47b84; }
+.quick-attack-cards .card > span { color: #d47b84; }
 .quick-attack-cards .card div { border-top-color: #6d2a32; color: #dca6ab; }
 .quick-attack-cards .card small { color: #ddb9bd; }
 .quick-attack-cards .card:hover, .quick-attack-cards .card:focus-visible { border-color: #ff6470; border-top-color: #ff3d4d; outline: none; box-shadow: 0 8px 25px rgba(0,0,0,.42), 0 0 15px rgba(255,55,72,.2); }
@@ -396,7 +396,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .hand-waiting span { color: #668c82; font-size: 8px; letter-spacing: .18em; }
 .hand-waiting strong { color: var(--cyan); font: 700 19px 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; }
 .hand-waiting small { color: #9abbb2; font-size: 11px; }
-.card { min-height: 124px; border: 1px solid #315a50; border-top: 3px solid var(--red); background: linear-gradient(145deg, #162722, #09120f); text-align: left; padding: 11px 13px; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; transition: .15s; }.card.defense { border-top-color: var(--blue); }.card:not(:disabled):hover, .card.selected { border-color: var(--cyan); transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,.35); }.card span { font-size: 8px; letter-spacing: .16em; color: #668c82; }.card strong { font-size: 18px; margin: 5px 0; }.card div { border-top: 1px solid #29443d; padding-top: 7px; font-size: 9px; letter-spacing: .1em; color: #8aa49d; }.card b { color: white; font-size: 25px; margin-right: 5px; }.card small { margin-top: auto; color: #9abbb2; font-size: calc(11px + .5pt); line-height: 1.35; }.decline { height: 124px; margin: 0; }
+.card { min-height: 124px; border: 1px solid #315a50; border-top: 3px solid var(--red); background: linear-gradient(145deg, #162722, #09120f); text-align: left; padding: 11px 13px; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; transition: .15s; }.card.defense { border-top-color: var(--blue); }.card:not(:disabled):hover, .card.selected { border-color: var(--cyan); transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,.35); }.card > span { font-size: 8px; letter-spacing: .16em; color: #668c82; }.card strong { font-size: 18px; margin: 5px 0; }.card div { border-top: 1px solid #29443d; padding-top: 7px; font-size: 9px; letter-spacing: .1em; color: #8aa49d; }.card b { color: white; font-size: 25px; margin-right: 5px; }.card small { margin-top: auto; color: #9abbb2; font-size: calc(11px + .5pt); line-height: 1.35; }.decline { height: 124px; margin: 0; }
 .turn-actions button { min-height: 45px; margin: 0; }.turn-actions #endTurn { flex: 1; border-color: #5c917f; background: linear-gradient(145deg, #1d4a3d, #0f2922); font-family: 'Barlow Condensed'; font-size: 17px; }.turn-actions kbd { display: block; color: #78968e; font: 8px Inter; margin-top: 3px; }.turn-actions .quiet { background: transparent; border-color: #2b443e; }
 .battle-log { border-top: 1px solid #1c332e; padding-top: 9px; display: grid; grid-template-columns: 120px 1fr; gap: 12px; }.battle-log #log { display: flex; flex-wrap: wrap; gap: 5px 18px; }.battle-log p { margin: 0; color: #78958d; font-size: 10px; }.battle-log p:first-child { color: #c7ddd7; }
 .toast { position: fixed; top: 18px; left: 50%; transform: translate(-50%, -15px); opacity: 0; pointer-events: none; z-index: 1000; max-width: min(720px, calc(100vw - 32px)); padding: 9px 16px; background: #351c1e; border: 1px solid var(--red); color: #ffd8da; font-size: 11px; line-height: 1.3; text-align: center; transition: .2s; }.toast.visible { opacity: 1; transform: translate(-50%, 0); }
@@ -693,6 +693,44 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   filter: drop-shadow(0 24px 45px rgba(0,0,0,.75));
 }
 .card-hover-preview.cursor-preview { transform: translate(-50%, -100%); }
+.card-reference[data-card-reference] {
+  font: inherit;
+  letter-spacing: inherit;
+  color: color-mix(in srgb, currentColor 80%, #a9dcd7);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.card-hover-preview { pointer-events: auto; }
+.card-reference:focus-visible { outline: 2px solid #b2dcd6; outline-offset: 2px; }
+.card-reference-popup {
+  position: fixed;
+  z-index: 10000;
+  width: min(300px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  color: #e8efed;
+  background: #142622;
+  border: 1px solid #72938b;
+  border-radius: 10px;
+  box-shadow: 0 14px 40px #000b;
+  font: 14px/1.5 Inter, sans-serif;
+  text-align: left;
+}
+.card-reference-popup .card {
+  width: 100%;
+  height: auto;
+  min-height: 280px;
+  margin: 0;
+  transform: none;
+  cursor: default;
+}
+.card-reference-popup .card small { white-space: pre-line; font-size: 13px; }
+.card-reference-popup .card strong { font-size: 22px; }
+.effect-reference { padding: 18px; }
+.effect-reference > strong { font-size: 18px; }
+.effect-reference p { margin: 10px 0 0; }
 .card-hover-preview .card {
   width: 100%;
   height: 100%;
@@ -955,7 +993,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .identity .hints-button { min-height: 27px; padding-block: 3px; font-size: 11px; }
   .command-deck .hand { gap: 6px; overflow-y: hidden; }
   .command-deck .hand .card { min-height: 0; height: 100%; padding: 7px 8px; overflow: hidden; }
-  .command-deck .hand .card span { font-size: 8px; }
+  .command-deck .hand .card > span { font-size: 8px; }
   .command-deck .hand .card strong { margin: 3px 0; font-size: 17px; }
   .command-deck .hand .card div { font-size: 9px; }
   .command-deck .hand .card small { font-size: 11px; line-height: 1.35; }
@@ -1042,7 +1080,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .piles b { font-size: 14px; }
   .command-deck .hand { gap: 5px; overflow-y: hidden; }
   .command-deck .hand .card { min-height: 0; height: 100%; padding: 5px 6px; overflow: hidden; }
-  .command-deck .hand .card span { font-size: 8px; }
+  .command-deck .hand .card > span { font-size: 8px; }
   .command-deck .hand .card strong { margin: 2px 0; font-size: 16px; }
   .command-deck .hand .card div { padding-top: 4px; font-size: 9px; }
   .command-deck .hand .card b { font-size: 21px; }
@@ -1698,3 +1736,51 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .pyro-storage small { color: #ffc476; }
 .flame-ward-status { box-shadow: inset 0 0 8px #ff701859; }
 .flame-ward-status.flame-ward-charged { box-shadow: 0 0 7px #67b9ff80, inset 0 0 8px #ff701859; }
+/* Keep the prompt and available actions in one flow so wrapped text and undo
+   controls cannot overlap, including above the floating or Compact Hand. */
+.arena-actions {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+}
+#arenaActions > .prompt,
+#arenaActions > .direct-perk,
+#arenaActions > .cancel-movement {
+  position: static;
+  inset: auto;
+  transform: none;
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+#arenaActions > .prompt {
+  order: -1;
+  flex: 0 0 100%;
+  width: auto;
+  box-sizing: border-box;
+  letter-spacing: .06em;
+}
+#arenaActions > .prompt:not(.visible) { display: none; }
+#arenaActions > button { pointer-events: auto; }
+#arenaActions > .cancel-movement { padding: 7px 10px; font-size: 10px; }
+@media (min-width: 801px) {
+  .arena-actions { bottom: calc(clamp(240px, 28vh, 260px) + 34px); }
+}
+@media (min-width: 801px) and (max-height: 900px) {
+  .arena-actions { bottom: calc(clamp(240px, 30vh, 260px) + 34px); }
+}
+.game:has(> .command-deck > .hand.compact-hand):not(.hidden) .arena-actions { bottom: 180px; }
+@media (max-width: 800px) {
+  .game:has(> .command-deck > .hand.compact-hand):not(.hidden) .arena-actions { bottom: 16px; }
+}

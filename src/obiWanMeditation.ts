@@ -1,6 +1,6 @@
+import { loadGameModel, trackGameAssetPreparation } from './game-assets.ts';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { retryAssetLoad } from './retry-asset-load.ts';
 import { updateJohnSpiritTransition } from './johnChristTransition.ts';
 
 export const MEDITATION_IDLE_MS = 20_000;
@@ -42,10 +42,14 @@ export function resetObiWanMeditation(root: THREE.Group, now = performance.now()
   updateJohnSpiritTransition(root, 0);
 }
 
-async function loadMeditation(root: THREE.Group, state: MeditationState, normal: THREE.Object3D) {
+function loadMeditation(...args: Parameters<typeof loadMeditationImpl>) {
+  return trackGameAssetPreparation(loadMeditationImpl(...args));
+}
+
+async function loadMeditationImpl(root: THREE.Group, state: MeditationState, normal: THREE.Object3D) {
   state.loading = true;
   try {
-    const asset = await (assetPromise ??= retryAssetLoad(`${import.meta.env.BASE_URL}models/obi-wan-meditation.glb?v=2`, url => new GLTFLoader().loadAsync(url)).catch(error => {
+    const asset = await (assetPromise ??= loadGameModel(`${import.meta.env.BASE_URL}models/obi-wan-meditation.glb?v=2`).catch(error => {
       assetPromise = undefined;
       throw error;
     }));

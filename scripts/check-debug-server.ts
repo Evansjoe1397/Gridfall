@@ -40,11 +40,22 @@ try {
   first.send('ready'); second.send('ready');
   first.send('select-character', 'orkk'); second.send('select-character', 'shinobi');
   await until(() => messages.some(m => m.type === 'state'), 'Missing initial state');
-  first.send('command', { type: 'free-move', playerId: 'P2' }); // Wrong seat must be rejected and recorded.
-  await until(() => messages.some(m => m.type === 'error'), 'Missing command rejection');
-  const stateCount = messages.filter(m => m.type === 'state').length;
+  const loading = messages.find(m => m.type === 'match-loading')!.data;
+  const initialLoadingStateCount = messages.filter(m => m.type === 'state').length;
   const initial = messages.find(m => m.type === 'state')!.data;
   const choosingSeat = initial.openingSetup.pendingPlayerIds[0];
+  (choosingSeat === 'P1' ? first : second).send('command', { type: 'choose-focus', playerId: choosingSeat, focus: 'attack' });
+  await until(() => messages.some(m => m.type === 'error' && m.data.includes('finish loading')), 'Commands must wait for asset readiness');
+  first.send('assets-ready', { token: loading.token });
+  await until(() => messages.some(m => m.type === 'match-loading' && m.data.pendingSeats.length === 1), 'First ready player must wait');
+  assert.equal(messages.filter(m => m.type === 'state').length, initialLoadingStateCount);
+  second.send('assets-ready', { token: loading.token });
+  await until(() => messages.some(m => m.type === 'match-loading' && m.data.pendingSeats.length === 0)
+    && messages.filter(m => m.type === 'state').length > initialLoadingStateCount, 'Both ready clients must unlock the match');
+  const errorsBefore = messages.filter(m => m.type === 'error').length;
+  first.send('command', { type: 'free-move', playerId: 'P2' }); // Wrong seat must be rejected and recorded.
+  await until(() => messages.filter(m => m.type === 'error').length > errorsBefore, 'Missing command rejection');
+  const stateCount = messages.filter(m => m.type === 'state').length;
   (choosingSeat === 'P1' ? first : second).send('command', { type: 'choose-focus', playerId: choosingSeat, focus: 'attack' });
   await until(() => messages.filter(m => m.type === 'state').length > stateCount, 'Accepted action did not broadcast');
   first.send('debug-ping', { id: 123 });

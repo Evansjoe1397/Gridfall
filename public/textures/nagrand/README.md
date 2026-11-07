@@ -1,11 +1,15 @@
 # Nagrand ground
 
-`ground.png` is an AI-reconstructed, top-down 4-by-4 square-slab atlas based on
+`ground.webp` is an AI-reconstructed, top-down 4-by-4 square-slab atlas based on
 the Nagrand arena reference images supplied by the user. It is not a direct
 pixel crop: perspective, props, and cast shadows were removed in reconstruction.
 
 The tile renderer selects sixteen individual square slabs through mesh UVs and
 adds alternating brightness. Team and draw-square material hues are retained.
+
+The runtime ground, cliff-rock and polish-stone textures use WebP (quality 92,
+maximum 2048 pixels per edge). Original PNGs are preserved locally under
+`output/performance-assets-originals/public/textures/nagrand/`.
 
 `platform-grass.png` is a separate continuous olive-green turf texture generated
 with the built-in image-generation tool. The platform repeats it every 5.76

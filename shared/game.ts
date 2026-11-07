@@ -4429,6 +4429,46 @@ export function forecastMovement(source: GameState, command: MovementPreviewComm
   }
 }
 
+export function forecastAbility(source: GameState, command: GameCommand) {
+  const sequence = instanceSequence;
+  const randomSequence = rulesRandomSequence;
+  const drawSequence = cardDrawSequence;
+  combatForecastDepth++;
+  try {
+    const result = applyCommand(source, command);
+    if (!result.ok) return null;
+    const effects: { cell: Cell; destination?: Cell; label: string }[] = [];
+    for (const before of Object.values(source.players)) {
+      const after = result.state.players[before.id];
+      const damage = Math.max(0, before.hp - after.hp);
+      const moved = cellLabel(before.position) !== cellLabel(after.position);
+      if (damage || moved) effects.push({ cell: before.position, destination: moved ? after.position : undefined,
+        label: `${damage ? `−${damage} HP` : ''}${moved ? `${damage ? ' · ' : ''}Move` : ''}` });
+    }
+    const paths = result.state.spellProjectiles.slice(source.spellProjectiles.length)
+      .filter((event) => event.style !== 'moonwave').map((event) => event.path);
+    if (command.type === 'arkane-arow-target' || command.type === 'kyk-direction') {
+      for (const event of result.state.objectPushAnimations.slice(source.objectPushAnimations.length)) {
+        if (event.objectId && event.path?.length) paths.push([event.from, ...event.path]);
+      }
+    }
+    if (command.type === 'force-pull-target') {
+      const before = command.targetKind === 'player' ? source.players[command.targetId as PlayerId] : source.objects.find((object) => object.id === command.targetId);
+      const after = command.targetKind === 'player' ? result.state.players[command.targetId as PlayerId] : result.state.objects.find((object) => object.id === command.targetId);
+      if (before && after && cellLabel(before.position) !== cellLabel(after.position)) {
+        const movement = command.targetKind === 'player' ? result.state.players[command.targetId as PlayerId].visualMovement?.path : undefined;
+        paths.push([before.position, ...(movement ?? [after.position])]);
+      }
+    }
+    return { effects, paths };
+  } finally {
+    instanceSequence = sequence;
+    rulesRandomSequence = randomSequence;
+    cardDrawSequence = drawSequence;
+    combatForecastDepth--;
+  }
+}
+
 export function applyCommand(source: GameState, rawCommand: unknown): CommandResult {
   const randomBefore = rulesRandomSequence;
   const drawsBefore = cardDrawSequence;

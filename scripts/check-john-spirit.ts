@@ -1,3 +1,4 @@
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -47,7 +48,7 @@ json.buffers[0].uri='data:application/octet-stream;base64,'+bytes.subarray(28+le
 delete json.images; delete json.textures; delete json.materials;
 for(const m of json.meshes) for(const p of m.primitives) delete p.material;
 Object.assign(globalThis,{ProgressEvent:class{constructor(public type:string){}}});
-const asset=await new GLTFLoader().parseAsync(JSON.stringify(json),'');
+const asset=await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(JSON.stringify(json),'');
 const clip=asset.animations.find(a=>a.name==='Unsteady_Walk')!;
 assert(clip && asset.animations.some(a=>a.name==='Alert'));
 const spiritAttack=asset.animations.find(a=>a.name===JOHN_SPIRIT_ATTACK_CLIP)!;

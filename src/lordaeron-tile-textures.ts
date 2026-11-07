@@ -1,3 +1,4 @@
+import { loadGameTexture } from './game-assets.ts';
 import * as THREE from 'three';
 
 const samples = new Map<number, Promise<THREE.Texture>>();
@@ -14,8 +15,7 @@ export function textureLordaeronTile(
   const variant = ((column * 3 + row * 5 + Math.floor(column / 2) + Math.floor(row / 3)) % 6) + 1;
   let sample = samples.get(variant);
   if (!sample) {
-    sample = new THREE.TextureLoader()
-      .loadAsync(`${import.meta.env.BASE_URL}textures/lordaeron/base-${variant}.png`)
+    sample = loadGameTexture(`${import.meta.env.BASE_URL}textures/lordaeron/base-${variant}.png`)
       .then((texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = Math.min(8, anisotropy);

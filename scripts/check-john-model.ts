@@ -1,3 +1,4 @@
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -23,7 +24,7 @@ delete json.textures;
 delete json.materials;
 for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
 Object.assign(globalThis, { ProgressEvent: class { constructor(public type: string) {} } });
-const asset = await new GLTFLoader().parseAsync(JSON.stringify(json), '');
+const asset = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(JSON.stringify(json), '');
 const model = clone(asset.scene);
 const mixer = new THREE.AnimationMixer(model);
 for (const name of Object.values(JOHN_CLIPS)) {

@@ -1,9 +1,10 @@
+import { installHeadlessTextures } from './headless-gltf-textures.ts';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 const loader=new GLTFLoader();
-loader.register(()=>({name:'HEADLESS_TEXTURES',loadTexture:()=>Promise.resolve(new THREE.Texture())}));
+installHeadlessTextures(loader);
 async function load(path:string) { const b=fs.readFileSync(path);return loader.parseAsync(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),''); }
 const asset=await load('public/models/merylin-pendragon.glb');
 const sting=(await load('public/models/sting.glb')).scene.getObjectByName('Sting_Blade') as THREE.Mesh;

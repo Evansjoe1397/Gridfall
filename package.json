@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:reconnection": "tsx scripts/check-reconnection.ts",
+    "check:animation-stalls": "tsx scripts/check-animation-stalls.ts",
+    "audit:performance": "tsx scripts/audit-performance.ts",
+    "check:assets": "tsx scripts/check-game-assets.ts",
     "check:debug-recording": "tsx scripts/check-debug-recording.ts",
     "check:debug-server": "tsx scripts/check-debug-server.ts",
     "check:debug-client": "tsx scripts/check-debug-client.ts",

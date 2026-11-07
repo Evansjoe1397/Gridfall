@@ -1,3 +1,4 @@
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ const header = Buffer.from(bytes.subarray(0, 20));
 header.writeUInt32LE(20 + padded.length + bytes.length - 20 - jsonLength, 8);
 header.writeUInt32LE(padded.length, 12);
 const headless = Buffer.concat([header, padded, bytes.subarray(20 + jsonLength)]);
-const asset = await new GLTFLoader().parseAsync(headless.buffer.slice(headless.byteOffset, headless.byteOffset + headless.byteLength), '');
+const asset = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(headless.buffer.slice(headless.byteOffset, headless.byteOffset + headless.byteLength), '');
 const state = new ArchmageAnimation(asset.scene, asset.animations, SPELLBLOCK_ASSEMBLY_MS / 1000);
 const idleHold = new IdleAnimationHold();
 idleHold.sync(state, true);

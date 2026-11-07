@@ -1,3 +1,4 @@
+import { loadGameTexture } from './game-assets.ts';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createSummitGeometry, createCliffShard, createRangeGeometry, createValleyFloorGeometry, cliffRadius, terrainRandom, type MountainRange } from './nagrand-terrain-geometry.ts';
@@ -13,7 +14,7 @@ function createRockMaterial(textureUrl?: string, bareStone = false) {
   const cliffMap = { value: fallback as THREE.Texture };
   const cliffMapWeight = { value: 0 };
   if (textureUrl) {
-    void retryAssetLoad(textureUrl, (url) => new THREE.TextureLoader().loadAsync(url)).then((texture) => {
+    void retryAssetLoad(textureUrl, (url) => loadGameTexture(url)).then((texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.anisotropy = 4;

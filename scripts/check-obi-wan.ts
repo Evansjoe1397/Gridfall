@@ -1,3 +1,4 @@
+import { installHeadlessTextures } from './headless-gltf-textures.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -40,7 +41,7 @@ const assetPath = process.argv[2] ?? 'public/models/obi-wan-optimized.glb';
 const bytes = fs.readFileSync(assetPath);
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
-loader.register(() => ({ name: 'HEADLESS_TEXTURES', loadTexture: () => Promise.resolve(new THREE.Texture()) }));
+installHeadlessTextures(loader);
 const asset = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
 
 for (const name of ['Idle', 'Casual_Walk', 'Walking', 'Running', 'RunFast', 'Power', 'Dead', OBI_WAN_LEG_KICK_CLIP, OBI_WAN_DOUBLE_SWING_CLIP, OBI_WAN_DANCE_THROUGH_CLIP, OBI_WAN_FLIP_CLIP]) {

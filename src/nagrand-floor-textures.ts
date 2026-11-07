@@ -1,3 +1,4 @@
+import { loadGameTexture } from './game-assets.ts';
 import * as THREE from 'three';
 import { retryAssetLoad } from './retry-asset-load.ts';
 
@@ -6,7 +7,7 @@ let ground: Promise<THREE.Texture> | undefined;
 let platformRock: Promise<THREE.Texture> | undefined;
 
 function loadPlatformRock(anisotropy: number) {
-  return platformRock ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/cliff-rock-v1.png`, (url) => new THREE.TextureLoader().loadAsync(url))
+  return platformRock ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/cliff-rock-v1.webp`, (url) => loadGameTexture(url))
     .then((texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -19,7 +20,7 @@ function loadPlatformRock(anisotropy: number) {
 }
 
 function loadGround(anisotropy: number) {
-  return ground ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/ground.png?v=2`, (url) => new THREE.TextureLoader().loadAsync(url))
+  return ground ??= retryAssetLoad(`${import.meta.env.BASE_URL}textures/nagrand/ground.webp?v=2`, (url) => loadGameTexture(url))
     .then((texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { execFileSync } from 'node:child_process';
+import { gameAssetsPlugin } from './build/game-assets-plugin.ts';
 
 function diagnosticBuildIdentity() {
   const builtAt = new Date().toISOString();
@@ -13,6 +14,7 @@ function diagnosticBuildIdentity() {
 }
 
 export default defineConfig({
+  plugins: [gameAssetsPlugin()],
   define: { __GRIDFALL_BUILD__: JSON.stringify(diagnosticBuildIdentity()) },
   server: {
     proxy: {

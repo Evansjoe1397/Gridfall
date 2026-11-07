@@ -50,6 +50,16 @@ try {
     second.send('select-character', tournament ? ['shinobi', 'orkk'] : 'shinobi');
     third?.send('select-character', 'orkk');
     await until(() => Boolean(latest), 'Match did not start');
+    let loadingComplete = false;
+    const beforeLoad = latest;
+    for (const connection of [first, second, third].filter((room): room is Room => room !== null)) {
+      connection.onMessage('match-loading', (loading: { token: number; pendingSeats: string[] }) => {
+        if (loading.pendingSeats.length) connection.send('assets-ready', { token: loading.token });
+        else if (connection === first) loadingComplete = true;
+      });
+      connection.send('ready');
+    }
+    await until(() => loadingComplete && latest !== beforeLoad, 'Clients did not finish match preparation');
     assert.equal(latest.perkMode, true, 'Confirmed selections lock the shared mode.');
     assert.ok(Object.values(latest.players).every((player: any) => player.perkMode));
     let safety = 0;

@@ -1,3 +1,4 @@
+import { loadGameTexture } from './game-assets.ts';
 import * as THREE from 'three';
 
 const samples = new Map<string, Promise<THREE.Texture>>();
@@ -17,8 +18,7 @@ export function textureTrenchTile(
   const sampleName = trench ? label : `base-${variant}`;
   let sample = samples.get(sampleName);
   if (!sample) {
-    sample = new THREE.TextureLoader()
-      .loadAsync(`${import.meta.env.BASE_URL}textures/trench/${sampleName}.png`)
+    sample = loadGameTexture(`${import.meta.env.BASE_URL}textures/trench/${sampleName}.png`)
       .then((texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = Math.min(8, anisotropy);

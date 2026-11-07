@@ -1,4 +1,5 @@
 import { CARDS, type Card } from '../shared/game.ts';
+import { referenceTextHtml } from './card-references.ts';
 
 function escapeText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -16,6 +17,6 @@ export function cardNameHtml(card: Pick<Card, 'name' | 'narrative'>, uppercase =
 
 /** Format plain text only: escape all user/content HTML and mark complete Narrative names once. */
 export function cardTextHtml(text: string): string {
-  return text.split(narrativeMention).map((part, index) => index % 2
-    ? `<em class="narrative-card-name">${escapeText(part)}</em>` : escapeText(part)).join('');
+  return referenceTextHtml(text, (plain) => plain.split(narrativeMention).map((part, index) => index % 2
+    ? `<em class="narrative-card-name">${escapeText(part)}</em>` : escapeText(part)).join(''));
 }

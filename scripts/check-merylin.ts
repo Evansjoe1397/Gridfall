@@ -1,3 +1,4 @@
+import { installHeadlessTextures } from './headless-gltf-textures.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ for (const view of json.bufferViews) assert.ok(view.byteOffset + view.byteLength
 // Real GLTF parser, rig and AnimationMixer; only GPU image decoding is substituted.
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
-loader.register(() => ({ name: 'HEADLESS_TEXTURES', loadTexture: () => Promise.resolve(new THREE.Texture()) }));
+installHeadlessTextures(loader);
 const asset = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
 assert.ok(asset.animations.every(c => c.duration > 0 && c.tracks.length > 0));
 const previewFace = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshPhysicalMaterial({ map: new THREE.Texture() }));
