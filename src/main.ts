@@ -103,6 +103,10 @@ import { createStormAtmosphere } from './storm-atmosphere.ts';
 import { createNagrandMountains, NAGRAND_LANDSCAPE_SCALE } from './nagrand-mountains.ts';
 import { ArenaPolishLighting, filmicToneMapping, loadPolishStone, polishedNagrandTiles, polishedTileGeometry, texturePolishedTile, visualPolish } from './visual-polish.ts';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { SmoothCamera, cameraWheelScale } from './smooth-camera.ts';
+import { OverlayMeasurements, positionOverlay, type OverlayBounds } from './overlay-layout.ts';
+import { isScenePrewarming, prewarmPointLightVariants, visiblePointLightCount } from './shader-warmup.ts';
+import { FrameWorkProfiler } from './frame-work.ts';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -331,6 +335,8 @@ let combatStackSubmittedPlayerIds: PlayerId[] = [];
 let hiddenQuestRewardId: string | null = null;
 let actionQuestCollapsed = false;
 let compactHandMode = false;
+let turnHintsEnabled = true;
+try { turnHintsEnabled = localStorage.getItem('gridfall.turnHints') !== 'off'; } catch { /* Storage may be unavailable. */ }
 let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
 let hintsOpen = false;
@@ -624,6 +630,11 @@ window.addEventListener('keydown', (event) => {
       updateMovementPathPreview();
       notify(`Movement path preview ${movementPreviewEnabled ? 'enabled' : 'disabled'}.`);
     }
+    return;
+  }
+  if (event.code === 'KeyI' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !game.classList.contains('hidden')) {
+    event.preventDefault();
+    if (!event.repeat) toggleTurnHints();
     return;
   }
   if (!byId('endTurnReminder').classList.contains('hidden')) {
@@ -2040,7 +2051,9 @@ function renderUI() {
   byId('directPerkButton').classList.toggle('hidden', !selectingPerkDestination);
   byId('directPerkButton').textContent = selectedHandPerk && cardDefinition(selectedHandPerk).levelEffects?.length ? 'Play Directly · Level 1' : 'Play Directly';
   if (selectingPerkDestination) {
-    prompt.textContent = cardDefinition(selectedHandPerk!).levelEffects?.length ? 'Choose Spell Echo or Play Directly · Esc to cancel' : 'Confirm Perk · Esc to cancel';
+    prompt.innerHTML = cardDefinition(selectedHandPerk!).levelEffects?.length
+      ? `Choose ${turnHintTerm('Spell Echo', 'Store this Perk to reuse it on future turns, potentially every turn. If you use no Perk this turn, stored Perks move down to higher Levels when Level 1 is occupied and the slots are not full.')} or Play ${turnHintTerm('Directly', 'Use this Perk once, then send it to your Discard Deck instead of storing it. Single-use copies are Removed.')} · Esc to cancel`
+      : 'Confirm Perk · Esc to cancel';
     prompt.classList.add('visible');
   }
   const choosingMindTricks = gameState.phase === 'choosing-mind-tricks-discard';
@@ -2102,6 +2115,7 @@ function renderUI() {
     prompt.classList.add('visible');
   }
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || spectreInsideShadowTransit || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
+  renderTurnHints();
   const currentTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
   const hasFreeAdjacentTombMove = Boolean(currentTomb && gameState.objects.some((object) => object.kind === 'tomb' && object.id !== currentTomb.id && distance(object.position, currentTomb.position) === 1));
   if (((gameState.phase === 'active' && (actor.movementRemaining > 0 || hasFreeAdjacentTombMove || hasFreeShadowExit)) || gameState.phase === 'dashing' || gameState.phase === 'dance-through' || gameState.phase === 'double-jump' || gameState.phase === 'shizzle-move') && select.kind === 'none') selection.send({ type: 'SELECT_MOVE' });
@@ -2564,6 +2578,79 @@ function playerUiColor(playerId: PlayerId) {
   return playerId === 'P1' ? '#5e54ff' : playerId === 'P2' ? '#d11f4f' : '#50c878';
 }
 
+function turnHintTerm(label: string, explanation: string) {
+  return `<button type="button" class="turn-hint-term" aria-label="${escapeHtml(`${label}: ${explanation}`)}">${escapeHtml(label)}<span class="turn-hint-tooltip" role="tooltip">${escapeHtml(explanation)}</span></button>`;
+}
+
+function toggleTurnHints() {
+  turnHintsEnabled = !turnHintsEnabled;
+  try { localStorage.setItem('gridfall.turnHints', turnHintsEnabled ? 'on' : 'off'); } catch { /* Keep the session preference. */ }
+  renderTurnHints();
+}
+
+function renderTurnHints() {
+  let panel = document.getElementById('turnHints');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'turnHints';
+    panel.className = 'turn-hints';
+    panel.innerHTML = '<div id="turnHintsText" role="status" aria-live="polite"></div><button type="button" id="turnHintsToggle"></button>';
+    byId('arenaActions').append(panel);
+    byId('turnHintsToggle').addEventListener('click', toggleTurnHints);
+  }
+  const toggle = byId('turnHintsToggle');
+  toggle.textContent = `Tips ${turnHintsEnabled ? 'on' : 'off'} · I`;
+  toggle.setAttribute('aria-pressed', String(turnHintsEnabled));
+  toggle.setAttribute('aria-label', 'Toggle turn tips (I)');
+  const actor = gameState.players[gameState.activePlayerId];
+  const visible = turnHintsEnabled && gameState.phase === 'active' && canLocalAct(actor.id) && !hasPendingPerkChoice(gameState);
+  const viewer = gameState.players[actingPlayer()];
+  const overHandLimit = viewer.hand.length > 5;
+  const showHandLimit = turnHintsEnabled && overHandLimit && gameState.phase !== 'finished';
+  // Reuse the rendered Hand's availability checks, including Prayer's MOV cost,
+  // Spirit Form restrictions and bonus Attacks that do not need an Action.
+  const hasPlayableHandCard = Boolean(byId('hand').querySelector('[data-instance]:not(:disabled)'));
+  const finishingSuggested = visible && actor.actionsRemaining <= 0 && !hasPlayableHandCard
+    && !isWaitingForSelectedCardTarget() && !isWaitingForResolvedCardTarget();
+  const endTurn = byId('endTurn') as HTMLButtonElement;
+  const dash = byId('dashButton') as HTMLButtonElement;
+  endTurn.classList.toggle('finishing-suggested', finishingSuggested && !endTurn.disabled);
+  dash.classList.toggle('finishing-suggested', finishingSuggested && overHandLimit && !dash.disabled);
+  const actions = Math.max(0, actor.actionsRemaining);
+  const uses = (actor.perkUsed ? 0 : 1) + (actor.spellsingerExtraPerkUses ?? 0);
+  const actionCount = actions === 2 ? 'two' : actions === 1 ? 'one' : actions === 0 ? 'no' : String(actions);
+  const actionText = `You have ${actionCount} ${turnHintTerm(actions === 1 ? 'action' : 'actions', 'An Action lets you attack or use a Perk. Each normally costs 1 Action. Free Move + Draw Card does not spend an Action. Card effects and character rules may change what is available.')} left.`;
+  const perkText = actions === 0 ? 'No Actions left to use a Perk.'
+    : uses === 0 ? 'Perk already used · no second use this turn.'
+    : actor.hand.some((card) => card.cardId === 'panic') ? 'Panic blocks Perks · use Free Move to remove it.'
+    : `${uses === 1 ? 'One Perk use' : `${uses} Perk uses`} left.`;
+  const moveText = !(byId('freeMoveButton') as HTMLButtonElement).disabled ? 'Press F to draw a Card and move.' : '';
+  const turnMarkup = visible ? `${actionText} <span>${escapeHtml(perkText)}</span>${moveText ? ` <span>${moveText}</span>` : ''}` : '';
+  const handMarkup = showHandLimit ? `<span class="hand-limit-tip">You have ${turnHintTerm('more than 5 cards', 'The hand limit is 5 Cards at the end of your turn. You may hold more during play, but must discard down to 5 when ending your turn. Dash can discard an eligible Card before you finish. Some Status Cards cannot be discarded.') }.</span>` : '';
+  const positionTips: string[] = [];
+  if (turnHintsEnabled && viewer.hp > 0 && gameState.phase !== 'finished') {
+    const label = cellLabel(viewer.position);
+    const base = baseSquareAt(gameState, label);
+    if (base?.ownerId === viewer.id) {
+      const upgradeHint = viewer.character === 'merylin' ? ' Kamelot Stance can upgrade the bonus to +3.' : '';
+      positionTips.push(`You're standing on ${turnHintTerm('your base', `Your Defend Card gains +${base.value} DEF while you defend on this Base Square.${upgradeHint}`)} · +${base.value} DEF when defending.`);
+    }
+    const drawSquare = visualArena().drawSquares.includes(label) && !kamelotChanges(gameState).some((change) => change.label === label);
+    if (drawSquare) {
+      const replacementHint = viewer.character === 'merylin' ? ' A Kamelot Base painted over it replaces this effect.' : '';
+      positionTips.push(`You're standing on a ${turnHintTerm('yellow Draw Square', `Start your turn on this Square to draw 1 extra Card. Entering the Square does not draw a Card immediately.${replacementHint}`)} · stay here to draw 1 extra Card next turn.`);
+    }
+    if ((gameState.elevations[label] ?? 0) > 0 || viewer.spectreOnBoxId) {
+      positionTips.push(`You're standing on ${turnHintTerm('High Ground', 'Your Attack Cards gain +1 Attack Value against targets on Low Ground, including protected Squares. This bonus does not apply against another High Ground target. Lightbringer doubles this bonus. High Ground alone does not give a general DEF bonus.')} · +1 ATT against Low Ground targets.`);
+    }
+  }
+  const positionMarkup = positionTips.map((tip) => `<span class="position-tip">${tip}</span>`).join('');
+  const markup = `${turnMarkup}${handMarkup}${positionMarkup}`;
+  const text = byId('turnHintsText');
+  if (text.innerHTML !== markup) text.innerHTML = markup;
+  text.classList.toggle('hidden', !visible && !showHandLimit && positionTips.length === 0);
+}
+
 function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
   if (gameState.phase === 'finished' || ['choosing-focus', 'choosing-focus-card', 'choosing-base-placement'].includes(gameState.phase)) return;
   const turnKey = `${gameState.turn}:${player.id}`;
@@ -2585,7 +2672,13 @@ function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
     const names = result.winners.map((id) => gameState.players[id].name).join(' and ');
     questMessage.textContent = result.winners.length > 1 ? `${questName}: Draw — ${names}` : `${names} won the Quest: ${questName}`;
   } else questMessage.textContent = '';
-  questMessage.classList.toggle('visible', showQuestResult);
+  const currentQuest = (gameState as GameStateWithQuestPhases).questPhases?.currentQuest;
+  const finalQuestRound = currentQuest?.endsAfterRound === gameState.turn;
+  if (finalQuestRound) {
+    const name = ACTION_QUEST_POOL.find((quest) => quest.id === currentQuest.id)?.name ?? currentQuest.id;
+    questMessage.textContent += `${showQuestResult ? ' · ' : ''}${name}: one round remaining — final round!`;
+  }
+  questMessage.classList.toggle('visible', Boolean(showQuestResult || finalQuestRound));
   announcement.classList.remove('hidden', 'visible');
   void announcement.offsetWidth;
   announcement.classList.add('visible');
@@ -4120,11 +4213,15 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 boardEl.appendChild(renderer.domElement);
 const overheadStatusLayer = document.createElement('div');
+const overlayMeasurements = new OverlayMeasurements();
+const frameWorkProfiler = new FrameWorkProfiler();
+let lastShaderGrowthEventAt = -Infinity;
 overheadStatusLayer.className = 'overhead-status-layer';
 boardEl.appendChild(overheadStatusLayer);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+// Board input is smoothed once per rendered frame, including wheel/pinch zoom.
+controls.enableDamping = false;
+controls.enableZoom = false;
 controls.enablePan = false;
 controls.minDistance = 7;
 controls.maxDistance = 58;
@@ -4135,6 +4232,7 @@ controls.mouseButtons.MIDDLE = null;
 controls.mouseButtons.RIGHT = null;
 controls.target.set(0, 0, 0);
 controls.update();
+const cameraMotion = new SmoothCamera(camera, controls.target);
 const hemisphereLight = new THREE.HemisphereLight(0xbde8dc, 0x07100e, 1.6);
 scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
@@ -4652,6 +4750,7 @@ type WeaverHologram = { group: THREE.Group; source: THREE.Object3D; sourceVersio
 const weaverHolograms = new Map<PlayerId, WeaverHologram>();
 const characterHealthBars = new Map<PlayerId, THREE.Sprite>();
 const overheadStatusRows = new Map<PlayerId, HTMLDivElement>();
+const overheadStatusBounds = new Map<PlayerId, OverlayBounds>();
 type CharacterCalloutBubble = { element: HTMLDivElement; playerId: PlayerId; startedAt: number; delay: number; worldPosition?: THREE.Vector3 };
 const characterCalloutBubbles: CharacterCalloutBubble[] = [];
 type ObjectCalloutBubble = { element: HTMLDivElement; objectId: string; startedAt: number; delay: number; anchorOffsetY: number; worldPosition: THREE.Vector3 };
@@ -4832,6 +4931,15 @@ dummyGroups.set('P2', createObiWanShinobi(0xff5d68));
 scene.add(dummyGroups.get('P1')!, dummyGroups.get('P2')!);
 
 renderer.domElement.addEventListener('pointerdown', onCameraRotateStart, { capture: true });
+let cameraWheelControlHeld = false;
+window.addEventListener('keydown', event => { if (event.key === 'Control') cameraWheelControlHeld = true; }, { capture: true });
+window.addEventListener('keyup', event => { if (event.key === 'Control') cameraWheelControlHeld = false; }, { capture: true });
+window.addEventListener('blur', () => { cameraWheelControlHeld = false; });
+renderer.domElement.addEventListener('wheel', event => {
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  cameraMotion.input(() => zoomCameraByScale(cameraWheelScale(event.deltaY, event.deltaMode, event.ctrlKey && !cameraWheelControlHeld, controls.zoomSpeed)));
+}, { capture: true, passive: false });
 renderer.domElement.addEventListener('pointermove', onCameraGrabMove, { capture: true });
 renderer.domElement.addEventListener('pointermove', (event) => {
   if (event.pointerType === 'mouse' || event.pointerType === 'pen') boardPointerPosition = { clientX: event.clientX, clientY: event.clientY };
@@ -4898,6 +5006,8 @@ function developerHoverTarget() {
 const diagnosticClipObservations = new Map<string, { clip: string; time: number; mixerTime: number; observedAt: number; visible: boolean }>();
 let diagnosticAnomalyKey = '';
 function resetDiagnosticObservations() {
+  frameWorkProfiler.reset();
+  lastShaderGrowthEventAt = -Infinity;
   diagnosticClipObservations.clear();
   diagnosticAnomalyKey = '';
 }
@@ -4975,7 +5085,7 @@ function collectDiagnosticSample() {
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
   return {
     view: game.classList.contains('hidden') ? 'lobby' : 'match', mode, phase: gameState.phase, turn: gameState.turn, seat: localSeat,
-    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, width: renderer.domElement.width, height: renderer.domElement.height, dpr: renderer.getPixelRatio() },
+    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, width: renderer.domElement.width, height: renderer.domElement.height, dpr: renderer.getPixelRatio(), programs: renderer.info.programs?.length ?? 0, pointLights: visiblePointLightCount(scene, camera), frameWork: frameWorkProfiler.snapshot() },
     heapBytes: memory?.usedJSHeapSize,
     characters,
     waits,
@@ -4992,10 +5102,14 @@ const developerPanel = createDeveloperPanel(() => {
     : connection.classList.contains('disconnected') ? 'Disconnected' : room ? 'Connected' : 'Lobby';
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
   const currentSelection = selection.getSnapshot().context.selection;
+  const frameWork = frameWorkProfiler.snapshot();
   return [
     ['Draw calls', renderer.info.render.calls.toLocaleString()],
     ['Triangles', renderer.info.render.triangles.toLocaleString()],
     ['Geometries / textures', `${renderer.info.memory.geometries} / ${renderer.info.memory.textures}`],
+    ['HUD CPU p95 / max', `${frameWork.hud.p95Ms.toFixed(2)} / ${frameWork.hud.maxMs.toFixed(2)} ms`],
+    ['Render CPU p95 / max', `${frameWork.renderSubmission.p95Ms.toFixed(2)} / ${frameWork.renderSubmission.maxMs.toFixed(2)} ms`],
+    ['Shader programs / growth frames', `${renderer.info.programs?.length ?? 0} / ${frameWork.growthFrames}`],
     ['Render pixels / DPR', `${renderer.domElement.width} × ${renderer.domElement.height} / ${renderer.getPixelRatio().toFixed(2)}`],
     ['JS heap', memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} / ${(memory.jsHeapSizeLimit / 1048576).toFixed(0)} MiB` : 'Unavailable'],
     ['View / mode', `${game.classList.contains('hidden') ? 'Lobby' : 'Match'} / ${mode}`],
@@ -5116,12 +5230,12 @@ renderer.setAnimationLoop((time) => {
   const deltaSeconds = Math.min((time - previousFrameTime) / 1000, 0.05);
   previousFrameTime = time;
   // Menus and the archive have their own renderers. Do not also render the arena.
-  if (document.hidden || game.classList.contains('hidden')) return;
+  if (document.hidden || game.classList.contains('hidden') || isScenePrewarming(scene)) return;
   hologramShaderTime.value = time / 1000;
   patchOfFlamesVisuals.update(gameState, time, worldPosition, !game.classList.contains('hidden'));
   if (nagrandOuterRingGroup.visible) updateNagrandBrazierFire(time);
-  updateCameraMovement(deltaSeconds);
-  if (!cameraGrab) controls.update();
+  if (cameraKeys.size > 0) cameraMotion.input(() => updateCameraMovement(deltaSeconds));
+  cameraMotion.update(deltaSeconds);
   updateStormFillLight();
   updateTargetHighlights(time);
   updateMovementPathPreview();
@@ -5317,7 +5431,6 @@ renderer.setAnimationLoop((time) => {
     if (!effect.update(time, target?.position)) manaShieldVisual = null;
   }
   updateStoredManaShieldVisuals(time);
-  updateDamageVisuals(time);
   if (spellblockVisual) {
     const { effect, defenderId, replicaId } = spellblockVisual;
     const target = replicaId ? objectGroups.get(replicaId) : dummyGroups.get(defenderId);
@@ -5336,19 +5449,32 @@ renderer.setAnimationLoop((time) => {
   updateSwiftness(time, camera);
   updatePendingDeathAnimations(time);
   updateMatchEndPresentation(time);
-  updateCharacterHealthBars();
   syncWeaverHolograms(time);
   animateHotPotato(time);
   animateQuestFlags(time);
+  const hudStartedAt = debugFrameStartedAt === undefined ? 0 : performance.now();
+  updateCharacterHealthBars();
+  updateDamageVisuals(time);
   updatePerkUseLabels(time);
   updateCharacterCalloutBubbles(time);
   updateObjectCalloutBubbles(time);
+  const hudMs = debugFrameStartedAt === undefined ? 0 : performance.now() - hudStartedAt;
   // Sky has infinite apparent distance: camera dolly must not move its stars.
   dawnSkyDome.position.copy(camera.position);
   desertAtmosphere.sky.position.copy(camera.position);
   stormAtmosphere.sky.position.copy(camera.position);
   dawnStarField.position.copy(camera.position);
+  const programsBefore = renderer.info.programs?.length ?? 0;
+  const renderStartedAt = debugFrameStartedAt === undefined ? 0 : performance.now();
   renderer.render(scene, camera);
+  if (debugFrameStartedAt !== undefined) {
+    const work = frameWorkProfiler.record(hudMs, performance.now() - renderStartedAt, programsBefore, renderer.info.programs?.length ?? 0);
+    if (work.programGrowth && time - lastShaderGrowthEventAt >= 1000) {
+      lastShaderGrowthEventAt = time;
+      debugRecorder.event('render.program-growth', { added: work.programGrowth, programs: work.programCount,
+        renderSubmissionMs: Math.round(work.renderMs * 100) / 100, pointLights: visiblePointLightCount(scene, camera) });
+    }
+  }
   const workMs = debugFrameStartedAt === undefined ? 0 : performance.now() - debugFrameStartedAt;
   developerPanel.frame(time, workMs);
   debugRecorder.frame(time, workMs);
@@ -5490,8 +5616,10 @@ function updateOverheadStatusRows(refreshContents = false) {
   const playerIds = new Set(Object.keys(gameState.players) as PlayerId[]);
   overheadStatusRows.forEach((row, playerId) => {
     if (playerIds.has(playerId)) return;
+    overlayMeasurements.forget(row);
     row.remove();
     overheadStatusRows.delete(playerId);
+    overheadStatusBounds.delete(playerId);
   });
   playerIds.forEach((playerId) => {
     const player = gameState.players[playerId];
@@ -5503,6 +5631,7 @@ function updateOverheadStatusRows(refreshContents = false) {
       row.className = 'overhead-character-statuses';
       row.style.setProperty('--player-color', playerUiColor(playerId));
       overheadStatusLayer.appendChild(row);
+      overlayMeasurements.observe(row);
       overheadStatusRows.set(playerId, row);
       refreshContents = true;
     }
@@ -5517,18 +5646,21 @@ function updateOverheadStatusRows(refreshContents = false) {
     }
     const visible = healthBarsVisible && Boolean(character?.visible) && Boolean(healthBar?.visible) && row.childElementCount > 0;
     row.classList.toggle('hidden', !visible);
-    if (!visible || !healthBar) return;
+    if (!visible || !healthBar) { overheadStatusBounds.delete(playerId); return; }
     overheadStatusScreenPosition.copy(healthBar.position).project(camera);
-    const screenX = Math.round((overheadStatusScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth);
-    const screenY = Math.round((-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight);
+    const screenX = Math.round((overheadStatusScreenPosition.x * 0.5 + 0.5) * renderedBoardWidth);
+    const screenY = Math.round((-overheadStatusScreenPosition.y * 0.5 + 0.5) * renderedBoardHeight);
     row.style.setProperty('--overhead-x', `${screenX}px`);
     row.style.setProperty('--overhead-y', `${screenY}px`);
     camera.getWorldDirection(overheadStatusCameraDirection);
     const cameraDepth = Math.max(0.1, overheadStatusCameraOffset.copy(healthBar.position).sub(camera.position).dot(overheadStatusCameraDirection));
-    const pixelsPerWorldUnit = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * cameraDepth);
+    const pixelsPerWorldUnit = renderedBoardHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * cameraDepth);
     const scale = THREE.MathUtils.clamp(pixelsPerWorldUnit * 0.46 / 64, 0.28, 1.15);
     row.style.setProperty('--overhead-scale', String(scale));
     row.style.setProperty('--overhead-inverse-scale', String(1 / scale));
+    const bounds = overlayMeasurements.statusBounds(row, screenX, screenY, scale);
+    if (bounds) overheadStatusBounds.set(playerId, bounds);
+    else overheadStatusBounds.delete(playerId);
   });
 }
 
@@ -5602,6 +5734,7 @@ function spawnEffectMessage(playerId: PlayerId, text: string, tone: 'positive' |
   element.className = `stat-effect-bubble ${tone}`;
   element.textContent = text;
   overheadStatusLayer.appendChild(element);
+  overlayMeasurements.observe(element);
   statEffectBubbles.push({ element, playerId, slot, startedAt: performance.now() });
 }
 
@@ -5678,13 +5811,9 @@ function updateCharacterCalloutBubbles(time: number) {
     characterCalloutScreenPosition.copy(bubble.worldPosition ?? healthBar!.position).project(camera);
     const onScreen = characterCalloutScreenPosition.z >= -1 && characterCalloutScreenPosition.z <= 1;
     bubble.element.classList.toggle('hidden', !onScreen);
-    const projectedY = (-characterCalloutScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
-    const statusRow = overheadStatusRows.get(bubble.playerId);
-    const statusTop = !bubble.worldPosition && statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
-      ? statusRow.getBoundingClientRect().top - overheadStatusLayer.getBoundingClientRect().top - 3
-      : projectedY;
-    bubble.element.style.left = `${(characterCalloutScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth + Math.sin(progress * Math.PI * 2) * 3}px`;
-    bubble.element.style.top = `${Math.min(projectedY, statusTop)}px`;
+    const projectedY = (-characterCalloutScreenPosition.y * 0.5 + 0.5) * renderedBoardHeight;
+    const statusTop = overheadStatusBounds.get(bubble.playerId)?.top ?? projectedY;
+    positionOverlay(bubble.element, (characterCalloutScreenPosition.x * 0.5 + 0.5) * renderedBoardWidth + Math.sin(progress * Math.PI * 2) * 3, Math.min(projectedY, statusTop));
     bubble.element.style.setProperty('--bubble-rise', `${4 + progress * 34}px`);
     bubble.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
   }
@@ -5729,14 +5858,13 @@ function updateObjectCalloutBubbles(time: number) {
     const onScreen = objectCalloutScreenPosition.z >= -1 && objectCalloutScreenPosition.z <= 1;
     bubble.element.classList.toggle('hidden', !onScreen);
     const bubbleRise = 4 + progress * 34;
-    const viewportWidth = renderer.domElement.clientWidth;
-    const viewportHeight = renderer.domElement.clientHeight;
+    const viewportWidth = renderedBoardWidth;
+    const viewportHeight = renderedBoardHeight;
     const projectedLeft = (objectCalloutScreenPosition.x * 0.5 + 0.5) * viewportWidth + Math.sin(progress * Math.PI * 2) * 3;
     const projectedTop = (-objectCalloutScreenPosition.y * 0.5 + 0.5) * viewportHeight;
     // Tall Columns can project their top beyond the board viewport. Keep their
     // callout inside the visible play area instead of letting it render above it.
-    bubble.element.style.left = `${THREE.MathUtils.clamp(projectedLeft, 64, Math.max(64, viewportWidth - 64))}px`;
-    bubble.element.style.top = `${THREE.MathUtils.clamp(projectedTop, 24 + bubbleRise, Math.max(24 + bubbleRise, viewportHeight - 12))}px`;
+    positionOverlay(bubble.element, THREE.MathUtils.clamp(projectedLeft, 64, Math.max(64, viewportWidth - 64)), THREE.MathUtils.clamp(projectedTop, 24 + bubbleRise, Math.max(24 + bubbleRise, viewportHeight - 12)));
     bubble.element.style.setProperty('--bubble-rise', `${bubbleRise}px`);
     bubble.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
   }
@@ -5779,11 +5907,11 @@ function updateDamageVisuals(time: number) {
     entry.sprite.position.x += Math.sin(progress * Math.PI) * 0.18;
     entry.sprite.material.opacity = 1 - Math.max(0, (progress - 0.55) / 0.45);
   }
-  const layerRect = overheadStatusLayer.getBoundingClientRect();
   for (let index = statEffectBubbles.length - 1; index >= 0; index--) {
     const entry = statEffectBubbles[index];
     const progress = (time - entry.startedAt) / STAT_EFFECT_BUBBLE_DURATION_MS;
     if (progress >= 1) {
+      overlayMeasurements.forget(entry.element);
       entry.element.remove();
       statEffectBubbles.splice(index, 1);
       continue;
@@ -5798,19 +5926,16 @@ function updateDamageVisuals(time: number) {
     const onScreen = perkLabelScreenPosition.z >= -1 && perkLabelScreenPosition.z <= 1;
     entry.element.classList.toggle('hidden', !onScreen);
     if (!onScreen) continue;
-    const projectedX = (perkLabelScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
-    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
-    const statusRow = overheadStatusRows.get(entry.playerId);
-    const hasStatuses = Boolean(statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0);
-    const statusRect = hasStatuses ? statusRow!.getBoundingClientRect() : null;
-    const rightEdge = statusRect ? statusRect.right - layerRect.left : projectedX + 34;
-    const leftEdge = statusRect ? statusRect.left - layerRect.left : projectedX - 34;
-    const anchorY = statusRect ? statusRect.top - layerRect.top + statusRect.height / 2 : projectedY - 20;
-    const useLeft = rightEdge + 12 + entry.element.offsetWidth > renderer.domElement.clientWidth - 8;
+    const projectedX = (perkLabelScreenPosition.x * 0.5 + 0.5) * renderedBoardWidth;
+    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderedBoardHeight;
+    const statusRect = overheadStatusBounds.get(entry.playerId);
+    const rightEdge = statusRect ? statusRect.right : projectedX + 34;
+    const leftEdge = statusRect ? statusRect.left : projectedX - 34;
+    const anchorY = statusRect ? statusRect.top + statusRect.height / 2 : projectedY - 20;
+    const useLeft = rightEdge + 12 + (overlayMeasurements.width(entry.element) || (entry.element.textContent?.length ?? 0) * 12) > renderedBoardWidth - 8;
     const slotBand = entry.slot === 0 ? 0 : (entry.slot % 2 === 1 ? -1 : 1) * Math.ceil(entry.slot / 2);
     entry.element.classList.toggle('left', useLeft);
-    entry.element.style.left = `${useLeft ? leftEdge - 12 : rightEdge + 12}px`;
-    entry.element.style.top = `${anchorY + slotBand * 23 - progress * 34}px`;
+    positionOverlay(entry.element, useLeft ? leftEdge - 12 : rightEdge + 12, anchorY + slotBand * 23 - progress * 34);
     entry.element.style.opacity = String(1 - Math.max(0, (progress - 0.55) / 0.45));
   }
 }
@@ -7899,7 +8024,7 @@ function resetPerkUndoVisuals() {
   moonwaveRouteProgress.clear();
   blessingPresentationQueues.clear();
   for (const { sprite } of damageNumbers.splice(0)) removeEffect(sprite);
-  for (const { element } of statEffectBubbles.splice(0)) element.remove();
+  for (const { element } of statEffectBubbles.splice(0)) { overlayMeasurements.forget(element); element.remove(); }
   // Restored events are history; they should not spawn effects a second time.
   for (const event of gameState.objectPushAnimations) processedObjectPushAnimations.add(event.id);
   for (const event of gameState.spellProjectiles ?? []) processedSpellProjectiles.add(event.id);
@@ -8576,13 +8701,9 @@ function updatePerkUseLabels(time: number) {
     perkLabelScreenPosition.copy(healthBar.position).project(camera);
     const onScreen = perkLabelScreenPosition.z >= -1 && perkLabelScreenPosition.z <= 1;
     label.element.classList.toggle('hidden', !onScreen);
-    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
-    const statusRow = overheadStatusRows.get(playerId);
-    const statusTop = statusRow && !statusRow.classList.contains('hidden') && statusRow.childElementCount > 0
-      ? statusRow.getBoundingClientRect().top - overheadStatusLayer.getBoundingClientRect().top
-      : projectedY - 26;
-    label.element.style.left = `${(perkLabelScreenPosition.x * 0.5 + 0.5) * renderer.domElement.clientWidth}px`;
-    label.element.style.top = `${Math.min(projectedY - 26, statusTop - 10)}px`;
+    const projectedY = (-perkLabelScreenPosition.y * 0.5 + 0.5) * renderedBoardHeight;
+    const statusTop = overheadStatusBounds.get(playerId)?.top ?? projectedY - 26;
+    positionOverlay(label.element, (perkLabelScreenPosition.x * 0.5 + 0.5) * renderedBoardWidth, Math.min(projectedY - 26, statusTop - 10));
     label.element.style.opacity = String(THREE.MathUtils.clamp(opacity, 0, 1));
   });
 }
@@ -10788,6 +10909,7 @@ function fitCameraToArena(width: number, height: number, force = false) {
   camera.position.copy(center).add(viewingDirection.multiplyScalar(cameraDistance));
   controls.maxDistance = Math.max(42, cameraDistance * 2.1);
   controls.update();
+  cameraMotion.reset();
 }
 
 function fittedCameraDistance(center: THREE.Vector3, viewingDirection: THREE.Vector3, spanX: number, spanZ: number, viewportCenter: CameraViewportCenter) {
@@ -12832,6 +12954,10 @@ function onBoardClick(event: MouseEvent) {
 }
 
 function onCameraRotateStart(event: PointerEvent) {
+  cameraMotion.input(() => beginCameraGrab(event));
+}
+
+function beginCameraGrab(event: PointerEvent) {
   if (event.pointerType === 'touch') {
     // Own touch input so OrbitControls cannot rotate during a two-finger pan.
     event.stopImmediatePropagation();
@@ -12903,6 +13029,11 @@ function zoomCameraByScale(scale: number) {
 }
 
 function onCameraGrabMove(event: PointerEvent) {
+  if (!cameraGrab && !cameraTouches.has(event.pointerId)) return;
+  cameraMotion.input(() => moveCameraGrab(event));
+}
+
+function moveCameraGrab(event: PointerEvent) {
   if (touchCameraPan && event.pointerType !== 'touch') return;
   let x = event.clientX;
   let y = event.clientY;
@@ -12971,6 +13102,10 @@ function levelCameraHorizon() {
 }
 
 function finishCameraGrab(event: PointerEvent) {
+  cameraMotion.input(() => endCameraGrab(event));
+}
+
+function endCameraGrab(event: PointerEvent) {
   if (event.pointerType === 'touch') {
     event.stopImmediatePropagation();
     if (!cameraTouches.delete(event.pointerId)) return;
@@ -13529,7 +13664,7 @@ export async function prepareVisibleGameGraphics() {
   if (!game.classList.contains('hidden')) {
     targetHighlightsDirty = true;
     updateTargetHighlights(performance.now());
-    jobs.push(renderer.compileAsync(scene, camera).then(() => renderer.render(scene, camera)));
+    jobs.push(prewarmPointLightVariants(renderer, scene, camera).then(() => renderer.render(scene, camera)));
   }
   if (characterPreviewRenderer && characterPreviewScene && characterPreviewCamera
     && !document.querySelector('.character-browser')?.classList.contains('hidden')) {

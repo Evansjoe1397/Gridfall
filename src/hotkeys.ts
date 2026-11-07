@@ -22,6 +22,7 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
   {
     title: 'Interface and choices',
     shortcuts: [
+      { keys: ['I', 'Tips on / off button'], action: 'Show or hide contextual turn tips.', detail: 'Enabled by default; the preference is saved on this device. I works in a match with no modifiers while not typing and with Statistics closed. Tips show remaining Actions, Perk uses (including extra uses), and F when Free Move + Draw Card is enabled, during your active turn. Hover, tap or focus underlined Actions, Spell Echo and Directly for short explanations.' },
       { keys: ['Ctrl', 'D'], action: 'Show or hide the developer diagnostics panel.', detail: 'Available in the lobby and matches while not typing, with no other modifier keys. Shows FPS, frame timing, board-renderer statistics, and game / connection state; includes debug dump export and issue markers. Recording continues with the panel closed. Overrides the browser bookmark shortcut.' },
       { keys: ['Ctrl', 'Shift', 'D'], action: 'Download the current debug dump.', detail: 'Available in the lobby and matches while not typing, without Alt or Meta. Works while client recording is paused. Includes available server history in online games. Overrides the browser bookmark-all-tabs shortcut.' },
       { keys: ['Ctrl', 'Shift', 'R'], action: 'Pause or resume client debug recording.', detail: 'Available in the lobby and matches while not typing, without Alt or Meta. Preserves recorded history and marks the recording gap. Shared multiplayer server history continues. Overrides the browser hard-reload shortcut.' },
@@ -44,9 +45,9 @@ export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
       { keys: ['A / D'], action: 'Move the camera left or right.', detail: 'Hold the key to move continuously.' },
       { keys: ['Q / E'], action: 'Rotate the camera around the board.', detail: 'Hold the key to rotate continuously.' },
       { keys: ['Home'], action: 'Reset the camera angle and zoom to fit the arena.' },
-      { keys: ['Left or right mouse drag'], action: 'Rotate and tilt the board camera.' },
-      { keys: ['Middle mouse drag'], action: 'Pan the board camera.' },
-      { keys: ['Mouse wheel'], action: 'Zoom the camera in or out.' },
+      { keys: ['Left or right mouse drag'], action: 'Rotate and tilt the board camera.', detail: 'Motion is smoothed per frame and settles briefly after release.' },
+      { keys: ['Middle mouse drag'], action: 'Pan the board camera.', detail: 'Motion is smoothed per frame.' },
+      { keys: ['Mouse wheel'], action: 'Zoom the camera in or out.', detail: 'Smooth zoom supports mouse wheels and trackpad pinch gestures; distance limits are unchanged.' },
       { keys: ['One-finger drag'], action: 'Rotate and tilt the board camera on a touch screen.' },
       { keys: ['Two-finger drag / pinch'], action: 'Pan / zoom the board camera on a touch screen.' },
     ],

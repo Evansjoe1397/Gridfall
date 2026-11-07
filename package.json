@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:camera": "tsx scripts/check-smooth-camera.ts",
     "check:reconnection": "tsx scripts/check-reconnection.ts",
     "check:animation-stalls": "tsx scripts/check-animation-stalls.ts",
     "audit:performance": "tsx scripts/audit-performance.ts",
