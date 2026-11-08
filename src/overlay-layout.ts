@@ -9,6 +9,7 @@ export class OverlayMeasurements {
   constructor(createObserver: (callback: ResizeObserverCallback) => Observer = callback => new ResizeObserver(callback)) {
     this.observer = createObserver(entries => {
       for (const entry of entries) {
+        if (!this.sizes.has(entry.target)) continue;
         const border = entry.borderBoxSize?.[0];
         const width = border?.inlineSize ?? entry.contentRect.width;
         const height = border?.blockSize ?? entry.contentRect.height;

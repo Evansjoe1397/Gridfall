@@ -1,3 +1,4 @@
+import { interactionPlayer } from './interaction-player.ts';
 import { loadGameModel, prepareGameResources, setAssetPreparationStatus, trackGameAssetPreparation } from './game-assets.ts';
 import { OnlineSessions, trackOnlineSession } from './online-session.ts';
 import { clearSweetPotatoEffects, spawnSweetPotatoEffect, updateSweetPotatoEffects } from './sweetPotatoVisuals.ts';
@@ -284,7 +285,7 @@ app.innerHTML = `
         <article class="fighter red" id="p2Stats"></article>
         <article class="fighter violet hidden" id="p3Stats"></article>
       </div>
-      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><div class="arena-actions" id="arenaActions"><button class="direct-perk hidden" id="directPerkButton">Play Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button><div class="prompt" id="prompt" role="status"></div></div><section class="object-attack-confirm hidden" id="objectAttackConfirm" role="dialog" aria-modal="false" aria-labelledby="objectAttackConfirmTitle"><span>OBJECT ATTACK</span><strong id="objectAttackConfirmTitle"></strong><p id="objectAttackConfirmMessage"></p><div><button class="confirm" id="objectAttackConfirmYes" type="button">ATTACK</button><button class="cancel" id="objectAttackConfirmNo" type="button">CANCEL</button></div></section><section class="quick-attack-popup hidden" id="quickAttackPopup" role="dialog" aria-modal="false" aria-labelledby="quickAttackTitle"><header><span>QUICK ATTACK</span><strong id="quickAttackTitle"></strong><small>CHOOSE A CARD · ATTACKS IMMEDIATELY</small></header><div class="quick-attack-cards" id="quickAttackCards"></div></section></div>
+      <div class="arena-frame"><div id="board"></div><div class="character-status-panel status-p1" id="statusP1"></div><div class="character-status-panel status-p2" id="statusP2"></div><div class="character-status-panel status-p3" id="statusP3"></div><div class="opponent-hand-panels" id="opponentHandPanels"></div><div class="spell-echo-bars" id="spellEchoBars"></div><div class="arena-actions" id="arenaActions"><button class="direct-perk hidden" id="directPerkButton">Play Directly · Level 1</button><button class="direct-perk hidden" id="mindTricksFinishButton">Use Mind Tricks without revealing</button><button class="direct-perk finish-dance hidden" id="finishDanceButton">Cancel Dance Through</button><button class="cancel-movement hidden" id="cancelMovementButton">Cancel movement (C)</button></div><section class="object-attack-confirm hidden" id="objectAttackConfirm" role="dialog" aria-modal="false" aria-labelledby="objectAttackConfirmTitle"><span>OBJECT ATTACK</span><strong id="objectAttackConfirmTitle"></strong><p id="objectAttackConfirmMessage"></p><div><button class="confirm" id="objectAttackConfirmYes" type="button">ATTACK</button><button class="cancel" id="objectAttackConfirmNo" type="button">CANCEL</button></div></section><section class="quick-attack-popup hidden" id="quickAttackPopup" role="dialog" aria-modal="false" aria-labelledby="quickAttackTitle"><header><span>QUICK ATTACK</span><strong id="quickAttackTitle"></strong><small>CHOOSE A CARD · ATTACKS IMMEDIATELY</small></header><div class="quick-attack-cards" id="quickAttackCards"></div></section></div>
       <div class="command-deck">
         <div class="identity"><span id="activeTitle"></span><strong id="activeName"></strong><div class="active-stats" id="activeStats"></div><div class="piles" id="piles"></div><button id="freeMoveButton">Free Move + Draw Card (F)</button><div class="finishers"><div class="finisher-control"><button id="guardButton">Guard (G)</button><div class="finisher-tooltip">A Finishing move to end the turn. Draw one card, discard one card, then immediately end turn.</div></div><div class="finisher-control"><button id="dashButton">Dash (R)</button><div class="finisher-tooltip">A Finishing move to end the turn. Discard one non-Blessing Card and move again. Can't use Actions during this movement.</div></div></div><button class="hints-button" id="hintsButton">HINTS</button></div>
         <div class="hand" id="hand"></div>
@@ -336,6 +337,7 @@ let hiddenQuestRewardId: string | null = null;
 let actionQuestCollapsed = false;
 let compactHandMode = false;
 let turnHintsEnabled = true;
+let actionPromptMarkup = '';
 try { turnHintsEnabled = localStorage.getItem('gridfall.turnHints') !== 'off'; } catch { /* Storage may be unavailable. */ }
 let announcedTurnKey = '';
 let turnAnnouncementTimer = 0;
@@ -390,6 +392,10 @@ const game = byId('game');
 const actionQuestPanel = document.createElement('aside');
 actionQuestPanel.id = 'actionQuestPanel'; actionQuestPanel.className = 'action-quest-panel';
 game.querySelector('.arena-frame')?.append(actionQuestPanel);
+const mindTricksRevealPanel = document.createElement('section');
+mindTricksRevealPanel.className = 'mind-tricks-reveal hidden';
+mindTricksRevealPanel.setAttribute('aria-label', 'Mind Tricks revealed cards');
+game.querySelector('.arena-frame')?.append(mindTricksRevealPanel);
 const phaseRewardModal = document.createElement('div');
 phaseRewardModal.id = 'phaseRewardModal'; phaseRewardModal.className = 'choice-modal hidden'; document.body.append(phaseRewardModal);
 const boardEl = byId('board');
@@ -690,6 +696,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' && selectedTestObjectId) {
     event.preventDefault(); selectedTestObjectId = null; renderUI(); notify('Wooden Box movement cancelled.'); return;
   }
+  if (event.code === 'Escape' && !canLocalAct(interactionPlayer(gameState))) return;
   if (gameState.combatReveal) {
     if (event.code === 'Space' || event.code === 'Escape') event.preventDefault();
     return;
@@ -1567,73 +1574,7 @@ function renderOnlineSelectionFrames() {
 }
 
 function actingPlayer(): PlayerId {
-  if (gameState.lensPerk) return gameState.lensPerk.casterId;
-  if (mode === 'online') return localSeat ?? 'P1';
-  if (gameState.lensSelection) return gameState.lensSelection.playerId;
-  if (gameState.phase === 'choosing-pyrodash-direction') return gameState.pyrodash?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-mockingjay-defense') return gameState.pendingAttack?.defenderId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-mockingjay-narrative') return (gameState as GameStateWithMockingjay).mockingjayNarrativeSpend?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-narrative' || gameState.phase === 'choosing-narrative-target') return (gameState as GameStateWithNarrative).narrativeChoice?.kazkaId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-weaver-story') return gameState.weaverChoice?.targetId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-yamato-move') return (gameState as GameState & { yamato?: { defenderId: PlayerId } }).yamato?.defenderId ?? gameState.activePlayerId;
-  const spectreStatusChoice = (gameState as any).spectreStatusChoice as { playerId: PlayerId } | undefined;
-  if (gameState.phase === 'choosing-blessed-prayer-discard' && spectreStatusChoice) return spectreStatusChoice.playerId;
-  if (gameState.phase === 'choosing-spirit-guardian-square') return (gameState as any).spectreReplicaPlacement?.casterId ?? (gameState as GameState & { spiritGuardian: { casterId: PlayerId } }).spiritGuardian.casterId;
-  if (gameState.phase === 'choosing-exhaust') {
-    const choice = gameState.combatReveal?.exhaust;
-    return choice?.eligible.find((id) => !choice.decided.includes(id)) ?? gameState.activePlayerId;
-  }
-  if (gameState.phase === 'choosing-vicious-mockery') {
-    const choice = gameState.combatReveal?.viciousMockery;
-    return choice?.eligible.find((id) => !choice.decided.includes(id)) ?? gameState.activePlayerId;
-  }
-  if (gameState.phase === 'choosing-blessing-light') return gameState.combatReveal?.blessingLight?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-blessing-might') return gameState.combatReveal?.blessingMight?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-blessing-faith') return gameState.combatReveal?.blessingFaith?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-mythril-helmet') return gameState.combatReveal?.mythrilHelmet?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-mana-barrage') return gameState.combatReveal?.manaBarrage?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-force-throw-target' || gameState.phase === 'choosing-force-throw-direction') return gameState.forceThrow!.casterId;
-  if (gameState.phase === 'choosing-kyk-target' || gameState.phase === 'choosing-kyk-direction') return gameState.forceThrow!.casterId;
-  if (gameState.phase === 'choosing-force-pull-target') return gameState.forcePull!.casterId;
-  if (gameState.phase === 'choosing-spectre-perk-origin') return (gameState as any).spectrePerkOrigin?.casterId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-arkane-arow-target') return (gameState as any).spectreShadow?.casterId ?? gameState.arkaneArow!.casterId;
-  if (gameState.phase === 'choosing-arm-da-wiz-choice' || gameState.phase === 'choosing-arm-da-wiz-create-payment' || gameState.phase === 'choosing-arm-da-wiz-target') return gameState.armDaWiz!.casterId;
-  if (gameState.phase === 'wreckna-wisdom-offer' || gameState.phase === 'wreckna-wisdom-discard') return (gameState as GameState & { wrecknaWisdom?: { playerId: PlayerId } }).wrecknaWisdom?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-wreckna-phylactery' || (gameState.phase as string) === 'choosing-wreckna-phylactery-replace') return (gameState as GameState & { wrecknaPhylacteryChoice?: { casterId: PlayerId } }).wrecknaPhylacteryChoice?.casterId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-immortality-phylactery') return (gameState as GameState & { immortality?: { playerId: PlayerId } }).immortality?.playerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-sap-defend') return (gameState as GameState & { sap?: { targetId?: PlayerId } }).sap?.targetId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-test-phylactery-target') return (gameState as GameState & { testPhylactery?: { casterId: PlayerId } }).testPhylactery?.casterId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-sacrifice-tomb-square') return (gameState as GameState & { sacrificeTomb?: { casterId: PlayerId } }).sacrificeTomb?.casterId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-lichdom-target' || gameState.phase === 'choosing-lichdom-copy') return (gameState as GameState & { lichdom?: { casterId: PlayerId } }).lichdom?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string).startsWith('choosing-dakkoth-')) return (gameState as GameState & { dakkoth?: { casterId: PlayerId } }).dakkoth?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-sap-target') return (gameState as GameState & { sap?: { casterId: PlayerId } }).sap?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-necronomicon-tomb') return (gameState as GameState & { necronomicon?: { casterId: PlayerId } }).necronomicon?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-decay-target') return (gameState as GameState & { decay?: { casterId: PlayerId } }).decay?.casterId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-decay-discard') return (gameState as GameState & { decay?: { targetId?: PlayerId } }).decay?.targetId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-shadow-barter-discard') return (gameState as GameState & { shadowBarter?: { defenderId: PlayerId } }).shadowBarter?.defenderId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-shadow-barter-tomb-square') return (gameState as GameState & { shadowBarter?: { attackerId: PlayerId } }).shadowBarter?.attackerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-mind-tricks-discard') return gameState.mindTricks!.casterId;
-  if (gameState.phase === 'choosing-preparation-teleport' || gameState.phase === 'choosing-preparation-discard') return gameState.preparation!.casterId;
-  if (gameState.phase === 'choosing-blink-teleport') return gameState.pendingAttack!.defenderId;
-  if (gameState.phase === 'choosing-blink-discard') return gameState.pendingAttack!.defenderId;
-  if (gameState.phase === 'choosing-base-placement') return gameState.activePlayerId;
-  if (gameState.phase === 'choosing-arcane-missle-target') return gameState.arcaneMissle!.casterId;
-  if (gameState.phase === 'choosing-fireball-target') return (gameState as any).fireball.casterId;
-  if (gameState.phase === 'choosing-portal-target') return (gameState as any).portal.casterId;
-  if (gameState.phase === 'choosing-chain-lightning-target') return gameState.chainLightning!.casterId;
-  if (gameState.phase === 'choosing-magic-hand-target' || gameState.phase === 'choosing-magic-hand-direction') return gameState.magicHand!.casterId;
-  if (gameState.phase === 'choosing-shizzle-destination' || gameState.phase === 'shizzle-move') return gameState.shizzle!.casterId;
-  if (gameState.phase === 'choosing-mind-tricks-enemy-discard') return gameState.mindTricks!.enemyId;
-  if (gameState.phase === 'double-jump') return gameState.doubleJump!.playerId;
-  if (gameState.phase === 'defending') return gameState.pendingAttack!.defenderId;
-  if (gameState.phase === 'choosing-force-disarm-discard') return gameState.forceDisarm!.targetId;
-  if (gameState.phase === 'flurry-offer') return gameState.flurry!.defenderId;
-  if (gameState.phase === 'choosing-flurry-enemy-discard') return gameState.flurry!.attackerId;
-  if (gameState.phase === 'mana-blast-offer') return gameState.pendingAttack!.defenderId;
-  if (gameState.phase === 'choosing-frostmourne') return (gameState as GameState & { frostmourne?: { playerId: PlayerId } }).frostmourne?.playerId ?? gameState.activePlayerId;
-  if ((gameState.phase as string) === 'choosing-lightbringer-swap') return gameState.pendingAttack?.attackerId ?? gameState.activePlayerId;
-  if (gameState.phase === 'choosing-grimoire-discard') return gameState.pendingAttack!.defenderId;
-  return gameState.activePlayerId;
+  return mode === 'online' ? localSeat ?? 'P1' : interactionPlayer(gameState);
 }
 
 function hudSeatPlayerIds(): PlayerId[] {
@@ -1738,6 +1679,11 @@ game.addEventListener('pointerdown', event => {
 });
 
 function dispatch(command: GameCommand) {
+  if (mode === 'online' && command.playerId !== localSeat) return;
+  // Ignore stale turn-action clicks after control passes to another Player.
+  // Reactions still work because interactionPlayer follows the pending choice.
+  if (mode === 'online' && ['attack', 'play-perk', 'use-echo-perk', 'play-free-action', 'remove-status', 'move', 'free-move', 'guard', 'dash', 'end-turn', 'cancel-movement', 'undo-last-action', 'cancel-targeting', 'cancel-dash'].includes(command.type)
+    && !canLocalAct(interactionPlayer(gameState))) return;
   if (command.type !== 'ack-combat' && obiWanDanceStepInputLocked(command.playerId)) {
     return notify('Wait for Dance Through to finish this step.');
   }
@@ -1843,10 +1789,6 @@ function renderRequiredDiscardNotice() {
       playerId = state.pendingAttack?.defenderId;
       count = state.pendingAttack?.grimoireDiscardsRemaining ?? 0;
       break;
-    case 'choosing-mind-tricks-enemy-discard':
-      playerId = state.mindTricks?.enemyId;
-      count = state.mindTricks?.enemyDiscardsRemaining ?? 0;
-      break;
     case 'choosing-decay-discard':
       playerId = state.decay?.targetId;
       count = state.decay?.remaining ?? 0;
@@ -1896,6 +1838,7 @@ function renderUI() {
   byId('turnLabel').style.color = activeColor;
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
+  if (gameState.phase !== 'finished' && !canLocalAct(interactionPlayer(gameState))) byId('phaseLabel').textContent = 'WAITING FOR OPPONENT';
   showTurnAnnouncement(actor);
   byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : actor.character === 'kazka' ? 'THE NARRATOR' : actor.character === 'fyrebanks' ? 'FIRE MAGE' : 'TRAINING DUMMY';
   byId('activeName').textContent = actor.name;
@@ -1920,6 +1863,7 @@ function renderUI() {
   byId('p3Stats').classList.toggle('hidden', !hudPlayerIds[2]);
   if (hudPlayerIds[2]) renderFighter(hudPlayerIds[2], 'p3Stats', 'right');
   renderOpponentHand();
+  renderMindTricksReveal();
   renderSpellEchoBars();
   const selectingDiscard = gameState.phase.endsWith('-discard') && gameState.phase !== 'choosing-mind-tricks-discard';
   byId('hand').classList.toggle('discard-selection', selectingDiscard);
@@ -1942,8 +1886,10 @@ function renderUI() {
   renderDiscardModal();
   byId('log').innerHTML = gameState.log.slice(0, 7).map((line) => `<p>${cardTextHtml(line)}</p>`).join('');
   const select = selection.getSnapshot().context.selection;
-  const prompt = byId('prompt');
-  prompt.textContent = gameState.phase === 'choosing-once-upon-return' ? 'Choose one newly drawn Card to return to the top of your Deck' : gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : gameState.phase.startsWith('choosing-') ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · pass through enemies, Objects, and Walls · finish unoccupied` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? 'Select an empty highlighted square' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Choose Spell Echo or Play Directly · Esc to cancel' : '';
+  // Compose the current instruction offscreen, then publish it in the shared
+  // turn-hint row instead of rendering a second message above the buttons.
+  const prompt = document.createElement('div');
+  prompt.textContent = gameState.phase === 'choosing-once-upon-return' ? 'Choose one newly drawn Card to return to the top of your Deck' : gameState.phase === 'defending' ? `${gameState.players[gameState.pendingAttack!.defenderId].name}: defend or take the hit` : gameState.phase === 'flurry-offer' ? `${gameState.players[gameState.flurry!.defenderId].name}: resolve Flurry` : gameState.phase === 'choosing-flurry-enemy-discard' ? `${gameState.players[gameState.flurry!.attackerId].name}: discard ${gameState.flurry!.remainingEnemyDiscards} card${gameState.flurry!.remainingEnemyDiscards === 1 ? '' : 's'}` : gameState.phase === 'choosing-force-disarm-discard' ? `${gameState.players[gameState.forceDisarm!.targetId].name}: choose ${'mindBlastLevel' in gameState.forceDisarm! ? '1 Card' : `a ${(gameState.forceDisarm!.cardKind ?? 'attack') === 'attack' ? 'Attack' : 'Defend'} Card`} to discard` : gameState.phase === 'choosing-end-discard' ? `Hand limit: discard ${actor.hand.length - 5} more card${actor.hand.length - 5 === 1 ? '' : 's'}` : gameState.phase === 'choosing-dash-discard' ? 'Select a card to discard · Escape to cancel Dash' : selectingDiscard && canLocalAct(actor.id) ? 'Select one card from your hand to discard' : gameState.phase === 'dance-through' ? `Dance Through: ${gameState.danceThrough?.stepsRemaining ?? 0} one-square steps remain · pass through enemies, Objects, and Walls · finish unoccupied` : gameState.phase === 'dashing' ? `Dash: spend ${actor.movementRemaining} movement · Escape to cancel before moving` : select.kind === 'move' ? '' : select.kind === 'attack' ? 'Select the enemy dummy · Escape to cancel' : select.kind === 'perk' ? 'Choose Spell Echo or Play Directly · Esc to cancel' : '';
   if (gameState.phase === 'defending' && !canLocalAct(gameState.pendingAttack!.defenderId)) {
     prompt.textContent = `Waiting for ${gameState.players[gameState.pendingAttack!.defenderId].name} to choose a Defend Card or take the hit`;
   }
@@ -2038,14 +1984,12 @@ function renderUI() {
   if (gameState.phase === 'shizzle-move') prompt.textContent = `Shizzle Consume: ${gameState.shizzle!.stepsRemaining} one-Square moves remain${gameState.shizzle!.started ? '' : ' · Escape to cancel before moving'}`;
   if (selectedTestObjectId) prompt.textContent = 'WOODEN BOX SELECTED · click an empty highlighted Square · Escape to cancel';
   if ((gameState.phase as string) === 'choosing-yamato-move') prompt.textContent = 'Yamato: select an empty adjacent Square, or choose Stay in Place';
-  prompt.classList.toggle('discard-selection', selectingDiscard);
   if (visualArena().id === 'pipe' && gameState.phase === 'active' && (select.kind === 'none' || select.kind === 'move') && canLocalAct(actor.id)) {
     const adjacentButton = gameState.objects.find((object) => object.kind === 'pipe-button' && distance(actor.position, object.position) === 1);
     if (adjacentButton) prompt.textContent = actor.actionsRemaining > 0
       ? `Use Action - Flood (1 Action) · Button Square ${cellLabel(adjacentButton.position)}`
       : 'Use Action - Flood requires 1 Action';
   }
-  prompt.classList.toggle('visible', Boolean(prompt.textContent));
   const selectedHandPerk = select.kind === 'perk' ? actor.hand.find((card) => card.instanceId === select.cardInstanceId) : undefined;
   const selectingPerkDestination = gameState.phase === 'active' && Boolean(selectedHandPerk) && canLocalAct(actor.id);
   byId('directPerkButton').classList.toggle('hidden', !selectingPerkDestination);
@@ -2054,7 +1998,6 @@ function renderUI() {
     prompt.innerHTML = cardDefinition(selectedHandPerk!).levelEffects?.length
       ? `Choose ${turnHintTerm('Spell Echo', 'Store this Perk to reuse it on future turns, potentially every turn. If you use no Perk this turn, stored Perks move down to higher Levels when Level 1 is occupied and the slots are not full.')} or Play ${turnHintTerm('Directly', 'Use this Perk once, then send it to your Discard Deck instead of storing it. Single-use copies are Removed.')} · Esc to cancel`
       : 'Confirm Perk · Esc to cancel';
-    prompt.classList.add('visible');
   }
   const choosingMindTricks = gameState.phase === 'choosing-mind-tricks-discard';
   byId('mindTricksFinishButton').classList.toggle('hidden', !choosingMindTricks);
@@ -2093,7 +2036,8 @@ function renderUI() {
     cancelDanceButton.classList.remove('hidden'); cancelDanceButton.textContent = 'Finish Fyrestarter Dash (Esc)';
     cancelDanceButton.disabled = !canLocalAct(actor.id); cancelDanceButton.title = 'End this Dash and its penalty immunity, keeping your turn and any unused pre-Dash MOV.';
   }
-  const canCancelMovement = canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
+  const canCancelMovement = select.kind !== 'perk' && !hasPendingPerkChoice(gameState)
+    && canUndoMovement(gameState, actor.id) && canLocalAct(actor.id);
   cancelMovementButton.textContent = 'Cancel movement (C / Ctrl+Z)';
   cancelMovementButton.classList.toggle('hidden', !canCancelMovement);
   cancelMovementButton.disabled = !canCancelMovement;
@@ -2112,9 +2056,21 @@ function renderUI() {
   }));
   if (spectreInsideShadowTransit) {
     prompt.textContent = hasFreeShadowExit ? 'Shadow Trail: leave the occupied Square for 0 MOV before ending the turn' : 'Shadow Trail: leave the occupied Square before ending the turn';
-    prompt.classList.add('visible');
   }
   (byId('endTurn') as HTMLButtonElement).disabled = !['active', 'dashing', 'choosing-end-discard'].includes(gameState.phase) || Boolean(actor.spiritEnemyUnderfoot) || spectreInsideShadowTransit || (gameState.phase === 'choosing-end-discard' && actor.hand.length > 5) || !canLocalAct(actor.id);
+  const ownsDecision = canLocalAct(interactionPlayer(gameState));
+  if (!ownsDecision) {
+    byId('arenaActions').querySelectorAll<HTMLButtonElement>(':scope > button').forEach((button) => {
+      button.disabled = true;
+      button.classList.add('hidden');
+    });
+  } else {
+    // Most controls restore their disabled state above; these two only toggle
+    // visibility, so explicitly release the waiting lock when control returns.
+    (byId('directPerkButton') as HTMLButtonElement).disabled = false;
+    (byId('mindTricksFinishButton') as HTMLButtonElement).disabled = false;
+  }
+  actionPromptMarkup = ownsDecision ? prompt.innerHTML : '';
   renderTurnHints();
   const currentTomb = actor.wrecknaInsideTombId ? gameState.objects.find((object) => object.id === actor.wrecknaInsideTombId && object.kind === 'tomb') : null;
   const hasFreeAdjacentTombMove = Boolean(currentTomb && gameState.objects.some((object) => object.kind === 'tomb' && object.id !== currentTomb.id && distance(object.position, currentTomb.position) === 1));
@@ -2594,19 +2550,14 @@ function renderTurnHints() {
     panel = document.createElement('div');
     panel.id = 'turnHints';
     panel.className = 'turn-hints';
-    panel.innerHTML = '<div id="turnHintsText" role="status" aria-live="polite"></div><button type="button" id="turnHintsToggle"></button>';
+    panel.innerHTML = '<div id="turnHintsText" role="status" aria-live="polite"></div>';
     byId('arenaActions').append(panel);
-    byId('turnHintsToggle').addEventListener('click', toggleTurnHints);
   }
-  const toggle = byId('turnHintsToggle');
-  toggle.textContent = `Tips ${turnHintsEnabled ? 'on' : 'off'} · I`;
-  toggle.setAttribute('aria-pressed', String(turnHintsEnabled));
-  toggle.setAttribute('aria-label', 'Toggle turn tips (I)');
   const actor = gameState.players[gameState.activePlayerId];
-  const visible = turnHintsEnabled && gameState.phase === 'active' && canLocalAct(actor.id) && !hasPendingPerkChoice(gameState);
+  const visible = !actionPromptMarkup && turnHintsEnabled && gameState.phase === 'active' && canLocalAct(actor.id) && !hasPendingPerkChoice(gameState);
   const viewer = gameState.players[actingPlayer()];
   const overHandLimit = viewer.hand.length > 5;
-  const showHandLimit = turnHintsEnabled && overHandLimit && gameState.phase !== 'finished';
+  const showHandLimit = turnHintsEnabled && overHandLimit && gameState.phase !== 'finished' && canLocalAct(interactionPlayer(gameState));
   // Reuse the rendered Hand's availability checks, including Prayer's MOV cost,
   // Spirit Form restrictions and bonus Attacks that do not need an Action.
   const hasPlayableHandCard = Boolean(byId('hand').querySelector('[data-instance]:not(:disabled)'));
@@ -2628,7 +2579,7 @@ function renderTurnHints() {
   const turnMarkup = visible ? `${actionText} <span>${escapeHtml(perkText)}</span>${moveText ? ` <span>${moveText}</span>` : ''}` : '';
   const handMarkup = showHandLimit ? `<span class="hand-limit-tip">You have ${turnHintTerm('more than 5 cards', 'The hand limit is 5 Cards at the end of your turn. You may hold more during play, but must discard down to 5 when ending your turn. Dash can discard an eligible Card before you finish. Some Status Cards cannot be discarded.') }.</span>` : '';
   const positionTips: string[] = [];
-  if (turnHintsEnabled && viewer.hp > 0 && gameState.phase !== 'finished') {
+  if (turnHintsEnabled && viewer.hp > 0 && gameState.phase !== 'finished' && canLocalAct(interactionPlayer(gameState))) {
     const label = cellLabel(viewer.position);
     const base = baseSquareAt(gameState, label);
     if (base?.ownerId === viewer.id) {
@@ -2645,10 +2596,10 @@ function renderTurnHints() {
     }
   }
   const positionMarkup = positionTips.map((tip) => `<span class="position-tip">${tip}</span>`).join('');
-  const markup = `${turnMarkup}${handMarkup}${positionMarkup}`;
+  const markup = actionPromptMarkup || `${turnMarkup}${handMarkup}${positionMarkup}`;
   const text = byId('turnHintsText');
   if (text.innerHTML !== markup) text.innerHTML = markup;
-  text.classList.toggle('hidden', !visible && !showHandLimit && positionTips.length === 0);
+  text.classList.toggle('hidden', !markup);
 }
 
 function showTurnAnnouncement(player: GameState['players'][PlayerId]) {
@@ -2800,6 +2751,15 @@ function renderHand() {
   handElement.classList.toggle('hand-overflow', viewer.hand.length > 5);
   handElement.style.setProperty('--hand-count', String(Math.max(1, viewer.hand.length)));
   const currentSelection = selection.getSnapshot().context.selection;
+  if (!canLocalAct(interactionPlayer(gameState)) || hasPendingPerkChoice(gameState)) {
+    // Keep Cards readable, but do not reuse the opponent's selection/discard UI.
+    handElement.classList.remove('discard-selection');
+    handElement.innerHTML = viewer.hand.map((instance) => {
+      const card = cardDefinition(instance);
+      return `<button class="card ${cardVisualClass(card)}" disabled><span>${card.kind.toUpperCase()} · WAITING</span><strong>${cardNameHtml(card, true)}</strong>${card.kind === 'combat' ? '' : `<div>${handValueHtml(instance)} ${card.kind.toUpperCase()} VALUE</div>`}<small>${cardRulesHtml(card)}</small></button>`;
+    }).join('');
+    return;
+  }
   if (gameState.phase === 'defending') {
     const defender = gameState.players[gameState.pendingAttack!.defenderId];
     if (viewerId !== defender.id) {
@@ -2955,6 +2915,7 @@ function renderHand() {
       if (instance.cardId === 'blessing-prayer') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
       else if (definition.kind === 'status' && definition.canRemoveAsAction) dispatch({ type: 'remove-status', playerId: viewerId, cardInstanceId: instance.instanceId });
       else if (definition.kind === 'free-action') dispatch({ type: 'play-free-action', playerId: viewerId, cardInstanceId: instance.instanceId });
+      else if (definition.kind === 'perk' && !definition.levelEffects?.length) dispatch({ type: 'play-perk', playerId: viewerId, cardInstanceId: instance.instanceId, destination: 'direct' });
 
       else {
         if (definition.kind === 'attack') selectedSpectreAttackOrigin = 'spectre';
@@ -3874,8 +3835,8 @@ function renderSpellEchoBars() {
       const position = index + 1;
       const perk = instance ? cardDefinition(instance) : null;
       const selectedPerk = selected.kind === 'perk' ? owner.hand.find((card) => card.instanceId === selected.cardInstanceId) : undefined;
-      const canPlace = ownerId === viewerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId) && !hasPendingPerkChoice(gameState);
-      const canUse = ownerId === viewerId && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
+      const canPlace = ownerId === viewerId && ownerId === gameState.activePlayerId && selectedPerk !== undefined && Boolean(cardDefinition(selectedPerk).levelEffects?.length) && canTargetSpellEchoSlotForInsertion(gameState, ownerId, position) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId) && !hasPendingPerkChoice(gameState);
+      const canUse = ownerId === viewerId && ownerId === gameState.activePlayerId && !hasPendingPerkChoice(gameState) && selected.kind !== 'perk' && Boolean(instance) && owner.actionsRemaining > 0 && (!owner.perkUsed || (owner.spellsingerExtraPerkUses ?? 0) > 0) && gameState.phase === 'active' && canLocalAct(ownerId);
       const cardTooltip = perk ? [perk.levelEffects?.slice(0, position).map((effect, index) => `Level ${index + 1}: ${effect}`).join('\n'), perk.effectText].filter(Boolean).join('\n') : `Empty Spell Echo position ${position}`;
       const tooltip = canPlace ? `Place the selected Perk at Level 1.${perk ? ` Discard ${perk.name} from Level ${position}.` : ''}${position > 1 ? ' Lower Perks move up one level; higher Perks stay.' : ''}\n${cardTooltip}` : cardTooltip;
       return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${cardNameHtml(perk)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
@@ -3902,6 +3863,46 @@ function renderSpellEchoBars() {
   });
 }
 
+function renderMindTricksReveal() {
+  const mind = gameState.mindTricks;
+  const viewerId = mode === 'online' ? localSeat : actingPlayer();
+  const visible = gameState.phase === 'choosing-mind-tricks-enemy-discard' && mind && viewerId === mind.enemyId;
+  if (!visible) {
+    mindTricksRevealPanel.classList.add('hidden');
+    mindTricksRevealPanel.replaceChildren();
+    delete mindTricksRevealPanel.dataset.revealKey;
+    return;
+  }
+  const caster = gameState.players[mind.casterId];
+  const cards = mind.revealedInstanceIds.flatMap((id) => {
+    const instance = caster.hand.find((card) => card.instanceId === id);
+    return instance && isCardRevealedToOpponents(caster, instance, mind.enemyId) ? [instance] : [];
+  });
+  mindTricksRevealPanel.classList.toggle('hidden', cards.length === 0);
+  const key = JSON.stringify([mind.casterId, mind.enemyId, cards, hintsLanguage]);
+  if (mindTricksRevealPanel.dataset.revealKey !== key) {
+    mindTricksRevealPanel.dataset.revealKey = key;
+    mindTricksRevealPanel.innerHTML = `<div class="mind-tricks-reveal-cards">${cards.map((instance) => {
+      const card = cardDefinition(instance);
+      return `<article class="card ${cardVisualClass(card)}"><span>REVEALED · KEPT IN HAND</span><strong>${cardNameHtml(card, true)}</strong><div><b>${cardBaseValue(instance)}</b> ${card.kind.toUpperCase()} VALUE</div><small>${cardRulesHtml(card)}</small></article>`;
+    }).join('')}</div>`;
+    if (cards.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const targets = mindTricksRevealPanel.querySelectorAll<HTMLElement>('.card');
+      targets.forEach((target, index) => {
+        const source = byId('opponentHandPanels').querySelector<HTMLElement>(`[data-preview-instance="${CSS.escape(cards[index].instanceId)}"]`);
+        const from = source?.getBoundingClientRect();
+        const to = target.getBoundingClientRect();
+        const x = from ? from.left + from.width / 2 - (to.left + to.width / 2) : window.innerWidth / 3;
+        const y = from ? from.top + from.height / 2 - (to.top + to.height / 2) : -window.innerHeight / 3;
+        target.animate([
+          { transform: `translate(${x}px, ${y}px) scale(.18) rotate(12deg)`, opacity: .25 },
+          { transform: 'translate(0, 0) scale(1) rotate(0)', opacity: 1 },
+        ], { duration: 520, delay: index * 90, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'backwards' });
+      });
+    }
+  }
+}
+
 function renderOpponentHand() {
   hideCardPreview();
   const viewerId = actingPlayer();
@@ -3919,7 +3920,7 @@ function renderOpponentHand() {
       const forcedUse = instance.soulStrikeForcedUse;
       const forcedLabel = forcedUse === 'attack' ? 'MUST ATTACK' : forcedUse === 'defend' ? 'MUST BLOCK' : '';
       const title = forcedLabel ? `Soul Strike: ${forcedLabel.toLowerCase()} with ${card.name} next` : `Revealed: ${card.name} — value ${card.value}`;
-      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}"${oraclePulseAttributes(instance.instanceId)} data-preview-card="${card.id}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${cardNameHtml(card)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
+      return `<div class="opponent-card revealed ${cardVisualClass(card)} ${forcedUse ? 'soul-strike-marked' : ''}"${oraclePulseAttributes(instance.instanceId)} data-preview-card="${card.id}" data-preview-instance="${escapeHtml(instance.instanceId)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span>${card.kind}</span><strong>${cardNameHtml(card)}</strong><b>${card.value}</b>${forcedLabel ? `<em>${forcedLabel}</em>` : ''}</div>`;
     }).join('');
     return `<section class="opponent-hand-panel seat-${opponentId.toLowerCase()} opponent-row-${index + 1}" style="--owner-color:${ownerColor}"><span><strong class="opponent-owner-name">${escapeHtml(opponent.name.toUpperCase())}</strong><span> · ${visibleHand.length} CARD${visibleHand.length === 1 ? '' : 'S'}</span></span><div class="opponent-hand">${cards}</div></section>`;
   }).join('');
@@ -5008,6 +5009,7 @@ let diagnosticAnomalyKey = '';
 function resetDiagnosticObservations() {
   frameWorkProfiler.reset();
   lastShaderGrowthEventAt = -Infinity;
+  lastLongFrameEventAt = -Infinity;
   diagnosticClipObservations.clear();
   diagnosticAnomalyKey = '';
 }
@@ -5110,6 +5112,7 @@ const developerPanel = createDeveloperPanel(() => {
     ['HUD CPU p95 / max', `${frameWork.hud.p95Ms.toFixed(2)} / ${frameWork.hud.maxMs.toFixed(2)} ms`],
     ['Render CPU p95 / max', `${frameWork.renderSubmission.p95Ms.toFixed(2)} / ${frameWork.renderSubmission.maxMs.toFixed(2)} ms`],
     ['Shader programs / growth frames', `${renderer.info.programs?.length ?? 0} / ${frameWork.growthFrames}`],
+    ['Long frames / forced layout max', frameWork.longFrames.supported ? `${frameWork.longFrames.count} / ${frameWork.longFrames.maxForcedStyleLayoutMs.toFixed(2)} ms` : 'API unavailable'],
     ['Render pixels / DPR', `${renderer.domElement.width} × ${renderer.domElement.height} / ${renderer.getPixelRatio().toFixed(2)}`],
     ['JS heap', memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} / ${(memory.jsHeapSizeLimit / 1048576).toFixed(0)} MiB` : 'Unavailable'],
     ['View / mode', `${game.classList.contains('hidden') ? 'Lobby' : 'Match'} / ${mode}`],
@@ -5127,6 +5130,17 @@ const developerPanel = createDeveloperPanel(() => {
   toggleRecording: () => { debugRecorder.toggleRecording(); resetDiagnosticObservations(); debugRecorder.state(gameState); },
   status: () => debugRecorder.status(),
 });
+let lastLongFrameEventAt = -Infinity;
+frameWorkProfiler.observeLongFrames(
+  () => !document.hidden && !game.classList.contains('hidden') && !isScenePrewarming(scene)
+    && document.getElementById('assetLoading')?.hidden !== false && (developerPanel.visible || debugRecorder.recordingEnabled),
+  frame => {
+    const now = performance.now();
+    if (now - lastLongFrameEventAt < 1000) return;
+    lastLongFrameEventAt = now;
+    debugRecorder.event('render.long-frame', frame);
+  },
+);
 // Keep camera and visual-setting shortcuts documented in src/hotkeys.ts.
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return;
@@ -12683,6 +12697,7 @@ function quickAttackTargetAtPointer(): PlayerId | null {
 }
 
 function onBoardClick(event: MouseEvent) {
+  if (!canLocalAct(interactionPlayer(gameState)) || hasPendingPerkChoice(gameState)) return;
   if (suppressTouchBoardSelection) return;
   if (suppressNextBoardClick) { suppressNextBoardClick = false; return; }
   if (event.button !== 0) return;
@@ -13137,6 +13152,7 @@ function endCameraGrab(event: PointerEvent) {
 }
 
 function onBoardDoubleClick(event: MouseEvent) {
+  if (!canLocalAct(interactionPlayer(gameState)) || hasPendingPerkChoice(gameState)) return;
   if (suppressNextBoardClick || suppressTouchBoardSelection || touchCameraPan) return;
   if (gameState.phase !== 'active') return;
   const hits = boardHitsAt(event.clientX, event.clientY);
@@ -13664,7 +13680,12 @@ export async function prepareVisibleGameGraphics() {
   if (!game.classList.contains('hidden')) {
     targetHighlightsDirty = true;
     updateTargetHighlights(performance.now());
-    jobs.push(prewarmPointLightVariants(renderer, scene, camera).then(() => renderer.render(scene, camera)));
+    const warmStartedAt = performance.now(), programsBefore = renderer.info.programs?.length ?? 0;
+    jobs.push(prewarmPointLightVariants(renderer, scene, camera).then(() => {
+      debugRecorder.event('render.shader-warmup', { durationMs: Math.round((performance.now() - warmStartedAt) * 100) / 100,
+        addedPrograms: Math.max(0, (renderer.info.programs?.length ?? 0) - programsBefore), extraLightVariants: 3 });
+      renderer.render(scene, camera);
+    }));
   }
   if (characterPreviewRenderer && characterPreviewScene && characterPreviewCamera
     && !document.querySelector('.character-browser')?.classList.contains('hidden')) {

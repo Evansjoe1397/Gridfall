@@ -1749,7 +1749,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: max-content;
+  width: min(640px, calc(100% - 32px));
   max-width: calc(100% - 32px);
   pointer-events: none;
 }
@@ -1774,13 +1774,13 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 #arenaActions > .prompt:not(.visible) { display: none; }
 #arenaActions > button { pointer-events: auto; }
 #arenaActions > .prompt { pointer-events: auto; }
-.turn-hints { position: relative; flex: 0 0 100%; text-align: center; color: #b4c9c1; font-size: 12px; line-height: 1.7; }
-#turnHintsText { padding: 5px 10px; border-radius: 4px; background: rgba(4,12,10,.8); }
-#turnHintsText > span { display: inline-block; margin-left: 8px; }
-#turnHintsToggle { pointer-events: auto; padding: 2px 7px; border: 0; background: rgba(4,12,10,.8); color: #9eb5ad; font: inherit; font-size: 10px; cursor: pointer; }
+/* Anchor tooltips above the entire action group, including its buttons. */
+.turn-hints { position: static; flex: 0 1 100%; width: 100%; min-width: 0; text-align: center; color: #b4c9c1; font-size: 12px; line-height: 1.7; }
+#turnHintsText { box-sizing: border-box; max-width: 100%; padding: 5px 10px; border-radius: 4px; background: rgba(4,12,10,.8); white-space: normal; overflow-wrap: anywhere; }
+#turnHintsText > span { display: inline; margin-left: 8px; }
 .turn-hint-term { pointer-events: auto; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
 .turn-hint-term:focus-visible { outline: 1px solid var(--cyan); outline-offset: 3px; }
-.turn-hint-tooltip { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 2; box-sizing: border-box; width: 310px; max-width: calc(100vw - 40px); padding: 10px 12px; border: 1px solid #4b806f; border-radius: 4px; background: #0a1814; color: #dbeae4; font-size: 12px; font-weight: 400; line-height: 1.5; text-align: left; text-transform: none; letter-spacing: normal; pointer-events: none; }
+.turn-hint-tooltip { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 30; box-sizing: border-box; width: 310px; max-width: calc(100vw - 40px); padding: 10px 12px; border: 1px solid #4b806f; border-radius: 4px; background: #0a1814; color: #dbeae4; font-size: 12px; font-weight: 400; line-height: 1.5; text-align: left; text-transform: none; letter-spacing: normal; pointer-events: none; }
 .turn-hint-term:hover > .turn-hint-tooltip, .turn-hint-term:focus > .turn-hint-tooltip { display: block; }
 :is(#endTurn, #dashButton).finishing-suggested:not(:disabled) {
   border-color: #a5e9c3;
@@ -1804,4 +1804,30 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .game:has(> .command-deck > .hand.compact-hand):not(.hidden) .arena-actions { bottom: 180px; }
 @media (max-width: 800px) {
   .game:has(> .command-deck > .hand.compact-hand):not(.hidden) .arena-actions { bottom: 16px; }
+}
+.mind-tricks-reveal {
+  position: absolute;
+  z-index: 12;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(540px, calc(100% - 28px));
+  pointer-events: none;
+  text-align: center;
+}
+.mind-tricks-reveal-cards { display: flex; justify-content: center; gap: 12px; }
+.mind-tricks-reveal-cards > .card {
+  flex: 0 1 250px;
+  min-width: 0;
+  min-height: 220px;
+  max-height: 38vh;
+  overflow-y: auto;
+  pointer-events: auto;
+  cursor: default;
+  box-shadow: 0 18px 50px #000b, 0 0 24px #66eac92b;
+}
+.mind-tricks-reveal-cards > .card:hover { transform: none; }
+@media (max-height: 650px) {
+  .mind-tricks-reveal { top: 36%; }
+  .mind-tricks-reveal-cards > .card { min-height: 130px; max-height: 30vh; padding: 8px; }
 }
