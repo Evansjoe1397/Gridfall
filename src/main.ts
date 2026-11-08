@@ -3842,7 +3842,8 @@ function renderSpellEchoBars() {
       return `<button class="echo-slot ${instance ? 'filled' : ''} ${canPlace ? 'can-place' : ''}" ${perk ? `aria-label="${escapeHtml(`${perk.name}. ${tooltip ?? ''}`)}"` : `title="${escapeHtml(tooltip ?? '')}"`} data-echo-owner="${ownerId}" data-echo-position="${position}" ${perk ? `data-echo-preview="${perk.id}"` : ''} ${(canPlace || canUse) ? '' : 'disabled'}><b>${position}</b>${perk ? `<span>${cardNameHtml(perk)}</span><small>LV ${position}</small>` : '<span>EMPTY</span>'}</button>`;
     }).join('');
     const leftEcho = fixedHotseatDuel ? ownerId === 'P1' : ownerId === viewerId;
-    const seatClass = leftEcho ? 'own-echo' : `opponent-echo seat-${ownerId.toLowerCase()}`;
+    // Opponent lanes are relative to the viewer, not the owner's player ID.
+    const seatClass = leftEcho ? 'own-echo' : `opponent-echo opponent-lane-${opponentIds.indexOf(ownerId) + 1}`;
     const colorClass = ownerId === 'P1' ? 'blue' : ownerId === 'P2' ? 'red' : 'violet';
     return `<section class="spell-echo ${colorClass} ${seatClass}"><label>${owner.name.toUpperCase()}<br>${cardTextHtml('SPELL ECHO')}</label><div>${slots}</div></section>`;
   }).join('');

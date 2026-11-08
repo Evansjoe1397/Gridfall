@@ -444,17 +444,18 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .opponent-hand-panels .opponent-hand-panel { left: auto; right: 12px; top: 12px; pointer-events: auto; }
 .opponent-hand-panels .opponent-hand-panel > span { text-align: right; }
 .opponent-hand-panels .opponent-hand { justify-content: flex-end; }
-.opponent-hand-panels.three-player .opponent-hand-panel.seat-p2 { top: 12px; }
-.opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 { top: 104px; }
+.opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-1 { top: 12px; }
+.opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-2 { top: 104px; }
 
-.spell-echo-bars { position: absolute; inset: 0; width: auto; display: block; pointer-events: none; }
-.spell-echo { position: absolute; top: 38%; width: clamp(80px, 5vw, 94px); padding: 7px; transform: translateY(-50%); pointer-events: auto; }
+.spell-echo-bars { --echo-panel-width: clamp(80px, 5vw, 94px); position: absolute; inset: 0; width: auto; display: block; pointer-events: none; }
+.spell-echo { position: absolute; top: 38%; width: var(--echo-panel-width); padding: 7px; transform: translateY(-50%); pointer-events: auto; }
 .spell-echo.own-echo { left: 12px; right: auto; border-left: 2px solid var(--echo-color); }
 .spell-echo.opponent-echo { right: 12px; left: auto; border-right: 2px solid var(--echo-color); }
 .spell-echo.violet { --echo-color: var(--player-three); }
 .spell-echo-bars.three-player .spell-echo.opponent-echo { top: 220px; transform: none; }
-.spell-echo-bars.three-player .spell-echo.seat-p2 { right: calc(18px + clamp(80px, 5vw, 94px) + 10px); }
-.spell-echo-bars.three-player .spell-echo.seat-p3 { right: 18px; }
+/* Use the same responsive width for panel sizing and lane separation. */
+.spell-echo-bars.three-player .spell-echo.opponent-lane-1 { right: calc(18px + var(--echo-panel-width) + 10px); }
+.spell-echo-bars.three-player .spell-echo.opponent-lane-2 { right: 18px; }
 .spell-echo-bars .spell-echo.opponent-echo { top: 38%; bottom: auto; transform: translateY(-50%); }
 .spell-echo-bars.three-player .spell-echo.opponent-echo { bottom: auto; }
 .spell-echo.opponent-echo label { text-align: right; }
@@ -468,7 +469,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
 .finish-dance:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
 
 @media (max-width: 800px) {
-  .spell-echo { width: 68px; }
+  .spell-echo-bars { --echo-panel-width: 68px; }
   .spell-echo.own-echo { left: 6px; }
   .spell-echo.opponent-echo { right: 6px; }
   .opponent-hand-panel { max-width: calc(100% - 150px); }
@@ -958,7 +959,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .character-status-panel.status-p2 { right: 260px; }
   .character-status-panel.status-p3 { right: 205px; }
   .opponent-card { width: 32px; height: 46px; }
-  .spell-echo { width: 68px; padding: 5px; }
+  .spell-echo-bars { --echo-panel-width: 68px; }
+  .spell-echo { padding: 5px; }
   .echo-slot { min-height: 50px; }
   .action-quest-panel { width: min(230px, 25vw); padding: 9px; }
   .command-deck { grid-template-columns: 195px minmax(0, 1fr) 160px; gap: 8px; padding: 8px 0; }
@@ -1034,14 +1036,15 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .character-status-panel.status-p2 { right: 220px; }
   .character-status-panel.status-p3 { right: 175px; }
   .opponent-hand-panel { top: 7px; padding: 4px; max-width: calc(50% - 72px); }
-  .opponent-hand-panels.three-player .opponent-hand-panel.seat-p2 { top: 7px; }
-  .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 { top: 58px; }
+  .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-1 { top: 7px; }
+  .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-2 { top: 58px; }
   .character-status-panel.status-p2 { top: 7px; }
   .character-status-panel.status-p3 { top: 58px; }
   .opponent-hand-panel.align-left { left: 68px; }
   .opponent-hand-panel.align-right { right: 68px; }
   .opponent-card { width: 26px; height: 37px; }
-  .spell-echo { top: 38%; width: 72px; padding: 5px; transform: translateY(-50%); }
+  .spell-echo-bars { --echo-panel-width: 72px; }
+  .spell-echo { top: 38%; padding: 5px; transform: translateY(-50%); }
   .spell-echo.own-echo { left: 7px; }
   .spell-echo.opponent-echo { right: 7px; }
   .spell-echo-bars.three-player .spell-echo.opponent-echo { top: 112px; transform: none; }
@@ -1119,7 +1122,7 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .character-status-panel.status-p2 { right: 158px; }
   .character-status-panel.status-p3 { right: 112px; }
   .opponent-hand-panel { top: 62px; max-width: calc(50% - 58px); }
-  .spell-echo { width: 50px; }
+  .spell-echo-bars { --echo-panel-width: 50px; }
   .echo-slot { min-height: 36px; }
   .action-quest-panel { left: 8px; right: auto; bottom: 8px; width: min(190px, 42vw); transform: none; }
   .prompt { top: 8px; max-width: min(62%, 440px); padding: 5px 9px; font-size: 9px; }
@@ -1431,8 +1434,8 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .game:not(.hidden) .character-trait-panel,
   .game:not(.hidden) .character-status-panel { top: 118px; }
   .game:not(.hidden) .opponent-hand-panels .opponent-hand-panel { top: 118px; }
-  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p2 { top: 118px; }
-  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 { top: 210px; }
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-1 { top: 118px; }
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-2 { top: 210px; }
   .game:not(.hidden) .spell-echo-bars.three-player .spell-echo.opponent-echo {
     top: 310px;
     bottom: auto;
@@ -1477,9 +1480,9 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
   .game:not(.hidden) .opponent-card.soul-strike-marked b { margin-bottom: 13px; }
 
   .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel {
-    right: 190px;
+    right: 18px;
   }
-  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 {
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-2 {
     top: calc(118px + var(--enemy-hand-row-height));
   }
   .game:not(.hidden) .spell-echo-bars:not(.three-player) .spell-echo.opponent-echo {
@@ -1549,27 +1552,21 @@ h1 { margin: -2px 0 0; font-size: 34px; letter-spacing: .12em; line-height: 1; }
     transform: none;
   }
 
-  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p2 {
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-1 {
     top: var(--ffa-hand-start);
   }
 
-  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.seat-p3 {
+  .game:not(.hidden) .opponent-hand-panels.three-player .opponent-hand-panel.opponent-row-2 {
     top: calc(var(--ffa-hand-start) + var(--enemy-hand-row-height));
   }
 
   .game:not(.hidden) .spell-echo-bars.three-player .spell-echo.opponent-echo {
-    top: calc(var(--ffa-hand-start) + 134px);
+    /* Both hands can use the right edge; Echo starts below their full rows. */
+    top: calc(var(--ffa-hand-start) + 2 * var(--enemy-hand-row-height) + 10px);
     bottom: auto;
     transform: none;
   }
 
-  .game:not(.hidden) .spell-echo-bars.three-player .spell-echo.seat-p2 {
-    right: 100px;
-  }
-
-  .game:not(.hidden) .spell-echo-bars.three-player .spell-echo.seat-p3 {
-    right: 18px;
-  }
 }
 
 @media (max-width: 800px) {
