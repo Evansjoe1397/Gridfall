@@ -1,4 +1,7 @@
 import { interactionPlayer } from './interaction-player.ts';
+import { observeMerylinMatch } from './merylin-bot-observation.ts';
+import { nagrandDecisionPending as merylinDecisionPending, type NagrandDecision as MerylinDecision } from './nagrand-bot.ts';
+import { AppleObjects } from './apple-objects.ts';
 import { loadGameModel, prepareGameResources, setAssetPreparationStatus, trackGameAssetPreparation } from './game-assets.ts';
 import { OnlineSessions, trackOnlineSession } from './online-session.ts';
 import { clearSweetPotatoEffects, spawnSweetPotatoEffect, updateSweetPotatoEffects } from './sweetPotatoVisuals.ts';
@@ -41,7 +44,7 @@ import { pyrodashDirectionAt } from '../shared/game.ts';
 import { buildCombatSummaryCsv, combatSummaryFilename, type CombatSummaryExport } from './combat-summary-csv.ts';
 import { elapsedSummaryDuration, formatSummaryDuration } from './summary-duration.ts';
 import { gameIcon, type GameIconName } from './game-icons.ts';
-import { HOTKEY_LOADING_RESTRICTION, HOTKEY_SECTIONS } from './hotkeys.ts';
+import { HOTKEY_BOT_RESTRICTION, HOTKEY_LOADING_RESTRICTION, HOTKEY_SECTIONS } from './hotkeys.ts';
 import { createDeveloperPanel } from './developerPanel.ts';
 import { cardNameHtml, cardTextHtml } from './card-typography.ts';
 import { installCardReferencePopup } from './card-reference-popup.ts';
@@ -319,6 +322,49 @@ app.innerHTML = `
 
 let gameState = createInitialState();
 let mode: 'hotseat' | 'online' = 'hotseat';
+let merylinBotEnabled = false;
+let merylinBotWorker: Worker | null = null;
+let merylinBotTimer: ReturnType<typeof setTimeout> | undefined;
+let merylinBotRevision = 0;
+let merylinBotBusy = false;
+let merylinBotRequestedState: GameState | null = null;
+
+function scheduleMerylinBot() {
+  if (merylinBotTimer) clearTimeout(merylinBotTimer);
+  if (!merylinBotEnabled || mode !== 'hotseat' || !merylinDecisionPending(gameState, 'P2')) return;
+  if (merylinBotBusy) return;
+  merylinBotTimer = setTimeout(() => {
+    if (!merylinBotEnabled || mode !== 'hotseat' || !merylinDecisionPending(gameState, 'P2')) return;
+    if (!merylinBotWorker) {
+      merylinBotWorker = new Worker(new URL('./merylin-bot-worker.ts', import.meta.url), { type: 'module' });
+      merylinBotWorker.onmessage = (event: MessageEvent<{ revision: number; decision?: MerylinDecision; error?: string }>) => {
+        if (event.data.revision !== merylinBotRevision) return;
+        merylinBotBusy = false;
+        if (merylinBotRequestedState !== gameState || !merylinBotEnabled || mode !== 'hotseat') { scheduleMerylinBot(); return; }
+        if (event.data.error || !event.data.decision) {
+          console.error('Bot decision failed', event.data.error ?? gameState.phase);
+          notify('The bot could not complete this decision. Use Retry bot to try again.');
+          showMerylinRetry(); return;
+        }
+        debugRecorder.event('bot.decision', { type: event.data.decision.command.type, evaluated: event.data.decision.evaluated });
+        dispatch(event.data.decision.command, true);
+      };
+      merylinBotWorker.onerror = () => {
+        merylinBotBusy = false; merylinBotWorker?.terminate(); merylinBotWorker = null;
+        notify('The bot planner stopped. Use Retry bot to restart it.'); showMerylinRetry();
+      };
+    }
+    merylinBotBusy = true; merylinBotRequestedState = gameState;
+    merylinBotWorker.postMessage({ revision: ++merylinBotRevision, observation: observeMerylinMatch(gameState, 'P2') });
+  }, gameState.combatReveal ? 750 : 450);
+}
+
+function showMerylinRetry() {
+  const actions = byId('arenaActions');
+  if (document.getElementById('retryMerylinBot')) return;
+  const button = document.createElement('button'); button.id = 'retryMerylinBot'; button.textContent = 'Retry bot';
+  button.onclick = () => { button.remove(); scheduleMerylinBot(); }; actions.append(button);
+}
 let localSeat: PlayerId | null = null;
 let room: Room | null = null;
 let selectedPerkMode = false;
@@ -1017,8 +1063,8 @@ function showFormatSelect(flow: 'hotseat' | 'online') {
   }));
 }
 
-type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna' | 'merylin';
-type SelectableCharacter = OnlineCharacter | 'kazka' | 'fyrebanks';
+type OnlineCharacter = 'shinobi' | 'orkk' | 'magician' | 'john-christ' | 'spectre' | 'wreckna' | 'merylin' | 'fyrebanks';
+type SelectableCharacter = OnlineCharacter | 'kazka';
 type HotseatCharacter = SelectableCharacter;
 type HotseatOpponent = HotseatCharacter | 'dummy';
 type HotseatArena = 'nagrand' | 'trench' | 'pipe';
@@ -1034,8 +1080,8 @@ const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; title?: st
   kazka: { name: 'Kazka', title: 'The Narrator', hp: 18, movement: 2, attackRange: 3, trait: 'Weaver of Stories', traitIcon: 'weaver', traitDescription: KAZKA_TRAIT_DESCRIPTION },
   fyrebanks: { name: 'Fyrebanks', title: 'Fire Mage', hp: 18, movement: 2, attackRange: 2, trait: 'Focus Lens · Pyro Charges', traitIcon: 'focus-lens', traitDescription: `${FOCUS_LENS_DESCRIPTION} ${PYRO_CHARGES_DESCRIPTION}` },
 };
-const ONLINE_CHARACTER_ORDER: OnlineCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin'];
-const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = [...ONLINE_CHARACTER_ORDER, 'kazka', 'fyrebanks'];
+const ONLINE_CHARACTER_ORDER: OnlineCharacter[] = ['shinobi', 'orkk', 'magician', 'john-christ', 'spectre', 'wreckna', 'merylin', 'fyrebanks'];
+const CHARACTER_BROWSER_ORDER: SelectableCharacter[] = [...ONLINE_CHARACTER_ORDER, 'kazka'];
 function characterSelectButton(character: HotseatCharacter, dataAttribute: 'data-hotseat-character' | 'data-character', disabled = false, selectionFrames = ''): string {
   const info = CHARACTER_SELECT_INFO[character];
   const portrait = characterProfile(character);
@@ -1086,6 +1132,18 @@ function showHotseatOpponentSelect(playerCharacter: HotseatCharacter, arena: Hot
     panel.querySelectorAll('p')[1]!.textContent = `Step 2 of 2 · Choose the Character controlled by Player 2 against ${playerName}.`;
   }
   if (!seriesMode) dummyButton.addEventListener('click', () => startHotseat(playerCharacter, 'duel', 'dummy', arena));
+  if (!seriesMode && arena === 'nagrand') {
+    for (const character of ['orkk', 'merylin'] as const) {
+      const name = character === 'orkk' ? 'Da Orkk' : 'Merylin';
+      const bot = document.createElement('button'); bot.className = 'character-choice-card';
+      bot.innerHTML = `<strong>${name} · Tactical Bot</strong><small>Single player · Nagrand · Standard mode</small><p>Play against ${name}. The bot cannot see your hidden Hand or unrevealed Attack.</p>`;
+      bot.onclick = () => {
+        const state = createHotseatTestState(false, playerCharacter, 2, character);
+        state.players.P2.name = `${name} · Bot`; startHotseatState(state, true);
+      };
+      panel.querySelector('.character-choices')!.prepend(bot);
+    }
+  }
   panel.querySelectorAll<HTMLButtonElement>('[data-hotseat-character]').forEach((button) => button.addEventListener('click', () => {
     const opponent = button.dataset.hotseatCharacter as HotseatCharacter;
     if (seriesMode) startHotseatSeries(seriesMode, { P1: [playerCharacter, playerCharacter], P2: [opponent, opponent] });
@@ -1123,16 +1181,19 @@ function startHotseat(character: HotseatCharacter, format: GameFormat, opponentC
   startHotseatState(state);
 }
 
-function startHotseatState(state: GameState) {
+function startHotseatState(state: GameState, bot = false) {
   void trackGameAssetPreparation(prepareGameResources(
     (state as GameState & { arenaId?: string }).arenaId ?? (Object.keys(state.players).length > 2 ? 'lordaeron' : 'nagrand'),
     Object.values(state.players).map(player => player.character),
-  ).then(() => enterHotseatState(state))).catch(error => reportDiagnosticError('Could not prepare match resources.', error));
+  ).then(() => enterHotseatState(state, bot))).catch(error => reportDiagnosticError('Could not prepare match resources.', error));
 }
 
-function enterHotseatState(state: GameState) {
+function enterHotseatState(state: GameState, bot = false) {
   resetCombatSummary();
   mode = 'hotseat';
+  merylinBotEnabled = bot;
+  merylinBotBusy = false; merylinBotRequestedState = null; merylinBotRevision++;
+  merylinBotWorker?.terminate(); merylinBotWorker = null;
   localSeat = null;
   gameState = state;
   (gameState as GameState & { simultaneousCombatStack?: boolean }).simultaneousCombatStack = true;
@@ -1574,7 +1635,7 @@ function renderOnlineSelectionFrames() {
 }
 
 function actingPlayer(): PlayerId {
-  return mode === 'online' ? localSeat ?? 'P1' : interactionPlayer(gameState);
+  return mode === 'online' ? localSeat ?? 'P1' : merylinBotEnabled ? 'P1' : interactionPlayer(gameState);
 }
 
 function hudSeatPlayerIds(): PlayerId[] {
@@ -1678,7 +1739,8 @@ game.addEventListener('pointerdown', event => {
   if (event.target instanceof Element && event.target.closest('button, .card')) noteObiWanActivity(actingPlayer());
 });
 
-function dispatch(command: GameCommand) {
+function dispatch(command: GameCommand, fromBot = false) {
+  if (merylinBotEnabled && mode === 'hotseat' && command.playerId === 'P2' && !fromBot) return;
   if (mode === 'online' && command.playerId !== localSeat) return;
   // Ignore stale turn-action clicks after control passes to another Player.
   // Reactions still work because interactionPlayer follows the pending choice.
@@ -1713,7 +1775,7 @@ function dispatch(command: GameCommand) {
   }
   const previousGameState = gameState;
   const result = applyRecordedCommand(gameState, command);
-  if (!result.ok) return notify(result.error);
+  if (!result.ok) { if (fromBot) showMerylinRetry(); return notify(result.error); }
   gameState = result.state;
   debugRecorder.state(gameState);
   syncOraclePresentation(previousGameState, gameState);
@@ -1757,6 +1819,7 @@ function renderAll() {
   syncBoard();
   updateCharacterHealthBars(true);
   renderUI();
+  scheduleMerylinBot();
   renderPipeButtonControls();
 }
 
@@ -1838,6 +1901,7 @@ function renderUI() {
   byId('turnLabel').style.color = activeColor;
   byId('turnLabel').style.textShadow = `0 0 12px ${activeColor}`;
   byId('phaseLabel').textContent = gameState.phase === 'defending' ? 'DEFENCE RESPONSE' : gameState.phase === 'finished' ? 'MATCH COMPLETE' : 'SELECT AN ACTION';
+  if (merylinBotEnabled && merylinDecisionPending(gameState, 'P2')) byId('phaseLabel').textContent = `${gameState.players.P2.character === 'orkk' ? 'DA ORKK' : 'MERYLIN'} BOT · CHOOSING`;
   if (gameState.phase !== 'finished' && !canLocalAct(interactionPlayer(gameState))) byId('phaseLabel').textContent = 'WAITING FOR OPPONENT';
   showTurnAnnouncement(actor);
   byId('activeTitle').textContent = actor.character === 'magician' ? 'THE MAGICIAN' : actor.character === 'orkk' ? 'WIZARD OF STRENGTH' : actor.character === 'shinobi' ? 'LIGHTSABER WIZARD' : actor.character === 'john-christ' ? 'UNDUYING WIZARD' : actor.character === 'spectre' ? 'THE LIVING SHADOW' : actor.character === 'wreckna' ? 'THE LICH' : actor.character === 'merylin' ? 'KNIGHTRESS WIZARD' : actor.character === 'kazka' ? 'THE NARRATOR' : actor.character === 'fyrebanks' ? 'FIRE MAGE' : 'TRAINING DUMMY';
@@ -2691,6 +2755,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const spectreAccumulateActiveIcon = spectreAccumulateActive > 0 ? `<div class="status-icon spectre-accumulate-status active" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateActive}</b><span class="status-tooltip"><strong>Accumulate · Active</strong>Every Attack from Spectre or the replica gains +${spectreAccumulateActive} ATT during this turn. The bonus expires at turn end.</span></div>` : '';
     const spectreAccumulateStoredIcon = spectreAccumulateStored > 0 ? `<div class="status-icon spectre-accumulate-status stored" tabindex="0">${gameIcon('accumulate')}<b>+${spectreAccumulateStored}</b><span class="status-tooltip"><strong>Accumulate · Stored</strong>+${spectreAccumulateStored} ATT is stored for every Attack during Spectre's next turn. Multiple Accumulate uses stack before activation.</span></div>` : '';
     const movementBonus = (player.grimoireMoveBonus ?? 0) + (player.swiftformMoveBonus ?? 0);
+    const appleMovementIcon = (player.appleMovementRemaining ?? 0) > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${player.appleMovementRemaining}</b><span class="status-tooltip"><strong>Apple · Temporary MOV</strong>${player.appleMovementRemaining} unspent bonus MOV. Expires when the currently active player's turn fully ends, even if this character picked it up during another player's turn.</span></div>` : '';
     const annulledMovementIcon = player.movementAnnulledByBlessedSwiftness ? `<div class="status-icon movement-annulled-status" tabindex="0">${gameIcon('movement-blocked')}<span class="status-tooltip"><strong>MOV Annulled</strong>This Player's unspent movement was reduced to 0 by a Defend Card effect. The marker expires when their end-turn process begins.</span></div>` : '';
     const movementIcon = movementBonus > 0 ? `<div class="status-icon movement-bonus-status" tabindex="0">${gameIcon('movement')}<b>+${movementBonus}</b><span class="status-tooltip"><strong>Movement empowered</strong>This character has +${movementBonus} MOV until the end of this turn.</span></div>` : '';
     const hexBonus = (player.hexMovementBonus ?? 0) + (player.decayMovementBonus ?? 0);
@@ -2729,7 +2794,7 @@ function playerStatusIcons(player: GameState['players'][PlayerId]) {
     const boomerangPenaltyIcon = boomerangAway ? `<div class="status-icon boomerang-penalty-status" tabindex="0">${gameIcon('boomerang')}<b>-1</b><span class="status-tooltip"><strong>Boomerang Away · -1 MOV</strong>Boomerang is outside this Player's Hand, decreasing MOV by 1. Drawing it removes this penalty; a Boomerang Removed from the game causes no penalty.</span></div>` : '';
     const curseIcon = player.traitBlocked ? `<div class="status-icon movement-annulled-status" tabindex="0">CURSE<span class="status-tooltip"><strong>Curse · Trait Blocked</strong>This character's unique passive Trait and its stat bonuses are disabled until the end of this character's turn. Card effects may still create associated statuses or resources where specified.</span></div>` : '';
     const lensBurningIcon = player.hp > 0 && player.lensBurningReady ? `<div class="status-icon" tabindex="0" aria-label="Summon Lens: next magnified Attack applies Burning">${gameIcon('lens-burning')}<span class="status-tooltip"><strong>Summon Lens · Burning Attack</strong>Your next Attack through Lens applies Burning to its target after both Cards’ post-combat effects finish. Independent of Attack Card effect cancellation. Remains until used.</span></div>` : '';
-    return fyrestarterIcon + lensBurningIcon + wardIcon + evocationIcon + manaShieldReserveIcon + `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
+    return appleMovementIcon + fyrestarterIcon + lensBurningIcon + wardIcon + evocationIcon + manaShieldReserveIcon + `${phylacteryIcons}${curseIcon}${summonIcon}${carianStanceIcon}${carianReturnIcon}${windwalkerIcon}${barbarianAttackIcon}${barbarianHeadacheIcon}${smartPushIcon}${spellsingerPerkIcon}${spellsingerAttackIcon}${dakkothRangeIcon}${necronomiconDefenseIcon}${flagIcon}${spiritIcon}${spiritSiphonIcon}${hexBonusIcon}${brainFreezeMovementBonusIcon}${hexPenaltyIcon}${brainFreezeIcon}${shadowMoveBonusIcon}${shadowDefensePenaltyIcon}${shellIcon}${guardianPenaltyIcon}${orkkShieldIcon}${rageIcon}${doubleRageIcon}${lightsaberIcon}${highgroundIcon}${consumeIcon}${arcaneAttackIcon}${spectreTemporaryAttackIcon}${spectreShadowCloakIcon}${spectreAccumulateActiveIcon}${spectreAccumulateStoredIcon}${movementIcon}${annulledMovementIcon}${boomerangPenaltyIcon}${passThroughIcon}${panicIcon}${burningIcon}${pinnedIcon}${handHeadacheIcon}${discardHeadacheIcon}${handExhaustIcon}${storedExhaustIcon}`;
 }
 
 function renderHand() {
@@ -3243,7 +3308,7 @@ function renderPhaseRewardModal() {
   type PhasePlayerProgress = { selectedCardId?: CardTypeId; selectedCardInstanceId?: string; phaseThreeDuplicated?: boolean; phaseThreeRemoved?: boolean };
   const extended = gameState as GameState & { questPhases?: { lastQuestWinners: PlayerId[]; progression: Partial<Record<PlayerId, { initialFocus: 'attack' | 'defend' }>>; phaseReward: { phase: 1 | 2 | 3; pendingPlayerIds: PlayerId[]; completedPlayerIds?: PlayerId[]; playerProgress?: Partial<Record<PlayerId, PhasePlayerProgress>> } | null } };
   const reward = extended.questPhases?.phaseReward;
-  const playerId = mode === 'online' ? localSeat : reward?.pendingPlayerIds[0];
+  const playerId = mode === 'online' ? localSeat : merylinBotEnabled ? reward?.pendingPlayerIds[0] === 'P1' ? 'P1' : null : reward?.pendingPlayerIds[0];
   const visible = Boolean(reward && playerId && ['choosing-phase-card', 'choosing-phase-three-card'].includes(gameState.phase));
   phaseRewardModal.classList.toggle('hidden', !visible);
   if (!visible || !reward || !playerId) { phaseRewardModal.innerHTML = ''; return; }
@@ -3582,7 +3647,7 @@ function renderCombatReveal() {
   const defend = reveal.defendCardId ? cardDefinition({ instanceId: '', cardId: reveal.defendCardId }) : null;
   const seconds = Math.max(0, Math.ceil((reveal.expiresAt - Date.now()) / 1000));
   const modifier = (base: number, total: number) => total === base ? `${total}` : `${base} ${total > base ? '+' : '−'} ${Math.abs(total - base)} = ${total}`;
-  const viewer = mode === 'online' ? localSeat : null;
+  const viewer = mode === 'online' ? localSeat : merylinBotEnabled ? 'P1' : null;
   const viewerParticipates = !viewer || !gameState.pendingAttack || [gameState.pendingAttack.attackerId, gameState.pendingAttack.defenderId].includes(viewer);
   const acknowledged = viewer ? !viewerParticipates || reveal.acknowledged.includes(viewer) || combatAckRequestFor === reveal.expiresAt : false;
   const modifierLines = (items: typeof reveal.attackModifiers) => items?.length
@@ -3611,7 +3676,7 @@ function renderCombatReveal() {
       modal.innerHTML = `<div class="combat-reveal-dialog"><span>COMBAT STACK · SPECTATOR VIEW</span><h2>Attack and Defence Revealed</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">${submissionStatus}</div><p class="combat-spectator-note">You are observing this combat. Combat Card choices remain private until both participants submit.</p></div>`;
       return;
     }
-    const combatSeat = localSeat ?? combatants.find((id) => localCombatSelections[id] === undefined);
+    const combatSeat = localSeat ?? (merylinBotEnabled ? 'P1' : combatants.find((id) => localCombatSelections[id] === undefined));
     if (!combatSeat) return;
     const key = `${pending.cardInstanceId}:${pending.defenderId}`;
     if (combatStackSelectionKey !== key) { combatStackSelectionKey = key; selectedCombatCardIds.clear(); combatStackSubmittedPlayerIds = []; }
@@ -3721,7 +3786,7 @@ function renderCombatReveal() {
   if (reveal.mythrilHelmet && gameState.pendingAttack?.blessingShieldApplied === undefined) {
     const decisionPlayer = reveal.mythrilHelmet.playerId;
     const mayDecide = canLocalAct(decisionPlayer);
-    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or enemy Attack/Defend Card effects, and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
+    modal.innerHTML = `<div class="combat-reveal-dialog"><span>BLESSING · COMBAT DEFENCE</span><h2>${escapeHtml(gameState.players[decisionPlayer].name)}: apply Blessing: Shield?</h2><div class="combat-reveal-cards"><article class="combat-card attack"><label>ATTACK VALUE <strong>${modifier(reveal.attackBase, reveal.attackTotal)}</strong></label><div><span>ATTACK</span><h3>${cardNameHtml(attack)}</h3><b>${reveal.attackTotal}</b><small>${attackRulesHtml}</small></div></article>${defendCard}</div><div class="combat-ack-status">Apply Blessing: Shield to absorb 1 Damage from combat or Attack/Defend Card effects (including Repent! self-damage), and independently block the first negative Status applied to you during the rest of this combat. Pre-combat effects have already resolved.</div><div class="combat-choice-buttons"><button id="useBlessingShield" ${mayDecide ? '' : 'disabled'}>USE · ABSORB 1</button><button id="keepBlessingShield" ${mayDecide ? '' : 'disabled'}>KEEP</button></div></div>`;
     modal.innerHTML = modal.innerHTML.replace("this Attack Card's effects", 'an enemy Attack or Defend Card');
     document.querySelector('#useBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: true }));
     document.querySelector('#keepBlessingShield:not(:disabled)')?.addEventListener('click', () => dispatch({ type: 'blessing-shield-decision', playerId: decisionPlayer, use: false }));
@@ -4075,7 +4140,7 @@ function hideCardPreview(event?: Event) {
 
 function canLocalAct(playerId: PlayerId) {
   const blessingPending = (blessingPresentationQueues.get(playerId) ?? []).some((presentation) => !presentation.released);
-  return !blessingPending && (mode === 'hotseat' || localSeat === playerId);
+  return !blessingPending && (mode === 'hotseat' ? !merylinBotEnabled || playerId === 'P1' : localSeat === playerId);
 }
 
 function notify(message: string) {
@@ -4769,6 +4834,7 @@ const PERK_LABEL_HOLD_MS = 1900;
 const PERK_LABEL_FADE_MS = 850;
 const PERK_LABEL_MOVE_FADE_MS = 360;
 const objectGroups = new Map<string, THREE.Group>();
+const appleObjects = new AppleObjects();
 const spectreShadowTrailGroup = new THREE.Group();
 spectreShadowTrailGroup.name = 'SpectreShadowTrail';
 scene.add(spectreShadowTrailGroup);
@@ -6943,11 +7009,13 @@ function createCell(cell: Cell) {
   const trenchSquare = arena.trenchSquares?.includes(label) ?? false;
   const waterSquare = arena.id === 'pipe' && isShallowWater(gameState, cell);
   const buttonSquare = arena.buttonSquares?.includes(label) ?? false;
-  const claimedColor = kamelotPainted ? null : claimant === 'P1' ? 0x145f83 : claimant === 'P2' ? 0x7b2834 : claimant === 'P3' ? 0x66508f : null;
+  const baseOwner = claimant ?? base?.ownerId;
+  const baseColor = baseOwner ? new THREE.Color(playerUiColor(baseOwner)).getHex() : null;
+  const claimedColor = kamelotPainted || !claimant ? null : baseColor;
   const upgradedBase = kamelotPainted && (base?.value ?? 0) >= 2;
   const perfectedBase = kamelotPainted && base?.value === 3;
-  const color = unclaimedPlacementBase && !kamelotPainted ? 0xc21f35 : perfectedBase ? ownerOne ? 0x8be7ff : ownerTwo ? 0xffa8b2 : 0xd9baff : upgradedBase ? ownerOne ? 0x1cc1ff : ownerTwo ? 0xff687a : 0xb98aff : claimedColor ?? (ownerOne ? 0x145f83 : ownerTwo ? 0x7b2834 : ownerThree ? 0x66508f : waterSquare ? drawSquare ? 0xa58a29 : 0x1c7190 : drawSquare ? 0x917a22 : highGround ? 0x285046 : buttonSquare ? 0x6c3939 : trenchSquare ? 0x755c45 : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923);
-  const emissive = unclaimedPlacementBase && !kamelotPainted ? 0xff1638 : ownerOne ? 0x07374f : ownerTwo ? 0x3d0f18 : ownerThree ? 0x291a45 : drawSquare ? 0x292307 : 0x000000;
+  const color = unclaimedPlacementBase && !kamelotPainted ? 0xc21f35 : baseColor !== null ? upgradedBase ? new THREE.Color(baseColor).lerp(new THREE.Color(0xffffff), perfectedBase ? 0.5 : 0.25).getHex() : baseColor : waterSquare ? drawSquare ? 0xa58a29 : 0x1c7190 : drawSquare ? 0x917a22 : highGround ? 0x285046 : buttonSquare ? 0x6c3939 : trenchSquare ? 0x755c45 : protectedSquare ? 0x1d3d38 : (cell.x + cell.y) % 2 ? 0x17322c : 0x122923;
+  const emissive = unclaimedPlacementBase && !kamelotPainted ? 0xff1638 : baseColor ?? (drawSquare ? 0x292307 : 0x000000);
   const material = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: unclaimedPlacementBase ? 0.85 : perfectedBase ? 0.95 : upgradedBase ? 0.78 : kamelotPainted ? 0.58 : 0.35, roughness: 0.72, metalness: 0.15 });
   const lordaeronTombCell = lordaeron && highGround;
   if (lordaeronTombCell && !kamelotPainted) {
@@ -11427,6 +11495,7 @@ function syncBoard() {
   });
   syncCaptureTheFlagVisual();
   syncHotPotatoVisual();
+  appleObjects.sync(scene, gameState.appleObjects ?? [], worldPosition);
   const currentObjectIds = new Set(gameState.objects.map((object) => object.id));
   const animatedRemovalIds = new Set(gameState.objectPushAnimations.filter((event) => event.removeOnComplete && (!processedObjectPushAnimations.has(event.id) || objectMovementAnimations.has(event.objectId))).map((event) => event.objectId));
   objectGroups.forEach((group, id) => {
@@ -13621,6 +13690,7 @@ function renderLobbyModelPreviews() {
           if (model.userData.merylinAnimation) updateMerylinAnimation(model, undefined, delta);
           if (model.userData.spectreAnimation) updateSpectreAnimation(model, undefined, delta);
           if (model.userData.character === 'orkk') updateOrkkRageCoreAnimation(model, time);
+          if (model.userData.character === 'fyrebanks') updateFyrebanksAnimation(model, time, 'idle');
           model.rotation.y = (model.userData.facingSide === 'positive-z' ? 0 : Math.PI) + (seat === localSeat ? -.2 : .2);
         }
         // Maintain full-body framing on narrow screens and after imported models load.
@@ -13649,7 +13719,7 @@ function renderLobbyModelPreviews() {
           : character === 'magician' ? createLongHatLogan(color)
             : character === 'john-christ' ? createJohnChrist(color)
               : character === 'spectre' ? createSpectre(color)
-                : character === 'wreckna' ? createWreckna(color) : createMerylin(color);
+                : character === 'wreckna' ? createWreckna(color) : character === 'fyrebanks' ? createFyrebanks() : createMerylin(color);
       model.userData.character = character;
       model.traverse((child) => { if (child.name === 'TargetRing') child.visible = false; });
       preview.models.set(character, model);

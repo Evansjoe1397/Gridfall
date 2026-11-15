@@ -4,6 +4,7 @@ type Shortcut = { keys: readonly string[]; action: string; detail?: string };
 type ShortcutSection = { title: string; shortcuts: readonly Shortcut[] };
 
 export const HOTKEY_LOADING_RESTRICTION = 'Game keyboard, mouse and touch controls are unavailable while resources are preparing or the match is waiting for other Players to finish loading.';
+export const HOTKEY_BOT_RESTRICTION = 'In a Nagrand duel against Merylin Bot or Da Orkk Bot, keyboard, mouse and touch actions control Player 1 only. The bot chooses its own turns, defense, Combat Cards and required choices. Your Hand stays visible between turns. Retry bot restarts a failed planner decision.';
 
 export const HOTKEY_SECTIONS: readonly ShortcutSection[] = [
   {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyCommand, createHotseatTestState, type CardTypeId, type GameCommand, type GameState } from '../shared/game.ts';
+import { applicableCombatCardInstanceIds, applyCommand, createHotseatTestState, type CardTypeId, type GameCommand, type GameState } from '../shared/game.ts';
 
 function step(state: GameState, command: GameCommand): GameState {
   const result = applyCommand(state, command);
@@ -52,4 +52,39 @@ counter.players.P2.manaPoints = 1;
 const countered = resolve(counter, 'P1').result;
 assert.equal(countered.players.P1.hp, 20, 'Attacker still absorbs Defend Card effect Damage');
 assert.equal(countered.players.P1.deck.some((card) => card.cardId === 'headache'), false);
+
+for (const stack of [true, false]) {
+  const initial = setup('repent', 'defend-1', 'P1', stack);
+  initial.players.P1.character = 'john-christ';
+  const { visible, result } = resolve(initial, 'P1', stack);
+  assert.equal(visible.players.P1.hp, 20, 'Self-damage waits for combat acknowledgement');
+  assert.equal(result.players.P1.hp, 20, 'Shield absorbs Repent self-damage');
+  assert.equal(result.players.P1.spiritForm, false, 'Prevented self-damage does not activate Spirit Form');
+  assert.equal(result.players.P2.hp, 18, 'Repent still damages the adjacent enemy');
+  assert.equal(result.players.P1.hand.some((card) => card.instanceId === 'shield'), false, 'Used Shield leaves Hand');
+  assert.equal([...result.players.P1.deck, ...result.players.P1.discard].some((card) => card.instanceId === 'shield'), false, 'Used Shield cannot be drawn again');
+
+  let declined = step(initial, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' });
+  declined = step(declined, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' });
+  declined = step(declined, stack
+    ? { type: 'combat-stack-choice', playerId: 'P1', cardInstanceId: null }
+    : { type: 'blessing-shield-decision', playerId: 'P1', use: false });
+  const after = JSON.parse(declined.combatReveal!.deferredAfterCombatState!) as GameState;
+  assert.equal(after.players.P1.hp, 19, 'Declining Shield retains Repent self-damage');
+  assert.ok(after.players.P1.hand.some((card) => card.instanceId === 'shield'), 'Declining keeps Shield');
+
+  const fragile = structuredClone(initial);
+  fragile.players.P1.hp = 1;
+  const saved = resolve(fragile, 'P1', stack).result;
+  assert.equal(saved.players.P1.hp, 1, 'Shield lets John survive the first stage at 1 HP');
+  assert.equal(saved.players.P2.hp, 18, 'Surviving through Shield enables Repent area Damage');
+  assert.ok(saved.spellProjectiles.some((event) => event.style === 'repent-fire'), 'Surviving through Shield enables area animation');
+
+  const blocked = setup('repent', 'decisive-block', 'P1', stack);
+  blocked.players.P1.character = 'john-christ';
+  let cancelled = step(blocked, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' });
+  cancelled = step(cancelled, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' });
+  assert.equal(applicableCombatCardInstanceIds(cancelled, 'P1').includes('shield'), false, 'Cancelled Repent does not offer a useless Shield');
+  assert.notEqual(cancelled.phase, 'choosing-mythril-helmet', 'Legacy flow skips Shield when self-damage is cancelled');
+}
 console.log('Blessing: Shield combat/effect damage checks passed.');

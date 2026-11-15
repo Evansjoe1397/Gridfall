@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { applyCommand, cardDefinition, CharacterIdSchema, createHotseatTestState, createPipeTestState, createTrenchTestState, createBestOfThreeState, drawCards, enablePerkMode, phaseCardCandidates, STARTING_DECKS, type CardTypeId, type GameCommand, type GameState, type GameStateWithQuestPhases } from '../shared/game.ts';
+import { applyCommand, cardDefinition, CharacterIdSchema, createHotseatTestState, createMultiplayerState, createLordaeronMultiplayerState, createPipeTestState, createTrenchTestState, createBestOfThreeState, drawCards, enablePerkMode, phaseCardCandidates, STARTING_DECKS, type CardTypeId, type GameCommand, type GameState, type GameStateWithQuestPhases } from '../shared/game.ts';
 
 const definition = STARTING_DECKS.fyrebanks;
 assert.deepEqual(definition.attackFocus, ['pocket-lens', 'immolate-improved']);
 assert.deepEqual(definition.defendFocus, ['wall-of-fire', 'breezy']);
 assert.deepEqual(definition.perkPhase, ['lens', 'fyrestarter']); assert.equal(definition.reserve, 'evocation');
 assert.equal(new Set(Object.values(definition).flat()).size, 15, 'Complete roster: nine base Cards plus six phase Cards.');
-assert.equal(CharacterIdSchema.safeParse('fyrebanks').success, false, 'Hotseat-only access is preserved.');
+assert.equal(CharacterIdSchema.safeParse('fyrebanks').success, true, 'Fyrebanks is available in online multiplayer.');
 function step(state: GameState, command: GameCommand): GameState {
   const result = applyCommand(state, command); assert.ok(result.ok, `${command.type}: ${result.ok ? '' : result.error}`);
   return result.state;
@@ -66,7 +66,7 @@ for (const selected of [...definition.attackFocus, ...definition.defendFocus]) {
   state = finishRewards(state); assert.equal(state.phase, 'active');
 }
 
-for (const create of [() => createPipeTestState(false, 'fyrebanks', 'fyrebanks'), () => createTrenchTestState(false, 'fyrebanks', 'fyrebanks'), () => createHotseatTestState(false, 'fyrebanks', 3), () => createBestOfThreeState('duel', { P1: ['fyrebanks', 'fyrebanks'], P2: ['fyrebanks', 'fyrebanks'] }, true)]) {
+for (const create of [() => createMultiplayerState({ P1: 'fyrebanks', P2: 'fyrebanks', P3: 'fyrebanks' }), () => createLordaeronMultiplayerState({ P1: 'fyrebanks', P2: 'fyrebanks', P3: 'fyrebanks' }), () => createPipeTestState(false, 'fyrebanks', 'fyrebanks'), () => createTrenchTestState(false, 'fyrebanks', 'fyrebanks'), () => createHotseatTestState(false, 'fyrebanks', 3), () => createBestOfThreeState('duel', { P1: ['fyrebanks', 'fyrebanks'], P2: ['fyrebanks', 'fyrebanks'] }, true)]) {
   const state = finishOpening(create(), 'breezy');
   for (const player of Object.values(state.players).filter((player) => player.character === 'fyrebanks')) {
     assert.ok(player.hand.some((card) => card.cardId === 'evocation')); assert.equal(player.deck.at(-1)?.cardId, 'breezy');

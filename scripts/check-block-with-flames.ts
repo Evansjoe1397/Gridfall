@@ -46,8 +46,10 @@ for (const stack of [false, true]) {
   assert.equal(state.players.P1.pyroCharges, 0, 'The attacker gains no Charge from ordinary Burning.');
 
   state = setup('arch-beam', stack); burn(state);
+  state.players.P2.deck = [{ instanceId: 'pyro-reward-draw', cardId: 'arch-beam' }];
   state = fight(state); assert.equal(state.players.P2.pyroCharges, 0); assert.equal(state.players.P2.hp, 10);
   state = acknowledge(state); assert.equal(state.players.P2.pyroCharges, 1); assert.equal(state.players.P2.hp, 11);
+  assert.ok(state.players.P2.hand.some((entry) => entry.instanceId === 'pyro-reward-draw'), 'Block with Flames Charge draws a Card');
   assert.equal(burning(state), 1); assert.equal(burning(state, 'P2'), 0, 'This is a Charge reward, not Absorb Flames.');
   assert.ok(state.players.P1.hand.some((entry) => entry.instanceId === 'burn-P1'));
   assert.equal(state.players.P2.discard.filter((entry) => entry.cardId === 'block-with-flames').length, 1);
@@ -80,7 +82,7 @@ for (const stack of [false, true]) {
   assert.equal(state.spellProjectiles.at(-1)?.style, 'pyro-discharge'); assert.equal(state.spellProjectiles.at(-1)?.casterId, 'P2');
 }
 
-let state = setup('attack-3'); state.players.P1.position = { x: 6, y: 1 }; state.players.P1.attackRange = 3;
+let state = setup('attack-3'); state.players.P1.position = { x: 7, y: 1 }; state.players.P1.attackRange = 4;
 state.players.P2.pyroCharges = 2; burn(state);
 state = acknowledge(fight(state)); assert.equal(state.players.P2.pyroCharges, 0); assert.equal(state.spellProjectiles.length, 0, 'Three Charges are spent with no discharge target in Range.');
 state = setup(); state.players.P2.traitBlocked = true; burn(state);

@@ -39,7 +39,7 @@ const acknowledge = (state: GameState) => step(step(state, { type: 'ack-combat',
 const burning = (state: GameState, id: 'P1' | 'P2' = 'P1') => state.players[id].hand.filter((card) => card.cardId === 'burning').length;
 const card = cardDefinition({ instanceId: '', cardId: 'wall-of-fire' });
 assert.equal(card.name, 'Wall of Fire'); assert.equal(card.kind, 'defend'); assert.equal(card.value, 3);
-assert.equal(card.effectText, 'Will obtain +1 DEF bonus on HighGround if Attacker is on Low Ground Square. Before combat: create Patch of Flames under the Attacker. The Attacker is guaranteed to Burn if they leave this Square in this combat. Absorb Flames in Range after combat.');
+assert.equal(card.effectText, 'Will obtain +1 DEF bonus on HighGround if Attacker is on Low Ground Square. Absorb Flames in Range if you won this combat.');
 for (const player of Object.values(createHotseatTestState(true, 'fyrebanks', 2, 'fyrebanks').players)) assert.equal([...player.hand, ...player.deck].some((card) => card.cardId === 'wall-of-fire'), false, 'wall-of-fire is outside the base starting pool.');
 
 for (const stack of [false, true]) {
@@ -51,71 +51,74 @@ for (const stack of [false, true]) {
     assert.equal(state.combatReveal?.defendTotal, expected);
     assert.equal(state.combatReveal?.defendModifiers?.some((modifier) => modifier.source === 'Wall of Fire · High Ground against Low Ground'), expected === 4);
   }
-  let state = fight(setup(stack));
-  assert.ok(isBurningSquare(state, cell('D4')), 'Patch is visible before the result is acknowledged.');
-  assert.equal(burning(state), 0); assert.equal(state.players.P2.pyroCharges, 0);
-  assert.equal(state.log.filter((line) => line.includes('Wall of Fire created Patch')).length, 1, 'Pre-combat effect runs once through resumed defense.');
-  state = acknowledge(state);
-  assert.equal(isBurningSquare(state, cell('D4')), false, 'After-combat absorption consumes the nearby Patch.');
-  assert.equal(burning(state), 0, 'Stationary attacker does not receive guaranteed Burning.');
-  assert.equal(burning(state, 'P2'), 1); assert.equal(state.players.P2.pyroCharges, 1); assert.equal(state.players.P2.hp, 11);
-  state.players.P1.movementRemaining = 1; state.players.P1.freeMoveUsed = true;
-  state = step(state, { type: 'move', playerId: 'P1', to: cell('C4') });
-  assert.equal(burning(state), 0, 'The departure guarantee expires with combat.');
-
-  state = acknowledge(fight(setup(stack, 'pocket-lens')));
-  assert.deepEqual(state.players.P1.position, cell('B4')); assert.equal(burning(state), 1, 'Departure from existing fire gives one Card, without a duplicate guarantee.');
-  assert.equal(state.players.P1.pyroCharges, 0); assert.equal(state.players.P2.pyroCharges, 1);
-  state = acknowledge(fight(setup(stack, 'pyrodash')));
-  assert.deepEqual(state.players.P1.position, cell('G4')); assert.equal(burning(state), 1, 'Guarantee survives absorption before deferred Pyrodash.');
-  assert.equal(state.players.P1.pyroCharges, 0); assert.equal(isBurningSquare(state, cell('D4')), false);
-  state = acknowledge(fight(setup(stack, 'feint')));
-  assert.ok(isBurningSquare(state, cell('D4')), 'Feint cannot undo resolved pre-combat flames.');
-  assert.equal(state.players.P2.pyroCharges, 0, 'Feint cancels after-combat absorption.');
-  state = setup(stack); state.players.P2.traitBlocked = true; state = acknowledge(fight(state));
-  assert.ok(isBurningSquare(state, cell('D4'))); assert.equal(state.players.P2.pyroCharges, 0, 'Curse blocks absorption, not terrain creation.');
-
-  for (const water of ['water', 'shallow-water'] as const) {
-    state = setup(stack, 'pyrodash'); assert.ok(modifySquare(state, cell('D4'), water));
-    state = fight(state); assert.equal(isBurningSquare(state, cell('D4')), false); assert.equal(state.pendingAttack?.wallOfFire, undefined);
-    state = acknowledge(state); assert.equal(burning(state), 0, 'No Patch creation means no guaranteed Burning, as clarified by user.');
+  // Only a strict defense win absorbs; ties and losses leave existing fire alone.
+  for (const outcome of ['win', 'tie', 'loss'] as const) {
+    let state = setup(stack, outcome === 'win' ? 'attack-2' : 'attack-3');
+    if (outcome === 'loss') state.elevations.D4 = 1;
+    assert.ok(modifySquare(state, cell('D4'), 'patch-of-flames'));
+    state = fight(state);
+    assert.equal(state.players.P2.pyroCharges, 0, 'Absorption waits for acknowledgement.');
+    assert.equal(burning(state), 0);
+    state = acknowledge(state);
+    assert.equal(state.players.P2.pyroCharges, outcome === 'win' ? 1 : 0);
+    assert.equal(isBurningSquare(state, cell('D4')), outcome !== 'win');
+    assert.equal(burning(state, 'P2'), outcome === 'win' ? 1 : 0);
+    assert.equal(state.players.P2.hp, outcome === 'win' ? 11 : outcome === 'tie' ? 10 : 9);
   }
-  state = setup(stack); state.players.P1.position = cell('B4'); state.players.P1.attackRange = 3;
-  state = acknowledge(fight(state)); assert.ok(isBurningSquare(state, cell('B4'))); assert.equal(state.players.P2.pyroCharges, 0, 'Absorption uses defender Range, not attacker Range.');
-  state = setup(stack); state.players.P2.pyroCharges = 2; state.players.P1.hp = 2;
-  state = acknowledge(fight(state)); assert.equal(state.players.P2.pyroCharges, 0); assert.equal(state.players.P1.hp, 0, 'Third Charge discharges normally.');
+  let state = acknowledge(fight(setup(stack, 'attack-2')));
+  assert.equal(Object.keys(state.squareModifications ?? {}).length, 0, 'Wall of Fire never creates flames.');
+  assert.equal(state.players.P2.pyroCharges, 0, 'A win without a source grants no Charge.');
+  assert.equal(burning(state), 0); assert.equal(burning(state, 'P2'), 0);
+
+  state = setup(stack, 'attack-2');
+  state.players.P1.hand.push({ instanceId: 'source-burning', cardId: 'burning' });
+  state = acknowledge(fight(state));
+  assert.equal(burning(state), 0); assert.equal(burning(state, 'P2'), 1);
+  assert.ok(state.players.P2.hand.some((card) => card.instanceId === 'source-burning'), 'Winning absorption transfers the actual source Card.');
+  assert.equal(state.players.P2.pyroCharges, 1);
+
+  state = setup(stack, 'attack-2'); state.players.P2.traitBlocked = true;
+  assert.ok(modifySquare(state, cell('D4'), 'patch-of-flames'));
+  state = acknowledge(fight(state)); assert.ok(isBurningSquare(state, cell('D4'))); assert.equal(state.players.P2.pyroCharges, 0);
+
+  for (const cancelling of ['feint', 'blessed-might'] as const) {
+    state = setup(stack, cancelling); assert.ok(modifySquare(state, cell('D4'), 'patch-of-flames'));
+    state = acknowledge(fight(state)); assert.ok(isBurningSquare(state, cell('D4'))); assert.equal(state.players.P2.pyroCharges, 0, 'Normal Defend effect cancellation prevents absorption.');
+  }
+  state = setup(stack, 'attack-2'); state.players.P1.position = cell('B4'); state.players.P1.attackRange = 3;
+  assert.ok(modifySquare(state, cell('B4'), 'patch-of-flames'));
+  state = acknowledge(fight(state)); assert.ok(isBurningSquare(state, cell('B4'))); assert.equal(state.players.P2.pyroCharges, 0, 'Use defender Range, not attacker Range.');
+
+  state = setup(stack, 'attack-2'); state.players.P2.pyroCharges = 2; state.players.P1.hp = 2;
+  state.players.P2.deck = [{ instanceId: 'charge-draw', cardId: 'dragon-claws' }];
+  assert.ok(modifySquare(state, cell('D4'), 'patch-of-flames'));
+  state = acknowledge(fight(state)); assert.equal(state.players.P2.pyroCharges, 0); assert.equal(state.players.P1.hp, 0, 'A winning third Charge still discharges normally.');
   assert.equal(state.players.P2.discard.filter((card) => card.cardId === 'wall-of-fire').length, 1);
+  assert.ok(state.players.P2.hand.some((card) => card.instanceId === 'charge-draw'), 'The third Charge draws before discharging.');
+
+  // These attack movements formerly used Wall's removed pre-combat/departure effects.
+  state = acknowledge(fight(setup(stack, 'pocket-lens')));
+  assert.deepEqual(state.players.P1.position, cell('B4')); assert.equal(burning(state), 0);
+  assert.equal(state.players.P2.pyroCharges, 0); assert.equal(Object.keys(state.squareModifications ?? {}).length, 0);
+  state = acknowledge(fight(setup(stack, 'pyrodash')));
+  assert.deepEqual(state.players.P1.position, cell('G4')); assert.equal(burning(state), 0);
+  assert.equal(state.players.P2.pyroCharges, 0); assert.equal(Object.keys(state.squareModifications ?? {}).length, 0);
 }
 
-let state = acknowledge(fight(setup(true, 'pyrodash'), true));
-assert.equal(burning(state), 1); assert.ok(isBurningSquare(state, cell('D4'))); assert.equal(state.players.P2.pyroCharges, 0, 'Heated Debate cancels absorption but not prior flames/guarantee.');
-state = setup(true, 'pyrodash'); state.players.P2.position = cell('F5');
-state = acknowledge(fight(state)); assert.equal(state.phase, 'choosing-pyrodash-direction'); assert.equal(burning(state), 0);
-state = step(state, { type: 'pyrodash-direction', playerId: 'P1', dx: 1, dy: 0 }); assert.equal(burning(state), 1, 'Guarantee survives manual selection of deferred dash direction.');
-for (const moveDuringEffect of [false, true]) {
-  state = acknowledge(fight(setup(true, 'dance-through'))); assert.equal(state.phase, 'dance-through');
-  assert.equal(isBurningSquare(state, cell('D4')), false);
-  if (moveDuringEffect) state = step(state, { type: 'move', playerId: 'P1', to: cell('C4') });
-  assert.equal(burning(state), moveDuringEffect ? 1 : 0, 'Deferred Dance Through retains the combat departure guarantee.');
-  state = step(state, { type: 'end-dance', playerId: 'P1' });
-  state.players.P1.movementRemaining = 1; state.players.P1.freeMoveUsed = true;
-  state = step(state, { type: 'move', playerId: 'P1', to: cell(moveDuringEffect ? 'B4' : 'C4') });
-  assert.equal(burning(state), moveDuringEffect ? 1 : 0, 'Ending Dance Through clears its deferred guarantee.');
-}
-
-for (const replica of [false, true]) {
-  state = setup(true, 'lightbringer');
-  if (replica) {
-    state.players.P1.character = 'spectre'; state.players.P1.position = cell('H8');
-    state.objects.push({ id: 'attacking-replica', name: 'Replica', kind: 'spectre-replica', ownerId: 'P1', hp: 999, maxHp: 999, position: cell('D4') });
-    state = step(state, { type: 'spectre-attack', playerId: 'P1', cardInstanceId: 'attack', origin: 'replica', targetKind: 'player', targetId: 'P2' });
-  } else state = declare(state);
-  state = step(state, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' });
-  assert.equal(state.phase, 'choosing-lightbringer-swap'); assert.ok(isBurningSquare(state, cell('D4')));
-  if (replica) assert.equal(isBurningSquare(state, cell('H8')), false, 'Create fire under the attacking body, not its owner.');
-  state = step(state, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true });
-  state = acknowledge(choices(state)); assert.equal(burning(state), 1, 'Pre-combat body movement triggers the same guarantee once.');
-}
+let state = setup(true, 'attack-2'); assert.ok(modifySquare(state, cell('D4'), 'patch-of-flames'));
+state = acknowledge(fight(state, true)); assert.equal(state.players.P2.pyroCharges, 0); assert.ok(isBurningSquare(state, cell('D4')), 'Heated Debate cancels the winning reward.');
+state = acknowledge(fight(setup(true, 'dance-through')));
+assert.equal(state.phase, 'dance-through');
+state = step(state, { type: 'move', playerId: 'P1', to: cell('C4') });
+assert.equal(burning(state), 0, 'Manual combat movement has no departure guarantee.');
+state = step(state, { type: 'end-dance', playerId: 'P1' });
+assert.equal(Object.keys(state.squareModifications ?? {}).length, 0);
+state = setup(true, 'lightbringer'); state = declare(state);
+state = step(state, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' });
+assert.equal(state.phase, 'choosing-lightbringer-swap');
+assert.equal(Object.keys(state.squareModifications ?? {}).length, 0, 'No pre-combat flames while waiting for a choice.');
+state = step(state, { type: 'lightbringer-swap-decision', playerId: 'P1', swap: true });
+state = acknowledge(choices(state)); assert.equal(burning(state), 0);
 
 // Execute the production Hand value formatter with an actual declared Attack.
 const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
@@ -126,4 +129,4 @@ state = setup(); state.elevations = { E4: 1 }; state = declare(state);
 const context = { viewer: state.players.P2, hasHeldExhaust: false, gameState: state, cardDefinition, cardBaseValue, defenseCardValueBonus, storedManaShieldDefenseBonus };
 const format = runInNewContext(ts.transpileModule(formatter.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText + '\nhandValueHtml;', context);
 assert.match(format(state.players.P2.hand[0]), />4<\/b>/);
-console.log('Wall of Fire checks passed: conditional DEF/HUD, once-only pre-combat Patch, departure guarantee/absorption/deferred movement, water clarification, cancellation, Range, Trait blocking and Charges.');
+console.log('Wall of Fire checks passed: unchanged DEF/HUD, strict wins versus ties/losses, existing-source absorption, no fire creation/departure guarantee, movement, cancellation, Range, Trait blocking and Charges.');

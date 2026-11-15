@@ -48,10 +48,10 @@ state = setup(); state.squareModifications = { E8: ['patch-of-flames'] }; // Old
 state = end(end(state)); assert.equal(burning(state, 'P1'), 0); assert.equal(state.squareModifications?.E8, undefined);
 
 // Defensive Cards must attribute flames to the defender, not the active attacker.
-for (const cardId of ['counterflame', 'wall-of-fire'] as CardTypeId[]) {
+for (const cardId of ['counterflame'] as CardTypeId[]) {
   state = setup(); state.players.P1.position = cell('B2'); state.players.P2.position = cell('C2');
   state.players.P1.hand = [{ instanceId: 'attack', cardId: 'attack-2' }]; state.players.P2.hand = [{ instanceId: 'defense', cardId }];
-  state.players.P2.traitBlocked = true; // Keep Wall's fire available for the expiry assertion.
+  state.players.P2.traitBlocked = true;
   state = step(state, { type: 'attack', playerId: 'P1', cardInstanceId: 'attack', targetId: 'P2' });
   state = step(state, { type: 'defend', playerId: 'P2', cardInstanceId: 'defense' });
   while (state.phase === 'choosing-combat-stack') state = step(state, { type: 'combat-stack-choice', playerId: (state as any).combatStackSelections?.P1 === undefined ? 'P1' : 'P2', cardInstanceId: null });

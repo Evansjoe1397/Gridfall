@@ -71,6 +71,7 @@ export const LORDAERON_ARENA: ArenaDefinition = {
   id: 'lordaeron', name: 'Lordaeron Arena', playerCount: 3, width: 8, height: 11,
   pillars: ['B2', 'G10'],
   boxes: ['B3', 'D10', 'F5'],
+  slideSquares: ['C5', 'F5', 'D3'],
   highground: [...inclusiveRange('D', 4, 7), ...inclusiveRange('E', 4, 7)],
   highgroundProtected: [
     ...inclusiveRange('C', 3, 8),
@@ -79,11 +80,11 @@ export const LORDAERON_ARENA: ArenaDefinition = {
   ],
   drawSquares: ['C2', 'B3', 'D9', 'D10'],
   bases: {
-    P1: ['B7', 'B8'],
+    P1: ['A6', 'A7'],
     P2: ['F2', 'G2'],
     P3: ['G7', 'G8'],
   },
-  startingSquares: { P1: 'B7', P2: 'F2', P3: 'G7' },
+  startingSquares: { P1: 'A6', P2: 'F2', P3: 'G7' },
 };
 
 export function randomLordaeronHighgroundBoxSpawn(random: () => number = Math.random): string {
@@ -94,6 +95,24 @@ export function randomLordaeronHighgroundBoxSpawn(random: () => number = Math.ra
     && !Object.values(LORDAERON_ARENA.startingSquares).includes(label));
   if (available.length === 0) throw new Error('Lordaeron has no clear High Ground Square for the Free For All Box.');
   return available[Math.min(available.length - 1, Math.floor(random() * available.length))];
+}
+
+export function randomLordaeronInteriorBoxSpawns(random: () => number = Math.random): string[] {
+  const arena = LORDAERON_ARENA;
+  const excluded = new Set([
+    ...arena.boxes, ...arena.pillars, ...arena.highground, ...arena.highgroundProtected,
+    ...arena.drawSquares, ...Object.values(arena.bases).flat(),
+    ...Object.values(arena.startingSquares), ...(arena.slideSquares ?? []),
+  ]);
+  const available: string[] = [];
+  for (let x = 2; x < arena.width; x++) {
+    for (let y = 2; y < arena.height; y++) {
+      const label = `${String.fromCharCode(64 + x)}${y}`;
+      if (!excluded.has(label)) available.push(label);
+    }
+  }
+  if (available.length < 2) throw new Error('Lordaeron needs two clear uncolored interior Squares for Boxes.');
+  return Array.from({ length: 2 }, () => available.splice(Math.min(available.length - 1, Math.floor(random() * available.length)), 1)[0]);
 }
 
 export const THE_TRENCH_ARENA: ArenaDefinition = {

@@ -37,7 +37,7 @@ function acknowledged(state: GameState): GameState {
   return step(state, { type: 'ack-combat', playerId: 'P2' });
 }
 const burning = (state: GameState) => state.players.P2.hand.filter((card) => card.cardId === 'burning').length;
-assert.equal(CharacterIdSchema.safeParse('fyrebanks').success, false, 'Online character selection rejects the Hotseat-only character.');
+assert.equal(CharacterIdSchema.safeParse('fyrebanks').success, true, 'Online character selection accepts Fyrebanks.');
 assert.equal(cardDefinition({ instanceId: '', cardId: 'arch-beam' }).value, 0);
 assert.equal(cardDefinition({ instanceId: '', cardId: 'arch-beam' }).effectText, 'Before combat: +FP to Attack. Apply Burning to target after combat.');
 assert.equal(CARDS.filter((card) => card.id === 'arch-beam').length, 1);

@@ -27,6 +27,29 @@ function burn(state: GameState, id: 'P1' | 'P2', count = 1): void {
 const countBurning = (state: GameState, id: 'P1' | 'P2') => state.players[id].hand.filter((card) => card.cardId === 'burning').length;
 const ignite = (state: GameState, label: string) => assert.ok(modifySquare(state, cell(label), 'patch-of-flames'));
 
+// Each gained Charge draws once, including discharge, full HP and reshuffling.
+for (const charges of [0, 1, 2]) {
+  for (const fromDiscard of [false, true]) {
+    const reward = setup(); burn(reward, 'P2');
+    reward.players.P1.pyroCharges = charges;
+    reward.players.P1.hp = reward.players.P1.maxHp;
+    reward.players.P1[fromDiscard ? 'discard' : 'deck'] = [{ instanceId: 'charge-draw', cardId: 'arch-beam' }];
+    assert.ok(absorbFlames(reward, 'P1'));
+    assert.equal(reward.players.P1.hand.filter((card) => card.instanceId === 'charge-draw').length, 1);
+    assert.equal(reward.players.P1.pyroCharges, (charges + 1) % 3);
+    assert.equal(reward.players.P1.hp, reward.players.P1.maxHp);
+  }
+}
+for (const blocked of [false, true]) {
+  const noReward = setup();
+  noReward.players.P1.deck = [{ instanceId: 'no-charge-no-draw', cardId: 'arch-beam' }];
+  if (blocked) { burn(noReward, 'P2'); noReward.players.P1.traitBlocked = true; }
+  assert.equal(absorbFlames(noReward, 'P1'), false);
+  assert.equal(noReward.players.P1.deck.length, 1, 'No Charge means no bonus draw');
+  addForcedStatusCard(noReward, noReward.players.P1, 'burning', 'hand', 'P2');
+  assert.equal(noReward.players.P1.deck.length, 1, 'Incidental Burning grants no draw');
+}
+
 // Taking Burning preserves its identity/source; absorption never discards or Removes it.
 let state = setup(); burn(state, 'P2', 2);
 const card = { ...state.players.P2.hand[0] };
@@ -96,7 +119,7 @@ burn(state, 'P2'); state.players.P2.hp = 0;
 assert.equal(absorbFlames(state, 'P1'), false, 'Defeated enemies are not sources.');
 
 // Discharge uses the nearest enemy, not necessarily the source of absorption;
-// a Card's absorption Range override does not extend the discharge Attack Range.
+// a Card's absorption Range override does not extend the fixed discharge Range.
 state = setup();
 state.players.P3 = { ...structuredClone(state.players.P2), id: 'P3', name: 'Nearest enemy', position: cell('C2') };
 state.players.P2.position = cell('E2'); state.players.P1.pyroCharges = 2; burn(state, 'P2');
@@ -104,6 +127,31 @@ const p3Hp = state.players.P3.hp;
 assert.ok(absorbFlames(state, 'P1', 3));
 assert.equal(state.players.P3.hp, p3Hp - 2); assert.equal(state.players.P2.hp, state.players.P2.maxHp);
 assert.equal(state.spellProjectiles.find((event) => event.style === 'pyro-discharge')?.targetId, 'P3');
+
+// Discharge always uses Range 3, regardless of the current Attack Range.
+for (const attackRange of [1, 2, 3, 5]) {
+  for (const enemyDistance of [3, 4]) {
+    const fixed = setup();
+    fixed.players.P1.attackRange = attackRange;
+    fixed.players.P1.pyroCharges = 2;
+    fixed.players.P2.position = { x: fixed.players.P1.position.x + enemyDistance, y: fixed.players.P1.position.y };
+    ignite(fixed, 'B2');
+    assert.ok(absorbFlames(fixed, 'P1'));
+    assert.equal(fixed.players.P1.pyroCharges, 0);
+    assert.equal(fixed.players.P2.hp, fixed.players.P2.maxHp - (enemyDistance === 3 ? 2 : 0));
+    assert.equal(countBurning(fixed, 'P2'), Number(enemyDistance === 3));
+    assert.equal(fixed.spellProjectiles.some((event) => event.style === 'pyro-discharge'), enemyDistance === 3);
+  }
+}
+const obstructed = setup();
+obstructed.players.P1.pyroCharges = 2;
+obstructed.players.P2.position = cell('E2');
+obstructed.objects = [{ id: 'sight-blocker', kind: 'wall-pillar', name: 'Column', hp: 999, maxHp: 999, position: cell('C2') }];
+ignite(obstructed, 'B2');
+assert.ok(absorbFlames(obstructed, 'P1'));
+assert.equal(obstructed.players.P1.pyroCharges, 0);
+assert.equal(obstructed.players.P2.hp, obstructed.players.P2.maxHp, 'Range 3 does not bypass blocked line of sight');
+assert.equal(obstructed.spellProjectiles.some((event) => event.style === 'pyro-discharge'), false);
 
 // Regular Burning and Patch interactions cannot feed the charge/healing path.
 state = setup(); addForcedStatusCard(state, state.players.P1, 'burning', 'hand', 'P2');

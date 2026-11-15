@@ -44,7 +44,9 @@ try {
     first.send('set-perk-mode', true);
     await until(() => lobby?.perkMode === true, 'Host mode setting was not broadcast');
     const tournament = options.seriesMode === 'tournament';
-    first.send('select-character', tournament ? ['merylin', 'magician'] : 'merylin');
+    first.send('hover-character', 'fyrebanks');
+    await until(() => lobby?.selections.P1 === 'fyrebanks', 'Fyrebanks preview was rejected');
+    first.send('select-character', tournament ? ['fyrebanks', 'magician'] : 'fyrebanks');
     await until(() => Boolean(lobby?.characters.P1), 'Host character missing');
     first.send('set-perk-mode', false);
     second.send('select-character', tournament ? ['shinobi', 'orkk'] : 'shinobi');
@@ -61,6 +63,7 @@ try {
     }
     await until(() => loadingComplete && latest !== beforeLoad, 'Clients did not finish match preparation');
     assert.equal(latest.perkMode, true, 'Confirmed selections lock the shared mode.');
+    assert.equal(latest.players.P1.character, 'fyrebanks', 'Fyrebanks starts in public multiplayer formats.');
     assert.ok(Object.values(latest.players).every((player: any) => player.perkMode));
     let safety = 0;
     while (latest.openingSetup || Object.values(latest.players).some((player: any) => player.perkMode.pendingChoices)) {
@@ -78,9 +81,10 @@ try {
       assert.equal(player.deck.at(-1).cardId, STARTING_DECKS[player.character as CharacterId].attackFocus[0]);
       assert.ok(!player.hand.some((card: any) => card.cardId === 'perk-draw'));
     }
+    assert.ok(latest.players.P1.hand.some((card: any) => card.cardId === 'evocation'), 'Fyrebanks keeps his base Perk online.');
     for (const connection of rooms.splice(0)) await connection.leave();
   }
-  console.log('Perk Mode multiplayer checks passed: host authority, shared/locked setting, duel, FFA, both series formats, opening choices and queued Perks.');
+  console.log('Perk Mode multiplayer checks passed: Fyrebanks preview/selection/base Perk, host authority, shared/locked setting, duel, FFA, both series formats, opening choices and queued Perks.');
 } finally {
   for (const room of rooms) await room.leave().catch(() => {});
   child.kill();

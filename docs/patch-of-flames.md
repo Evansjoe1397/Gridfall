@@ -1,6 +1,6 @@
 # Patch of Flames
 
-Patch of Flames is an additive Square modification, also called a **Burning Square**. It preserves the underlying Base, Draw, High Ground, Slide, Trench, or ordinary Square. It expires at the start of its creator's next turn, before turn-start Burning or Ward rewards, and may be extinguished/absorbed earlier. Counterflame, Wall of Fire, Fyrestarter and Ray of Fire create it.
+Patch of Flames is an additive Square modification, also called a **Burning Square**. It preserves the underlying Base, Draw, High Ground, Slide, Trench, or ordinary Square. It expires at the start of its creator's next turn, before turn-start Burning or Ward rewards, and may be extinguished/absorbed earlier. Counterflame, Fyrestarter and Ray of Fire create it; Wall of Fire's revised effect no longer creates fire.
 
 Future authoritative Card/ability handlers can call:
 

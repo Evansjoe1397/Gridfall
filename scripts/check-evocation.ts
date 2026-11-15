@@ -52,7 +52,7 @@ for (const level of [1, 2, 3] as const) {
   assert.equal(state.players.P1.pyroCharges, level >= 2 ? 1 : 0);
   assert.equal(effectiveAttackRange(state, state.players.P1), level === 3 ? 3 : 2);
   assert.equal(state.players.P1.evocationNextAttackDraws ?? 0, level === 3 ? 1 : 0);
-  assert.equal(has(state, 'after-attack'), false, 'The next-Attack reward is not drawn at activation.');
+  assert.equal(has(state, 'after-attack'), level >= 2, 'Successful absorption draws for its Charge; the next-Attack reward remains queued.');
   if (level >= 2) assert.equal(state.players.P1.spellEcho[0]?.cardId, 'evocation', 'Echo activation cycles the Perk to Level 1.');
 }
 
@@ -103,9 +103,9 @@ state = setup(); burn(state); state.players.P1.pyroCharges = 2; state.players.P2
 const fireballHp = state.players.P2.hp;
 state = use(state, 3);
 assert.equal(state.players.P1.pyroCharges, 0);
-assert.equal(state.players.P2.hp, fireballHp - 2, 'Range-first ordering also extends a discharge triggered by absorption.');
+assert.equal(state.players.P2.hp, fireballHp - 2, 'Absorption triggers a discharge within its fixed Range 3.');
 assert.equal(state.players.P1.evocationNextAttackDraws, 1, 'A Pyro Fireball is not the next played Attack.');
-assert.equal(has(state, 'after-attack'), false);
+assert.equal(has(state, 'after-attack'), true, 'The gained Charge draws independently of the queued next-Attack reward.');
 
 state = use(setup(), 3);
 state.players.P1.hand = state.players.P1.hand.filter((entry) => entry.instanceId !== 'attack');

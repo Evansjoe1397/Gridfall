@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { applyCommand, createHotseatTestState, type CardTypeId, type GameState } from '../shared/game.ts';
 import { johnAttackAnimation, johnAttackUsesProjectile } from '../src/johnChristLocomotion.ts';
 
-function resolveJohnAttack(cardId: CardTypeId, targetX = 4): GameState {
+function resolveJohnAttack(cardId: CardTypeId, targetX = 4, hp = 14, stack = true): GameState {
   const state = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+  (state as GameState & { simultaneousCombatStack: boolean }).simultaneousCombatStack = stack;
   state.objects = [];
+  state.players.P1.hp = hp;
   state.players.P1.position = { x: 2, y: 2 };
   state.players.P2.position = { x: targetX, y: 2 };
   state.players.P1.hand = [{ instanceId: `${cardId}-presentation`, cardId }];
@@ -41,6 +43,31 @@ assert.equal(distantRepent.players.P1.hp, repent.players.P1.hp);
 assert.equal(distantRepent.players.P1.spiritForm, true, 'Self-damage enters Spirit Form.');
 assert.equal(johnAttackAnimation('repent'), 'Cleanse');
 assert.equal(johnAttackUsesProjectile('repent'), false);
+
+for (const stack of [true, false]) {
+  const lethal = resolveJohnAttack('repent', 3, 1, stack);
+  const surviving = resolveJohnAttack('repent', 3, 2, stack);
+  assert.equal(lethal.players.P1.hp, 0);
+  assert.equal(lethal.players.P2.hp, lethal.players.P2.maxHp - 1, 'Lethal self-damage leaves only ordinary combat Damage');
+  assert.equal(lethal.spellProjectiles.some((event) => event.style === 'repent-fire' || event.style === 'cleanse-immolate'), false, 'No area animation if John dies');
+  assert.equal(surviving.players.P1.hp, 1);
+  assert.equal(surviving.players.P2.hp, surviving.players.P2.maxHp - 3);
+}
+
+for (const hp of [1, 2]) {
+  const initial = createHotseatTestState(true, 'john-christ', 2, 'dummy');
+  initial.objects = [{ id: 'repent-box', kind: 'box', name: 'Wooden Box', hp: 3, maxHp: 3, position: { x: 2, y: 3 } }];
+  initial.players.P1.position = { x: 2, y: 2 };
+  initial.players.P2.position = { x: 3, y: 2 };
+  initial.players.P1.hp = hp;
+  initial.players.P1.hand = [{ instanceId: 'repent-object', cardId: 'repent' }];
+  const attack = applyCommand(initial, { type: 'attack', playerId: 'P1', cardInstanceId: 'repent-object', targetId: 'repent-box', targetKind: 'object' });
+  assert.ok(attack.ok);
+  if (!attack.ok) throw new Error(attack.error);
+  assert.equal(attack.state.players.P1.hp, hp - 1);
+  assert.equal(attack.state.players.P2.hp, initial.players.P2.hp - (hp > 1 ? 2 : 0), 'Object Attack area Damage requires survival');
+  assert.equal(attack.state.spellProjectiles.some((event) => event.style === 'repent-fire'), hp > 1, 'Object Attack flames require survival');
+}
 
 const mindBlast = createHotseatTestState(true, 'john-christ', 2, 'dummy');
 mindBlast.objects = [];
