@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import * as THREE from 'three';
-import { absorbFlames, addForcedStatusCard, applyCommand, createHotseatTestState, flameAbsorptionPath, flameAbsorptionSources, isBurningSquare, modifySquare, type Cell, type GameCommand, type GameState } from '../shared/game.ts';
+import { absorbFlames, addForcedStatusCard, applyCommand, createHotseatTestState, effectiveMoveRange, flameAbsorptionPath, flameAbsorptionSources, isBurningSquare, modifySquare, type Cell, type GameCommand, type GameState } from '../shared/game.ts';
 import { updatePyroChargeVisuals, disposePyroChargeVisuals } from '../src/pyro-charge-visuals.ts';
 import { FireboltVisual } from '../src/fireboltVisuals.ts';
 
@@ -26,6 +26,47 @@ function burn(state: GameState, id: 'P1' | 'P2', count = 1): void {
 }
 const countBurning = (state: GameState, id: 'P1' | 'P2') => state.players[id].hand.filter((card) => card.cardId === 'burning').length;
 const ignite = (state: GameState, label: string) => assert.ok(modifySquare(state, cell(label), 'patch-of-flames'));
+
+// Absorb Flames restores real spent MOV, never an ungranted/penalized pool or maximum Range.
+for (const fromEnemy of [false, true]) for (const remaining of [0, 1, 2, 3]) {
+  const restored = setup(); const p = restored.players.P1;
+  p.movementRemaining = remaining; p.movementSpentThisTurn = Math.max(0, 2 - remaining);
+  if (fromEnemy) burn(restored, 'P2'); else ignite(restored, 'C2');
+  const cap = effectiveMoveRange(p);
+  assert.ok(absorbFlames(restored, 'P1'));
+  assert.equal(p.movementRemaining, remaining < 2 ? remaining + 1 : remaining);
+  assert.equal(effectiveMoveRange(p), cap); assert.equal(p.moveRange, 2);
+}
+for (const freeMoveUsed of [false, true]) {
+  const untouched = setup(); untouched.players.P1.freeMoveUsed = freeMoveUsed;
+  burn(untouched, 'P2'); assert.ok(absorbFlames(untouched, 'P1'));
+  assert.equal(untouched.players.P1.movementRemaining, 0, 'A movement deficit alone is not proof that MOV was spent.');
+}
+let walked = setup(); walked.players.P1.movementRemaining = 2; burn(walked, 'P2', 4);
+walked = step(walked, { type: 'move', playerId: 'P1', to: cell('B3') });
+assert.equal(walked.players.P1.movementSpentThisTurn, 1);
+const cancelledWalk = step(walked, { type: 'cancel-movement', playerId: 'P1' });
+assert.equal(cancelledWalk.players.P1.movementSpentThisTurn ?? 0, 0, 'Movement undo restores the spend ledger.');
+assert.ok(absorbFlames(walked, 'P1')); assert.equal(walked.players.P1.movementRemaining, 2);
+assert.ok(absorbFlames(walked, 'P1')); assert.equal(walked.players.P1.movementRemaining, 2, 'Repeated absorption cannot restore the same spent MOV twice.');
+assert.equal(walked.players.P1.movementSpentThisTurn, 0);
+
+for (const unavailable of ['no-source', 'blocked'] as const) {
+  const failed = setup(); failed.players.P1.movementSpentThisTurn = 2;
+  if (unavailable === 'blocked') { burn(failed, 'P2'); failed.players.P1.traitBlocked = true; }
+  assert.equal(absorbFlames(failed, 'P1'), false); assert.equal(failed.players.P1.movementRemaining, 0);
+}
+const penalized = setup(); penalized.players.P1.pinnedStacks = 1; penalized.players.P1.movementSpentThisTurn = 2;
+burn(penalized, 'P2', 2); assert.ok(absorbFlames(penalized, 'P1')); assert.equal(penalized.players.P1.movementRemaining, 1);
+assert.ok(absorbFlames(penalized, 'P1')); assert.equal(penalized.players.P1.movementRemaining, 1, 'Restoration respects the reduced effective movement cap.');
+
+let undoRestore = setup(); undoRestore.players.P1.movementRemaining = 2; burn(undoRestore, 'P2');
+undoRestore = step(undoRestore, { type: 'move', playerId: 'P1', to: cell('B3') });
+undoRestore.players.P1.spellEcho[1] = { instanceId: 'evocation-restore', cardId: 'evocation' };
+undoRestore = step(undoRestore, { type: 'use-echo-perk', playerId: 'P1', position: 2 });
+assert.equal(undoRestore.players.P1.movementRemaining, 2); assert.equal(undoRestore.players.P1.movementSpentThisTurn, 0);
+undoRestore = step(undoRestore, { type: 'undo-last-action', playerId: 'P1' });
+assert.equal(undoRestore.players.P1.movementRemaining, 1); assert.equal(undoRestore.players.P1.movementSpentThisTurn, 1, 'Perk undo restores both MOV and restoration eligibility.');
 
 // Each gained Charge draws once, including discharge, full HP and reshuffling.
 for (const charges of [0, 1, 2]) {

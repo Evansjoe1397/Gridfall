@@ -29,8 +29,8 @@ for (const enabled of [false, true]) for (let mask = 0; mask < 8; mask++) for (c
   const initial = setup(enabled);
   for (let index = 0; index < 3; index++) if (!(mask & (1 << index))) initial.players.P1.spellEcho[index] = null;
   const original = structuredClone(initial);
-  assert.equal(allowsAnySpellEchoReplacement(initial), enabled);
-  const allowed = position === 1 || enabled && Boolean(initial.players.P1.spellEcho[position - 1]);
+  assert.equal(allowsAnySpellEchoReplacement(initial), true);
+  const allowed = position === 1 || Boolean(initial.players.P1.spellEcho[position - 1]);
   assert.equal(canTargetSpellEchoSlotForInsertion(initial, 'P1', position), allowed);
   const result = applyCommand(initial, insert(position));
   assert.equal(result.ok, allowed);
@@ -63,8 +63,8 @@ for (const enabled of [false, true]) for (let mask = 0; mask < 8; mask++) for (c
 // Omitted position retains the existing wire protocol behavior, also outside Perk Mode.
 assert.deepEqual(ids(step(setup(false), insert()).players.P1.spellEcho), ['new', 'old2', 'old3']);
 for (const position of [0, 4, 1.5, -1]) assert.equal(applyCommand(setup(), insert(position)).ok, false);
-for (const position of [1, 2, 3]) {
-  const state = setup();
+for (const enabled of [false, true]) for (const position of [1, 2, 3]) {
+  const state = setup(enabled);
   assert.equal(applyCommand(state, { ...insert(position), replaceExisting: false }).ok, false);
   state.players.P1.actionsRemaining = 0;
   assert.equal(applyCommand(state, insert(position)).ok, false);
@@ -84,7 +84,8 @@ const ephemeral = setup(); ephemeral.players.P1.spellEcho[2]!.oneTimeCopy = true
 assert.equal(step(ephemeral, insert(3)).players.P1.discard.length, 0, 'Existing one-use copy removal rules are preserved.');
 
 // Cancelling a targeted Perk restores the replacement and all shifted Cards.
-const targeted = setup();
+for (const enabled of [false, true]) {
+const targeted = setup(enabled);
 targeted.players.P1.character = 'magician';
 targeted.players.P1.hand = [{ instanceId: 'new', cardId: 'magic-hand' }];
 const choosing = step(targeted, insert(3));
@@ -95,4 +96,5 @@ assert.deepEqual(cancelled.players.P1.spellEcho, targeted.players.P1.spellEcho);
 assert.deepEqual(cancelled.players.P1.hand, targeted.players.P1.hand);
 assert.deepEqual(cancelled.players.P1.discard, targeted.players.P1.discard);
 assert.equal(cancelled.players.P1.actionsRemaining, targeted.players.P1.actionsRemaining);
+}
 console.log('Spell Echo insertion checks passed: 48 mode/occupancy/slot combinations, Level 1 effects, costs, validation, ownership, JSON transport, undo, and targeting cancellation.');

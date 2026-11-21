@@ -183,6 +183,7 @@ delete state.players.P1.lensBurningReady; assert.doesNotMatch(render(state.playe
 const handler = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'onBoardClick')!;
 const commands: GameCommand[] = [];
 const input = { gameState: place(use(setup(), 2)), suppressTouchBoardSelection: false, suppressNextBoardClick: false, pendingObjectAttackConfirmation: null,
+  interactionPlayer: () => 'P1', hasPendingPerkChoice: () => false,
   boardHitsAt: () => [{ object: { userData: { cell: cell('D2') } } }], selection: { getSnapshot: () => ({ context: { selection: { kind: 'none' } } }) },
   canLocalAct: () => true, dispatch: (command: GameCommand) => commands.push(command) };
 const click = runInNewContext(ts.transpileModule(handler.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText + '\nonBoardClick;', input);

@@ -2,6 +2,7 @@ import type { GameState, PlayerId, GameStateWithNarrative, GameStateWithMockingj
 
 /** Player who owns the current decision, independent of the viewing client. */
 export function interactionPlayer(state: GameState): PlayerId {
+  if (state.phase === 'choosing-countaspell-rage') return state.countaSpell?.playerId ?? state.activePlayerId;
   if (state.phase === 'choosing-focus' || state.phase === 'choosing-focus-card') {
     const opening = (state as GameState & { openingSetup?: { pendingPlayerIds: PlayerId[] } }).openingSetup;
     return opening?.pendingPlayerIds[0] ?? state.activePlayerId;

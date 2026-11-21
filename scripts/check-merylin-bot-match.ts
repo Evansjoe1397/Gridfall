@@ -24,6 +24,7 @@ function humanCommand(state: GameState): GameCommand | null {
         .map((to) => make('move', { to })), make('end-turn')];
   } else if (state.phase === 'dance-through') candidates = [make('end-dance')];
   else if (state.phase === 'flurry-offer') candidates = [make('flurry-decline')];
+  else if (state.phase === 'choosing-countaspell-rage') candidates = [make('countaspell-rage', { amount: 0 })];
   else if (state.phase === 'choosing-mana-barrage') candidates = [make('mana-barrage-decision', { use: false })];
   else if (state.phase === 'choosing-mana-mode') candidates = [make('mana-choice', { consume: false })];
   else if (state.phase === 'choosing-pyrodash-direction') candidates = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dy) => make('pyrodash-direction', { dx, dy })));

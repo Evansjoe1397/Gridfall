@@ -26,7 +26,7 @@ let state = setup(); state.turn = 5; state.elevations.E8 = 1;
 for (const label of ['E8', 'D8', 'C8', 'D7']) ignite(state, label);
 state = end(state); assert.equal(state.activePlayerId, 'P2'); assert.ok(isBurningSquare(state, cell('E8')));
 state = end(state); assert.equal(state.activePlayerId, 'P1'); assert.equal(state.turn, 6);
-assert.equal(burning(state, 'P1'), 0, 'Expiry precedes turn-start Burning on the creator.');
+assert.equal(burning(state, 'P1'), 1, 'The prior turn settled residence once; expiry adds no turn-start Burning.');
 for (const label of ['E8', 'D8', 'C8', 'D7']) { assert.equal(isBurningSquare(state, cell(label)), false); assert.equal(state.flameSquareCreators?.[label], undefined); }
 assert.equal(state.elevations.E8, 1, 'Expiry preserves underlying terrain.');
 
@@ -45,7 +45,7 @@ assert.equal(state.flameSquareCreators?.C2, undefined); assert.equal(state.squar
 ignite(state, 'C2'); assert.ok(modifySquare(state, cell('C2'), 'shallow-water'));
 assert.equal(state.flameSquareCreators?.C2, undefined); assert.deepEqual(state.squareModifications?.C2, ['shallow-water']);
 state = setup(); state.squareModifications = { E8: ['patch-of-flames'] }; // Older snapshots lack ownership.
-state = end(end(state)); assert.equal(burning(state, 'P1'), 0); assert.equal(state.squareModifications?.E8, undefined);
+state = end(end(state)); assert.equal(burning(state, 'P1'), 1); assert.equal(state.squareModifications?.E8, undefined);
 
 // Defensive Cards must attribute flames to the defender, not the active attacker.
 for (const cardId of ['counterflame'] as CardTypeId[]) {

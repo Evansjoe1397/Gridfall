@@ -1,0 +1,3090 @@
+{
+  "dump": "gridfall-debug-match-2026-11-21T10-01-14-165Z.jsonl",
+  "source": "client",
+  "events": [
+    {
+      "event": 112,
+      "state": {
+        "matchStartedAt": 1795254848923,
+        "boardSize": 8,
+        "turn": 2,
+        "activePlayerId": "P2",
+        "phase": "active",
+        "objects": [
+          {
+            "id": "nagrand-pillar-1",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-2",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-3",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-4",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-5",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-6",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-pillar-7",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-8",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-box-1",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 0
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-2",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 7
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-5",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-6",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 7,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "lens-172",
+            "name": "Lens",
+            "kind": "lens",
+            "hp": 1,
+            "maxHp": 1,
+            "position": {
+              "x": 3,
+              "y": 4
+            },
+            "ownerId": "P1"
+          },
+          {
+            "id": "P2-iron-shield-1-175",
+            "name": "Da Orkk's Iron Shield",
+            "kind": "orkk-shield",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 2
+            },
+            "ownerId": "P2",
+            "heavy": true
+          }
+        ],
+        "elevations": {
+          "D4": 1,
+          "D5": 1,
+          "E4": 1,
+          "E5": 1
+        },
+        "pendingAttack": null,
+        "combatReveal": null,
+        "dashCancellation": null,
+        "danceThrough": null,
+        "doubleJump": null,
+        "forceThrow": null,
+        "forcePull": null,
+        "arkaneArow": null,
+        "armDaWiz": null,
+        "preparation": null,
+        "arcaneMissle": null,
+        "chainLightning": null,
+        "magicHand": null,
+        "shizzle": null,
+        "mindTricks": null,
+        "forceDisarm": null,
+        "flurry": null,
+        "pendingManaChoice": null,
+        "winner": null,
+        "players": {
+          "P1": {
+            "pyroCharges": 0,
+            "id": "P1",
+            "name": "Fyrebanks",
+            "character": "fyrebanks",
+            "hp": 18,
+            "maxHp": 18,
+            "moveRange": 2,
+            "attackRange": 2,
+            "position": {
+              "x": 1,
+              "y": 2
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 1,
+                "y": 2
+              },
+              "hp": 18,
+              "round": 2
+            },
+            "weaverHologramExpired": true,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P1-160",
+                "cardId": "pocket-lens",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-151",
+                "cardId": "dragon-claws",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              null,
+              {
+                "instanceId": "P1-159",
+                "cardId": "evocation",
+                "revealedToOpponent": true
+              },
+              null
+            ],
+            "actionsRemaining": 2,
+            "perkUsed": false,
+            "freeMoveUsed": true,
+            "movementRemaining": 2,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 4,
+              "attackDamage": 0,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 0,
+              "hitPointsHealed": 0,
+              "combatDamageBlocked": 0,
+              "objectsDestroyed": 1
+            },
+            "wrecknaInsideTombId": null,
+            "movementSpentThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "hand": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-2"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-3"
+              }
+            ],
+            "deck": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-2"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          },
+          "P2": {
+            "id": "P2",
+            "name": "Da Orkk · Bot",
+            "character": "orkk",
+            "hp": 24,
+            "maxHp": 24,
+            "moveRange": 3,
+            "attackRange": 1,
+            "position": {
+              "x": 5,
+              "y": 3
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 5,
+                "y": 3
+              },
+              "hp": 24,
+              "round": 2
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P2-163",
+                "cardId": "chain-punchin",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-168",
+                "cardId": "arm-da-wiz",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-166",
+                "cardId": "arcane-shield",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P2-169",
+                "cardId": "encourage",
+                "revealedToOpponent": true
+              },
+              null,
+              null
+            ],
+            "actionsRemaining": 1,
+            "perkUsed": true,
+            "freeMoveUsed": false,
+            "movementRemaining": 0,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": false,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 1,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 3,
+              "attackDamage": 0,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 0,
+              "hitPointsHealed": 0,
+              "combatDamageBlocked": 0,
+              "objectsDestroyed": 1
+            },
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "movementSpentThisTurn": 0,
+            "wrecknaInsideTombId": null,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "hand": [
+              {
+                "instanceId": "P2-164",
+                "cardId": "da-blokk"
+              },
+              {
+                "instanceId": "P2-167",
+                "cardId": "arkane-arow"
+              },
+              {
+                "instanceId": "P2-170",
+                "cardId": "knee-blast"
+              },
+              {
+                "instanceId": "P2-hot-potato-173",
+                "cardId": "hot-potato",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P2-161",
+                "cardId": "fistbolt"
+              },
+              {
+                "instanceId": "P2-165",
+                "cardId": "double"
+              }
+            ],
+            "deck": [
+              {
+                "instanceId": "P2-162",
+                "cardId": "teef-strike"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          }
+        },
+        "roundFirstPlayerId": "P1",
+        "questPhases": {
+          "actionDamageByPlayer": {},
+          "usedQuestIds": [
+            "hot-potato"
+          ],
+          "currentQuest": {
+            "id": "hot-potato",
+            "announcedRound": 1,
+            "endsAfterRound": 4,
+            "winners": [],
+            "progress": {}
+          },
+          "lastQuestWinners": [],
+          "progression": {
+            "P1": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "pocket-lens"
+            },
+            "P2": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "knee-blast"
+            }
+          },
+          "phaseReward": null,
+          "turnStartedOnHighGround": {},
+          "captureTheFlag": null,
+          "objectEffectsThisTurn": {},
+          "objectRespawns": [
+            {
+              "dueRound": 3
+            },
+            {
+              "dueRound": null
+            }
+          ],
+          "hotPotato": {
+            "anchor": {
+              "x": 4.5,
+              "y": 3.5
+            },
+            "carrierId": "P2",
+            "endDiscardCompletedTurn": "P2:1"
+          }
+        },
+        "simultaneousCombatStack": true,
+        "guardianPerkActionSequence": 3,
+        "currentGuardianPerkActionId": 3,
+        "queuedManaChoice": false,
+        "log": [],
+        "spellProjectiles": [],
+        "objectPushAnimations": [],
+        "blessingAnimations": [],
+        "movementUndo": null,
+        "perkUndo": null
+      }
+    },
+    {
+      "event": 219,
+      "state": {
+        "matchStartedAt": 1795254848923,
+        "boardSize": 8,
+        "turn": 3,
+        "activePlayerId": "P2",
+        "phase": "active",
+        "objects": [
+          {
+            "id": "nagrand-pillar-1",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-2",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-3",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-4",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-5",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-6",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-pillar-7",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-8",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-box-1",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 0
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-2",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 7
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-5",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-6",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 7,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "lens-172",
+            "name": "Lens",
+            "kind": "lens",
+            "hp": 1,
+            "maxHp": 1,
+            "position": {
+              "x": 3,
+              "y": 4
+            },
+            "ownerId": "P1",
+            "lensFacing": {
+              "x": 1,
+              "y": -1
+            }
+          },
+          {
+            "id": "respawn-box-3-177",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 4
+            },
+            "respawnEligible": true
+          }
+        ],
+        "elevations": {
+          "D4": 1,
+          "D5": 1,
+          "E4": 1,
+          "E5": 1
+        },
+        "pendingAttack": null,
+        "combatReveal": null,
+        "dashCancellation": null,
+        "danceThrough": null,
+        "doubleJump": null,
+        "forceThrow": null,
+        "forcePull": null,
+        "arkaneArow": null,
+        "armDaWiz": null,
+        "preparation": null,
+        "arcaneMissle": null,
+        "chainLightning": null,
+        "magicHand": null,
+        "shizzle": null,
+        "mindTricks": null,
+        "forceDisarm": null,
+        "flurry": null,
+        "pendingManaChoice": null,
+        "winner": null,
+        "players": {
+          "P1": {
+            "pyroCharges": 0,
+            "id": "P1",
+            "name": "Fyrebanks",
+            "character": "fyrebanks",
+            "hp": 17,
+            "maxHp": 18,
+            "moveRange": 2,
+            "attackRange": 2,
+            "position": {
+              "x": 2,
+              "y": 4
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 1,
+                "y": 2
+              },
+              "hp": 18,
+              "round": 3
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [
+              {
+                "instanceId": "P1-flames-burning-178",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              }
+            ],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P1-160",
+                "cardId": "pocket-lens",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-151",
+                "cardId": "dragon-claws",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-153",
+                "cardId": "arch-beam",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P1-158",
+                "cardId": "ray-of-fire",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-159",
+                "cardId": "evocation",
+                "revealedToOpponent": true
+              },
+              null
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 0,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 8,
+              "attackDamage": 0,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 0,
+              "hitPointsHealed": 0,
+              "combatDamageBlocked": 0,
+              "objectsDestroyed": 1
+            },
+            "wrecknaInsideTombId": null,
+            "movementSpentThisTurn": 4,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "hand": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-2"
+              }
+            ],
+            "deck": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-1"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          },
+          "P2": {
+            "id": "P2",
+            "name": "Da Orkk · Bot",
+            "character": "orkk",
+            "hp": 24,
+            "maxHp": 24,
+            "moveRange": 3,
+            "attackRange": 1,
+            "position": {
+              "x": 4,
+              "y": 3
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 4,
+                "y": 3
+              },
+              "hp": 24,
+              "round": 3
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P2-165",
+                "cardId": "double",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-168",
+                "cardId": "arm-da-wiz",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-164",
+                "cardId": "da-blokk",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P2-169",
+                "cardId": "encourage",
+                "revealedToOpponent": true
+              },
+              null,
+              null
+            ],
+            "actionsRemaining": 2,
+            "perkUsed": false,
+            "freeMoveUsed": true,
+            "movementRemaining": 3,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": false,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 1,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 4,
+              "attackDamage": 0,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 0,
+              "hitPointsHealed": 0,
+              "combatDamageBlocked": 0,
+              "objectsDestroyed": 2
+            },
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "movementSpentThisTurn": 0,
+            "wrecknaInsideTombId": null,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "manaShieldUnusedBlock": 0,
+            "hand": [
+              {
+                "instanceId": "P2-167",
+                "cardId": "arkane-arow"
+              },
+              {
+                "instanceId": "P2-170",
+                "cardId": "knee-blast"
+              },
+              {
+                "instanceId": "P2-hot-potato-173",
+                "cardId": "hot-potato",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P2-162",
+                "cardId": "teef-strike"
+              },
+              {
+                "instanceId": "P2-161",
+                "cardId": "fistbolt",
+                "revealedToOpponent": false
+              }
+            ],
+            "deck": [
+              {
+                "instanceId": "P2-166",
+                "cardId": "arcane-shield",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-163",
+                "cardId": "chain-punchin",
+                "revealedToOpponent": false
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          }
+        },
+        "roundFirstPlayerId": "P1",
+        "questPhases": {
+          "actionDamageByPlayer": {},
+          "usedQuestIds": [
+            "hot-potato"
+          ],
+          "currentQuest": {
+            "id": "hot-potato",
+            "announcedRound": 1,
+            "endsAfterRound": 4,
+            "winners": [],
+            "progress": {}
+          },
+          "lastQuestWinners": [],
+          "progression": {
+            "P1": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "pocket-lens"
+            },
+            "P2": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "knee-blast"
+            }
+          },
+          "phaseReward": null,
+          "turnStartedOnHighGround": {},
+          "captureTheFlag": null,
+          "objectEffectsThisTurn": {},
+          "objectRespawns": [
+            {
+              "dueRound": 7
+            }
+          ],
+          "hotPotato": {
+            "anchor": {
+              "x": 4.5,
+              "y": 3.5
+            },
+            "carrierId": "P2",
+            "endDiscardCompletedTurn": "P2:2"
+          }
+        },
+        "simultaneousCombatStack": true,
+        "guardianPerkActionSequence": 4,
+        "currentGuardianPerkActionId": null,
+        "queuedManaChoice": false,
+        "squareModifications": {
+          "B4": [
+            "patch-of-flames"
+          ],
+          "C4": [
+            "patch-of-flames"
+          ],
+          "D4": [
+            "patch-of-flames"
+          ]
+        },
+        "flameSquareCreators": {
+          "B4": "P1",
+          "C4": "P1",
+          "D4": "P1"
+        },
+        "log": [],
+        "spellProjectiles": [],
+        "objectPushAnimations": [],
+        "blessingAnimations": [],
+        "movementUndo": null,
+        "perkUndo": null
+      }
+    },
+    {
+      "event": 351,
+      "state": {
+        "matchStartedAt": 1795254848923,
+        "boardSize": 8,
+        "turn": 4,
+        "activePlayerId": "P2",
+        "phase": "active",
+        "objects": [
+          {
+            "id": "nagrand-pillar-1",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-2",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-3",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-4",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-5",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-6",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-pillar-7",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-8",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-box-1",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 0
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-2",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 7
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-5",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-6",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 7,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "respawn-box-3-177",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 4
+            },
+            "respawnEligible": true
+          }
+        ],
+        "elevations": {
+          "D4": 1,
+          "D5": 1,
+          "E4": 1,
+          "E5": 1
+        },
+        "pendingAttack": null,
+        "combatReveal": null,
+        "dashCancellation": null,
+        "danceThrough": null,
+        "doubleJump": null,
+        "forceThrow": null,
+        "forcePull": null,
+        "arkaneArow": null,
+        "armDaWiz": null,
+        "preparation": null,
+        "arcaneMissle": null,
+        "chainLightning": null,
+        "magicHand": null,
+        "shizzle": null,
+        "mindTricks": null,
+        "forceDisarm": null,
+        "flurry": null,
+        "pendingManaChoice": null,
+        "winner": null,
+        "players": {
+          "P1": {
+            "pyroCharges": 2,
+            "id": "P1",
+            "name": "Fyrebanks",
+            "character": "fyrebanks",
+            "hp": 15,
+            "maxHp": 18,
+            "moveRange": 2,
+            "attackRange": 2,
+            "position": {
+              "x": 4,
+              "y": 0
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 2,
+                "y": 4
+              },
+              "hp": 17,
+              "round": 4
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [
+              {
+                "instanceId": "P1-flames-burning-178",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-flames-burning-180",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              }
+            ],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P1-152",
+                "cardId": "pyrodash",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-154",
+                "cardId": "block-with-flames",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-155",
+                "cardId": "fire-shield",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P1-159",
+                "cardId": "evocation",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-158",
+                "cardId": "ray-of-fire",
+                "revealedToOpponent": true
+              },
+              null
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 2,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": true,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 14,
+              "attackDamage": 1,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 1,
+              "hitPointsHealed": 1,
+              "combatDamageBlocked": 3,
+              "objectsDestroyed": 1
+            },
+            "wrecknaInsideTombId": null,
+            "movementSpentThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 1,
+            "barbarianNextAttackHeadache": false,
+            "manaShieldUnusedBlock": 0,
+            "hand": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-2"
+              },
+              {
+                "instanceId": "public-P1-3",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-4"
+              },
+              {
+                "instanceId": "public-P1-5",
+                "cardId": "headache",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              }
+            ],
+            "deck": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-0"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          },
+          "P2": {
+            "id": "P2",
+            "name": "Da Orkk · Bot",
+            "character": "orkk",
+            "hp": 23,
+            "maxHp": 24,
+            "moveRange": 3,
+            "attackRange": 1,
+            "position": {
+              "x": 2,
+              "y": 0
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 4,
+                "y": 3
+              },
+              "hp": 23,
+              "round": 4
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P2-170",
+                "cardId": "knee-blast",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P2-169",
+                "cardId": "encourage",
+                "revealedToOpponent": true
+              },
+              null,
+              null
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 0,
+            "movedThisTurn": true,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": false,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 7,
+              "attackDamage": 3,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 3,
+              "hitPointsHealed": 0,
+              "combatDamageBlocked": 0,
+              "objectsDestroyed": 3
+            },
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "movementSpentThisTurn": 0,
+            "wrecknaInsideTombId": null,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "manaShieldUnusedBlock": 0,
+            "barbarianNextAttackHeadache": false,
+            "visualMovementCause": "voluntary",
+            "hand": [
+              {
+                "instanceId": "P2-167",
+                "cardId": "arkane-arow"
+              },
+              {
+                "instanceId": "P2-162",
+                "cardId": "teef-strike"
+              },
+              {
+                "instanceId": "P2-165",
+                "cardId": "double",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-163",
+                "cardId": "chain-punchin",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-hot-potato-186",
+                "cardId": "hot-potato",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P2-burning-188",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              }
+            ],
+            "deck": [
+              {
+                "instanceId": "P2-166",
+                "cardId": "arcane-shield",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-168",
+                "cardId": "arm-da-wiz",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-164",
+                "cardId": "da-blokk",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-161",
+                "cardId": "fistbolt",
+                "revealedToOpponent": false
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          }
+        },
+        "roundFirstPlayerId": "P1",
+        "questPhases": {
+          "actionDamageByPlayer": {
+            "P1": 1,
+            "P2": 3
+          },
+          "usedQuestIds": [
+            "hot-potato"
+          ],
+          "currentQuest": {
+            "id": "hot-potato",
+            "announcedRound": 1,
+            "endsAfterRound": 4,
+            "winners": [],
+            "progress": {}
+          },
+          "lastQuestWinners": [],
+          "progression": {
+            "P1": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "pocket-lens"
+            },
+            "P2": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "knee-blast"
+            }
+          },
+          "phaseReward": null,
+          "turnStartedOnHighGround": {},
+          "captureTheFlag": null,
+          "objectEffectsThisTurn": {},
+          "objectRespawns": [
+            {
+              "dueRound": 7
+            }
+          ],
+          "hotPotato": {
+            "anchor": {
+              "x": 4.5,
+              "y": 3.5
+            },
+            "carrierId": "P2",
+            "endDiscardCompletedTurn": "P1:4"
+          }
+        },
+        "simultaneousCombatStack": true,
+        "guardianPerkActionSequence": 7,
+        "currentGuardianPerkActionId": 7,
+        "queuedManaChoice": false,
+        "squareModifications": {},
+        "flameSquareCreators": {},
+        "flameVisits": {},
+        "log": [],
+        "spellProjectiles": [],
+        "objectPushAnimations": [],
+        "blessingAnimations": [],
+        "movementUndo": null,
+        "perkUndo": null
+      }
+    },
+    {
+      "event": 541,
+      "state": {
+        "matchStartedAt": 1795254848923,
+        "boardSize": 8,
+        "turn": 6,
+        "activePlayerId": "P2",
+        "phase": "active",
+        "objects": [
+          {
+            "id": "nagrand-pillar-1",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-2",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-3",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-4",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-5",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-6",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-pillar-7",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-8",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-box-1",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 0
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-2",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 7
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-5",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-6",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 7,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "respawn-box-3-177",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 4
+            },
+            "respawnEligible": true
+          }
+        ],
+        "elevations": {
+          "D4": 1,
+          "D5": 1,
+          "E4": 1,
+          "E5": 1
+        },
+        "pendingAttack": null,
+        "combatReveal": null,
+        "dashCancellation": null,
+        "danceThrough": null,
+        "doubleJump": null,
+        "forceThrow": null,
+        "forcePull": null,
+        "arkaneArow": null,
+        "armDaWiz": null,
+        "preparation": null,
+        "arcaneMissle": null,
+        "chainLightning": null,
+        "magicHand": null,
+        "shizzle": null,
+        "mindTricks": null,
+        "forceDisarm": null,
+        "flurry": null,
+        "pendingManaChoice": null,
+        "winner": null,
+        "players": {
+          "P1": {
+            "pyroCharges": 0,
+            "id": "P1",
+            "name": "Fyrebanks",
+            "character": "fyrebanks",
+            "hp": 16,
+            "maxHp": 18,
+            "moveRange": 2,
+            "attackRange": 2,
+            "position": {
+              "x": 8,
+              "y": 5
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 7,
+                "y": 4
+              },
+              "hp": 16,
+              "round": 6
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [
+              {
+                "instanceId": "P1-flames-burning-178",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-flames-burning-180",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              },
+              {
+                "instanceId": "P2-burning-184",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-burning-188",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P1-headache-187",
+                "cardId": "headache",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              }
+            ],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P1-151",
+                "cardId": "dragon-claws",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-152",
+                "cardId": "pyrodash",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-153",
+                "cardId": "arch-beam",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P1-157",
+                "cardId": "flame-ward",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-159",
+                "cardId": "evocation",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-158",
+                "cardId": "ray-of-fire",
+                "revealedToOpponent": true
+              }
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 0,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 27,
+              "attackDamage": 5,
+              "perkDamage": 3,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 10,
+              "hitPointsHealed": 2,
+              "combatDamageBlocked": 3,
+              "objectsDestroyed": 1
+            },
+            "wrecknaInsideTombId": null,
+            "movementSpentThisTurn": 2,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "barbarianNextAttackHeadache": false,
+            "manaShieldUnusedBlock": 0,
+            "flameWard": {
+              "level": 1,
+              "triggered": false
+            },
+            "hand": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-2"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-3"
+              }
+            ],
+            "deck": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-0"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          },
+          "P2": {
+            "id": "P2",
+            "name": "Da Orkk · Bot",
+            "character": "orkk",
+            "hp": 16,
+            "maxHp": 24,
+            "moveRange": 3,
+            "attackRange": 1,
+            "position": {
+              "x": 5,
+              "y": 3
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 5,
+                "y": 3
+              },
+              "hp": 16,
+              "round": 6
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P2-170",
+                "cardId": "knee-blast",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-165",
+                "cardId": "double",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-163",
+                "cardId": "chain-punchin",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-166",
+                "cardId": "arcane-shield",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-168",
+                "cardId": "arm-da-wiz",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P2-169",
+                "cardId": "encourage",
+                "revealedToOpponent": true
+              },
+              null,
+              null
+            ],
+            "actionsRemaining": 1,
+            "perkUsed": true,
+            "freeMoveUsed": false,
+            "movementRemaining": 0,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": false,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 3,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 10,
+              "attackDamage": 3,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 3,
+              "hitPointsHealed": 2,
+              "combatDamageBlocked": 2,
+              "objectsDestroyed": 3
+            },
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "movementSpentThisTurn": 0,
+            "wrecknaInsideTombId": null,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "manaShieldUnusedBlock": 0,
+            "barbarianNextAttackHeadache": false,
+            "hand": [
+              {
+                "instanceId": "P2-167",
+                "cardId": "arkane-arow"
+              },
+              {
+                "instanceId": "P2-162",
+                "cardId": "teef-strike"
+              },
+              {
+                "instanceId": "P2-burning-192",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-164",
+                "cardId": "da-blokk",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-161",
+                "cardId": "fistbolt",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-195",
+                "cardId": "shield-bash"
+              }
+            ],
+            "deck": [],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          }
+        },
+        "roundFirstPlayerId": "P1",
+        "questPhases": {
+          "actionDamageByPlayer": {
+            "P1": 10,
+            "P2": 3
+          },
+          "usedQuestIds": [
+            "hot-potato",
+            "capture-the-flag"
+          ],
+          "currentQuest": {
+            "id": "capture-the-flag",
+            "announcedRound": 6,
+            "endsAfterRound": 10,
+            "winners": [],
+            "progress": {
+              "P1": 1
+            }
+          },
+          "lastQuestWinners": [
+            "P2"
+          ],
+          "progression": {
+            "P1": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "pocket-lens"
+            },
+            "P2": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "knee-blast"
+            }
+          },
+          "phaseReward": null,
+          "turnStartedOnHighGround": {},
+          "captureTheFlag": {
+            "flags": [
+              {
+                "id": "capture-flag-P1",
+                "ownerId": "P1",
+                "homeSquares": [
+                  {
+                    "x": 1,
+                    "y": 3
+                  },
+                  {
+                    "x": 1,
+                    "y": 4
+                  }
+                ],
+                "homeAnchor": {
+                  "x": 1,
+                  "y": 3.5
+                },
+                "status": "home",
+                "carrierId": null,
+                "droppedAt": null,
+                "grabbedFromHome": false
+              },
+              {
+                "id": "capture-flag-P2",
+                "ownerId": "P2",
+                "homeSquares": [
+                  {
+                    "x": 8,
+                    "y": 3
+                  },
+                  {
+                    "x": 8,
+                    "y": 4
+                  }
+                ],
+                "homeAnchor": {
+                  "x": 8,
+                  "y": 3.5
+                },
+                "status": "carried",
+                "carrierId": "P1",
+                "droppedAt": null,
+                "grabbedFromHome": true
+              }
+            ]
+          },
+          "objectEffectsThisTurn": {},
+          "objectRespawns": [
+            {
+              "dueRound": 7
+            }
+          ],
+          "hotPotato": null,
+          "lastQuestResult": {
+            "questId": "hot-potato",
+            "winners": [
+              "P2"
+            ],
+            "turn": 5,
+            "activePlayerId": "P1"
+          }
+        },
+        "simultaneousCombatStack": true,
+        "guardianPerkActionSequence": 10,
+        "currentGuardianPerkActionId": 10,
+        "queuedManaChoice": false,
+        "squareModifications": {},
+        "flameSquareCreators": {},
+        "flameVisits": {},
+        "sweetPotato": null,
+        "log": [],
+        "spellProjectiles": [],
+        "objectPushAnimations": [],
+        "blessingAnimations": [],
+        "movementUndo": null,
+        "perkUndo": null
+      }
+    },
+    {
+      "event": 563,
+      "state": {
+        "matchStartedAt": 1795254848923,
+        "boardSize": 8,
+        "turn": 6,
+        "activePlayerId": "P2",
+        "phase": "choosing-end-discard",
+        "objects": [
+          {
+            "id": "nagrand-pillar-1",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-2",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 1,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-3",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": "nagrand-pillar-4",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 8,
+              "y": 7
+            }
+          },
+          {
+            "id": "nagrand-pillar-5",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-6",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 3,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-pillar-7",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 2
+            }
+          },
+          {
+            "id": "nagrand-pillar-8",
+            "name": "Pillar - Nagrand",
+            "kind": "wall-pillar",
+            "hp": 999,
+            "maxHp": 999,
+            "position": {
+              "x": 6,
+              "y": 5
+            }
+          },
+          {
+            "id": "nagrand-box-1",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 5,
+              "y": 0
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-2",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 4,
+              "y": 7
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-5",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "respawnEligible": true
+          },
+          {
+            "id": "nagrand-box-6",
+            "name": "Wooden Box",
+            "kind": "wooden-box",
+            "hp": 3,
+            "maxHp": 3,
+            "position": {
+              "x": 7,
+              "y": 1
+            },
+            "respawnEligible": true
+          }
+        ],
+        "elevations": {
+          "D4": 1,
+          "D5": 1,
+          "E4": 1,
+          "E5": 1
+        },
+        "pendingAttack": null,
+        "combatReveal": null,
+        "dashCancellation": null,
+        "danceThrough": null,
+        "doubleJump": null,
+        "forceThrow": null,
+        "forcePull": null,
+        "arkaneArow": null,
+        "armDaWiz": null,
+        "preparation": null,
+        "arcaneMissle": null,
+        "chainLightning": null,
+        "magicHand": null,
+        "shizzle": null,
+        "mindTricks": null,
+        "forceDisarm": null,
+        "flurry": null,
+        "pendingManaChoice": null,
+        "winner": null,
+        "players": {
+          "P1": {
+            "pyroCharges": 0,
+            "id": "P1",
+            "name": "Fyrebanks",
+            "character": "fyrebanks",
+            "hp": 16,
+            "maxHp": 18,
+            "moveRange": 2,
+            "attackRange": 2,
+            "position": {
+              "x": 8,
+              "y": 5
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 7,
+                "y": 4
+              },
+              "hp": 16,
+              "round": 6
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [
+              {
+                "instanceId": "P1-flames-burning-178",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-flames-burning-180",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              },
+              {
+                "instanceId": "P2-burning-184",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-burning-188",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P1-headache-187",
+                "cardId": "headache",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P2"
+              }
+            ],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P1-151",
+                "cardId": "dragon-claws",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-152",
+                "cardId": "pyrodash",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P1-153",
+                "cardId": "arch-beam",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P1-157",
+                "cardId": "flame-ward",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-159",
+                "cardId": "evocation",
+                "revealedToOpponent": true
+              },
+              {
+                "instanceId": "P1-158",
+                "cardId": "ray-of-fire",
+                "revealedToOpponent": true
+              }
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 0,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 0,
+            "shieldEquipped": false,
+            "rageGainLocked": false,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 27,
+              "attackDamage": 5,
+              "perkDamage": 4,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 11,
+              "hitPointsHealed": 2,
+              "combatDamageBlocked": 3,
+              "objectsDestroyed": 1
+            },
+            "wrecknaInsideTombId": null,
+            "movementSpentThisTurn": 2,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "barbarianNextAttackHeadache": false,
+            "manaShieldUnusedBlock": 0,
+            "flameWard": {
+              "level": 1,
+              "triggered": false
+            },
+            "hand": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-0"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-1"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-2"
+              },
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-P1-3"
+              }
+            ],
+            "deck": [
+              {
+                "cardId": "attack-2",
+                "instanceId": "unknown-deck-0"
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          },
+          "P2": {
+            "id": "P2",
+            "name": "Da Orkk · Bot",
+            "character": "orkk",
+            "hp": 15,
+            "maxHp": 24,
+            "moveRange": 3,
+            "attackRange": 1,
+            "position": {
+              "x": 5,
+              "y": 3
+            },
+            "turnStartRecord": {
+              "position": {
+                "x": 5,
+                "y": 3
+              },
+              "hp": 16,
+              "round": 6
+            },
+            "weaverHologramExpired": false,
+            "removedDeck": [],
+            "weaverRemovedAtLastChoice": 0,
+            "discard": [
+              {
+                "instanceId": "P2-163",
+                "cardId": "chain-punchin",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-162",
+                "cardId": "teef-strike",
+                "revealedToOpponent": false
+              }
+            ],
+            "spellEcho": [
+              {
+                "instanceId": "P2-169",
+                "cardId": "encourage",
+                "revealedToOpponent": true
+              },
+              null,
+              null
+            ],
+            "actionsRemaining": 0,
+            "perkUsed": true,
+            "freeMoveUsed": true,
+            "movementRemaining": 3,
+            "movedThisTurn": false,
+            "lightsaberBuff": false,
+            "lightsaberStacks": 0,
+            "lightsaberMovementProtection": false,
+            "highgroundAdvantageBuff": false,
+            "pinnedStacks": 0,
+            "pinnedGainedThisTurn": 0,
+            "turnEndPinnedRemoved": true,
+            "swiftformMoveBonus": 0,
+            "grimoireMoveBonus": 0,
+            "swiftformCanPassEnemies": false,
+            "swiftformPinsPassedEnemies": false,
+            "swiftformLightsaberAtTurnEnd": false,
+            "swiftformEnemyUnderfoot": null,
+            "swiftformPinnedEnemyIds": [],
+            "movementAnnulledByBlessedSwiftness": false,
+            "rageStacks": 5,
+            "shieldEquipped": false,
+            "rageGainLocked": true,
+            "doubleRageUntilEnemyTurnEnd": false,
+            "manaPoints": 0,
+            "manaMode": "generate",
+            "manaConsumeEventId": null,
+            "arcaneBoltAttackBonus": 0,
+            "damagedDuringEnemyTurn": false,
+            "spiritForm": false,
+            "spiritEnemyUnderfoot": null,
+            "spiritObjectUnderfoot": null,
+            "spiritSiphonedEnemyIds": [],
+            "spiritSiphonedMovement": 0,
+            "johnCumulativeMovementRemaining": 0,
+            "spiritMovementDepleted": false,
+            "spiritMovementSpentThisTurn": false,
+            "stoicShell": false,
+            "stoicShellStacks": 0,
+            "queuedBlessingCardIds": [],
+            "stoicShellHealedTurn": null,
+            "stoicShellHealEventId": null,
+            "stoicShellHealAmount": 0,
+            "spectreAttackBonus": 0,
+            "spectreAphoticShieldRemaining": 0,
+            "spectreAphoticAttackBonus": 0,
+            "spectreAccumulateStored": 0,
+            "spectreAccumulateActive": 0,
+            "spectreShadowMoveBonus": 0,
+            "spectreShadowDefensePenalty": 0,
+            "spectreOnBoxId": null,
+            "merylinSummonActive": false,
+            "matchStats": {
+              "squaresMoved": 10,
+              "attackDamage": 3,
+              "perkDamage": 0,
+              "defensiveRetaliationDamage": 0,
+              "totalDamage": 3,
+              "hitPointsHealed": 2,
+              "combatDamageBlocked": 2,
+              "objectsDestroyed": 4
+            },
+            "panicAnimationSourceIds": [],
+            "pyroChargesGainedThisTurn": 0,
+            "spellsingerExtraPerkUses": 0,
+            "spellsingerExtraAttacks": 0,
+            "movementSpentThisTurn": 0,
+            "wrecknaInsideTombId": null,
+            "onceUponRangeBonus": 0,
+            "evocationRangeBonus": 0,
+            "decayMovementBonus": 0,
+            "windwalkerActive": false,
+            "windwalkerMoveBonus": 0,
+            "windwalkerUnrestrictedMovement": false,
+            "manaShieldUnusedBlock": 0,
+            "barbarianNextAttackHeadache": false,
+            "hand": [
+              {
+                "instanceId": "P2-167",
+                "cardId": "arkane-arow"
+              },
+              {
+                "instanceId": "P2-burning-192",
+                "cardId": "burning",
+                "revealedToOpponent": true,
+                "sourcePlayerId": "P1"
+              },
+              {
+                "instanceId": "P2-164",
+                "cardId": "da-blokk",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-195",
+                "cardId": "shield-bash"
+              },
+              {
+                "instanceId": "P2-170",
+                "cardId": "knee-blast",
+                "revealedToOpponent": false
+              }
+            ],
+            "deck": [
+              {
+                "instanceId": "P2-166",
+                "cardId": "arcane-shield",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-168",
+                "cardId": "arm-da-wiz",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-165",
+                "cardId": "double",
+                "revealedToOpponent": false
+              },
+              {
+                "instanceId": "P2-161",
+                "cardId": "fistbolt",
+                "revealedToOpponent": false
+              }
+            ],
+            "knownTopCardId": null,
+            "knownTopCardIds": []
+          }
+        },
+        "roundFirstPlayerId": "P1",
+        "questPhases": {
+          "actionDamageByPlayer": {
+            "P1": 11,
+            "P2": 3
+          },
+          "usedQuestIds": [
+            "hot-potato",
+            "capture-the-flag"
+          ],
+          "currentQuest": {
+            "id": "capture-the-flag",
+            "announcedRound": 6,
+            "endsAfterRound": 10,
+            "winners": [],
+            "progress": {
+              "P1": 1
+            }
+          },
+          "lastQuestWinners": [
+            "P2"
+          ],
+          "progression": {
+            "P1": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "pocket-lens"
+            },
+            "P2": {
+              "initialFocus": "attack",
+              "chosenFocusCard": "knee-blast"
+            }
+          },
+          "phaseReward": null,
+          "turnStartedOnHighGround": {},
+          "captureTheFlag": {
+            "flags": [
+              {
+                "id": "capture-flag-P1",
+                "ownerId": "P1",
+                "homeSquares": [
+                  {
+                    "x": 1,
+                    "y": 3
+                  },
+                  {
+                    "x": 1,
+                    "y": 4
+                  }
+                ],
+                "homeAnchor": {
+                  "x": 1,
+                  "y": 3.5
+                },
+                "status": "home",
+                "carrierId": null,
+                "droppedAt": null,
+                "grabbedFromHome": false
+              },
+              {
+                "id": "capture-flag-P2",
+                "ownerId": "P2",
+                "homeSquares": [
+                  {
+                    "x": 8,
+                    "y": 3
+                  },
+                  {
+                    "x": 8,
+                    "y": 4
+                  }
+                ],
+                "homeAnchor": {
+                  "x": 8,
+                  "y": 3.5
+                },
+                "status": "carried",
+                "carrierId": "P1",
+                "droppedAt": null,
+                "grabbedFromHome": true
+              }
+            ]
+          },
+          "objectEffectsThisTurn": {},
+          "objectRespawns": [
+            {
+              "dueRound": 7
+            },
+            {
+              "dueRound": null
+            }
+          ],
+          "hotPotato": null,
+          "lastQuestResult": {
+            "questId": "hot-potato",
+            "winners": [
+              "P2"
+            ],
+            "turn": 5,
+            "activePlayerId": "P1"
+          }
+        },
+        "simultaneousCombatStack": true,
+        "guardianPerkActionSequence": 10,
+        "currentGuardianPerkActionId": null,
+        "queuedManaChoice": false,
+        "squareModifications": {},
+        "flameSquareCreators": {},
+        "flameVisits": {},
+        "sweetPotato": null,
+        "log": [],
+        "spellProjectiles": [],
+        "objectPushAnimations": [],
+        "blessingAnimations": [],
+        "movementUndo": null,
+        "perkUndo": null
+      }
+    }
+  ]
+}

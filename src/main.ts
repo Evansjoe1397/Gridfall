@@ -310,6 +310,7 @@ app.innerHTML = `
     <div class="choice-modal hidden" id="onceUponReturnModal" role="dialog" aria-modal="true" aria-labelledby="onceUponReturnTitle"></div>
     <button class="narrative-restore hidden" id="narrativeRestore" type="button">Continue Narrative choice</button>
     <div class="choice-modal hidden" id="kamelotRemovalModal" role="dialog" aria-modal="true" aria-labelledby="kamelotRemovalTitle"></div>
+    <div class="choice-modal hidden" id="countaSpellModal" role="dialog" aria-modal="true" aria-labelledby="countaSpellTitle"></div>
     <div class="choice-modal hidden" id="endTurnReminder" role="dialog" aria-modal="true" aria-labelledby="endTurnReminderTitle"></div>
     <div class="choice-modal combat-reveal-modal hidden" id="combatRevealModal"></div>
     <div class="match-results-modal hidden" id="matchResultsModal" role="dialog" aria-modal="true" aria-labelledby="matchResultsTitle"></div>
@@ -1071,7 +1072,7 @@ type HotseatArena = 'nagrand' | 'trench' | 'pipe';
 const KAZKA_TRAIT_DESCRIPTION = "Record each Character's Square and HP at the start of their turn. When they leave that Square, a Hologram remains until their next turn, or until they end their turn back there. Narrative effects may target Kazka or a visible enemy within her Attack Range: return a character to their recorded Square, revert their HP, or copy the top Card of an enemy's Removed Deck into that enemy's Hand. Each enemy has a Removed Deck for negative Status Cards Removed during play. Once per Round, at the end of a turn after an enemy has added at least 3 more Cards since their last Choice Event, that enemy chooses: lose 1 HP and draw 1 Card, or discard 1 Card. Kazka gains 1 HP if they draw, or draws 1 Card if they discard.";
 const CHARACTER_SELECT_INFO: Record<HotseatCharacter, { name: string; title?: string; hp: number; movement: number; attackRange: number; trait: string; traitIcon: GameIconName; traitDescription: string }> = {
   shinobi: { name: 'Obi Wan Shinobi', hp: 20, movement: 2, attackRange: 1, trait: 'Lightsaber', traitIcon: 'lightsaber', traitDescription: "If Shinobi did not move during his turn, gain +1 ATT, +1 DEF, and +1 MOV until the end of his next turn. Movement caused by Shinobi's own Attack or Defence does not prevent this trait." },
-  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
+  orkk: { name: 'Da Orkk', hp: 24, movement: 3, attackRange: 1, trait: 'Rage', traitIcon: 'rage', traitDescription: "Gain 1 Rage when Da Orkk takes damage from a card or action, at most once per overall effect. Burning Cards resolved together during Dash or at turn end grant at most 1 Rage in total, even with Double! active. At the start of his turn, gain 1 Rage if his Shield is not equipped, he has 0 Rage, and his trait is not blocked. Attack Cards gain the full bonus from all Rage and consume the applied stacks after combat, except when attacking an Object. Remove 1 Rage at turn end." },
   magician: { name: 'Long Hat Logan', hp: 17, movement: 3, attackRange: 2, trait: 'Classic Wizardry', traitIcon: 'magic', traitDescription: 'Generate 1 Mana after resolving an Attack or Perk spell, up to 3. At 3 Mana, Logan may Consume it at the start of his turn to gain +1 Attack Range and enable advanced spell effects until turn end.' },
   'john-christ': { name: 'John Christ', hp: 14, movement: 3, attackRange: 3, trait: 'Possessed', traitIcon: 'spirit', traitDescription: 'After receiving Damage, enter Spirit Form: +2 ATT, movement Range 1, melee Attack Range 1, and movement through enemies and Objects. Each entry adds the unique, Hand-only Judgement Attack Card if it is not already held; unused Judgement is Removed at turn end. An Attack started in Spirit Form ends the Form only after all combat effects and choices resolve; otherwise, leave at turn end. Leaving restores Attack Range 3. Blessing Cards create Stoic Shell.' },
   spectre: { name: 'Spectre', hp: 16, movement: 3, attackRange: 1, trait: 'Replica', traitIcon: 'replica', traitDescription: 'Create immobile replicas. Spectre and her replicas share Hand, Actions, HP, modifiers, and combat; any body may originate melee Attacks, while positional effects use the body involved.' },
@@ -1942,6 +1943,7 @@ function renderUI() {
   renderSpellsingerDiscardModal();
   renderOnceUponReturnModal();
   renderKamelotRemovalModal();
+  renderCountaSpellModal();
   renderActionQuestPanel();
   renderPhaseRewardModal();
   renderCombatReveal();
@@ -1966,6 +1968,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-mockingjay-defense') prompt.textContent = 'Mockingjay: discard your chosen Defend Card or let Kazka draw after combat';
   if (gameState.phase === 'choosing-mockingjay-narrative') prompt.textContent = 'Mockingjay: discard a Narrative Card to trigger its special effect, or decline';
   if (gameState.phase === 'choosing-narrative-target') prompt.textContent = 'Narrative: click a highlighted enemy on the battlefield, or cancel the effect';
+  if (gameState.phase === 'choosing-countaspell-rage') prompt.textContent = 'CountaSpell: Da Orkk chooses how much Rage to spend for Headache Cards';
   if (gameState.phase === 'choosing-kamelot-removal') prompt.textContent = 'Kamelot Stance: Remove negative Cards from Hand, Deck or Discard, or gain Overpower';
   if (gameState.phase === 'choosing-spellsinger-discard') prompt.textContent = 'Spellsinger Stance: choose a Card from Discard, then gain Summon';
   const spectrePerkOrigin = (gameState as any).spectrePerkOrigin as { perkId: 'shadow-dagger' | 'relocate' | 'devour'; origin: 'spectre' | 'replica'; replicaId: string | null } | undefined;
@@ -2025,7 +2028,7 @@ function renderUI() {
   if (gameState.phase === 'choosing-ray-of-fire-square') prompt.textContent = `Ray of Fire: choose a Square within Range ${effectiveAttackRange(gameState, actor)} · Fire includes your Square and the target · Esc to cancel`;
   if (gameState.phase === 'choosing-lens-push') prompt.textContent = 'Summon Lens: choose a highlighted push direction, or Keep Lens here · Esc cancels the entire Perk';
   if (gameState.phase === 'confirming-lens-destruction') prompt.textContent = 'Lens: this Attack is not in a straight line. Confirm destruction or cancel.';
-  if (gameState.phase === 'choosing-pyrodash-direction') prompt.textContent = `Pyrodash: click a highlighted lane ${gameState.pyrodash?.lens ? 'from the Lens ' : ''}toward the target · ${gameState.pyrodash?.fp ?? 0} FP · Reflections are automatic`;
+  if (gameState.phase === 'choosing-pyrodash-direction') prompt.textContent = `Pyrodash: click a highlighted lane ${gameState.pyrodash?.lens ? 'from the Lens ' : ''}toward the target · ${(gameState.pyrodash?.fp ?? 0) + (gameState.pyrodash?.burningDiscarded ?? 0)} Squares (FP+X; X = ${gameState.pyrodash?.burningDiscarded ?? 0} Burning Cards spent) · Reflections are automatic`;
   if (gameState.phase === 'choosing-snowball-discard') prompt.textContent = 'Snowball Effect: select any eligible Card from your Hand to discard';
   if (gameState.phase === 'choosing-grimoire-discard') prompt.textContent = `Grimoire Cleanse: discard ${gameState.pendingAttack?.grimoireDiscardsRemaining ?? 0} more Card(s)`;
   if (gameState.phase === 'choosing-shadow-barter-discard') prompt.textContent = 'Shadow Barter: the target must discard 1 Card';
@@ -2303,7 +2306,7 @@ function characterTraitHtml(ru: boolean) {
       trait: 'Rage',
       description: ru
         ? 'Да Оркк получает 1 Rage, когда получает урон от карты или Действия, не более одного раза за общий эффект; отдельный последующий эффект может дать Rage снова. При Атаке все накопленные стаки добавляются к ATT, затем все добавленные к карте стаки Rage удаляются. В конце хода также снимается 1 стак. Если Оркк начинает ход без Щита и без Rage, он получает 1 Rage.'
-        : 'Da Orkk gains 1 Rage when damaged by a Card or Action, at most once per overall effect; a separate later effect may grant Rage again. Every stored stack adds +1 ATT to an Attack, then every Rage Stack applied to that Attack is consumed unless the target was an Object. One Rage Stack is also removed at turn end. If Orkk starts his turn with no Shield and no Rage, he gains 1 Rage.',
+        : 'Da Orkk gains 1 Rage when damaged by a Card or Action, at most once per overall effect; a separate later effect may grant Rage again. Burning Cards resolved together during Dash or at turn end grant at most 1 Rage in total, even with Double! active. Every stored stack adds +1 ATT to an Attack, then every Rage Stack applied to that Attack is consumed unless the target was an Object. One Rage Stack is also removed at turn end. If Orkk starts his turn with no Shield and no Rage, he gains 1 Rage.',
       detail: ru
         ? 'Shield: метаемый Объект, который Да Оркк может экипировать. Щит наносит урон при броске или притягивании, если проходит через клетку, занятую врагом. В начале своего хода Да Оркк получает стак Rage, если Щит не экипирован и у него нет Rage; экипированный Щит вместо этого даёт +1 к значению DEF его карт Защиты.'
         : 'Shield: A throwable Object that can be equipped by Da Orkk. The Shield deals damage when thrown or pulled through a Square occupied by an enemy. At the beginning of his turn, Da Orkk gains 1 Rage if the Shield is not equipped and he has no Rage; while equipped, the Shield instead adds +1 to the Defend Value of his Cards.',
@@ -2529,6 +2532,21 @@ function renderOnceUponReturnModal() {
   }).join('');
   modal.innerHTML = `<div class="choice-dialog once-upon-return-dialog"><span>KAZKA · ${cardNameHtml(cardDefinition({ instanceId: '', cardId: 'once-upon-a-time' }), true)} · LEVEL ${pending.level}</span><h2 id="onceUponReturnTitle">Choose a Card to return</h2><p>Choose one of the two Cards you just drew. It will be placed on top of your Deck.${pending.level >= 2 ? ' Then choose a Narrative effect.' : ''}</p><div class="once-upon-return-cards">${choices}</div></div>`;
   modal.querySelectorAll<HTMLButtonElement>('[data-once-upon-return]').forEach((button) => button.addEventListener('click', () => dispatch({ type: 'once-upon-return', playerId: pending.playerId, cardInstanceId: button.dataset.onceUponReturn! })));
+}
+
+function renderCountaSpellModal() {
+  const modal = byId('countaSpellModal');
+  const choice = gameState.countaSpell;
+  const visible = gameState.phase === 'choosing-countaspell-rage' && Boolean(choice) && !gameState.combatReveal && canLocalAct(choice!.playerId);
+  modal.classList.toggle('hidden', !visible);
+  if (!visible || !choice) { modal.innerHTML = ''; return; }
+  const rage = gameState.players[choice.playerId].rageStacks;
+  modal.innerHTML = `<div class="choice-dialog"><span>COUNTASPELL · AFTER COMBAT</span><h2 id="countaSpellTitle">Spend Rage to add Headache</h2><p>Available Rage: ${rage}. Each Rage spent adds 1 Headache Card to ${escapeHtml(gameState.players[choice.attackerId].name)}'s Discard.</p><label>Rage to spend <input id="countaSpellAmount" type="number" min="0" max="${rage}" step="1" value="0" required></label><button type="button" class="choice-decline" id="countaSpellSpend">Spend selected Rage</button><button type="button" class="choice-decline" id="countaSpellSkip">Spend 0 · keep all Rage</button></div>`;
+  modal.querySelector<HTMLButtonElement>('#countaSpellSpend')!.addEventListener('click', () => {
+    const input = modal.querySelector<HTMLInputElement>('#countaSpellAmount')!;
+    if (input.reportValidity()) dispatch({ type: 'countaspell-rage', playerId: choice.playerId, amount: input.valueAsNumber });
+  });
+  modal.querySelector<HTMLButtonElement>('#countaSpellSkip')!.addEventListener('click', () => dispatch({ type: 'countaspell-rage', playerId: choice.playerId, amount: 0 }));
 }
 
 function renderKamelotRemovalModal() {
@@ -11400,7 +11418,7 @@ function syncBoard() {
         const shizzle = character === 'magician' && !forced && Boolean(recordedPathMatches) && recordedMovement?.sourceCardId === 'shizzle';
         const pyrodash = Boolean(recordedPathMatches && recordedMovement?.sourceCardId === 'pyrodash');
         if (pyrodash) group.userData.lastPyrodashAnimationId = recordedMovement?.animationId;
-        const fullRouteLocomotionDuration = pyrodash ? recordedMovement?.durationMs ?? 220 + travelSquares * 180 : flip ? flip.durationMs : shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
+        const fullRouteLocomotionDuration = pyrodash ? recordedMovement?.durationMs ?? (220 + travelSquares * 180) * 2 : flip ? flip.durationMs : shizzle ? shizzleMovementDuration(travelSquares) : portalTeleport ? PORTAL_TELEPORT_MS : replicatePull
           ? recordedMovement.durationMs ?? 1000
           : spectreRelocate
             ? recordedMovement?.durationMs ?? SPECTRE_RELOCATE_SWAP_MS

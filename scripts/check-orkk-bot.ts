@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { applyCommand, createHotseatTestState, type GameCommand, type GameState, type GameStateWithQuestPhases, type CardTypeId } from '../shared/game.ts';
 import { observeMerylinMatch } from '../src/merylin-bot-observation.ts';
 import { chooseOrkkCommand, orkkDecisionPending } from '../src/orkk-bot.ts';
@@ -133,4 +134,47 @@ state = setup(); assert.ok(orkkDecisionPending(state, 'P2')); assert.ok(nagrandD
 state.perkMode = true; assert.equal(chooseOrkkCommand(observeMerylinMatch(state)), null);
 state = setup(); (state as GameState & { arenaId: string }).arenaId = 'pipe';
 assert.equal(chooseOrkkCommand(observeMerylinMatch(state)), null);
-console.log('Da Orkk bot checks passed: Rage, Shield throws/recalls/payments, Kyk collisions, healing, hidden information, RNG isolation and arena restrictions.');
+// Sanitized projected states from the complete November 21 recording. No private
+// enemy Cards or actual draw order enter the regression planner observations.
+const recorded = JSON.parse(readFileSync(new URL('./orkk-2026-11-21.fixture.json', import.meta.url), 'utf8')) as { events: { event: number; state: GameState }[] };
+for (const { event, state: snapshot } of recorded.events) {
+  const before = JSON.stringify(snapshot);
+  const decision = choice(snapshot);
+  assert.equal(JSON.stringify(snapshot), before);
+  if (event === 112 || event === 541) assert.equal(decision.type, 'free-move', `Dump ${event}: gain movement and a Card before wasting an Attack on a friendly Shield or Box.`);
+  if (event === 219) assert.ok(decision.type !== 'use-echo-perk' || decision.position !== 1, 'Dump 219: do not reflexively cycle EncouRAGE Level 1.');
+  if (event === 351) {
+    assert.equal(decision.type, 'dash', 'Dump 351: clear ongoing Burning instead of Guarding while keeping it.');
+    const dashed = step(snapshot, decision);
+    assert.ok(!dashed.players.P2.hand.some((card) => card.cardId === 'burning'));
+  }
+  if (event === 563) {
+    assert.equal(decision.type, 'end-turn', 'Dump 563: preserve the five useful/required Cards instead of discarding down to Burning alone.');
+    const kept = step(snapshot, decision);
+    assert.deepEqual(kept.players.P2.hand, snapshot.players.P2.hand);
+  }
+}
+
+state = setup(); state.players.P1.position = { x: 8, y: 6 }; state.players.P2.position = { x: 2, y: 1 };
+state.players.P2.actionsRemaining = 0; state.players.P2.movementRemaining = 0;
+state.players.P2.hand = [{ instanceId: 'keep-attack', cardId: 'knee-blast' }];
+assert.equal(choice(state).type, 'end-turn', 'Guard is not a free draw when its payment would sacrifice the only useful Card.');
+
+state = setup(); state.players.P1.position = { x: 8, y: 6 }; state.players.P2.position = { x: 2, y: 1 };
+state.players.P2.actionsRemaining = 1; state.players.P2.rageStacks = 3; state.players.P2.shieldEquipped = true;
+state.players.P2.hand = [{ instanceId: 'develop-next', cardId: 'consume-rage' }];
+state.players.P2.spellEcho = [{ instanceId: 'develop-echo', cardId: 'encourage' }, null, null];
+assert.equal(choice(state).type, 'end-turn', 'A safe turn can advance EncouRAGE and preserve the next Perk.');
+state = step(state, { type: 'end-turn', playerId: 'P2' });
+assert.equal(state.players.P2.spellEcho[1]?.cardId, 'encourage');
+state = step(state, { type: 'end-turn', playerId: 'P1' });
+state.players.P2.freeMoveUsed = true;
+const develop = choice(state);
+assert.equal(develop.type, 'play-perk');
+if (develop.type === 'play-perk') assert.equal(develop.destination, 'echo');
+state = step(state, develop); assert.equal(state.players.P2.spellEcho.filter(Boolean).length, 2);
+
+state = setup(); state.players.P2.hp = 1; state.players.P1.hp = 1;
+state.players.P2.hand = [{ instanceId: 'win-now', cardId: 'fistbolt' }, { instanceId: 'lethal-burning', cardId: 'burning', sourcePlayerId: 'P1' }];
+assert.equal(choice(state).type, 'attack', 'A winning Attack takes priority over lethal Burning Dash or long-term development.');
+console.log('Da Orkk bot checks passed: dump regressions, Burning/finishing costs, Hand preservation, Echo development, urgent wins, Rage, Shield/Box discipline, targeting, privacy and RNG isolation.');

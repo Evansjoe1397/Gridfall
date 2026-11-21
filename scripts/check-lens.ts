@@ -13,6 +13,7 @@ function setup(cardId: CardTypeId = 'arch-beam', stack = true): GameState {
   for (const player of Object.values(state.players)) { player.hand = []; player.deck = []; player.discard = []; player.spellEcho = [null, null, null]; }
   state.players.P1.position = cell('B2'); state.players.P2.position = cell('E2');
   state.players.P1.hand = [{ instanceId: 'attack', cardId }];
+  if (cardId === 'pyrodash') state.players.P1.hand.push({ instanceId: 'pyrodash-fuel', cardId: 'burning' });
   state.players.P2.hand = [{ instanceId: 'defense', cardId: 'defend-1' }];
   return state;
 }
@@ -95,15 +96,29 @@ for (const stack of [false, true]) {
   state = step(state, { type: 'lens-destroy', playerId: 'P1' });
   assert.equal(state.objects.some((object) => object.kind === 'lens'), false); assert.equal(state.players.P1.actionsRemaining, 1);
 
+  for (const [count, expected] of [[0, ['C2', 'D2']], [2, ['C2', 'D2', 'E2', 'F2', 'G2']], [4, ['C2', 'D2', 'E2', 'F2', 'G2', 'H2', 'G2']]] as const) {
+    state = setup('pyrodash', stack); place(state);
+    state.players.P1.hand = [{ instanceId: 'attack', cardId: 'pyrodash' }, ...Array.from({ length: count }, (_, i) => ({ instanceId: `fuel-${i}`, cardId: 'burning' as const }))];
+    const hp = state.players.P1.hp;
+    state = acknowledge(defend(target(select(state))));
+    assert.deepEqual(labels(state), expected, `Lens resets to captured FP plus ${count} Burning, without spending fuel again.`);
+    assert.equal(state.players.P1.removedDeck?.filter((card) => card.cardId === 'burning').length ?? 0, count);
+    assert.equal(state.players.P1.hp, hp);
+  }
   state = setup('pyrodash', stack); state.players.P2.position = cell('D2'); place(state);
   state = target(select(state)); state = acknowledge(defend(state));
-  assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'F2', 'G2']);
+  assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'F2', 'G2', 'H2']);
   assert.equal(state.objects.some((object) => object.kind === 'lens'), true);
   assert.ok(state.players.P2.hand.some((card) => card.cardId === 'burning'));
+  state = setup('pyrodash', stack); state.players.P2.position = cell('D2'); place(state);
+  state.objects.push({ id: 'bounce-box', name: 'Box', kind: 'wooden-box', hp: 3, maxHp: 3, position: cell('F2') });
+  state = acknowledge(defend(target(select(state))));
+  assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'D2', 'C2', 'B2', 'A2', 'B2'], 'The used Lens stays transparent and free on the return leg, without resetting the budget twice.');
+  assert.ok(state.objects.some((object) => object.kind === 'lens'));
   state = setup('pyrodash', stack); state.players.P1.attackRange = 3; place(state);
-  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'F2']);
+  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'F2', 'G2']);
   state = setup('pyrodash', stack); state.players.P2.position = cell('C3'); place(state);
-  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'C3', 'C4', 'C5', 'C6']);
+  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'C3', 'C4', 'C5', 'C6', 'C7']);
   for (const direction of [{ x: 1, y: 0 }, { x: 1, y: 1 }]) {
     state = setup('pyrodash', stack); state.players.P1.attackRange = 3; state.players.P2.position = cell('E3'); place(state);
     state = acknowledge(defend(target(select(state))));
@@ -112,10 +127,10 @@ for (const stack of [false, true]) {
     assert.deepEqual(pyrodashDirectionAt(state, { x: 3 + direction.x, y: 1 + direction.y }), direction);
     assert.equal(applyCommand(state, { type: 'pyrodash-direction', playerId: 'P1', dx: -1, dy: 0 }).ok, false);
     state = step(state, { type: 'pyrodash-direction', playerId: 'P1', dx: direction.x, dy: direction.y });
-    assert.deepEqual(labels(state), direction.y ? ['C2', 'D3', 'E4'] : ['C2', 'D2', 'E2']);
+    assert.deepEqual(labels(state), direction.y ? ['C2', 'D3', 'E4', 'F5'] : ['C2', 'D2', 'E2', 'F2']);
   }
   state = setup('pyrodash', stack); place(state);
-  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'D2'], 'Default Range 2 grants only 1 FP for an enemy 2 beyond Lens.');
+  state = acknowledge(defend(target(select(state)))); assert.deepEqual(labels(state), ['C2', 'D2', 'E2', 'F2'], 'Default Range 2 grants 1 FP, hence 2 paid Squares after the Lens reset; crossing the enemy is free.');
   state = setup('pyrodash', stack); state.players.P2.position = cell('D2'); place(state);
   state = acknowledge(defend(target(select(state)), 'block')); assert.equal(state.players.P1.visualMovement, undefined, 'Block cancels magnified Pyrodash normally.');
 }
@@ -177,6 +192,7 @@ const handler = parsed.statements.find((node) => ts.isFunctionDeclaration(node) 
 const commands: GameCommand[] = [];
 const click = runInNewContext(ts.transpileModule(handler.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText + '\nonBoardClick;', {
   gameState: state, suppressTouchBoardSelection: false, suppressNextBoardClick: false, pendingObjectAttackConfirmation: null,
+  interactionPlayer: () => 'P1', hasPendingPerkChoice: () => false,
   boardHitsAt: () => [{ object: { userData: { playerId: 'P2', cell: cell('E2') } } }],
   hitUserData: (hit: any, name: string) => hit.object.userData[name], lensAttackTargets,
   selection: { getSnapshot: () => ({ context: { selection: { kind: 'none' } } }) }, canLocalAct: () => true,

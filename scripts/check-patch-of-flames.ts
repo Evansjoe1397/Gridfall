@@ -24,7 +24,96 @@ const burning = (state: GameState, id: 'P1' | 'P2' = 'P1') => state.players[id].
 const ignite = (state: GameState, label: string) => assert.ok(modifySquare(state, cell(label), 'patch-of-flames'), label);
 const move = (label: string): GameCommand => ({ type: 'move', playerId: 'P1', to: cell(label) });
 
+function forcedEntry(stack: boolean): GameState {
+  let state = setup(stack);
+  state.activePlayerId = 'P2'; state.players.P2.position = cell('F2');
+  ignite(state, 'D2');
+  state.phase = 'choosing-force-pull-target';
+  state.forcePull = { casterId: 'P2', level: 1, distance: 2, targetRange: 8, undo: null };
+  state = step(state, { type: 'force-pull-target', playerId: 'P2', targetKind: 'player', targetId: 'P1' });
+  assert.deepEqual(state.players.P1.position, cell('D2'));
+  assert.equal(burning(state), 0, 'Forced arrival defers Burning.');
+  return state;
+}
+
 for (const stack of [false, true]) {
+  let visit = setup(stack);
+  ignite(visit, 'C2');
+  visit = step(visit, move('C2'));
+  assert.equal(burning(visit), 1);
+  visit = step(visit, move('B2'));
+  assert.equal(burning(visit), 1, 'Separate move commands share the same visit.');
+  visit = step(visit, move('C2'));
+  assert.equal(burning(visit), 2, 'Re-entry starts a new visit.');
+  visit = step(visit, { type: 'cancel-movement', playerId: 'P1' });
+  assert.equal(burning(visit), 0, 'Undo restores the whole walking sequence and its visits.');
+  visit = step(visit, move('C2'));
+  visit = step(visit, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(burning(visit), 1, 'Ending on a paid voluntary visit adds nothing.');
+
+  visit = forcedEntry(stack);
+  visit = step(visit, { type: 'end-turn', playerId: 'P2' });
+  assert.equal(burning(visit), 0, 'An unpaid forced visit survives the turn boundary without a turn-start Card.');
+  const forcedHp = visit.players.P1.hp;
+  visit = step(visit, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(burning(visit), 1);
+  assert.equal(visit.players.P1.hp, forcedHp, 'Forced residence is paid after end-turn Damage.');
+
+  visit = forcedEntry(stack);
+  visit = step(visit, { type: 'end-turn', playerId: 'P2' });
+  visit.players.P1.movementRemaining = 8;
+  visit = step(visit, move('C2'));
+  assert.equal(burning(visit), 1, 'Voluntary departure pays an unpaid forced visit.');
+  visit = step(visit, move('D2'));
+  assert.equal(burning(visit), 2, 'Voluntary return can burn again.');
+  visit = step(visit, move('E2'));
+  assert.equal(burning(visit), 2, 'The return visit is charged only once.');
+
+  visit = forcedEntry(stack);
+  visit.phase = 'choosing-force-pull-target';
+  visit.forcePull = { casterId: 'P2', level: 1, distance: 1, targetRange: 8, undo: null };
+  visit = step(visit, { type: 'force-pull-target', playerId: 'P2', targetKind: 'player', targetId: 'P1' });
+  assert.equal(burning(visit), 1, 'Forced departure also pays an unpaid visit.');
+
+  visit = setup(stack); ignite(visit, 'C2');
+  visit = step(visit, move('C2'));
+  visit.phase = 'choosing-force-pull-target'; visit.players.P2.position = cell('F2');
+  visit.forcePull = { casterId: 'P1', level: 1, distance: 1, targetRange: 8, undo: null };
+  // Use an enemy turn for the forced departure from a paid voluntary visit.
+  visit.activePlayerId = 'P2'; visit.forcePull.casterId = 'P2';
+  visit = step(visit, { type: 'force-pull-target', playerId: 'P2', targetKind: 'player', targetId: 'P1' });
+  assert.equal(burning(visit), 1, 'Forced departure cannot charge a paid voluntary visit again.');
+
+  visit = forcedEntry(stack);
+  visit = step(visit, { type: 'end-turn', playerId: 'P2' });
+  visit.players.P1.hand = Array.from({ length: 6 }, (_, i) => ({ instanceId: `forced-limit-${i}`, cardId: 'attack-2' }));
+  visit = step(visit, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(visit.phase, 'choosing-end-discard'); assert.equal(burning(visit), 0);
+  visit = step(visit, { type: 'discard-card', playerId: 'P1', cardInstanceId: 'forced-limit-0' });
+  visit = step(visit, { type: 'end-turn', playerId: 'P1' });
+  assert.equal(burning(visit), 1, 'Forced residence waits for mandatory end-turn choices.');
+  assert.equal(visit.players.P1.hp, forcedHp);
+
+  for (const dash of [false, true]) for (const double of [false, true]) for (const blocked of [false, true]) {
+    let rage = setup(stack);
+    rage.players.P1.character = 'orkk'; rage.players.P1.rageStacks = 3;
+    rage.players.P1.rageGainLocked = true; rage.players.P1.doubleRageUntilEnemyTurnEnd = double;
+    rage.players.P1.traitBlocked = blocked; rage.players.P1.movementRemaining = 0;
+    rage.players.P1.hand = Array.from({ length: 3 }, (_, i) => ({ instanceId: `rage-burning-${i}`, cardId: 'burning', sourcePlayerId: i === 0 ? 'P1' : 'P2' }));
+    const hp = rage.players.P1.hp;
+    rage = step(rage, { type: dash ? 'dash' : 'end-turn', playerId: 'P1' });
+    assert.equal(rage.players.P1.hp, hp - 3, 'Burning still deals Damage per Card, including mixed sources.');
+    assert.equal(rage.log.filter((line) => line.includes('Rage from taking damage')).length, blocked ? 0 : 1);
+    assert.ok(!rage.log.some((line) => line.includes('gained 2 Rage from taking damage')), 'Burning grants at most 1 Rage, including Double!.');
+    assert.equal(rage.players.P1.removedDeck?.filter((card) => card.cardId === 'burning').length ?? 0, dash ? 3 : 0);
+  }
+
+  let protectedRage = setup(stack);
+  protectedRage.players.P1.character = 'orkk'; protectedRage.players.P1.spectreShadowCloakActive = true;
+  protectedRage.players.P1.hand = [{ instanceId: 'prevented-burning', cardId: 'burning' }];
+  protectedRage = step(protectedRage, { type: 'end-turn', playerId: 'P1' });
+  assert.ok(!protectedRage.log.some((line) => line.includes('Rage from taking damage')), 'Prevented Burning Damage grants no Rage.');
+
   const terrain = setup(stack);
   // The overlay preserves Base, Draw, protected and elevated terrain.
   terrain.elevations.D4 = 1;
@@ -55,19 +144,20 @@ for (const stack of [false, true]) {
   assert.equal(path.length, 2);
   modifySquare(state, path[0], 'patch-of-flames');
   state = step(state, move('D2'));
-  assert.equal(burning(state), 2, 'Multi-step movement triggers entry and exit on an intermediate Square.');
+  assert.equal(burning(state), 1, 'Entry and exit on an intermediate Square are one visit.');
   const invalid = applyCommand(state, move('I1'));
   assert.equal(invalid.ok, false);
-  assert.equal(burning(state), 2, 'Rejected movement does not add statuses.');
+  assert.equal(burning(state), 1, 'Rejected movement does not add statuses.');
 
   state = setup(stack);
   ignite(state, 'G7');
   const hp = state.players.P2.hp;
   state = step(state, { type: 'end-turn', playerId: 'P1' });
-  assert.equal(burning(state, 'P2'), 1, 'Turn start applies Burning even without movement.');
+  assert.equal(burning(state, 'P2'), 0, 'Standing on fire does not grant Burning at turn start.');
   assert.equal(state.players.P2.hp, hp, 'Receiving Burning does not itself deal Damage.');
   state = step(state, { type: 'end-turn', playerId: 'P2' });
-  assert.equal(state.players.P2.hp, hp - 1);
+  assert.equal(state.players.P2.hp, hp, 'Stationary fire is paid after end-turn Damage.');
+  assert.equal(burning(state, 'P2'), 1);
 
   state = setup(stack);
   ignite(state, 'C2');
@@ -91,7 +181,7 @@ for (const stack of [false, true]) {
   // Automatic Dash completion has the same ordering as manually ending it.
   const completed = step(step(dash, move('C2')), move('D2'));
   assert.equal(completed.activePlayerId, 'P2');
-  assert.equal(burning(completed), 2);
+  assert.equal(burning(completed), 1);
   assert.equal(completed.players.P1.hp, dashHp);
 
   state = setup(stack);
@@ -131,7 +221,7 @@ for (const stack of [false, true]) {
   state.phase = 'choosing-force-pull-target';
   state.forcePull = { casterId: 'P1', level: 1, distance: 2, targetRange: 8, undo: null };
   state = step(state, { type: 'force-pull-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
-  assert.equal(burning(state, 'P2'), 2, 'Enemy pull crosses fire.');
+  assert.equal(burning(state, 'P2'), 1, 'Enemy pull pays once when leaving intermediate fire.');
   assert.deepEqual(state.players.P2.position, cell('D2'));
 
   state = setup(stack);
@@ -143,7 +233,7 @@ for (const stack of [false, true]) {
   state = step(state, { type: 'use-echo-perk', playerId: 'P1', position: 3 });
   state = step(state, { type: 'magic-hand-target', playerId: 'P1', targetKind: 'player', targetId: 'P2' });
   state = step(state, { type: 'magic-hand-direction', playerId: 'P1', to: cell('E2') });
-  assert.equal(burning(state, 'P2'), 2, 'Enemy push checks all intermediate Squares.');
+  assert.equal(burning(state, 'P2'), 1, 'Enemy push pays once per intermediate fire visit.');
   state = step(state, { type: 'undo-last-action', playerId: 'P1' });
   assert.equal(burning(state, 'P2'), 0, 'Undoing an enemy Perk removes its environmental Burning.');
   assert.deepEqual(state.players.P2.position, beforePush.players.P2.position);
@@ -153,7 +243,7 @@ for (const stack of [false, true]) {
   state.shizzle = { casterId: 'P1', level: 1, stepsRemaining: 3, consume: false, enemyUnderfoot: null, started: false, undo: null };
   ignite(state, 'C2');
   state = step(state, { type: 'shizzle-destination', playerId: 'P1', to: cell('E2') });
-  assert.equal(burning(state), 2, 'Card movement checks every traversed Square.');
+  assert.equal(burning(state), 1, 'Card movement pays once per traversed Patch.');
 }
 
 let pipe = createPipeTestState(true, 'merylin', 'shinobi');
@@ -177,7 +267,7 @@ slide.players.P1.hand = [];
 ignite(slide, 'D7');
 slide = step(slide, move('D7'));
 assert.deepEqual(slide.players.P1.position, cell('C7'));
-assert.equal(burning(slide), 2, 'Automatic Slide applies entry and departure Burning.');
+assert.equal(burning(slide), 1, 'Automatic Slide does not charge again after voluntary entry.');
 
 const visuals = new PatchOfFlamesVisuals();
 const visualState = setup(); ignite(visualState, 'D4');

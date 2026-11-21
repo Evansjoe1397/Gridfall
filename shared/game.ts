@@ -13,6 +13,7 @@ export const CardTypeIdSchema = z.enum(['attack-2', 'attack-3', 'defend-1', 'jud
 export type CardTypeId = z.infer<typeof CardTypeIdSchema> | 'helmet' | 'boomerang-draw' | 'feint' | 'weak-feint';
 
 export const GameCommandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('countaspell-rage'), playerId: PlayerIdSchema, amount: z.number().int().min(0) }),
   z.object({ type: z.literal('move'), playerId: PlayerIdSchema, to: CellSchema }),
   z.object({ type: z.literal('press-pipe-button'), playerId: PlayerIdSchema, buttonId: z.string() }),
   z.object({ type: z.literal('ready-series-match'), playerId: PlayerIdSchema }),
@@ -142,7 +143,7 @@ export const GameCommandSchema = z.discriminatedUnion('type', [
 export type GameCommand = z.infer<typeof GameCommandSchema>;
 
 export type Card = { id: CardTypeId; name: string; kind: 'attack' | 'defend' | 'perk' | 'status' | 'free-action' | 'combat'; value: number; narrative?: boolean; levelEffects?: readonly string[]; effectText?: string; consumeText?: string; specialEffectText?: string; canDefendInsideTomb?: boolean; canDiscardForHandLimit?: boolean; cannotBeDiscarded?: boolean; canRemoveAsAction?: boolean };
-export type CardInstance = { instanceId: string; cardId: CardTypeId; revealedToOpponent?: boolean; revealedToPlayerIds?: PlayerId[]; sourcePlayerId?: PlayerId; oneTimeCopy?: boolean; oracleValue?: number; soulStrikeForcedUse?: 'attack' | 'defend' };
+export type CardInstance = { instanceId: string; cardId: CardTypeId; revealedToOpponent?: boolean; revealedToPlayerIds?: PlayerId[]; sourcePlayerId?: PlayerId; environmentalBurning?: boolean; oneTimeCopy?: boolean; oracleValue?: number; soulStrikeForcedUse?: 'attack' | 'defend' };
 export const CARDS: readonly Card[] = [
   { id: 'arch-beam', name: 'Arch Beam', kind: 'attack', value: 0, effectText: 'Before combat: +FP to Attack. Apply Burning to target after combat.' },
   { id: 'immolate-improved', name: 'Immolate Improved', kind: 'attack', value: 0, effectText: 'Attack Value equals FP + Pyro Charges gained this turn. Before combat: Absorb Flames in Range, apply Burning to the target, then Absorb Flames again.' },
@@ -151,7 +152,7 @@ export const CARDS: readonly Card[] = [
   { id: 'dragon-claws', name: 'Dragon Claws', kind: 'attack', value: 2, effectText: 'Can use only in melee Range. Before combat: Deal 1 Damage if target is Burning. After combat: Absorb flames in FP Range.' },
   { id: 'block-with-flames', name: 'Block with Flames', kind: 'defend', value: 1, effectText: 'Before combat: cancel the Attack card effect. After combat: gain 1 Pyro Charge if the Attacker is Burning; otherwise, apply Burning to the Attacker.' },
   { id: 'fire-shield', name: 'Fire Shield', kind: 'defend', value: 1, effectText: 'If you are Burning, Fire Shield has Value 3. Before combat: Absorb Flames. After combat: if you are Burning, apply Burning to the Attacker.' },
-  { id: 'pyrodash', name: 'Pyrodash', kind: 'attack', value: 1, effectText: 'After combat: Dash towards the target in a straight line for FP Squares. Reflect from Objects, higher ground and board edges. Passing through an enemy is free: apply Burning, or deal 1 Damage if already Burning.' },
+  { id: 'pyrodash', name: 'Pyrodash', kind: 'attack', value: 1, effectText: 'After combat: Dash towards the target in a straight line for FP+X Squares, where X is the Burning Cards you Discard. Discarding Burning Cards does not deal Damage during Pyrodash. Reflect from Objects, higher ground and board edges. Passing through an enemy is free: apply Burning, or deal 1 Damage if already Burning.' },
   { id: 'lens', name: 'Summon Lens', kind: 'perk', value: 1, levelEffects: ['Summon Lens on an adjacent Square.', 'Then you may push Lens 1 Square. On collision: deal 1 Damage and push the enemy or Object 1 Square; Lens takes its place if possible.', 'Apply Burning after the next Attack through Lens, after both Cards’ post-combat effects.'] },
   { id: 'pocket-lens', name: 'Pocket Lens', kind: 'attack', value: 2, effectText: "After combat: Push out yourself from the enemy in a straight line of FP Squares, then create Lens on a Square you attacked from. If you cannot push out, create Lens on the nearest vacant Square adjacent to both you and the target, if any. Return Pocket Lens to your Hand, if you didn't win this combat; otherwise: apply Burning to the target." },
   { id: 'breezy', name: 'Breezy', kind: 'defend', value: 1, effectText: "Before combat: if either participant is Burning, negate all Damage you receive during this combat. Remove your Burning if you are Burning; otherwise, Remove the attacker's Burning. After combat: add Exhaust to the attacker's Hand." },
@@ -234,8 +235,8 @@ export const CARDS: readonly Card[] = [
   { id: 'sweet-potato', name: 'Sweet Potato', kind: 'perk', value: 1, effectText: 'As an Action: restore 2 Hit Points or Remove all negative Status Cards from your Deck.' },
   { id: 'vicious-mockery', name: 'Vicious Mockery +2', kind: 'perk', value: 2, effectText: 'Optionally apply during combat for +2 ATT or DEF. Then Remove this Card from the game.' },
   { id: 'vicious-mockery-1', name: 'Vicious Mockery +1', kind: 'perk', value: 1, effectText: 'Optionally apply during combat for +1 ATT or DEF. Then Remove this Card from the game.' },
-  { id: 'banner', name: 'The Banner', kind: 'status', value: 1, effectText: '+1 MOV while this Card is in Hand. Apply as +1 in Combat, then Remove this Card. Automatically Discard this Card whenever you are required to Discard a Card.', canDiscardForHandLimit: true },
-  { id: 'banner-draw', name: 'The Banner', kind: 'status', value: 1, effectText: '+1 MOV while this Card is in Hand. Automatically Discard this Card whenever you are required to Discard a Card.', canDiscardForHandLimit: true },
+  { id: 'banner', name: 'The Banner', kind: 'status', value: 1, effectText: '+1 MOV while this Card is in Hand. Apply as +1 in Combat, then Remove this Card. Automatically Discard this Card whenever you are required to Discard a Card. Remove when Discarded for any reason.', canDiscardForHandLimit: true },
+  { id: 'banner-draw', name: 'The Banner', kind: 'status', value: 1, effectText: '+1 MOV while this Card is in Hand. Automatically Discard this Card whenever you are required to Discard a Card. Remove when Discarded for any reason.', canDiscardForHandLimit: true },
   { id: 'helmet', name: 'Helmet', kind: 'status', value: 2, effectText: 'Combat Card: add +2 to the Defend Value of your played Card. Then, Remove from the Deck.' },
   { id: 'mythril-helmet', name: 'Mythril Helmet', kind: 'status', value: 1, effectText: 'Apply during combat to negate all Damage. Then, Remove from the Deck.', canDiscardForHandLimit: true },
   { id: 'boomerang', name: 'Boomerang', kind: 'free-action', value: 1, effectText: 'Discard on top of your Deck. -1 MOV while not in Hand. Use as a Free Action for 1 Damage at Range 3, or automatically use as an Action for 2 Damage at melee Range 1 and Remove this Card.' },
@@ -246,7 +247,7 @@ export const CARDS: readonly Card[] = [
   { id: 'arcane-missle', name: 'Arcane Missile', kind: 'perk', value: 1, levelEffects: ['Deal 1 Damage to an enemy within Range 3 and line of sight', 'Can maneuver around obstacles within Range 3', 'Global Range'], effectText: 'Consume: +2 Damage.' },
   { id: 'chain-lightning', name: 'Chain Lightning', kind: 'perk', value: 1, levelEffects: ['Target an enemy or Object in Range. Deal 1 Damage to the enemy or destroy the Object, then bounce to an adjacent enemy or destructible Object, favoring longer chains that destroy Objects and hit enemies repeatedly. Columns and Flood Buttons can be targeted but remain intact', 'Bounce Range is 2, with line of sight calculated from the previous target', 'Bounce 2 times'], effectText: 'Each bounce deals 1 Damage to an enemy or destroys an Object. Consume: Bounce +3 times.' },
   { id: 'magic-hand', name: 'Magic Hand', kind: 'perk', value: 1, levelEffects: ['Move an Object up to 3 Squares in a straight line to the chosen Square. Target Range 5', 'Global target Range', 'Can push enemies; global movement distance. Move the target to the chosen Square, transferring unused travel distance to a collided Object or character'], effectText: 'Consume: Gain 1 Action.' },
-  { id: 'shizzle', name: 'Shizzle', kind: 'perk', value: 1, levelEffects: ['Dash in a direct line for up to 2 Squares; may pass through all characters and board Objects. Ignore Slide effects; cannot climb from a Trench Slide onto High Ground', 'Deal 1 Damage to each enemy passed through', 'Increase the maximum Dash distance by 1 Square, up to 3'], effectText: 'Consume: Complete the 2-Square Dash one Square at a time in any direction (3 Squares at Level 3). May pass through all characters and board Objects, but must finish on an empty Square. Ignore Slide effects; cannot climb from a Trench Slide onto High Ground.' },
+  { id: 'shizzle', name: 'Shizzle', kind: 'perk', value: 1, levelEffects: ['Dash in a direct line for up to 2 Squares; may pass through all characters and board Objects. Ignore Slide effects; cannot climb from a Trench Slide onto High Ground', 'Deal 1 Damage to each enemy passed through', 'Increase the maximum Dash distance by 1 Square, up to 3'], effectText: 'Consume: Complete the Dash one Square at a time in any direction (3 Squares at Level 3).' },
   { id: 'arcane-bolt', name: 'Arcane Bolt', kind: 'attack', value: 2, effectText: 'Gain +1 ATT until the end of the turn.', consumeText: 'Consume: Gain +2 ATT until the end of the turn instead.' },
   { id: 'snowball-effect', name: 'Snowball Effect', kind: 'attack', value: 1, effectText: "After combat, return this Card to Logan's Hand.", consumeText: 'Consume: After combat, draw 1 Card, then discard 1 Card.' },
   { id: 'mana-blast', name: 'Mana Blast', kind: 'attack', value: 1, effectText: 'The target may discard 1 Card. Gain 1 Mana Point if they refuse.', consumeText: 'Consume: +2 ATT. Gain 3 MP if the target refuses to discard.' },
@@ -286,7 +287,7 @@ export const CARDS: readonly Card[] = [
   { id: 'da-blokk', name: 'Da Blokk', kind: 'defend', value: 1, effectText: 'Cancel the Attack Card effect. Generate 2 Rage Stacks if Da Orkk receives Damage in this combat.' },
   { id: 'double', name: 'Double!', kind: 'defend', value: 1, effectText: "Double all Rage received during this combat and for the remainder of the attacking Player's turn." },
   { id: 'arcane-shield', name: 'Arcane Shield', kind: 'defend', value: 2, effectText: 'Deal 1 Damage to each adjacent enemy if your Shield is equipped. Otherwise, Recall your Shield.' },
-  { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat, add 1 Headache Card per Rage Stack to the attacking enemy's Discard." },
+  { id: 'countaspell', name: 'CountaSpell', kind: 'defend', value: 3, effectText: "After combat: choose to spend 1 Rage per 1 Headache Card to be added to the Attacker's Discard." },
   { id: 'mana-baryer', name: 'Mana Baryer', kind: 'defend', value: 2, effectText: 'Defend Value is 5 if Shield is equipped. Otherwise, Recall the Shield whose optimal route crosses the most enemies, breaking ties by choosing the nearest, and deal 2 Damage to any enemy it passes through.' },
   { id: 'replicate', name: 'Replicate', kind: 'perk', value: 1, levelEffects: ['Create a replica on an empty visible Square or a Box within Range 2, then draw 1 Card. Replace existing replicas', '+1 Range. Pull each enemy within Range 2 one Square toward the replica', "+1 Range. After the pull, add a Panic Card to every adjacent enemy's Hand and deal 1 Damage to them"] },
   { id: 'relocate', name: 'Relocate', kind: 'perk', value: 1, levelEffects: ["Swap places with the replica. A twitching line remains between them until the end of the turn. Deal 1 Damage initially and whenever Spectre's movement makes the line newly intersect an enemy Square", 'Remove 1 negative Status Card from your Hand and gain +1 MOV', 'Gain 1 Action'] },
@@ -430,11 +431,11 @@ export type ObjectPushAnimation = { sweetPotato?: { playerId: PlayerId; choice: 
 export type BlessingAnimationSource = 'attack' | 'block' | 'perk';
 export type BlessingAnimation = { id: string; playerId: PlayerId; cardId: CardTypeId; cardInstanceId: string; source: BlessingAnimationSource; playAttackFirst: boolean; revealStoicShell: boolean };
 export type SpellProjectile = { flameWardLevel?: number; afterProjectileId?: string; id: string; casterId: PlayerId; targetId: string; from: Cell; to: Cell; path: Cell[]; count: number; damage: number; style?: 'fireball' | 'firebolt' | 'absorb-flames' | 'pyro-discharge' | 'flame-ward' | 'missile' | 'lightning' | 'boomerang' | 'holy-fire' | 'repent-fire' | 'cleanse-immolate' | 'moonwave' | 'mind-blast' };
-export type GamePhase = 'choosing-ray-of-fire-square' | 'choosing-fyrestarter-dash' | 'choosing-lens-square' | 'choosing-lens-push' | 'choosing-lens-target' | 'confirming-lens-destruction' | 'choosing-pyrodash-direction' | 'active' | 'choosing-spellsinger-discard' | 'choosing-mockingjay-defense' | 'choosing-mockingjay-narrative' | 'choosing-narrative' | 'choosing-narrative-target' | 'choosing-kamelot-removal' | 'choosing-weaver-story' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-sacrifice-tomb-square' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'choosing-once-upon-return' | 'finished';
+export type GamePhase = 'choosing-countaspell-rage' | 'choosing-ray-of-fire-square' | 'choosing-fyrestarter-dash' | 'choosing-lens-square' | 'choosing-lens-push' | 'choosing-lens-target' | 'confirming-lens-destruction' | 'choosing-pyrodash-direction' | 'active' | 'choosing-spellsinger-discard' | 'choosing-mockingjay-defense' | 'choosing-mockingjay-narrative' | 'choosing-narrative' | 'choosing-narrative-target' | 'choosing-kamelot-removal' | 'choosing-weaver-story' | 'choosing-frostmourne' | 'choosing-spectre-perk-origin' | 'choosing-spirit-guardian-square' | 'choosing-boomerang-target' | 'choosing-focus' | 'choosing-focus-card' | 'choosing-phase-card' | 'choosing-phase-three-card' | 'choosing-phase-destination' | 'choosing-base-placement' | 'choosing-mana-mode' | 'choosing-preparation-teleport' | 'choosing-blink-teleport' | 'choosing-blink-discard' | 'choosing-preparation-discard' | 'choosing-blessed-prayer-discard' | 'choosing-arcane-missle-target' | 'choosing-chain-lightning-target' | 'choosing-magic-hand-target' | 'choosing-magic-hand-direction' | 'choosing-shizzle-destination' | 'shizzle-move' | 'choosing-fireball-target' | 'choosing-portal-target' | 'choosing-snowball-discard' | 'mana-blast-offer' | 'choosing-grimoire-discard' | 'wreckna-wisdom-offer' | 'wreckna-wisdom-discard' | 'choosing-shadow-barter-discard' | 'shadow-barter-tomb-offer' | 'choosing-shadow-barter-tomb-square' | 'choosing-test-phylactery-target' | 'choosing-sacrifice-tomb-square' | 'choosing-lichdom-target' | 'choosing-lichdom-copy' | 'choosing-wreckna-phylactery' | 'choosing-immortality-phylactery' | 'choosing-graveyard-tomb' | 'choosing-sap-defend' | 'defending' | 'choosing-combat-stack' | 'choosing-exhaust' | 'choosing-vicious-mockery' | 'choosing-blessing-light' | 'choosing-blessing-might' | 'choosing-blessing-faith' | 'choosing-mythril-helmet' | 'choosing-mana-barrage' | 'choosing-guard-discard' | 'choosing-dash-discard' | 'choosing-end-discard' | 'choosing-force-disarm-discard' | 'choosing-force-throw-target' | 'choosing-force-throw-direction' | 'choosing-force-pull-target' | 'choosing-arkane-arow-target' | 'choosing-arm-da-wiz-choice' | 'choosing-arm-da-wiz-create-payment' | 'choosing-arm-da-wiz-target' | 'choosing-kyk-target' | 'choosing-kyk-direction' | 'choosing-mind-tricks-discard' | 'choosing-mind-tricks-enemy-discard' | 'flurry-offer' | 'choosing-flurry-enemy-discard' | 'dashing' | 'dance-through' | 'double-jump' | 'choosing-once-upon-return' | 'finished';
 export type CombatReveal = { counterspell?: { empowered: boolean }; attackCardId: CardTypeId; defendCardId: CardTypeId | null; attackBase: number; attackTotal: number; defendBase: number; defendTotal: number; attackModifiers?: CombatModifier[]; defendModifiers?: CombatModifier[]; combatWinnerId?: PlayerId; combatDamage?: number; afterCombatAttackDamage?: number; combatStackApplied?: Partial<Record<PlayerId, CardTypeId[]>>; soulStrikeResult?: SoulStrikeResult; expiresAt: number; acknowledged: PlayerId[]; deferredAfterCombatState?: string; exhaust?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; attached: PlayerId[]; defenderMockery: number }; viciousMockery?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; eligible: PlayerId[]; decided: PlayerId[]; applied: PlayerId[]; appliedValues: Partial<Record<PlayerId, number>> }; manaBarrage?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingLight?: { defenseCommand: Extract<GameCommand, { type: 'defend' }>; playerId: PlayerId }; blessingMight?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; blessingFaith?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId }; mythrilHelmet?: { defenseCommand: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; playerId: PlayerId } };
 export type DamageLogEntry = { eventType: 'damage' | 'healing'; turn: number; targetId: PlayerId; sourceId: PlayerId; sourceKind: 'attack' | 'perk' | 'defense' | 'other'; amount: number; hpAfter: number; collision: boolean };
 export type PerkTargetingUndo = { deck: CardInstance[]; hand: CardInstance[]; discard: CardInstance[]; spellEcho: [CardInstance | null, CardInstance | null, CardInstance | null]; actionsRemaining: number; perkUsed: boolean; manaPoints: number; dakkothRangeBonus?: number; spellsingerExtraPerkUses?: number };
-export type GameState = SquareModificationState & { appleObjects?: { id: string; kind: 'apple'; position: Cell }[]; pendingCounterflame?: { combat: PendingAttack; lost: boolean }; lensPerk?: { casterId: PlayerId; level: number; lensId?: string }; pendingLensBurning?: { casterId: PlayerId; targetId: PlayerId }; lensSelection?: LensAttackSelection; pyrodash?: { playerId: PlayerId; fp: number; target: Cell; returnTo?: Cell; lens?: LensAttackRoute; combat?: PendingAttack }; perkMode?: boolean; matchStartedAt?: number; matchEndedAt?: number; boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; series?: BestOfThreeState; pipeTurnIndex?: number; pipeFloodUntil?: Partial<Record<1 | 2, number>>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; weaverChoice?: { targetId: PlayerId; kazkaId: PlayerId }; weaverChoiceLastRound?: number; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; perkUndo?: { playerId: PlayerId; stateJson: string } | null; perkUndoRevision?: number; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { breezyCombat?: PendingAttack; playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
+export type GameState = SquareModificationState & { countaSpell?: { playerId: PlayerId; attackerId: PlayerId; combat: PendingAttack } } & { appleObjects?: { id: string; kind: 'apple'; position: Cell }[]; pendingCounterflame?: { combat: PendingAttack; lost: boolean }; lensPerk?: { casterId: PlayerId; level: number; lensId?: string }; pendingLensBurning?: { casterId: PlayerId; targetId: PlayerId }; lensSelection?: LensAttackSelection; pyrodash?: { playerId: PlayerId; fp: number; burningDiscarded?: number; target: Cell; returnTo?: Cell; lens?: LensAttackRoute; combat?: PendingAttack }; perkMode?: boolean; matchStartedAt?: number; matchEndedAt?: number; boardSize: number; turn: number; activePlayerId: PlayerId; phase: GamePhase; players: Record<PlayerId, PlayerState>; objects: BoardObject[]; elevations: Record<string, number>; series?: BestOfThreeState; pipeTurnIndex?: number; pipeFloodUntil?: Partial<Record<1 | 2, number>>; objectPushAnimations: ObjectPushAnimation[]; spellProjectiles: SpellProjectile[]; blessingAnimations: BlessingAnimation[]; pendingAttack: PendingAttack | null; weaverChoice?: { targetId: PlayerId; kazkaId: PlayerId }; weaverChoiceLastRound?: number; combatReveal: CombatReveal | null; pendingPerkUseEvent?: PerkUseEvent | null; boomerang?: { casterId: PlayerId; cardInstanceId: string } | null; perkUndo?: { playerId: PlayerId; stateJson: string } | null; perkUndoRevision?: number; movementUndo?: { playerId: PlayerId; stateJson: string; actionsRemaining: number; perkUsed: boolean } | null; dashCancellation: { previousMovementRemaining: number; discardedCard: CardInstance | null } | null; danceThrough: { breezyCombat?: PendingAttack; playerId?: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; damagePrevented: boolean } | null; doubleJump: { playerId: PlayerId; stepsRemaining: number; enemyUnderfoot: PlayerId | null; resumePhase: GamePhase } | null; forceThrow: { casterId: PlayerId; level: number; distance: number; targetRange: number; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; forcePull: { casterId: PlayerId; level: number; distance: number; targetRange: number; undo: PerkTargetingUndo | null } | null; arkaneArow: { casterId: PlayerId; level: number; range: number; undo: PerkTargetingUndo | null } | null; armDaWiz: { casterId: PlayerId; level: number; range: number; canCreate: boolean; canRecall: boolean; undo: PerkTargetingUndo | null } | null; preparation: { casterId: PlayerId; consume: boolean; undo: PerkTargetingUndo | null } | null; arcaneMissle: { casterId: PlayerId; level: number; damage: number; undo: PerkTargetingUndo | null } | null; chainLightning: { casterId: PlayerId; level: number; bounces: number; bounceRange: number; undo: PerkTargetingUndo | null } | null; magicHand: { casterId: PlayerId; level: number; distance: number; consume: boolean; targetKind: 'player' | 'object' | null; targetId: string | null; undo: PerkTargetingUndo | null } | null; shizzle: { casterId: PlayerId; level: number; stepsRemaining: number; consume: boolean; enemyUnderfoot: PlayerId | null; started: boolean; undo: PerkTargetingUndo | null } | null; mindTricks: { casterId: PlayerId; level: number; maxDiscards: number; discarded: number; revealedInstanceIds: string[]; enemyId: PlayerId; enemyDiscardsRemaining: number; undo: PerkTargetingUndo | null } | null; forceDisarm: { targetId: PlayerId; cardKind?: 'attack' | 'defend'; source?: 'force-disarm' | 'teef-strike' } | null; flurry: { defenderId: PlayerId; attackerId: PlayerId; resumePhase: GamePhase; resumeDefenseCommand?: Extract<GameCommand, { type: 'defend' | 'pass-defense' }>; remainingEnemyDiscards: number } | null; pendingManaChoice: PlayerId | null; winner: PlayerId | null; log: string[] };
 
 // Keep ready for saved-state compatibility; Base DEF depends only on ownership and position.
 export type KamelotChange = { label: string; ownerId: PlayerId; value: 1 | 2 | 3; ready: boolean };
@@ -1358,7 +1359,7 @@ function resolveImmortalityPhylacteryChoice(state: GameState, playerId: PlayerId
   const type = phylactery.phylacteryType!;
   destroyObject(state, phylactery.id, playerId, 'Immortality');
   player.wrecknaInsideTombId = null;
-  moveCharacterTo(state, player, destination);
+  moveCharacterTo(state, player, destination, [destination], true);
   player.visualMovement = { from: origin, path: [{ ...destination }], sourceCardId: 'immortality' };
   markCharacterMoved(player, 'own-card');
   recordQuestMovement(state, playerId, 1, true, destination);
@@ -2073,7 +2074,7 @@ export function movementCost(state: GameState, player: PlayerState, path: Cell[]
   }, 0);
 }
 export type SquareModification = 'patch-of-flames' | 'water' | 'shallow-water';
-type SquareModificationState = { squareModifications?: Record<string, SquareModification[]>; flameSquareCreators?: Record<string, PlayerId>; pendingDashBurning?: Partial<Record<PlayerId, number>> };
+type SquareModificationState = { squareModifications?: Record<string, SquareModification[]>; flameSquareCreators?: Record<string, PlayerId>; pendingDashBurning?: Partial<Record<PlayerId, number>>; pendingDashBurningSources?: Partial<Record<PlayerId, PlayerId[]>>; flameVisits?: Partial<Record<PlayerId, { square: string; paid: boolean }>> };
 
 export function isWaterSquare(state: GameState, cell: Cell): boolean {
   const modifiers = state.squareModifications?.[cellLabel(cell)];
@@ -2099,11 +2100,21 @@ export function modifySquare(state: GameState, cell: Cell, modification: SquareM
   const retained = modification === 'patch-of-flames' ? modifiers : modifiers.filter((entry) => entry !== 'patch-of-flames');
   state.squareModifications[label] = [...new Set([...retained, modification])];
   if (modification === 'patch-of-flames') (state.flameSquareCreators ??= {})[label] = creatorId;
-  else if (state.flameSquareCreators) delete state.flameSquareCreators[label];
+  else {
+    if (state.flameSquareCreators) delete state.flameSquareCreators[label];
+    clearFlameVisits(state, label);
+  }
   return true;
 }
 
+function clearFlameVisits(state: GameState, label: string): void {
+  for (const player of Object.values(state.players)) {
+    if (state.flameVisits?.[player.id]?.square === label) delete state.flameVisits[player.id];
+  }
+}
+
 function removeFlameSquare(state: GameState, label: string): void {
+  clearFlameVisits(state, label);
   const modifiers = state.squareModifications?.[label];
   if (modifiers) {
     state.squareModifications![label] = modifiers.filter((entry) => entry !== 'patch-of-flames');
@@ -2132,10 +2143,10 @@ function extinguishFlameSquares(state: GameState): void {
   }
 }
 
-function receiveFlamesBurning(state: GameState, player: PlayerState, count = 1): void {
+function receiveFlamesBurning(state: GameState, player: PlayerState, count = 1, sources: PlayerId[] = []): void {
   if (player.hp <= 0) return;
-  // Terrain is environmental: it has no enemy Card source or combat cancellation.
-  for (let index = 0; index < count; index++) player.hand.push({ instanceId: `${player.id}-flames-burning-${++instanceSequence}`, cardId: 'burning', revealedToOpponent: true, sourcePlayerId: player.id });
+  // Terrain remains environmental, but retains its creator for later Damage statistics.
+  for (let index = 0; index < count; index++) player.hand.push({ instanceId: `${player.id}-flames-burning-${++instanceSequence}`, cardId: 'burning', revealedToOpponent: true, sourcePlayerId: sources[index] && state.players[sources[index]] ? sources[index] : player.id, environmentalBurning: true });
   if (count > 0) state.log.unshift(`${player.name} received ${count} Burning Card${count === 1 ? '' : 's'} from Patch of Flames.`);
 }
 
@@ -2155,14 +2166,19 @@ function spendAppleMovement(player: PlayerState, amount: number): void {
   if (player.appleMovementRemaining) player.appleMovementRemaining = Math.max(0, player.appleMovementRemaining - Math.max(0, amount));
 }
 
-function moveCharacterTo(state: GameState, player: PlayerState, to: Cell, path: Cell[] = [to]): void {
+function moveCharacterTo(state: GameState, player: PlayerState, to: Cell, path: Cell[] = [to], voluntary = false, ignoreFlames = false): void {
   let from = player.position;
-  let encounters = 0;
+  const encounterSources: PlayerId[] = [];
   for (const cell of path) {
     if (cellLabel(from) === cellLabel(cell)) continue;
     markCounterflameNegative(state, player.id);
-    if (isBurningSquare(state, from)) encounters++;
-    if (isBurningSquare(state, cell)) encounters++;
+    const visit = state.flameVisits?.[player.id];
+    if (!ignoreFlames && isBurningSquare(state, from) && !(visit?.square === cellLabel(from) && visit.paid)) encounterSources.push(state.flameSquareCreators?.[cellLabel(from)] ?? player.id);
+    if (state.flameVisits) delete state.flameVisits[player.id];
+    if (isBurningSquare(state, cell)) {
+      (state.flameVisits ??= {})[player.id] = { square: cellLabel(cell), paid: voluntary && !ignoreFlames };
+      if (voluntary && !ignoreFlames) encounterSources.push(state.flameSquareCreators?.[cellLabel(cell)] ?? player.id);
+    }
     const dash = player.fyrestarter;
     if (dash?.stage === 'active' && dash.level >= 3 && dash.patchesCreated < 3 && !isBurningSquare(state, from) && modifySquare(state, from, 'patch-of-flames', player.id)) dash.patchesCreated++;
     from = cell;
@@ -2179,11 +2195,13 @@ function moveCharacterTo(state: GameState, player: PlayerState, to: Cell, path: 
       return;
     }
   }
-  if (encounters > 0) {
+  if (encounterSources.length > 0) {
     if (state.phase === 'dashing' && player.id === state.activePlayerId) {
       const pending = state.pendingDashBurning ??= {};
-      pending[player.id] = (pending[player.id] ?? 0) + encounters;
-    } else receiveFlamesBurning(state, player, encounters);
+      pending[player.id] = (pending[player.id] ?? 0) + encounterSources.length;
+      const sources = state.pendingDashBurningSources ??= {};
+      sources[player.id] = [...(sources[player.id] ?? Array<PlayerId>(pending[player.id]! - encounterSources.length).fill(player.id)), ...encounterSources];
+    } else receiveFlamesBurning(state, player, encounterSources.length, encounterSources);
   }
   player.position = { ...to };
 }
@@ -2666,7 +2684,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     const replica = state.objects.find((entry) => entry.kind === 'spectre-replica' && entry.ownerId === player.id && entry.position.x === origin.x && entry.position.y === origin.y);
     if (replica && (player.position.x !== origin.x || player.position.y !== origin.y)) moveBoardObject(state, replica, destination);
     else {
-      moveCharacterTo(state, player, destination);
+      moveCharacterTo(state, player, destination, [destination], true);
       player.visualMovement = { from: origin, path: [{ ...destination }], kind: 'lightbringer-swap' };
     }
     moveBoardObject(state, object, origin);
@@ -2753,7 +2771,7 @@ function resolveObjectAttack(state: GameState, player: PlayerState, instance: Ca
     resolvePocketLensMovement(state, player, { ...attackOrigin }, { ...object.position }, absorptionRange);
     if (state.objects.some((entry) => entry.id === object.id) && returnDiscardedCardToHand(player, instance.instanceId)) state.log.unshift('Pocket Lens did not defeat the Object and returned to Hand.');
   }
-  if (card.id === 'pyrodash' && absorptionRange > 0) state.pyrodash = { playerId: player.id, fp: absorptionRange, target: { ...object.position }, returnTo: { ...attackOrigin } };
+  if (card.id === 'pyrodash') state.pyrodash = { playerId: player.id, fp: absorptionRange, target: { ...object.position }, returnTo: { ...attackOrigin } };
   if (card.id === 'light-the-saber') activateLightTheSaber(state, player);
   if (card.id === 'blessed-might') {
     addBlessingCardToJohn(state, player, 'blessing-might', 'attack', !player.spiritForm);
@@ -3142,7 +3160,7 @@ export function focusLensFyrePoints(state: GameState, player: PlayerState, targe
   return attackDistance >= 1 && attackDistance <= range ? Math.max(0, Math.min(3, range - attackDistance + 1)) : 0;
 }
 
-export const PYRO_CHARGES_DESCRIPTION = 'Absorb Flames takes one Burning Card from the nearest eligible enemy or absorbs the nearest Patch of Flames into your Hand, gaining 1 Pyro Charge and restoring 1 HP. Count the shortest clear route toward Range; enemies win equal-distance ties. At 3 Charges, spend all 3 to discharge a Fireball at the nearest visible enemy within fixed Range 3 (requires line of sight, independent of Attack Range): deal 2 Damage and apply Burning. Charges are spent even with no eligible target. An untriggered Level 3 Flame Ward also grants 1 Charge and restores 1 HP at the start of your next turn. Block with Flames grants 1 Charge and restores 1 HP after combat against a Burning attacker. Whenever you gain a Pyro Charge, draw 1 Card, including when the third Charge triggers a discharge. Other sources of Burning grant no Charges or draws. With this Trait active and at least 1 previously accumulated Pyro Charge, Burning Dash keeps your route under your control, Removes Burning, and grants +1 MOV per Burning Card used for Dash; its usual Burning Damage still applies. Controlled Dash does not spend Charges. Without Charges, use ordinary random Burning Dash.';
+export const PYRO_CHARGES_DESCRIPTION = 'Absorb Flames takes one Burning Card from the nearest eligible enemy or absorbs the nearest Patch of Flames into your Hand, gaining 1 Pyro Charge, restoring 1 HP, and restoring up to 1 previously spent MOV without increasing maximum movement. No spent MOV means no movement restoration. Count the shortest clear route toward Range; enemies win equal-distance ties. At 3 Charges, spend all 3 to discharge a Fireball at the nearest visible enemy within fixed Range 3 (requires line of sight, independent of Attack Range): deal 2 Damage and apply Burning. Charges are spent even with no eligible target. An untriggered Level 3 Flame Ward also grants 1 Charge and restores 1 HP at the start of your next turn. Block with Flames grants 1 Charge and restores 1 HP after combat against a Burning attacker. Whenever you gain a Pyro Charge, draw 1 Card, including when the third Charge triggers a discharge. Other sources of Burning grant no Charges or draws. With this Trait active and at least 1 previously accumulated Pyro Charge, Burning Dash keeps your route under your control, Removes Burning, and grants +1 MOV per Burning Card used for Dash; its usual Burning Damage still applies. Controlled Dash does not spend Charges. Without Charges, use ordinary random Burning Dash.';
 
 /** One exact compass direction, or the two directions bracketing the target. */
 export function pyrodashDirections(from: Cell, target: Cell): Cell[] {
@@ -3153,10 +3171,10 @@ export function pyrodashDirections(from: Cell, target: Cell): Cell[] {
   return [Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) }, diagonal];
 }
 
-function pyrodashObstacle(state: GameState, from: Cell, to: Cell, passLensId?: string): boolean {
+function pyrodashObstacle(state: GameState, from: Cell, to: Cell): boolean {
   return to.x < 1 || to.x > boardWidth(state) || to.y < 0 || to.y >= boardHeight(state)
     || (state.elevations[cellLabel(to)] ?? 0) > (state.elevations[cellLabel(from)] ?? 0)
-    || state.objects.some((object) => object.kind !== 'spectre-replica' && object.id !== passLensId && cellLabel(object.position) === cellLabel(to));
+    || state.objects.some((object) => object.kind !== 'spectre-replica' && object.kind !== 'lens' && cellLabel(object.position) === cellLabel(to));
 }
 
 function pyrodashChoice(state: GameState, dash: NonNullable<GameState['pyrodash']>): { from: Cell; target: Cell; lensExit: boolean } {
@@ -3186,12 +3204,17 @@ export function pyrodashDirectionAt(state: GameState, cell: Cell): Cell | undefi
 }
 
 /** Preflight geometry without dealing Damage: health changes must not conceal a free-movement loop. */
-export function pyrodashRoute(state: GameState, playerId: PlayerId, dx: number, dy: number, fp: number, returnTo = state.players[playerId].position, lens?: LensAttackRoute): { path: Cell[]; loop: boolean } {
+export function pyrodashDistance(fp: number, burningDiscarded = 0): number {
+  return Math.max(0, Math.min(3, fp)) + Math.max(0, burningDiscarded);
+}
+
+export function pyrodashRoute(state: GameState, playerId: PlayerId, dx: number, dy: number, fp: number, returnTo = state.players[playerId].position, lens?: LensAttackRoute, burningDiscarded = 0): { path: Cell[]; loop: boolean } {
   const origin = { ...state.players[playerId].position };
   const enemies = new Set(enemyBodies(state, playerId).map((body) => cellLabel(body.position)));
+  const lenses = new Set(state.objects.filter((object) => object.kind === 'lens').map((object) => cellLabel(object.position)));
   const path: Cell[] = [];
   const seen = new Set<string>();
-  let remaining = Math.max(0, Math.min(3, fp));
+  let remaining = pyrodashDistance(fp, burningDiscarded);
   let from = origin;
   let crossedLens = false;
   while (remaining > 0) {
@@ -3210,22 +3233,31 @@ export function pyrodashRoute(state: GameState, playerId: PlayerId, dx: number, 
     seen.add(key);
     const passLensId = !crossedLens && lens && state.objects.some((object) => object.id === lens.lensId && object.kind === 'lens') ? lens.lensId : undefined;
     const to = { x: from.x + dx, y: from.y + dy };
-    const blockX = dx !== 0 && pyrodashObstacle(state, from, { x: from.x + dx, y: from.y }, passLensId);
-    const blockY = dy !== 0 && pyrodashObstacle(state, from, { x: from.x, y: from.y + dy }, passLensId);
-    if (pyrodashObstacle(state, from, to, passLensId) || (dx !== 0 && dy !== 0 && blockX && blockY)) {
+    const blockX = dx !== 0 && pyrodashObstacle(state, from, { x: from.x + dx, y: from.y });
+    const blockY = dy !== 0 && pyrodashObstacle(state, from, { x: from.x, y: from.y + dy });
+    if (pyrodashObstacle(state, from, to) || (dx !== 0 && dy !== 0 && blockX && blockY)) {
       if (dx !== 0 && dy !== 0 && blockX !== blockY) { if (blockX) dx = -dx; else dy = -dy; }
       else { dx = -dx; dy = -dy; }
       continue;
     }
     path.push(to); from = to;
-    if (!enemies.has(cellLabel(to))) remaining--;
+    if (!enemies.has(cellLabel(to)) && !lenses.has(cellLabel(to))) remaining--;
     if (passLensId && lens && cellLabel(to) === cellLabel(lens.position)) {
-      crossedLens = true; remaining = Math.max(0, Math.min(3, fp));
+      crossedLens = true; remaining = pyrodashDistance(fp, burningDiscarded);
       const heading = lens.exitDirection ?? pyrodashDirections(to, lens.target).at(-1);
       if (heading) { dx = heading.x; dy = heading.y; }
     }
   }
   return { path, loop: false };
+}
+
+function payPyrodashBurning(state: GameState, dash: NonNullable<GameState['pyrodash']>): void {
+  if (dash.burningDiscarded !== undefined) return;
+  const player = state.players[dash.playerId];
+  const cards = player.hand.filter((card) => card.cardId === 'burning');
+  dash.burningDiscarded = cards.length;
+  for (const card of cards) discardFromHand(player, card.instanceId);
+  if (cards.length) state.log.unshift(`Pyrodash spent ${cards.length} Burning Card${cards.length === 1 ? '' : 's'} without Damage; Burning is Removed when Discarded.`);
 }
 
 /** Resolve a preflighted route; loop escape is capped at two enemy passes and a return. */
@@ -3235,6 +3267,7 @@ function runPyrodash(state: GameState, dx: number, dy: number): void {
   delete state.pyrodash;
   const player = state.players[dash.playerId];
   if (player.hp <= 0 || state.phase === 'finished') return;
+  payPyrodashBurning(state, dash);
   state.phase = 'active';
   const beforeDash = structuredClone(state);
   const previousAttack = state.pendingAttack;
@@ -3243,15 +3276,16 @@ function runPyrodash(state: GameState, dx: number, dy: number): void {
   const path: Cell[] = [];
   const animationId = `${state.turn}-pyrodash-${++instanceSequence}`;
   const damageProgress: { event: ObjectPushAnimation; step: number }[] = [];
-  const route = pyrodashRoute(state, player.id, dx, dy, dash.fp, dash.returnTo, dash.lens);
+  const route = pyrodashRoute(state, player.id, dx, dy, dash.fp, dash.returnTo, dash.lens, dash.burningDiscarded);
   let crossedLens = false;
-  let remaining = Math.max(0, Math.min(3, dash.fp));
+  let remaining = pyrodashDistance(dash.fp, dash.burningDiscarded);
   for (const to of route.path) {
     if ((!route.loop && (remaining <= 0 || (state.phase as GamePhase) === 'finished')) || player.hp <= 0) break;
     if ((state.phase as GamePhase) === 'finished') { player.position = { ...to }; path.push({ ...to }); continue; }
     const enemies = enemyBodies(state, player.id).filter((body) => cellLabel(body.position) === cellLabel(to));
+    const crossesLens = state.objects.some((object) => object.kind === 'lens' && cellLabel(object.position) === cellLabel(to));
     const damageStart = state.objectPushAnimations.length;
-    moveCharacterTo(state, player, to);
+    moveCharacterTo(state, player, to, [to], true, true);
     path.push({ ...player.position });
     collectHotPotato(state, player.id, player.position);
     if (player.hp > 0) {
@@ -3270,16 +3304,17 @@ function runPyrodash(state: GameState, dx: number, dy: number): void {
       }
     }
     for (const event of state.objectPushAnimations.slice(damageStart)) if (event.damage && !event.damage.triggerAnimationId) damageProgress.push({ event, step: path.length });
-    if (enemies.length === 0) remaining = Math.max(0, remaining - 1);
+    if (enemies.length === 0 && !crossesLens) remaining = Math.max(0, remaining - 1);
     if (!crossedLens && dash.lens && cellLabel(to) === cellLabel(dash.lens.position) && state.objects.some((object) => object.id === dash.lens!.lensId && object.kind === 'lens')) {
-      crossedLens = true; remaining = Math.max(0, Math.min(3, dash.fp));
-      state.log.unshift(`Pyrodash crossed the Lens, reset to ${dash.fp} FP Squares and redirected toward its magnified target.`);
+      crossedLens = true; remaining = pyrodashDistance(dash.fp, dash.burningDiscarded);
+      state.log.unshift(`Pyrodash crossed the Lens, reset to ${remaining} Squares (FP+X) and redirected toward its magnified target.`);
     }
   }
   state.pendingAttack = previousAttack;
-  if (player.hp > 0 && enemyBodies(state, player.id).some((body) => cellLabel(body.position) === cellLabel(player.position))) {
+  if (player.hp > 0 && (enemyBodies(state, player.id).some((body) => cellLabel(body.position) === cellLabel(player.position))
+    || state.objects.some((object) => object.kind === 'lens' && cellLabel(object.position) === cellLabel(player.position)))) {
     // An enclosed lower-ground pocket can admit smoke but offer no legal exit.
-    // Roll back this movement effect rather than leave two living bodies stacked.
+    // Roll back this movement effect rather than finish on an enemy or Lens.
     Object.assign(state, beforeDash);
     state.log.unshift('Pyrodash could not reach an empty landing Square and remained in place.');
     return;
@@ -3287,13 +3322,13 @@ function runPyrodash(state: GameState, dx: number, dy: number): void {
   if (path.length > 0) {
     recordQuestMovement(state, player.id, path.length, false, player.position);
     markCharacterMoved(player, 'own-card');
-    player.visualMovement = { from: origin, path, sourceCardId: 'pyrodash', animationId, slideEffectsIgnored: true, durationMs: 220 + path.length * 180 };
+    player.visualMovement = { from: origin, path, sourceCardId: 'pyrodash', animationId, slideEffectsIgnored: true, durationMs: (220 + path.length * 180) * 2 };
     for (const { event, step } of damageProgress) {
       event.damage!.triggerAnimationId = animationId;
       event.damage!.triggerRouteProgress = step / path.length;
     }
   }
-  state.log.unshift(route.loop ? `Pyrodash detected a reflection loop before moving: at most 2 enemy passes, then return to the Attack's starting Square.` : `Pyrodash travelled ${path.length} Square${path.length === 1 ? '' : 's'}, spending ${dash.fp - remaining} FP; enemy Squares were free.`);
+  state.log.unshift(route.loop ? `Pyrodash detected a reflection loop before moving: at most 2 enemy passes, then return to the Attack's starting Square.` : `Pyrodash travelled ${path.length} Square${path.length === 1 ? '' : 's'} with a distance budget of ${pyrodashDistance(dash.fp, dash.burningDiscarded)} Squares (FP+X); enemy and Lens Squares were free.`);
 }
 
 function beginQueuedPyrodash(state: GameState): void {
@@ -3301,6 +3336,8 @@ function beginQueuedPyrodash(state: GameState): void {
   if (!dash || state.combatReveal || state.phase !== 'active') return;
   const player = state.players[dash.playerId];
   if (player.hp <= 0) { delete state.pyrodash; return; }
+  payPyrodashBurning(state, dash);
+  if (pyrodashDistance(dash.fp, dash.burningDiscarded) === 0) { delete state.pyrodash; return; }
   if (pyrodashChoice(state, dash).lensExit) { state.phase = 'choosing-pyrodash-direction'; return; }
   const directions = pyrodashDirections(player.position, dash.target);
   if (directions.length === 1) runPyrodash(state, directions[0].x, directions[0].y);
@@ -3436,11 +3473,19 @@ export function absorbFlames(state: GameState, playerId: PlayerId, rangeOverride
     player.hand.push(card);
   } else {
     const label = cellLabel(source.position);
+    const creatorId = state.flameSquareCreators?.[label] ?? player.id;
     removeFlameSquare(state, label);
-    player.hand.push({ instanceId: `${player.id}-absorbed-burning-${++instanceSequence}`, cardId: 'burning', sourcePlayerId: player.id, revealedToOpponent: true });
+    player.hand.push({ instanceId: `${player.id}-absorbed-burning-${++instanceSequence}`, cardId: 'burning', sourcePlayerId: creatorId, revealedToOpponent: true, environmentalBurning: true });
   }
   const animationId = `${state.turn}-absorb-flames-${++instanceSequence}`;
   state.spellProjectiles.push({ id: animationId, casterId: player.id, targetId: player.id, from: { ...source.position }, to: { ...player.position }, path: source.path.slice().reverse().map((cell) => ({ ...cell })), count: 1, damage: 0, style: 'absorb-flames' });
+  const restoredMovement = Math.min(1, player.movementSpentThisTurn ?? 0, Math.max(0, effectiveMoveRange(player) - player.movementRemaining));
+  if (restoredMovement > 0) {
+    player.movementRemaining += restoredMovement;
+    player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) - restoredMovement;
+    showStatEffect(state, player, restoredMovement, 'MOV');
+    state.log.unshift(`Absorb Flames restored ${restoredMovement} spent MOV to ${player.name}.`);
+  }
   gainPyroCharge(state, player, `Absorbed flames from ${source.body?.name ?? cellLabel(source.position)}`, animationId);
   return true;
 }
@@ -3618,8 +3663,10 @@ function breezyPreventsDamage(state: GameState, target: PlayerState): boolean {
   return Boolean(combat?.breezyNegatesDamage && combat.defenderId === target.id);
 }
 
-export function dealDamage(state: GameState, target: PlayerState, amount: number, collision = false, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other', effect = false, bypassTombProtection = false): number {
+export function dealDamage(state: GameState, target: PlayerState, amount: number, collision = false, sourceId: PlayerId = state.activePlayerId, sourceKind: 'attack' | 'perk' | 'defense' | 'other' = 'other', effect = false, bypassTombProtection = false, rageGainCap = Infinity, attribution?: { playerId: PlayerId; kind: 'attack' | 'perk' | 'defense' | 'other' }): number {
   let resolvedAmount = Math.max(0, amount);
+  const damageStatKind = attribution?.kind ?? sourceKind;
+  const damageStatSourceId = attribution?.playerId ?? sourceId;
   const pending = state.pendingAttack;
   if (!bypassTombProtection && pending?.defenderTombId && pending.defenderId === target.id
     && pending.attackerId === sourceId && sourceKind === 'attack') {
@@ -3672,23 +3719,23 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
   if (lichProtected && resolvedAmount > dealt) state.log.unshift(`${target.name}'s surviving Phylactery prevented The Lich from being defeated.`);
   if (dealt > 0) {
     const damageState = state as GameState & { damageLog?: DamageLogEntry[] };
-    (damageState.damageLog ??= []).push({ eventType: 'damage', turn: state.turn, targetId: target.id, sourceId, sourceKind, amount: dealt, hpAfter: target.hp, collision });
+    (damageState.damageLog ??= []).push({ eventType: 'damage', turn: state.turn, targetId: target.id, sourceId: damageStatSourceId, sourceKind: damageStatKind, amount: dealt, hpAfter: target.hp, collision });
   }
-  if (creditedDamage > 0 && sourceId !== target.id && state.players[sourceId]) {
-    const stats = ensureMatchStats(state.players[sourceId]);
-    if (sourceKind === 'attack') {
+  if (creditedDamage > 0 && damageStatSourceId !== target.id && state.players[damageStatSourceId]) {
+    const stats = ensureMatchStats(state.players[damageStatSourceId]);
+    if (damageStatKind === 'attack') {
       stats.attackDamage += creditedDamage;
       stats.totalDamage += creditedDamage;
     }
-    if (sourceKind === 'perk') {
+    if (damageStatKind === 'perk') {
       stats.perkDamage += creditedDamage;
       stats.totalDamage += creditedDamage;
     }
-    if (sourceKind === 'defense') {
+    if (damageStatKind === 'defense') {
       stats.defensiveRetaliationDamage += creditedDamage;
       stats.totalDamage += creditedDamage;
     }
-    if (sourceKind === 'other') stats.totalDamage += creditedDamage;
+    if (damageStatKind === 'other') stats.totalDamage += creditedDamage;
   }
   if (dealt > 0 && sourceId !== target.id && state.players[sourceId]) {
     const questState = questPhases(state);
@@ -3699,7 +3746,7 @@ export function dealDamage(state: GameState, target: PlayerState, amount: number
   if (dealt > 0 && state.activePlayerId !== target.id) target.damagedDuringEnemyTurn = true;
   if (dealt > 0) state.objectPushAnimations.push({ id: `${state.turn}-damage-${target.id}-${state.log.length}-${state.objectPushAnimations.length}`, objectId: '', from: { ...target.position }, to: { ...target.position }, dx: 0, dy: 0, collided: false, damage: { playerId: target.id, amount: dealt, collision, fatal: target.hp === 0, effect: effect || undefined } });
   if (dealt > 0 && target.character === 'orkk' && !target.traitBlocked && !target.rageGainLocked) {
-    const gainedRage = target.doubleRageUntilEnemyTurnEnd ? 2 : 1;
+    const gainedRage = Math.min(rageGainCap, target.doubleRageUntilEnemyTurnEnd ? 2 : 1);
     target.rageStacks += gainedRage;
     target.rageGainLocked = true;
     state.log.unshift(`${target.name} gained ${gainedRage} Rage from taking damage${gainedRage > 1 ? ' while Double! was active' : ''} (${target.rageStacks} total).`);
@@ -4664,6 +4711,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   if (command.type === 'force-throw-target') return selectForceThrowTarget(state, command.playerId, command.targetKind, command.targetId);
   if (command.type === 'force-throw-direction') return resolveForceThrowDirection(state, command.playerId, command.to);
   if (command.type === 'force-pull-target') return selectForcePullTarget(state, command.playerId, command.targetKind, command.targetId);
+  if (command.type === 'countaspell-rage') return resolveCountaSpellRage(state, command.playerId, command.amount);
   if (command.type === 'arkane-arow-target') return resolveArkaneArowTarget(state, command.playerId, command.to);
   if (command.type === 'arm-da-wiz-choice') return resolveArmDaWizChoice(state, command.playerId, command.choice);
   if (command.type === 'arm-da-wiz-create-payment') return resolveArmDaWizCreatePayment(state, command.playerId, command.payment);
@@ -4773,12 +4821,13 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
     recordQuestMovement(state, player.id, cost, false, command.to);
     player.visualMovement = { from: movementOrigin, path: path.map((cell) => ({ ...cell })), slideEffectsIgnored: path.some((cell) => ignoresSlideEffects(state, player, cell)), dash: state.phase === 'dashing' || player.fyrestarter?.stage === 'active', fastRun: state.phase === 'dashing' || player.fyrestarter?.stage === 'active' || (player.character === 'merylin' && Boolean(player.windwalkerActive)) };
     spendAppleMovement(player, Math.max(0, cost - spiritRefunds));
-    moveCharacterTo(state, player, command.to, path);
+    moveCharacterTo(state, player, command.to, path, true);
     if (player.hp <= 0 || (state.phase as GamePhase) === 'finished') return ok(state);
     if (player.character === 'spectre') player.spectreOnBoxId = shadowBoxDestination ? targetObject!.id : null;
     player.wrecknaInsideTombId = enteringTomb ? destinationTomb!.id : null;
     player.movementRemaining = Math.max(0, player.movementRemaining - cost + spiritRefunds);
     if (player.character === 'merylin') player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) + cost;
+    if (player.character === 'fyrebanks') player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) + Math.max(0, cost - spiritRefunds);
     if (player.character === 'john-christ') {
       if (spiritTraversalActive) {
         player.spiritMovementSpentThisTurn = true;
@@ -4950,6 +4999,7 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
       if (player.movementRemaining < 1) return fail(source, 'Blessing: Prayer requires 1 available MOV.');
       spendAppleMovement(player, 1);
       player.movementRemaining -= 1;
+      if (player.character === 'fyrebanks') player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) + 1;
       if (player.character === 'john-christ') player.johnCumulativeMovementRemaining = Math.max(0, player.johnCumulativeMovementRemaining - 1);
       removeCard(player, blessingPrayer.instanceId);
       const drawn = drawCards(player, 1);
@@ -5006,9 +5056,9 @@ function applyCommandInternal(source: GameState, rawCommand: unknown): CommandRe
   return fail(source, 'That action is not available.');
 }
 
-/** The sole mode gate: enable here for the overall game without changing insertion rules or UI. */
-export function allowsAnySpellEchoReplacement(state: GameState): boolean {
-  return state.perkMode === true;
+/** Replacing any occupied Spell Echo level is available in every game mode. */
+export function allowsAnySpellEchoReplacement(_state: GameState): boolean {
+  return true;
 }
 
 export function canTargetSpellEchoSlotForInsertion(state: GameState, playerId: PlayerId, position: number): boolean {
@@ -5278,6 +5328,7 @@ function applyPerkEffects(state: GameState, player: PlayerState, perk: Card, lev
     const movementBefore = player.movementRemaining;
     spendAppleMovement(player, 1);
     player.movementRemaining = Math.max(0, player.movementRemaining - 1);
+    if (player.character === 'fyrebanks') player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) + movementBefore - player.movementRemaining;
     const attackBonus = level >= 2 ? 2 : 1;
     const previousAttackBonus = player.barbarianNextAttackBonus ?? 0;
     player.barbarianNextAttackBonus = Math.max(player.barbarianNextAttackBonus ?? 0, attackBonus);
@@ -6759,7 +6810,7 @@ function resolveYamatoMove(state: GameState, playerId: PlayerId, to: Cell | null
     if (diagonalMovementBlockedByObject(state, defender.position, to)) return fail(state, 'An Object blocks that diagonal movement.');
     if (isForbiddenSlideAscent(state, defender.position, to)) return fail(state, 'Yamato cannot move up that Slide edge.');
     const origin = { ...defender.position };
-    moveCharacterTo(state, defender, to);
+    moveCharacterTo(state, defender, to, [to], true);
     pending.defenderPosition = { ...to };
     defender.visualMovement = { from: origin, path: [{ ...to }], sourceCardId: 'yamato', fastRun: true };
     recordQuestMovement(state, defender.id, 1, false, to);
@@ -6845,7 +6896,7 @@ function resolveLightbringerSwapDecision(state: GameState, playerId: PlayerId, s
       state.objectPushAnimations.push({ id: `${state.turn}-lightbringer-swap-object-${attackerReplica.id}-${++instanceSequence}`, objectId: attackerReplica.id, from: attackerOrigin, to: defenderOrigin, dx: 0, dy: 0, collided: false, fastSwap: true });
     }
     else {
-      moveCharacterTo(state, attacker, defenderOrigin);
+      moveCharacterTo(state, attacker, defenderOrigin, [defenderOrigin], true);
       attacker.visualMovement = { from: attackerOrigin, path: [{ ...defenderOrigin }], kind: 'lightbringer-swap' };
     }
     if (defenderReplica) {
@@ -7323,7 +7374,7 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
     if (resurrectionDestination) {
       const origin = { ...defender.position };
       recordQuestMovement(state, defender.id, 1, true, resurrectionDestination);
-      moveCharacterTo(state, defender, resurrectionDestination);
+      moveCharacterTo(state, defender, resurrectionDestination, [resurrectionDestination], true);
       defender.visualMovement = { from: origin, path: [{ ...resurrectionDestination }], sourceCardId: 'resurrection' };
       markCharacterMoved(defender, 'own-card');
       state.log.unshift(`Resurrection negated all Damage, teleported ${defender.name} to ${cellLabel(resurrectionDestination)}, and drew ${drawn} Card.`);
@@ -7766,11 +7817,11 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
       } else state.log.unshift(`Arcane Shield could not find a walkable path from the Shield to ${defender.name}.`);
     } else state.log.unshift('Arcane Shield found no Shield on the Board to recall.');
   }
-  if (defenseCardId === 'countaspell' && !defensePostCombatEffectsCancelled) {
-    const attacker = state.players[pending.attackerId];
-    const headacheCount = defender.rageStacks;
-    for (let index = 0; index < headacheCount; index++) if (!blessingShieldBlocksCombatStatus(state, attacker, 'headache')) addForcedStatusCard(state, attacker, 'headache', 'discard', defender.id, 'defense', true);
-    state.log.unshift(`CountaSpell added ${headacheCount} Headache Card${headacheCount === 1 ? '' : 's'} to ${attacker.name}'s Discard Deck after combat.`);
+  if (defenseCardId === 'countaspell' && !defensePostCombatEffectsCancelled && defender.hp > 0 && state.players[pending.attackerId].hp > 0 && defender.rageStacks > 0) {
+    const choice = { playerId: defender.id, attackerId: pending.attackerId, combat: structuredClone(pending) };
+    // Optional combat protection must account for the possible paid retaliation.
+    if (combatCardForecasts.has(state)) spendCountaSpellRage(state, choice, defender.rageStacks);
+    else state.countaSpell = choice;
   }
   if (defenseCardId === 'mana-baryer' && !shieldEquippedAtDefenseStart && !defensePostCombatEffectsCancelled) {
     const recall = nearestRecallableOrkkShield(state, defender.id, defender.position, 16);
@@ -8085,9 +8136,9 @@ function resolveDefense(state: GameState, command: Extract<GameCommand, { type: 
   }
   state.combatReveal = null;
   beginQueuedNarration(state, !attackPostCombatEffectsCancelled && pending.cardId === 'escalation' ? [pending.attackerId] : []);
-  if (!attackPostCombatEffectsCancelled && pending.cardId === 'pyrodash' && (pending.fyrePoints ?? 0) > 0 && attacker.hp > 0 && state.phase !== 'finished') {
+  if (!attackPostCombatEffectsCancelled && pending.cardId === 'pyrodash' && attacker.hp > 0 && state.phase !== 'finished') {
     const lens = pending.lensAttack ? { ...pending.lensAttack, position: { ...(state.objects.find((object) => object.id === pending.lensAttack!.lensId)?.position ?? pending.lensAttack.position) }, target: { ...(attackedSpectreReplica(state, pending)?.position ?? defender.position) } } : undefined;
-    state.pyrodash = { playerId: attacker.id, fp: pending.fyrePoints!, target: { ...(lens?.position ?? attackedSpectreReplica(state, pending)?.position ?? defender.position) }, lens, returnTo: { ...(pending.pyrodashOrigin ?? attacker.position) }, combat: structuredClone(pending) };
+    state.pyrodash = { playerId: attacker.id, fp: pending.fyrePoints ?? 0, target: { ...(lens?.position ?? attackedSpectreReplica(state, pending)?.position ?? defender.position) }, lens, returnTo: { ...(pending.pyrodashOrigin ?? attacker.position) }, combat: structuredClone(pending) };
   }
   if (!attackPostCombatEffectsCancelled && pending.cardId === 'mockingjay') beginMockingjayNarrativeSpend(state, pending.attackerId);
   // Finalize discard-based quest progress in the deferred result now. The
@@ -8478,7 +8529,7 @@ function completeNecronomiconAfterPhylactery(state: GameState, playerId: PlayerI
   if (pending.level >= 2) {
     if (tomb) {
       const origin = { ...caster.position };
-      moveCharacterTo(state, caster, tomb.position);
+      moveCharacterTo(state, caster, tomb.position, [tomb.position], true);
       caster.wrecknaInsideTombId = tomb.id;
       caster.necronomiconTombDefenseActive = true;
       caster.visualMovement = { from: origin, path: [{ ...tomb.position }], sourceCardId: 'necronomicon' };
@@ -8613,7 +8664,7 @@ function resolvePortalTeleport(state: GameState, playerId: PlayerId, to: Cell): 
   if (!hasLineOfSight(state, from, to)) return fail(state, 'Portal can only land on a Square currently visible from its caster.');
   recordQuestMovement(state, playerId, 1, true, to);
   player.visualMovement = { from, path: [{ ...to }], sourceCardId: pending.source ?? 'portal' };
-  moveCharacterTo(state, player, to);
+  moveCharacterTo(state, player, to, [to], true);
   markCharacterMoved(player, 'own-card');
   extended.portal = null; state.phase = 'active';
   state.log.unshift(`${player.name} used Portal as ${pending.source === 'portal-perk' ? 'a Perk' : 'a Free Action'} to teleport from ${cellLabel(from)} to ${cellLabel(to)}${pending.source === 'portal-perk' ? '.' : '. Portal was Removed from the game.'}`);
@@ -8757,7 +8808,7 @@ function resolvePreparationTeleport(state: GameState, playerId: PlayerId, object
   const playerOrigin = { ...player.position };
   const objectOrigin = { ...object.position };
   recordQuestMovement(state, player.id, 1, true, objectOrigin);
-  moveCharacterTo(state, player, objectOrigin);
+  moveCharacterTo(state, player, objectOrigin, [objectOrigin], true);
   player.visualMovement = { from: playerOrigin, path: [{ ...objectOrigin }], sourceCardId: 'preparation' };
   moveBoardObject(state, object, playerOrigin);
   markCharacterMoved(player, 'own-card');
@@ -8777,7 +8828,7 @@ function resolveBlinkTeleport(state: GameState, playerId: PlayerId, to: Cell): C
   if (!hasLineOfSight(state, player.position, to)) return fail(state, 'Blink can only land on a Square currently visible from its caster.');
   const from = { ...player.position };
   recordQuestMovement(state, player.id, 1, true, to);
-  moveCharacterTo(state, player, to);
+  moveCharacterTo(state, player, to, [to], true);
   player.visualMovement = { from, path: [{ ...to }], sourceCardId: 'blink' };
   pending.defenderPosition = { ...to };
   pending.blinkOrigin = from;
@@ -9618,7 +9669,7 @@ function resolveShizzleDestination(state: GameState, playerId: PlayerId, to: Cel
   recordQuestMovement(state, player.id, steps, false, to);
   const enteredFrom = path.length > 1 ? path[path.length - 2] : { ...player.position };
   player.visualMovement = { from: { ...player.position }, path: path.map((cell) => ({ ...cell })), sourceCardId: 'shizzle' };
-  moveCharacterTo(state, player, to, path);
+  moveCharacterTo(state, player, to, path, true);
   applySlideSquare(state, player, enteredFrom, true);
   markCharacterMoved(player, 'own-card');
   for (const enemy of passedEnemies) damageCharacterBody(state, enemy, 1, true, playerId, 'perk');
@@ -9643,7 +9694,7 @@ function moveShizzle(state: GameState, player: PlayerState, to: Cell): CommandRe
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'shizzle' };
-  moveCharacterTo(state, player, to);
+  moveCharacterTo(state, player, to, [to], true);
   applySlideSquare(state, player, enteredFrom, true);
   markCharacterMoved(player, 'own-card');
   shizzle.started = true; shizzle.stepsRemaining -= 1; shizzle.enemyUnderfoot = targetEnemy?.kind === 'player' ? targetEnemy.ownerId : null; shizzleBodies.bodyUnderfoot = targetEnemy ?? null;
@@ -10056,7 +10107,7 @@ function resolveSpectreRelocate(state: GameState, player: PlayerState, replica: 
   const lineVictims = enemiesBetweenCells(state, player.id, origin, replicaOrigin);
   for (const enemy of lineVictims) damageCharacterBody(state, enemy, 1, false, player.id, 'perk');
   state.log.unshift(`Relocate's tether dealt 1 Damage to ${lineVictims.length > 0 ? lineVictims.map((enemy) => enemy.name).join(', ') : 'no enemies'} on tiles intersected by the line.`);
-  moveCharacterTo(state, player, replicaOrigin);
+  moveCharacterTo(state, player, replicaOrigin, [replicaOrigin], true);
   player.spectreOnBoxId = replica.spectreOnBoxId ?? null;
   replica.position = origin;
   replica.spectreOnBoxId = originBoxId;
@@ -10269,7 +10320,7 @@ function moveDanceThrough(state: GameState, player: PlayerState, to: Cell): Comm
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'dance-through' };
-  moveCharacterTo(state, player, to);
+  moveCharacterTo(state, player, to, [to], true);
   applySlideSquare(state, player, enteredFrom, true);
   markCharacterMoved(player, 'own-card');
   dance.stepsRemaining -= 1;
@@ -10315,7 +10366,7 @@ function moveDoubleJump(state: GameState, player: PlayerState, to: Cell): Comman
   const enteredFrom = { ...player.position };
   recordQuestMovement(state, player.id, 1, false, to);
   player.visualMovement = { from: enteredFrom, path: [{ ...to }], sourceCardId: 'double-jump', doubleJumpStep: jump.stepsRemaining > 1 ? 1 : 2 };
-  moveCharacterTo(state, player, to);
+  moveCharacterTo(state, player, to, [to], true);
   applySlideSquare(state, player, enteredFrom, true);
   markCharacterMoved(player, 'own-card');
   jump.stepsRemaining -= 1;
@@ -10373,12 +10424,14 @@ function resolveFyrestarterDash(state: GameState, playerId: PlayerId, use: boole
   return ok(resolveBurningDash(state, player));
 }
 
-function burningDamage(state: GameState, player: PlayerState, sourceId: PlayerId): number {
+function burningDamage(state: GameState, player: PlayerState, sourceId: PlayerId, environmental = false): number {
   if (player.fyrestarterBurningProtection) {
     state.log.unshift(`Fyrestarter prevented 1 Burning Damage to ${player.name}.`);
     return 0;
   }
-  return dealDamage(state, player, 1, false, sourceId, 'perk');
+  // Classification affects statistics only; Burning keeps its existing Damage protections.
+  const damageStatKind = state.players[sourceId]?.character === 'fyrebanks' ? 'attack' : 'perk';
+  return dealDamage(state, player, 1, false, environmental ? player.id : sourceId, 'perk', false, false, 1, { playerId: sourceId, kind: damageStatKind });
 }
 
 function resolveFinishingDiscard(state: GameState, playerId: PlayerId, cardInstanceId: string): CommandResult {
@@ -10450,7 +10503,8 @@ function spendMovementRandomly(state: GameState, player: PlayerState, effectName
     const enteredFrom = { ...player.position };
     recordQuestMovement(state, player.id, 1, false, destination);
     spendAppleMovement(player, 1);
-    moveCharacterTo(state, player, destination); path.push({ ...destination }); player.movementRemaining -= 1;
+    moveCharacterTo(state, player, destination, [destination], movementCause !== 'enemy-ability'); path.push({ ...destination }); player.movementRemaining -= 1;
+    if (player.character === 'fyrebanks') player.movementSpentThisTurn = (player.movementSpentThisTurn ?? 0) + 1;
     const slidTo = applySlideSquare(state, player, enteredFrom);
     if (slidTo) path.push({ ...slidTo });
   }
@@ -10463,10 +10517,10 @@ function spendMovementRandomly(state: GameState, player: PlayerState, effectName
 
 function resolveBurningDash(state: GameState, player: PlayerState): GameState {
   const burningCards = player.hand.filter((card) => card.cardId === 'burning');
+  player.rageGainLocked = false;
   for (const burning of burningCards) {
     const sourceId = burning.sourcePlayerId && state.players[burning.sourcePlayerId] ? burning.sourcePlayerId : player.id;
-    player.rageGainLocked = false;
-    burningDamage(state, player, sourceId);
+    burningDamage(state, player, sourceId, burning.environmentalBurning);
   }
   const burningIds = burningCards.map((card) => card.instanceId);
   const controlled = player.character === 'fyrebanks' && !player.traitBlocked && (player.pyroCharges ?? 0) > 0;
@@ -10522,10 +10576,10 @@ function endTurn(state: GameState): GameState {
   finishFyrestarterDash(state, current);
   const burningCards = current.hand.filter((card) => card.cardId === 'burning');
   const waterExtinguishesBurning = burningCards.length > 0 && isShallowWater(state, current.position);
+  current.rageGainLocked = false;
   for (const burning of burningCards) {
     const sourceId = burning.sourcePlayerId && state.players[burning.sourcePlayerId] ? burning.sourcePlayerId : current.id;
-    current.rageGainLocked = false;
-    burningDamage(state, current, sourceId);
+    burningDamage(state, current, sourceId, burning.environmentalBurning);
     if (waterExtinguishesBurning) removeCard(current, burning.instanceId);
   }
   if (burningCards.length > 0) state.log.unshift(`${current.name} received ${current.fyrestarterBurningProtection ? 0 : burningCards.length} Damage from Burning at the end of the turn${waterExtinguishesBurning ? `; Shallow Water Removed ${burningCards.length} Burning Status Card${burningCards.length === 1 ? '' : 's'}` : ''}.`);
@@ -10782,7 +10836,7 @@ function returnNarrativeCharacter(state: GameState, player: PlayerState, cause: 
   const from = { ...player.position };
   if (from.x === destination.x && from.y === destination.y) return;
   recordQuestMovement(state, player.id, 1, true, destination);
-  moveCharacterTo(state, player, destination);
+  moveCharacterTo(state, player, destination, [destination], cause === 'own-card');
   player.visualMovement = { from, path: [{ ...destination }] };
   player.wrecknaInsideTombId = null;
   player.spectreOnBoxId = null;
@@ -10877,11 +10931,17 @@ function finalizeTurn(state: GameState): GameState {
   const startingSquare = endingPlayer.turnStartRecord?.position;
   if (startingSquare && startingSquare.x === endingPlayer.position.x && startingSquare.y === endingPlayer.position.y) endingPlayer.weaverHologramExpired = true;
   if (queueWeaverChoice(state)) return state;
+  const flameVisit = state.flameVisits?.[endingPlayer.id];
+  if (isBurningSquare(state, endingPlayer.position) && !(flameVisit?.square === cellLabel(endingPlayer.position) && flameVisit.paid)) {
+    receiveFlamesBurning(state, endingPlayer, 1, [state.flameSquareCreators?.[cellLabel(endingPlayer.position)] ?? endingPlayer.id]);
+    (state.flameVisits ??= {})[endingPlayer.id] = { square: cellLabel(endingPlayer.position), paid: true };
+  }
   delete endingPlayer.fyrestarterBurningProtection;
   const pendingBurning = state.pendingDashBurning?.[endingPlayer.id] ?? 0;
   if (pendingBurning) {
-    receiveFlamesBurning(state, endingPlayer, pendingBurning);
+    receiveFlamesBurning(state, endingPlayer, pendingBurning, state.pendingDashBurningSources?.[endingPlayer.id]);
     delete state.pendingDashBurning![endingPlayer.id];
+    if (state.pendingDashBurningSources) delete state.pendingDashBurningSources[endingPlayer.id];
   }
   for (const player of Object.values(state.players)) {
     const appleMovement = player.appleMovementRemaining ?? 0;
@@ -10957,7 +11017,6 @@ function finalizeTurn(state: GameState): GameState {
     if ((state.phase as GamePhase) === 'finished') return state;
   }
   recordTurnStart(next, state.turn);
-  if (isBurningSquare(state, next.position)) receiveFlamesBurning(state, next);
   if (next.necronomiconTombDefenseActive) {
     next.necronomiconTombDefenseActive = false;
     state.log.unshift(`Necronomicon's permission to use any Defend Card inside a Tomb expired for ${next.name} at the start of their turn.`);
@@ -11405,7 +11464,7 @@ function discardFromHand(player: PlayerState, instanceId: string) {
   if (index < 0) return;
   const [card] = player.hand.splice(index, 1);
   if (card.cardId === 'pinned') player.pinnedStacks = Math.max(0, player.pinnedStacks - 1);
-  if (card.cardId === 'feint' || card.cardId === 'weak-feint' || card.cardId === 'judgement' || card.cardId === 'fireball' || card.cardId === 'firebolt' || card.cardId === 'heated-debate' || card.cardId === 'overpower') {
+  if (card.cardId === 'feint' || card.cardId === 'weak-feint' || card.cardId === 'judgement' || card.cardId === 'fireball' || card.cardId === 'firebolt' || card.cardId === 'heated-debate' || card.cardId === 'overpower' || card.cardId === 'banner' || card.cardId === 'banner-draw') {
     adjustUnspentMovementForRangeChange(player, previousMoveRange);
     return;
   }
@@ -11466,11 +11525,45 @@ function scorePendingDiscards(state: GameState) {
   }
   discardBaselineByCommand.delete(state);
 }
+function spendCountaSpellRage(state: GameState, choice: NonNullable<GameState['countaSpell']>, amount: number): void {
+  const player = state.players[choice.playerId];
+  const attacker = state.players[choice.attackerId];
+  player.rageStacks -= amount;
+  const previousAttack = state.pendingAttack;
+  state.pendingAttack = choice.combat;
+  let added = 0;
+  for (let index = 0; index < amount && attacker.hp > 0; index++) {
+    if (!blessingShieldBlocksCombatStatus(state, attacker, 'headache') && addForcedStatusCard(state, attacker, 'headache', 'discard', player.id, 'defense', true)) added++;
+  }
+  state.pendingAttack = previousAttack;
+  state.log.unshift(`CountaSpell: ${player.name} spent ${amount} Rage and added ${added} Headache Card${added === 1 ? '' : 's'} to ${attacker.name}'s Discard.`);
+}
+
+function beginCountaSpellChoice(state: GameState): void {
+  const choice = state.countaSpell;
+  if (!choice || state.combatReveal) return;
+  if (state.phase === 'finished' || state.players[choice.playerId].hp <= 0 || state.players[choice.attackerId].hp <= 0 || state.players[choice.playerId].rageStacks <= 0) {
+    delete state.countaSpell; return;
+  }
+  if (state.phase === 'active' && !state.pyrodash && !hasPendingPerkChoice(state)) state.phase = 'choosing-countaspell-rage';
+}
+
+function resolveCountaSpellRage(state: GameState, playerId: PlayerId, amount: number): CommandResult {
+  const choice = state.countaSpell;
+  if (state.phase !== 'choosing-countaspell-rage' || state.combatReveal || !choice || choice.playerId !== playerId) return fail(state, 'No CountaSpell choice is available to this Player.');
+  if (amount > state.players[playerId].rageStacks) return fail(state, 'You cannot spend more Rage than you have.');
+  delete state.countaSpell;
+  spendCountaSpellRage(state, choice, amount);
+  state.phase = 'active';
+  return ok(state);
+}
+
 function ok(state: GameState): CommandResult {
   beginQueuedPyrodash(state);
   resolvePendingCounterflame(state);
   resolvePendingLensBurning(state);
   extinguishFlameSquares(state);
+  beginCountaSpellChoice(state);
   scorePendingDiscards(state);
   for (const player of Object.values(state.players)) if (player.hp <= 0 && !player.defeatedAnnounced) registerCharacterDefeat(state, player);
   const living = (Object.keys(state.players) as PlayerId[]).filter((id) => state.players[id].hp > 0);

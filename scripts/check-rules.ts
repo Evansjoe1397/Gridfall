@@ -274,7 +274,7 @@ const automaticBannerDiscard = applyCommand(automaticBannerDiscardState, { type:
 assert.equal(automaticBannerDiscard.ok, true);
 if (automaticBannerDiscard.ok) {
   assert.equal(automaticBannerDiscard.state.players.P1.hand.some((card) => card.cardId === 'banner'), false, 'The winner Banner is automatically discarded when hand-limit discarding is requested.');
-  assert.equal(automaticBannerDiscard.state.players.P1.discard.some((card) => card.cardId === 'banner'), true, 'An automatically discarded Banner enters the Discard pile rather than being Removed.');
+  assert.equal(automaticBannerDiscard.state.players.P1.discard.some((card) => card.cardId === 'banner'), false, 'An automatically discarded Banner is Removed instead of entering Discard.');
 }
 
 const droppedFlagState = createGameInitialState() as any;
@@ -5191,8 +5191,18 @@ if (attackCountaSpell.ok) {
   const defendCountaSpell = applyCommand(attackCountaSpell.state, { type: 'defend', playerId: 'P2', cardInstanceId: 'countaspell-defense' });
   assert.equal(defendCountaSpell.ok, true);
   if (defendCountaSpell.ok) {
-    const headaches = defendCountaSpell.state.players.P1.discard.filter((card) => card.cardId === 'headache');
-    assert.equal(headaches.length, 2, 'CountaSpell adds one Headache per Rage Stack after combat.');
+    let countaResult = defendCountaSpell.state;
+    if (countaResult.combatReveal) {
+      const firstAck = applyCommand(countaResult, { type: 'ack-combat', playerId: 'P1' });
+      assert.ok(firstAck.ok); countaResult = firstAck.state;
+      const secondAck = applyCommand(countaResult, { type: 'ack-combat', playerId: 'P2' });
+      assert.ok(secondAck.ok); countaResult = secondAck.state;
+    }
+    const paidCountaSpell = applyCommand(countaResult, { type: 'countaspell-rage', playerId: 'P2', amount: 2 });
+    assert.ok(paidCountaSpell.ok); countaResult = paidCountaSpell.state;
+    const headaches = countaResult.players.P1.discard.filter((card) => card.cardId === 'headache');
+    assert.equal(headaches.length, 2, 'CountaSpell adds one Headache per Rage Stack the defender chooses to spend.');
+    assert.equal(countaResult.players.P2.rageStacks, 0);
     assert.equal(headaches.every((card) => card.revealedToOpponent), true, 'Generated Status Cards are public information.');
   }
 }

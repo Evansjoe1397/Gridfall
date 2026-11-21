@@ -12,6 +12,7 @@ export type NagrandBotProfile = {
   character: 'merylin' | 'orkk'; name: string; focus: CardTypeId[];
   priorities?: Partial<Record<CardTypeId, number>>;
   resources?: (state: GameState, id: PlayerId) => number;
+  commandValue?: (before: GameState, after: GameState, command: GameCommand, id: PlayerId) => number;
   position?: (state: GameState, id: PlayerId) => number;
   candidates?: (state: GameState, id: PlayerId) => GameCommand[] | undefined;
   forecastPhases?: string[];
@@ -107,6 +108,7 @@ export function createNagrandPlanner(profile: NagrandBotProfile) {
   function candidates(state: GameState, id: PlayerId): GameCommand[] {
     const player = state.players[id]; const phase: string = state.phase;
     const make = (type: string, fields: Record<string, unknown> = {}) => command(type, id, fields);
+    if (phase === 'choosing-countaspell-rage') return Array.from({ length: player.rageStacks + 1 }, (_, amount) => make('countaspell-rage', { amount }));
     const specific = profile.candidates?.(state, id);
     if (specific) return specific;
     const ownCards = [...player.hand, ...player.deck, ...player.discard];
@@ -198,7 +200,7 @@ export function createNagrandPlanner(profile: NagrandBotProfile) {
       // A Guard draw is provisional: pay its discard and resolve the actual
       // turn end before comparing it with Dash or simply ending the turn.
       if (profile.forecastFinishingMoves && current.activePlayerId === id
-        && ['choosing-guard-discard', 'choosing-end-discard', 'choosing-hot-potato-discard'].includes(current.phase)) {
+        && ['choosing-guard-discard', 'choosing-dash-discard', 'choosing-end-discard', 'choosing-hot-potato-discard'].includes(current.phase)) {
         const player = current.players[id];
         const payments = current.phase === 'choosing-end-discard' && player.hand.length <= 5
           ? [command('end-turn', id)]
@@ -278,6 +280,7 @@ export function createNagrandPlanner(profile: NagrandBotProfile) {
     if (cmd.type === 'phase-three-operation') score += cmd.operation === 'remove' ? 4 : 2;
     if (cmd.type === 'dash') score -= 0.6;
     if (cmd.type === 'move') score -= 0.15;
+    score += profile.commandValue?.(state, simulated, cmd, id) ?? 0;
     return { state: simulated, score };
   }
 
@@ -297,11 +300,12 @@ export function createNagrandPlanner(profile: NagrandBotProfile) {
       if (!['active', 'dashing'].includes(choice.state.phase) || choice.state.activePlayerId !== playerId || choice.state.combatReveal) continue;
       const nextObservation = { state: choice.state, playerId, hiddenAttack: false };
       let best = choice.score;
+      const firstCommandValue = profile.commandValue?.(state, choice.state, choice.command, playerId) ?? 0;
       for (const cmd of candidates(choice.state, playerId)) {
         if (cmd.type === 'move' && choice.command.type === 'move') continue;
         evaluated++;
         const next = scoredTransition(nextObservation, cmd);
-        if (next) best = Math.max(best, next.score - 0.2);
+        if (next) best = Math.max(best, next.score + firstCommandValue - 0.2);
       }
       choice.score = best;
     }

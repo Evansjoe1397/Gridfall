@@ -1,4 +1,4 @@
-import { kykDirectionAllowed, type GameCommand, type GameState, type PlayerId } from '../shared/game.ts';
+import { cardDefinition, kykDirectionAllowed, type GameCommand, type GameState, type GameStateWithQuestPhases, type PlayerId } from '../shared/game.ts';
 import { createNagrandPlanner } from './nagrand-bot-core.ts';
 
 const cells = Array.from({ length: 64 }, (_, i) => ({ x: i % 8 + 1, y: Math.floor(i / 8) }));
@@ -26,6 +26,7 @@ function orkkChoices(state: GameState, id: PlayerId): GameCommand[] | undefined 
 
 const planner = createNagrandPlanner({
   character: 'orkk', name: 'Da Orkk',
+  forecastFinishingMoves: true,
   focus: ['shield-bash', 'knee-blast', 'countaspell', 'mana-baryer'],
   priorities: {
     fistbolt: 4.8, 'teef-strike': 4.3, 'chain-punchin': 4.2, 'shield-bash': 4.8, 'knee-blast': 5,
@@ -36,8 +37,26 @@ const planner = createNagrandPlanner({
   // beyond one strong Attack, and its turn-end decay is simulated normally.
   resources(state, id) {
     const p = state.players[id];
+    const burning = p.hand.filter((card) => card.cardId === 'burning').length;
+    const echoCount = p.spellEcho.filter(Boolean).length;
+    const waitingPerk = p.hand.some((card) => Boolean(cardDefinition(card).levelEffects?.length)
+      && (card.cardId !== 'arm-da-wiz' || !p.shieldEquipped)
+      && (card.cardId !== 'arkane-arow' || p.shieldEquipped));
+    const advanced = p.spellEcho.reduce((value, card, index) => value + (card ? index * 3 : 0), 0);
+    const canAdvance = state.activePlayerId === id && !p.perkUsed && p.spellEcho[0] && echoCount < 3;
+    const advancement = canAdvance ? 3 + (waitingPerk ? 5 : 0) : 0;
     return Math.min(3, p.rageStacks) * 1.6 + Math.max(0, p.rageStacks - 3) * 0.4
-      + (p.shieldEquipped ? 2 : 0) + (p.doubleRageUntilEnemyTurnEnd ? 1 : 0);
+      + (p.shieldEquipped ? 2 : 0) + (p.doubleRageUntilEnemyTurnEnd ? 1 : 0)
+      - burning * 12 + Math.max(0, echoCount - 1) * 6 + advanced + advancement
+      + (!p.spellEcho[0] && echoCount > 0 && echoCount < 3 && waitingPerk ? 5 : 0);
+  },
+  commandValue(before, _after, command, id) {
+    if (command.type !== 'attack' || command.targetKind !== 'object') return 0;
+    const target = before.objects.find((object) => object.id === command.targetId);
+    if (target?.kind === 'orkk-shield' && target.ownerId === id) return -12;
+    // Keep deliberate Box destruction for its Quest; do not farm it for cheap Rage.
+    if (target?.kind === 'wooden-box' && (before as GameStateWithQuestPhases).questPhases?.currentQuest?.id !== 'the-elephant') return -2.5;
+    return 0;
   },
   position(state, id) {
     const p = state.players[id];
@@ -46,7 +65,7 @@ const planner = createNagrandPlanner({
     return state.objects.some((o) => o.kind === 'orkk-shield' && o.ownerId === id && distance(o.position, p.position) <= 3) && !p.shieldEquipped ? 0.5 : 0;
   },
   candidates: orkkChoices,
-  forecastPhases: ['choosing-arkane-arow-target', 'choosing-arm-da-wiz-choice', 'choosing-arm-da-wiz-create-payment', 'choosing-arm-da-wiz-target', 'choosing-kyk-target', 'choosing-kyk-direction'],
+  forecastPhases: ['choosing-countaspell-rage', 'choosing-arkane-arow-target', 'choosing-arm-da-wiz-choice', 'choosing-arm-da-wiz-create-payment', 'choosing-arm-da-wiz-target', 'choosing-kyk-target', 'choosing-kyk-direction'],
 });
 
 export const chooseOrkkCommand = planner.choose;
